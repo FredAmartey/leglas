@@ -1,0 +1,15 @@
+{
+  "name": "leglas",
+  "private": true,
+  "packageManager": "pnpm@11.13.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
