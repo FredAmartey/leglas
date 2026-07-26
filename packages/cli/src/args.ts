@@ -11,6 +11,7 @@ export type RunOptions = {
 
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
+  | { kind: "new"; surface: string; print: boolean }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -34,7 +35,37 @@ function parsePort(flag: string, raw: string): number | { error: string } {
  * unknown flag must be an error rather than silently ignored, which is the
  * behaviour most argument libraries get wrong by default.
  */
+function parseNew(rest: string[]): ParseResult {
+  let surface: string | undefined;
+  let print = false;
+
+  for (const argument of rest) {
+    if (argument === "--print") {
+      print = true;
+      continue;
+    }
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+    if (argument.startsWith("-")) {
+      return { kind: "error", message: `leglas new does not take ${argument}.` };
+    }
+    if (surface !== undefined) {
+      return { kind: "error", message: `leglas new takes one surface name, received ${JSON.stringify(argument)} as well.` };
+    }
+    surface = argument;
+  }
+
+  if (surface === undefined) {
+    return {
+      kind: "error",
+      message: "leglas new needs a surface name, for example: leglas new hero",
+    };
+  }
+  return { kind: "new", surface, print };
+}
+
 export function parseArgs(argv: string[]): ParseResult {
+  if (argv[0] === "new") return parseNew(argv.slice(1));
+
   const options: RunOptions = {
     port: undefined,
     userPort: undefined,

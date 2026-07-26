@@ -3,12 +3,14 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 import { parseArgs } from "./args.js";
+import { runNew } from "./run-new.js";
 import { run } from "./run.js";
 
-const HELP = `leglas — compare design directions inside your own running app
+const HELP = `leglas - compare design directions inside your own running app
 
 Usage
-  leglas [options]
+  leglas [options]           Start the server and open the interface
+  leglas new <surface>       Scaffold a branch point for a surface
 
 Options
   --user-port <port>   Port your dev server is on (default: from config, or 3000)
@@ -18,6 +20,9 @@ Options
   --json               Print a single machine-readable envelope
   -h, --help           Show this
   -v, --version        Show the version
+
+Options for new
+  --print              Print the scaffold instead of writing it
 `;
 
 function version(): string {
@@ -70,6 +75,14 @@ if (parsed.kind === "version") {
 if (parsed.kind === "error") {
   process.stderr.write(`${parsed.message}\n`);
   process.exit(2);
+}
+
+if (parsed.kind === "new") {
+  const outcome = await runNew(
+    { surface: parsed.surface, print: parsed.print, cwd: process.cwd() },
+    { log: (line) => process.stdout.write(`${line}\n`) },
+  );
+  process.exit(outcome.exitCode);
 }
 
 const result = await run(

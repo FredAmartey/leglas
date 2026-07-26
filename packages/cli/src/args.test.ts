@@ -83,11 +83,49 @@ describe("parseArgs", () => {
     expect(parseArgs(["--port", "-1"]).kind).toBe("error");
   });
 
-  test("rejects a bare argument, since there are no positional commands yet", () => {
+  test("rejects an unknown command rather than silently booting", () => {
     const result = parseArgs(["start"]);
 
     expect(result.kind).toBe("error");
     if (result.kind !== "error") return;
     expect(result.message).toContain("start");
+  });
+});
+
+describe("the new command", () => {
+  test("takes the surface to scaffold", () => {
+    const result = parseArgs(["new", "hero"]);
+
+    expect(result.kind).toBe("new");
+    if (result.kind !== "new") return;
+    expect(result.surface).toBe("hero");
+  });
+
+  test("asks for a surface name when none is given", () => {
+    const result = parseArgs(["new"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message.toLowerCase()).toContain("surface");
+  });
+
+  test("can print the scaffold instead of writing it", () => {
+    const result = parseArgs(["new", "hero", "--print"]);
+
+    expect(result.kind).toBe("new");
+    if (result.kind !== "new") return;
+    expect(result.print).toBe(true);
+  });
+
+  test("defaults to writing, since printing is the escape hatch", () => {
+    const result = parseArgs(["new", "hero"]);
+
+    expect(result.kind).toBe("new");
+    if (result.kind !== "new") return;
+    expect(result.print).toBe(false);
+  });
+
+  test("rejects a flag that belongs to booting, not scaffolding", () => {
+    expect(parseArgs(["new", "hero", "--user-port", "3000"]).kind).toBe("error");
   });
 });

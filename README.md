@@ -83,7 +83,8 @@ bundler or extra dependency involved.
 ## Command line
 
 ```text
-leglas [options]
+leglas [options]           Start the server and open the interface
+leglas new <surface>       Scaffold a branch point for a surface
 
   --user-port <port>   Port your dev server is on
   --port <port>        Port for Leglas (default 4100, next free if taken)
@@ -92,7 +93,23 @@ leglas [options]
   --json               Print one machine readable envelope
   -h, --help
   -v, --version
+
+  --print              (new) Print the scaffold instead of writing it
 ```
+
+### Scaffolding a surface
+
+`leglas new hero` creates a switcher and a first direction under
+`.leglas/variants/hero/`, and adds `.leglas/` to your `.gitignore`. The
+generated code is ordinary application code: it imports nothing from Leglas,
+so removing the tool leaves it working. It also renders the fallback in
+production regardless of the URL, so a branch point that reaches a deployed
+build cannot expose an unreleased direction.
+
+One step is left to you. Leglas prints the import and the element to use, but
+does not edit the component itself, because rewriting a file it does not
+understand is how a tool breaks a codebase. Use `--print` to see the scaffold
+without writing anything.
 
 `--json` exists so coding agents can drive the tool. It prints a single
 object with the interface URL, the resolved port, whether the dev server
