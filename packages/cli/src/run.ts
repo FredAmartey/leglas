@@ -1,8 +1,24 @@
-import { relative } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, relative } from "node:path";
 
 import { LEGLAS_PREFIX, loadConfig, startServer } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
+
+/**
+ * Locate the built interface. Resolved through the package graph rather than
+ * a relative path, so it works the same from the workspace and from an
+ * installed copy. A missing build is survivable: the server falls back to a
+ * placeholder rather than refusing to start.
+ */
+function findShellDir(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    return dirname(require.resolve("@leglas/shell/dist/index.html"));
+  } catch {
+    return null;
+  }
+}
 
 export type RunDeps = {
   open(url: string): Promise<void>;
@@ -43,6 +59,10 @@ export async function run(
   const server = await startServer({
     config,
     configErrors: loaded.errors,
+    shellDir: findShellDir(),
+    // The config file identifies the project when there is one; otherwise the
+    // directory does. Either way saved layout survives a port change.
+    project: loaded.path ?? options.cwd,
     ...(options.port === undefined ? {} : { port: options.port }),
   });
 

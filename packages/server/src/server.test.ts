@@ -80,6 +80,17 @@ describe("startServer", () => {
     expect(body.errors).toEqual([]);
   });
 
+  test("identifies the project, so saved layout survives a port change", async () => {
+    const config = configFor(await startOrigin());
+    const server = await start({ config, port: 0, project: "/work/app" });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      project: string;
+    };
+
+    expect(body.project).toBe("/work/app");
+  });
+
   test("serves config errors instead of dying, so the shell can show them", async () => {
     const server = await start({
       config: null,

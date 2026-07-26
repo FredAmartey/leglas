@@ -30,6 +30,12 @@ export type ServerOptions = {
   port?: number;
   /** Built shell to serve at the prefix. Null serves a placeholder instead. */
   shellDir?: string | null;
+  /**
+   * Stable identity for this project, used by the interface to key saved
+   * layout. Without it, binding a different port would look like a different
+   * project and silently lose the user's rail order and renames.
+   */
+  project?: string;
 };
 
 export type RunningServer = {
@@ -142,7 +148,7 @@ async function bind(server: http.Server, requested: number): Promise<number> {
 }
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
-  const { config, configErrors = [], shellDir = null } = options;
+  const { config, configErrors = [], shellDir = null, project = "" } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
 
@@ -152,6 +158,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
       return sendJson(res, 200, {
+        project,
         devServer: target,
         previews: config?.previews ?? [],
         errors: configErrors,

@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/* Satoshi is the default interface face and ships with the tool. Outfit,
+   Manrope, and Spline Sans Mono arrive as versioned dependencies (imported
+   in main.tsx) rather than hand-downloaded files. */
+@font-face {
+  font-family: "Satoshi";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/Satoshi-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Satoshi";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/Satoshi-Medium.woff2") format("woff2");
+}
+
+:root {
+  --font-satoshi: "Satoshi", ui-sans-serif, system-ui, sans-serif;
+  --font-outfit: "Outfit Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-manrope: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #1c1c20;
+}
+
+/* Loading-label shimmer: a light sweep travels through the gray glyphs while
+   a preview compiles. */
+.leglas-shimmer-text {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(90deg, #a3a3a3, #a3a3a3 35%, #525252, #a3a3a3 65%, #a3a3a3) 0 0 /
+    300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: leglas-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes leglas-shimmer {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .leglas-shimmer-text {
+    animation: none;
+    color: #a3a3a3;
+    -webkit-text-fill-color: #a3a3a3;
+  }
+}
+
+/* Skeleton shimmer: a light band sweeps left to right, in place of an
+   opacity pulse. */
+@keyframes leglas-skeleton-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes leglas-tip-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes leglas-tip-rise {
+  from {
+    transform: translateY(4px) scale(0.8);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes leglas-tip-rise-right {
+  from {
+    transform: translateX(-4px) scale(0.8);
+  }
+  to {
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes leglas-tip-drop {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+@keyframes leglas-tip-drop-right {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.96);
+  }
+}
+
+/* The tooltip spring easing: one keyframe pair carries the full bounce. */
+.leglas-tip {
+  --tip-spring: linear(
+    0,
+    0.17 4.4%,
+    0.359 6.5%,
+    0.545 9.4%,
+    0.746 11.8%,
+    0.901 14.1%,
+    1.04 16.8%,
+    1.18 21.5%,
+    1.203 24.1%,
+    1.18 28.8%,
+    1.105 33.8%,
+    1.03 38.8%,
+    1.002 41.2%,
+    0.966 46.2%,
+    0.958 50.9%,
+    0.967 55.9%,
+    0.983 60.9%,
+    0.997 65.3%,
+    1.006 70.6%,
+    1.009 75.3%,
+    1.006 82.9%,
+    1.001 90%,
+    1
+  );
+}
+.leglas-tip-in-top {
+  animation:
+    leglas-tip-fade 90ms ease-out both,
+    leglas-tip-rise 340ms var(--tip-spring) both;
+}
+.leglas-tip-in-right {
+  animation:
+    leglas-tip-fade 90ms ease-out both,
+    leglas-tip-rise-right 340ms var(--tip-spring) both;
+}
+.leglas-tip-out-top {
+  animation: leglas-tip-drop 120ms ease-in both;
+}
+.leglas-tip-out-right {
+  animation: leglas-tip-drop-right 120ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .leglas-tip-in-top,
+  .leglas-tip-in-right {
+    animation: leglas-tip-fade 80ms ease-out both;
+  }
+  .leglas-tip-out-top,
+  .leglas-tip-out-right {
+    animation: leglas-tip-fade 80ms ease-in reverse both;
+  }
+}

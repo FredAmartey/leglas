@@ -1,0 +1,90 @@
+import type { Preview } from "./types.js";
+
+export const EASE = "ease-[cubic-bezier(0.32,0.72,0,1)]";
+
+/** Rail width bounds. */
+export const MIN_W = 274;
+export const MAX_W = 395;
+export const DEFAULT_W = 368;
+
+export const VIEWPORTS = [
+  { label: "Full", width: null },
+  { label: "1440", width: 1440 },
+  { label: "834", width: 834 },
+  { label: "390", width: 390 },
+] as const;
+
+export type Prefs = {
+  collapsed: boolean;
+  /** Interface typeface choice, validated by the shell against its options. */
+  font: string;
+  hidden: string[];
+  /** Full order, hidden included; empty means config order. */
+  order: string[];
+  renames: Record<string, string>;
+  viewport: number | null;
+  width: number;
+};
+
+export const DEFAULT_PREFS: Prefs = {
+  collapsed: false,
+  font: "satoshi",
+  hidden: [],
+  order: [],
+  renames: {},
+  viewport: null,
+  width: DEFAULT_W,
+};
+
+export function storageKey(project: string): string {
+  return `leglas:${project}`;
+}
+
+/**
+ * Prefs outlive edits to the config, so anything keyed by preview is filtered
+ * against the live set on load and scalar layout values are clamped back into
+ * their legal ranges. A malformed or unreadable store falls back to defaults
+ * rather than throwing: losing saved layout is a smaller failure than an
+ * interface that will not start.
+ */
+export function loadPrefs(raw: string | null, previews: readonly Preview[]): Prefs {
+  const titles = previews.map((preview) => preview.title);
+  try {
+    if (!raw) return { ...DEFAULT_PREFS, order: titles };
+    const parsed = { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+    const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
+      titles.includes(title),
+    );
+    return {
+      collapsed: Boolean(parsed.collapsed),
+      font: typeof parsed.font === "string" ? parsed.font : DEFAULT_PREFS.font,
+      hidden: (Array.isArray(parsed.hidden) ? parsed.hidden : []).filter((title) =>
+        titles.includes(title),
+      ),
+      // Keep saved positions, append anything the config has added since.
+      order: [...kept, ...titles.filter((title) => !kept.includes(title))],
+      renames: Object.fromEntries(
+        Object.entries(parsed.renames ?? {}).filter(([title]) => titles.includes(title)),
+      ),
+      viewport: VIEWPORTS.some((viewport) => viewport.width === parsed.viewport)
+        ? parsed.viewport
+        : null,
+      width: Number.isFinite(parsed.width)
+        ? Math.round(Math.min(MAX_W, Math.max(MIN_W, parsed.width)))
+        : DEFAULT_W,
+    };
+  } catch {
+    return { ...DEFAULT_PREFS, order: titles };
+  }
+}
+
+/** Reorder `title` to sit at `toIndex` among the visible rows. */
+export function reorder(prefs: Prefs, previews: readonly Preview[], title: string, toIndex: number): string[] {
+  const titles = previews.map((preview) => preview.title);
+  const order = (prefs.order.length ? prefs.order : titles).filter((entry) => entry !== title);
+  const visible = order.filter((entry) => !prefs.hidden.includes(entry));
+  const before = visible[toIndex];
+  const insertAt = before === undefined ? order.length : order.indexOf(before);
+  order.splice(insertAt, 0, title);
+  return order;
+}

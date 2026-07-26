@@ -25,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@leglas/server": "workspace:*"
+    "@leglas/server": "workspace:*",
+    "@leglas/shell": "workspace:*"
   }
 }
