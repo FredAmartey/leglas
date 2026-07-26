@@ -1,5 +1,7 @@
 export { parseArgs } from "./args.js";
 export { detectFramework, planNew, surfaceSlug } from "./new.js";
+export { AGENTS_MARKER_END, AGENTS_MARKER_START, planInit } from "./init.js";
+export { runInit } from "./run-init.js";
 export { runNew } from "./run-new.js";
 export { runAdd, runList } from "./run-previews.js";
 export { run } from "./run.js";

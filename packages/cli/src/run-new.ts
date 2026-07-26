@@ -26,7 +26,7 @@ async function readIfPresent(path: string): Promise<string | null> {
  * more than a line of copying.
  */
 export async function runNew(
-  options: { surface: string; print: boolean; cwd: string },
+  options: { surface: string; print: boolean; json: boolean; cwd: string },
   deps: NewDeps,
 ): Promise<NewResult> {
   const plan = planNew({
@@ -35,12 +35,21 @@ export async function runNew(
     gitignore: await readIfPresent(join(options.cwd, ".gitignore")),
   });
 
-  if (plan.writes.length === 0) {
-    deps.log(`Nothing to scaffold for ${JSON.stringify(options.surface)}.`);
+  const fail = (error: string) => {
+    if (options.json) deps.log(JSON.stringify({ ok: false, error }));
+    else deps.log(error);
     return { exitCode: 1, written: [] };
+  };
+
+  if (plan.writes.length === 0) {
+    return fail(`Nothing to scaffold for ${JSON.stringify(options.surface)}.`);
   }
 
   if (options.print) {
+    if (options.json) {
+      deps.log(JSON.stringify({ ok: true, files: plan.writes, instructions: plan.instructions, previews: plan.previews }));
+      return { exitCode: 0, written: [] };
+    }
     for (const write of plan.writes) {
       deps.log(`--- ${write.path}`);
       deps.log(write.contents);
@@ -51,8 +60,7 @@ export async function runNew(
 
   const existing = plan.writes.filter((write) => existsSync(join(options.cwd, write.path)));
   if (existing.length > 0) {
-    deps.log(`${existing[0]?.path} already exists. Delete it first, or pick another surface name.`);
-    return { exitCode: 1, written: [] };
+    return fail(`${existing[0]?.path} already exists. Delete it first, or pick another surface name.`);
   }
 
   const written: string[] = [];
@@ -68,13 +76,20 @@ export async function runNew(
     written.push(".gitignore");
   }
 
+  if (options.json) {
+    deps.log(
+      JSON.stringify({ ok: true, written, instructions: plan.instructions, previews: plan.previews }),
+    );
+    return { exitCode: 0, written };
+  }
+
   for (const path of written) deps.log(`  created  ${path}`);
   deps.log("");
   deps.log(plan.instructions);
-  deps.log("Then add these to leglas.config.ts:");
+  deps.log("Then register them so they appear in the interface:");
   deps.log("");
   for (const preview of plan.previews) {
-    deps.log(`  { title: ${JSON.stringify(preview.title)}, url: ${JSON.stringify(preview.url)} },`);
+    deps.log(`  leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`);
   }
 
   return { exitCode: 0, written };

@@ -83,6 +83,7 @@ bundler or extra dependency involved.
 ## Command line
 
 ```text
+leglas init                Prepare a project and teach its agents
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
 leglas add --title T --url U   Register a preview on this machine
@@ -112,6 +113,23 @@ gitignored directory, so a teammate must never receive a config entry
 pointing at something they do not have. `leglas list` shows both, marking
 which are local. Any command that writes into `.leglas/` also makes sure the
 directory is gitignored.
+
+### Working with coding agents
+
+`leglas init` writes a section into your project's `AGENTS.md`, creates a
+starter config, and ignores the working directory. The section is read by
+Cursor, Claude Code and most other agents, and needs no per-user setup: it
+travels with the clone, so anyone who opens the repository gets an agent that
+already knows how to add design directions to it.
+
+The instruction that matters most in that section is to add directions beside
+what exists rather than rewriting it. Asked to make a hero calmer, an agent's
+instinct is to edit the hero, and two directions that both rewrite the same
+file cannot render from one server. Nothing in Leglas can prevent that,
+because it never sees your source, so the contract has to say it.
+
+Every command accepts `--json` and prints a single envelope with a stable exit
+code, so an agent can drive the tool without parsing prose.
 
 ### Scaffolding a surface
 

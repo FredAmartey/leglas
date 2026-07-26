@@ -18,9 +18,10 @@ export type AddPreview = {
 
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
-  | { kind: "new"; surface: string; print: boolean }
+  | { kind: "new"; surface: string; print: boolean; json: boolean }
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "list"; json: boolean }
+  | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -47,10 +48,15 @@ function parsePort(flag: string, raw: string): number | { error: string } {
 function parseNew(rest: string[]): ParseResult {
   let surface: string | undefined;
   let print = false;
+  let json = false;
 
   for (const argument of rest) {
     if (argument === "--print") {
       print = true;
+      continue;
+    }
+    if (argument === "--json") {
+      json = true;
       continue;
     }
     if (argument === "--help" || argument === "-h") return { kind: "help" };
@@ -69,7 +75,7 @@ function parseNew(rest: string[]): ParseResult {
       message: "leglas new needs a surface name, for example: leglas new hero",
     };
   }
-  return { kind: "new", surface, print };
+  return { kind: "new", surface, print, json };
 }
 
 function parseAdd(rest: string[]): ParseResult {
@@ -127,6 +133,14 @@ function parseAdd(rest: string[]): ParseResult {
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
   if (argv[0] === "add") return parseAdd(argv.slice(1));
+  if (argv[0] === "init") {
+    const rest = argv.slice(1);
+    const unknown = rest.find((argument) => argument !== "--force" && argument !== "--json");
+    if (unknown !== undefined) {
+      return { kind: "error", message: `leglas init does not take ${unknown}.` };
+    }
+    return { kind: "init", force: rest.includes("--force"), json: rest.includes("--json") };
+  }
   if (argv[0] === "list") {
     const rest = argv.slice(1);
     const unknown = rest.find((argument) => argument !== "--json");

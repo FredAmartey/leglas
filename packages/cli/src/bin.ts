@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 import { parseArgs } from "./args.js";
+import { runInit } from "./run-init.js";
 import { runNew } from "./run-new.js";
 import { runAdd, runList } from "./run-previews.js";
 import { run } from "./run.js";
@@ -10,6 +11,7 @@ import { run } from "./run.js";
 const HELP = `leglas - compare design directions inside your own running app
 
 Usage
+  leglas init                Prepare a project and teach its agents
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
   leglas add --title T --url U   Register a preview on this machine
@@ -89,6 +91,14 @@ const previewDeps = {
   error: (line: string) => process.stderr.write(`${line}\n`),
 };
 
+if (parsed.kind === "init") {
+  const outcome = await runInit(
+    { cwd: process.cwd(), force: parsed.force, json: parsed.json },
+    { log: (line) => process.stdout.write(`${line}\n`) },
+  );
+  process.exit(outcome.exitCode);
+}
+
 if (parsed.kind === "add") {
   const outcome = await runAdd(
     { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
@@ -104,7 +114,7 @@ if (parsed.kind === "list") {
 
 if (parsed.kind === "new") {
   const outcome = await runNew(
-    { surface: parsed.surface, print: parsed.print, cwd: process.cwd() },
+    { surface: parsed.surface, print: parsed.print, json: parsed.json, cwd: process.cwd() },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
   process.exit(outcome.exitCode);
