@@ -27,5 +27,8 @@
   "dependencies": {
     "@leglas/server": "workspace:*",
     "@leglas/shell": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
