@@ -165,6 +165,31 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
 
+  // A declared URL can silently lie: a typo the app ignores serves the default
+  // page, so two directions render identically and the comparison is empty.
+  // Asked for once at startup, and never allowed to break anything if it fails.
+  const [twins, setTwins] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/leglas/api/duplicates")
+      .then((response) => response.json() as Promise<{ groups: string[][] }>)
+      .then(({ groups }) => {
+        if (cancelled) return;
+        const next: Record<string, string[]> = {};
+        for (const group of groups) {
+          for (const title of group) next[title] = group.filter((other) => other !== title);
+        }
+        setTwins(next);
+      })
+      .catch(() => {
+        // A courtesy check; its failure is not the user's problem.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     if (st.loaded[st.active] || errored[st.active]) return;
     const timer = setTimeout(
@@ -311,16 +336,32 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               >
                 {st.displayName(title)}
               </span>
-              {preview?.tags[0] && (
-                <span
-                  className={`shrink-0 rounded-md bg-[#A9BC7C]/10 px-2 py-[3px] text-[11px] leading-none text-[#A9BC7C] transition-opacity duration-150 ${
-                    dragging
-                      ? ""
-                      : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
-                  }`}
+              {twins[title] ? (
+                <Tip
+                  label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
                 >
-                  {preview.tags[0]}
-                </span>
+                  <span
+                    className={`shrink-0 rounded-md bg-amber-400/10 px-2 py-[3px] text-[11px] leading-none text-amber-300/90 transition-opacity duration-150 ${
+                      dragging
+                        ? ""
+                        : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
+                    }`}
+                  >
+                    Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
+                  </span>
+                </Tip>
+              ) : (
+                preview?.tags[0] && (
+                  <span
+                    className={`shrink-0 rounded-md bg-[#A9BC7C]/10 px-2 py-[3px] text-[11px] leading-none text-[#A9BC7C] transition-opacity duration-150 ${
+                      dragging
+                        ? ""
+                        : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
+                    }`}
+                  >
+                    {preview.tags[0]}
+                  </span>
+                )
               )}
             </span>
             <span

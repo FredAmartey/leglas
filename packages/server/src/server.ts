@@ -4,6 +4,7 @@ import net from "node:net";
 import { extname, join, normalize } from "node:path";
 
 import type { LeglasConfig } from "./config.js";
+import { findDuplicates } from "./duplicates.js";
 import { createProxyHandler } from "./proxy.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -163,6 +164,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         previews: config?.previews ?? [],
         errors: configErrors,
       });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/duplicates`) {
+      // Fetched through this server, so relative preview URLs resolve exactly
+      // as the browser resolves them in a pane.
+      const origin = `http://127.0.0.1:${port}`;
+      return void findDuplicates(config?.previews ?? [], async (previewUrl) => {
+        const response = await fetch(`${origin}${previewUrl}`);
+        return response.text();
+      })
+        .then((groups) => sendJson(res, 200, { groups }))
+        .catch(() => sendJson(res, 200, { groups: [] }));
     }
 
     if (path === `${LEGLAS_PREFIX}/api/health`) {
