@@ -1,0 +1,173 @@
+import http from "node:http";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import net from "node:net";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+
+import type { LeglasConfig } from "./config.js";
+import { startServer, type RunningServer } from "./server.js";
+
+const running: RunningServer[] = [];
+const origins: http.Server[] = [];
+
+afterEach(async () => {
+  await Promise.all(running.splice(0).map((server) => server.close()));
+  await Promise.all(
+    origins.splice(0).map(
+      (server) =>
+        new Promise<void>((done) => {
+          server.closeAllConnections();
+          server.close(() => done());
+        }),
+    ),
+  );
+});
+
+/** Stand-in dev server. Answers anything with a marker so proxying is visible. */
+function startOrigin(): Promise<number> {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<h1>app:${req.url}</h1>`);
+  });
+  origins.push(server);
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
+  });
+}
+
+function configFor(port: number, previews: LeglasConfig["previews"] = []): LeglasConfig {
+  return { devServer: `http://127.0.0.1:${port}`, previews };
+}
+
+async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
+  const server = await startServer(options);
+  running.push(server);
+  return server;
+}
+
+describe("startServer", () => {
+  test("reports the port and url it actually bound", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    expect(server.port).toBeGreaterThan(0);
+    expect(server.url).toBe(`http://localhost:${server.port}`);
+  });
+
+  test("takes the next free port when the requested one is busy", async () => {
+    const blocker = net.createServer();
+    await new Promise<void>((done) => blocker.listen(0, "127.0.0.1", () => done()));
+    const taken = (blocker.address() as AddressInfo).port;
+
+    const server = await start({ config: configFor(await startOrigin()), port: taken });
+
+    expect(server.port).not.toBe(taken);
+    await new Promise<void>((done) => blocker.close(() => done()));
+  });
+
+  test("serves the resolved previews so the rail can render them", async () => {
+    const config = configFor(await startOrigin(), [
+      { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
+    ]);
+    const server = await start({ config, port: 0 });
+
+    const res = await fetch(`${server.url}/leglas/api/config`);
+    const body = (await res.json()) as { previews: unknown[]; errors: string[] };
+
+    expect(res.status).toBe(200);
+    expect(body.previews).toHaveLength(1);
+    expect(body.errors).toEqual([]);
+  });
+
+  test("serves config errors instead of dying, so the shell can show them", async () => {
+    const server = await start({
+      config: null,
+      configErrors: ["leglas.config.ts: previews[0] needs a title."],
+      port: 0,
+    });
+
+    const res = await fetch(`${server.url}/leglas/api/config`);
+    const body = (await res.json()) as { previews: unknown[]; errors: string[] };
+
+    expect(res.status).toBe(200);
+    expect(body.errors[0]).toContain("needs a title");
+    expect(body.previews).toEqual([]);
+  });
+
+  test("reports the dev server as reachable when it is up", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/health`)).json()) as {
+      reachable: boolean;
+    };
+
+    expect(body.reachable).toBe(true);
+  });
+
+  test("reports the dev server as unreachable when it is down", async () => {
+    const server = await start({ config: configFor(1), port: 0 });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/health`)).json()) as {
+      reachable: boolean;
+    };
+
+    expect(body.reachable).toBe(false);
+  });
+
+  test("proxies any route the tool does not own", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const res = await fetch(`${server.url}/pricing`);
+
+    expect(await res.text()).toBe("<h1>app:/pricing</h1>");
+  });
+
+  test("proxies the app root, since previews are usually relative to it", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    expect(await (await fetch(`${server.url}/`)).text()).toBe("<h1>app:/</h1>");
+  });
+
+  test("serves the shell when a built shell directory is given", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-shell-"));
+    writeFileSync(join(dir, "index.html"), "<title>shell</title>");
+    const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir: dir });
+
+    const res = await fetch(`${server.url}/leglas`);
+
+    expect(await res.text()).toContain("shell");
+  });
+
+  test("explains itself at /leglas when no shell has been built yet", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const res = await fetch(`${server.url}/leglas`);
+
+    expect(res.status).toBe(200);
+    expect((await res.text()).toLowerCase()).toContain("leglas");
+  });
+
+  test("closes cleanly while a live-reload socket is still open", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    await new Promise<void>((resolve) => {
+      const socket = net.connect(server.port, "127.0.0.1", () => {
+        socket.write(
+          `GET /_next/webpack-hmr HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\n` +
+            `Upgrade: websocket\r\nSec-WebSocket-Version: 13\r\n` +
+            `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
+        );
+        resolve();
+      });
+      // The server destroys this socket on shutdown; without a handler the
+      // reset surfaces as an unhandled exception and fails the run.
+      socket.on("error", () => {});
+    });
+
+    // The assertion is that this resolves at all: an upgraded socket detaches
+    // from its server, so close() hangs forever unless sockets are tracked.
+    await expect(server.close()).resolves.toBeUndefined();
+    running.length = 0;
+  });
+});

@@ -4,3 +4,4 @@ dist/
 .leglas/
 *.log
 .DS_Store
+dist/
