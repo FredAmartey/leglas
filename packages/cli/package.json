@@ -4,6 +4,27 @@
   "description": "Compare design directions inside your own running app.",
   "license": "MIT",
   "type": "module",
-  "keywords": ["design", "preview", "compare", "variants", "dev-server"],
-  "files": ["README.md"]
+  "keywords": [
+    "design",
+    "preview",
+    "compare",
+    "variants",
+    "dev-server"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "leglas": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@leglas/server": "workspace:*"
+  }
 }
