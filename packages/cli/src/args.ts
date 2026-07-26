@@ -9,9 +9,18 @@ export type RunOptions = {
   json: boolean;
 };
 
+export type AddPreview = {
+  title: string;
+  url: string;
+  note: string | undefined;
+  tags: string[] | undefined;
+};
+
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
   | { kind: "new"; surface: string; print: boolean }
+  | { kind: "add"; preview: AddPreview; json: boolean }
+  | { kind: "list"; json: boolean }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -63,8 +72,69 @@ function parseNew(rest: string[]): ParseResult {
   return { kind: "new", surface, print };
 }
 
+function parseAdd(rest: string[]): ParseResult {
+  let title: string | undefined;
+  let url: string | undefined;
+  let note: string | undefined;
+  const tags: string[] = [];
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index] as string;
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+
+    const equals = argument.indexOf("=");
+    const flag = equals === -1 ? argument : argument.slice(0, equals);
+    let value: string | undefined;
+    if (equals === -1) {
+      value = rest[index + 1];
+      index += 1;
+    } else {
+      value = argument.slice(equals + 1);
+    }
+
+    if (!["--title", "--url", "--note", "--tag"].includes(flag)) {
+      return { kind: "error", message: `leglas add does not take ${flag}.` };
+    }
+    if (value === undefined || value === "") {
+      return { kind: "error", message: `${flag} needs a value.` };
+    }
+
+    if (flag === "--title") title = value;
+    else if (flag === "--url") url = value;
+    else if (flag === "--note") note = value;
+    else tags.push(value);
+  }
+
+  if (title === undefined) {
+    return { kind: "error", message: "leglas add needs --title, which is how the preview is identified." };
+  }
+  if (url === undefined) {
+    return { kind: "error", message: "leglas add needs --url, for example --url '/?v-hero=aurora'." };
+  }
+
+  return {
+    kind: "add",
+    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined },
+    json,
+  };
+}
+
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
+  if (argv[0] === "add") return parseAdd(argv.slice(1));
+  if (argv[0] === "list") {
+    const rest = argv.slice(1);
+    const unknown = rest.find((argument) => argument !== "--json");
+    if (unknown !== undefined) {
+      return { kind: "error", message: `leglas list does not take ${unknown}.` };
+    }
+    return { kind: "list", json: rest.includes("--json") };
+  }
 
   const options: RunOptions = {
     port: undefined,

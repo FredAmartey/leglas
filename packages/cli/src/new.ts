@@ -1,3 +1,5 @@
+import { ignoreEntry } from "./ignore.js";
+
 export type Framework = "next" | "react";
 
 export type Write = { path: string; contents: string };
@@ -170,18 +172,9 @@ export function planNew(options: {
     },
   ];
 
-  // Only append when the entry is genuinely absent; rewriting a user's
-  // .gitignore to add a duplicate line is the kind of small rudeness that
-  // makes a tool feel careless.
-  const hasEntry = (options.gitignore ?? "")
-    .split("\n")
-    .some((line) => line.trim() === ".leglas/" || line.trim() === ".leglas");
-  const gitignore = hasEntry
-    ? null
-    : `${(options.gitignore ?? "").replace(/\n*$/, "")}\n\n# Leglas exploration: variant code, caches, logs.\n.leglas/\n`.replace(
-        /^\n+/,
-        "",
-      );
+  // Shared with every other command that writes into .leglas/, so the two
+  // paths cannot drift into ignoring it differently.
+  const gitignore = ignoreEntry(options.gitignore);
 
   // Deliberately not a relative specifier. The depth depends on where the
   // user's component lives, and guessing it produces an import that looks

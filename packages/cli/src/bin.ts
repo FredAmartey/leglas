@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 
 import { parseArgs } from "./args.js";
 import { runNew } from "./run-new.js";
+import { runAdd, runList } from "./run-previews.js";
 import { run } from "./run.js";
 
 const HELP = `leglas - compare design directions inside your own running app
@@ -11,6 +12,8 @@ const HELP = `leglas - compare design directions inside your own running app
 Usage
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
+  leglas add --title T --url U   Register a preview on this machine
+  leglas list                Show every preview, shared and local
 
 Options
   --user-port <port>   Port your dev server is on (default: from config, or 3000)
@@ -23,6 +26,10 @@ Options
 
 Options for new
   --print              Print the scaffold instead of writing it
+
+Options for add
+  --note <text>        Second line under the title
+  --tag <text>         Repeatable
 `;
 
 function version(): string {
@@ -75,6 +82,24 @@ if (parsed.kind === "version") {
 if (parsed.kind === "error") {
   process.stderr.write(`${parsed.message}\n`);
   process.exit(2);
+}
+
+const previewDeps = {
+  log: (line: string) => process.stdout.write(`${line}\n`),
+  error: (line: string) => process.stderr.write(`${line}\n`),
+};
+
+if (parsed.kind === "add") {
+  const outcome = await runAdd(
+    { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
+    previewDeps,
+  );
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "list") {
+  const outcome = await runList({ json: parsed.json, cwd: process.cwd() }, previewDeps);
+  process.exit(outcome.exitCode);
 }
 
 if (parsed.kind === "new") {

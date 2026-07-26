@@ -85,6 +85,8 @@ bundler or extra dependency involved.
 ```text
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
+leglas add --title T --url U   Register a preview on this machine
+leglas list                Show every preview, shared and local
 
   --user-port <port>   Port your dev server is on
   --port <port>        Port for Leglas (default 4100, next free if taken)
@@ -95,7 +97,21 @@ leglas new <surface>       Scaffold a branch point for a surface
   -v, --version
 
   --print              (new) Print the scaffold instead of writing it
+  --note <text>        (add) Second line under the title
+  --tag <text>         (add) Repeatable
 ```
+
+### Shared and local previews
+
+`leglas.config.ts` is the shared description of a project: commit it, and a
+teammate gets the same directions on clone.
+
+`leglas add` registers a preview on your machine only, in
+`.leglas/previews.json`. Exploration is short-lived and its code lives in a
+gitignored directory, so a teammate must never receive a config entry
+pointing at something they do not have. `leglas list` shows both, marking
+which are local. Any command that writes into `.leglas/` also makes sure the
+directory is gitignored.
 
 ### Scaffolding a surface
 

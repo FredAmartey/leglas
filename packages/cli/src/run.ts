@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, relative } from "node:path";
 
-import { LEGLAS_PREFIX, loadConfig, startServer } from "@leglas/server";
+import { LEGLAS_PREFIX, loadConfig, readLocalPreviews, startServer } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
 
@@ -47,18 +47,23 @@ export async function run(
   deps: RunDeps,
 ): Promise<RunResult> {
   const loaded = await loadConfig(options.cwd);
+  const local = await readLocalPreviews(options.cwd);
 
   const devServer =
     options.userPort === undefined
       ? loaded.config?.devServer ?? "http://localhost:3000"
       : `http://localhost:${options.userPort}`;
 
+  // Locally added previews append after the shared ones, so the committed
+  // config keeps its authored order and exploration accumulates below it.
   const config =
-    loaded.config === null ? null : { ...loaded.config, devServer };
+    loaded.config === null
+      ? null
+      : { ...loaded.config, devServer, previews: [...loaded.config.previews, ...local.previews] };
 
   const server = await startServer({
     config,
-    configErrors: loaded.errors,
+    configErrors: [...loaded.errors, ...local.errors],
     shellDir: findShellDir(),
     // The config file identifies the project when there is one; otherwise the
     // directory does. Either way saved layout survives a port change.

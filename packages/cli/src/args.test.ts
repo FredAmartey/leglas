@@ -129,3 +129,73 @@ describe("the new command", () => {
     expect(parseArgs(["new", "hero", "--user-port", "3000"]).kind).toBe("error");
   });
 });
+
+describe("the add command", () => {
+  test("takes a title and a url", () => {
+    const result = parseArgs(["add", "--title", "Aurora", "--url", "/?v-hero=aurora"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.title).toBe("Aurora");
+    expect(result.preview.url).toBe("/?v-hero=aurora");
+  });
+
+  test("takes an optional note and tags", () => {
+    const result = parseArgs([
+      "add",
+      "--title",
+      "Aurora",
+      "--url",
+      "/?a",
+      "--note",
+      "Warm gradient.",
+      "--tag",
+      "Hero",
+      "--tag",
+      "Warm",
+    ]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.note).toBe("Warm gradient.");
+    expect(result.preview.tags).toEqual(["Hero", "Warm"]);
+  });
+
+  test("requires a title", () => {
+    const result = parseArgs(["add", "--url", "/?a"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--title");
+  });
+
+  test("requires a url", () => {
+    const result = parseArgs(["add", "--title", "Aurora"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--url");
+  });
+
+  test("emits json for agents when asked", () => {
+    const result = parseArgs(["add", "--title", "A", "--url", "/?a", "--json"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.json).toBe(true);
+  });
+});
+
+describe("the list command", () => {
+  test("needs no arguments", () => {
+    expect(parseArgs(["list"]).kind).toBe("list");
+  });
+
+  test("emits json for agents when asked", () => {
+    const result = parseArgs(["list", "--json"]);
+
+    expect(result.kind).toBe("list");
+    if (result.kind !== "list") return;
+    expect(result.json).toBe(true);
+  });
+});
