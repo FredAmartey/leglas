@@ -112,3 +112,28 @@ export async function addLocalPreview(
 
   return { ok: true };
 }
+
+/**
+ * Forget locally added previews by title.
+ *
+ * Used when an exploration ends: the directions of that surface are no longer
+ * alternatives, so they leave the rail with the code they described.
+ */
+export async function dropLocalPreviews(cwd: string, titles: readonly string[]): Promise<number> {
+  const existing = await readLocalPreviews(cwd);
+  const keep = existing.previews.filter((preview) => !titles.includes(preview.title));
+  if (keep.length === existing.previews.length) return 0;
+
+  const path = join(cwd, LOCAL_PREVIEWS_PATH);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(
+    path,
+    `${JSON.stringify(
+      { previews: keep.map(({ local: _local, ...preview }) => preview) },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  return existing.previews.length - keep.length;
+}

@@ -23,6 +23,7 @@ export type ParseResult =
   | { kind: "list"; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "explore"; surface: string; count: number; json: boolean }
+  | { kind: "keep"; title: string; to: string; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
   | { kind: "version" }
@@ -142,6 +143,43 @@ export function parseArgs(argv: string[]): ParseResult {
       return { kind: "error", message: `leglas init does not take ${unknown}.` };
     }
     return { kind: "init", force: rest.includes("--force"), json: rest.includes("--json") };
+  }
+  if (argv[0] === "keep") {
+    const rest = argv.slice(1);
+    let title: string | undefined;
+    let to: string | undefined;
+    let json = false;
+    for (let index = 0; index < rest.length; index += 1) {
+      const argument = rest[index] as string;
+      if (argument === "--json") {
+        json = true;
+        continue;
+      }
+      if (argument === "--to" || argument.startsWith("--to=")) {
+        to = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
+        if (to === undefined || to === "") {
+          return { kind: "error", message: "--to needs a path, for example --to src/components/hero.tsx" };
+        }
+        continue;
+      }
+      if (argument.startsWith("-")) {
+        return { kind: "error", message: `leglas keep does not take ${argument}.` };
+      }
+      if (title !== undefined) {
+        return { kind: "error", message: "leglas keep takes one direction title." };
+      }
+      title = argument;
+    }
+    if (title === undefined) {
+      return {
+        kind: "error",
+        message: 'leglas keep needs a direction title, for example: leglas keep "Aurora" --to src/components/hero.tsx',
+      };
+    }
+    if (to === undefined) {
+      return { kind: "error", message: "leglas keep needs --to, the path the winner should live at." };
+    }
+    return { kind: "keep", title, to, json };
   }
   if (argv[0] === "explore") {
     const rest = argv.slice(1);

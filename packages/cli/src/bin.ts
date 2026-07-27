@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { parseArgs } from "./args.js";
 import { runExplore } from "./run-explore.js";
 import { runInit } from "./run-init.js";
+import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
 import { run } from "./run.js";
@@ -19,6 +20,7 @@ Usage
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
   leglas requests            Show change requests made from the interface
+  leglas keep <title> --to <path>  Keep a winner and end the exploration
 
 Options
   --user-port <port>   Port your dev server is on (default: from config, or 3000)
@@ -108,6 +110,14 @@ if (parsed.kind === "init") {
 if (parsed.kind === "add") {
   const outcome = await runAdd(
     { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
+    previewDeps,
+  );
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "keep") {
+  const outcome = await runKeep(
+    { title: parsed.title, to: parsed.to, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
   process.exit(outcome.exitCode);

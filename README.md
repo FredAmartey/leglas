@@ -90,6 +90,7 @@ leglas explore <surface>   Print distinct angles for an agent to build
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
 leglas requests            Collect change requests made from the interface
+leglas keep <title>        Keep a winner and end the exploration
 
   --user-port <port>   Port your dev server is on
   --port <port>        Port for Leglas (default 4100, next free if taken)
@@ -101,6 +102,7 @@ leglas requests            Collect change requests made from the interface
 
   --print              (new) Print the scaffold instead of writing it
   --count <n>          (explore) How many angles, default 3
+  --to <path>          (keep) Where the winner should live
   --note <text>        (add) Second line under the title
   --tag <text>         (add) Repeatable
 ```
@@ -228,6 +230,21 @@ The comparison ignores hydration payloads and per-request values such as
 nonces, so it reflects what was drawn rather than how the framework
 serialised it. The check runs once at startup and never blocks the
 interface. If it fails, the rail is unaffected.
+
+### Keeping a winner
+
+`leglas keep "Aurora" --to src/components/hero.tsx` moves that direction out of
+the ignored directory into real source, renames its export to suit its new
+home, deletes the rest of the exploration, and drops those directions from the
+rail. The one step left to you is pointing your component at the kept
+component instead of the switcher.
+
+This works because Leglas knows where it put those files. A direction whose URL
+it did not generate is refused rather than guessed at, and a destination inside
+`.leglas/` or outside the project is refused too.
+
+Exploring is only worth starting if finishing is cheap, which is what this
+command is for.
 
 ## Limitations
 
