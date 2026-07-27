@@ -24,6 +24,11 @@ This project uses Leglas to compare design directions inside the running app.
 A direction is just a URL; the app decides what it renders, and Leglas only
 displays it.
 
+This is small, additive work: a few self-contained files and a command per
+direction. Build it directly. A planning or approval step before implementing
+costs more than the work itself, and the directions on screen are the thing
+being asked for.
+
 When asked for design variations, alternatives, or "a few options":
 
 1. **Add beside what exists. Never replace it.** Every direction has to render

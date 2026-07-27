@@ -234,6 +234,10 @@ nonces, so it reflects what was drawn rather than how the framework
 serialised it. The check runs once at startup and never blocks the
 interface. If it fails, the rail is unaffected.
 
+It stays silent for client-rendered apps. A single-page app serves one shell
+for every URL and picks the direction in the browser, so the server cannot say
+which is which. A warning that is wrong would be worse than none.
+
 ### Comparing branches
 
 A preview can name a git branch instead of pointing at the server you are
@@ -284,9 +288,9 @@ Leglas shows design directions. It does not create them. Comparing routes
 that already exist costs nothing, but a new direction is still code you or
 your agent writes in the app.
 
-Only the rendered markup is compared for duplicates. Two previews that
-differ solely in a script, and not in what they draw, are reported as the
-same.
+Only the rendered markup is compared for duplicates, and only when the server
+renders one. Two previews that differ solely in a script are reported as the
+same, and in a client-rendered app the check says nothing at all.
 
 The interface is built for desktop widths. It is a development tool and is
 not intended to ship in a production runtime.

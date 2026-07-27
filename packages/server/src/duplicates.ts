@@ -53,6 +53,16 @@ function renderedOnly(body: string): string {
 }
 
 /**
+ * Below this, a response is a shell rather than a page.
+ *
+ * A single-page app serves one near-empty document for every URL and resolves
+ * the direction in the browser, so every signature is identical no matter how
+ * different the directions look on screen. The comparison cannot see what the
+ * user sees, so it must not claim to.
+ */
+const MEANINGFUL_CHUNKS = 20;
+
+/**
  * Group previews that render the same page.
  *
  * This exists because a declared URL can silently lie: `?v-hero=wavee` is a
@@ -77,6 +87,9 @@ export async function findDuplicates(
       const [first, second] = await Promise.all([fetch(preview.url), fetch(preview.url)]);
       const signature = stableSignature(renderedOnly(first), renderedOnly(second));
       if (signature === "") continue;
+      // The server rendered a shell, so it has nothing to say about which
+      // direction this is. Reporting anything here would be a confident lie.
+      if (signature.split("\n").length < MEANINGFUL_CHUNKS) continue;
       const group = signatures.get(signature);
       if (group) group.push(preview.title);
       else signatures.set(signature, [preview.title]);

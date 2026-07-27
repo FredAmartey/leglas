@@ -11,6 +11,9 @@ const preview = (title: string, url: string): Preview => ({
 });
 
 /** A fetcher that returns canned bodies, cycling per call to simulate noise. */
+/** Padding so a fixture reads as a rendered page, not a client-app shell. */
+const PAGE = "<nav><a>one</a><a>two</a><a>three</a></nav>".repeat(10);
+
 function canned(bodies: Record<string, string[]>) {
   const counts: Record<string, number> = {};
   return async (url: string) => {
@@ -54,7 +57,7 @@ describe("findDuplicates", () => {
     const previews = [preview("A", "/a"), preview("B", "/b")];
     const groups = await findDuplicates(
       previews,
-      canned({ "/a": ["<h1>alpha</h1>"], "/b": ["<h1>beta</h1>"] }),
+      canned({ "/a": [`${PAGE}<h1>alpha</h1>`], "/b": [`${PAGE}<h1>beta</h1>`] }),
     );
 
     expect(groups).toEqual([]);
@@ -66,7 +69,7 @@ describe("findDuplicates", () => {
     const previews = [preview("Original", "/"), preview("Wave", "/?v-hero=wavee")];
     const groups = await findDuplicates(
       previews,
-      canned({ "/": ["<h1>home</h1>"], "/?v-hero=wavee": ["<h1>home</h1>"] }),
+      canned({ "/": [`${PAGE}<h1>home</h1>`], "/?v-hero=wavee": [`${PAGE}<h1>home</h1>`] }),
     );
 
     expect(groups).toEqual([["Original", "Wave"]]);
@@ -78,8 +81,8 @@ describe("findDuplicates", () => {
     const groups = await findDuplicates(
       previews,
       canned({
-        "/a": ["nonce-1\n<h1>same</h1>", "nonce-2\n<h1>same</h1>"],
-        "/b": ["nonce-3\n<h1>same</h1>", "nonce-4\n<h1>same</h1>"],
+        "/a": [`nonce-1\n${PAGE}<h1>same</h1>`, `nonce-2\n${PAGE}<h1>same</h1>`],
+        "/b": [`nonce-3\n${PAGE}<h1>same</h1>`, `nonce-4\n${PAGE}<h1>same</h1>`],
       }),
     );
 
@@ -91,8 +94,8 @@ describe("findDuplicates", () => {
     const groups = await findDuplicates(
       previews,
       canned({
-        "/a": ["nonce-1\n<h1>alpha</h1>", "nonce-2\n<h1>alpha</h1>"],
-        "/b": ["nonce-3\n<h1>beta</h1>", "nonce-4\n<h1>beta</h1>"],
+        "/a": [`nonce-1\n${PAGE}<h1>alpha</h1>`, `nonce-2\n${PAGE}<h1>alpha</h1>`],
+        "/b": [`nonce-3\n${PAGE}<h1>beta</h1>`, `nonce-4\n${PAGE}<h1>beta</h1>`],
       }),
     );
 
@@ -103,17 +106,45 @@ describe("findDuplicates", () => {
     const previews = [preview("A", "/a"), preview("B", "/b"), preview("C", "/c")];
     const groups = await findDuplicates(
       previews,
-      canned({ "/a": ["same"], "/b": ["same"], "/c": ["same"] }),
+      canned({ "/a": [PAGE], "/b": [PAGE], "/c": [PAGE] }),
     );
 
     expect(groups).toEqual([["A", "B", "C"]]);
+  });
+
+  test("says nothing about a client-rendered app, where the server cannot answer", async () => {
+    // A single-page app serves one shell for every URL and resolves the
+    // variant in the browser, so comparing server responses would call every
+    // direction identical while they visibly differ on screen. Staying quiet
+    // is the only honest option; a warning that is wrong is worse than none.
+    const shell = '<div id="root"></div><script src="/main.js"></script>';
+    const previews = [preview("A", "/?v-hero=a"), preview("B", "/?v-hero=b")];
+
+    const groups = await findDuplicates(
+      previews,
+      canned({ "/?v-hero=a": [shell], "/?v-hero=b": [shell] }),
+    );
+
+    expect(groups).toEqual([]);
+  });
+
+  test("still reports duplicates when the server renders real markup", async () => {
+    const page = `<header>${"<nav><a>link</a></nav>".repeat(20)}</header><h1>home</h1>`;
+    const previews = [preview("Original", "/"), preview("Typo", "/?v-hero=wavee")];
+
+    const groups = await findDuplicates(
+      previews,
+      canned({ "/": [page], "/?v-hero=wavee": [page] }),
+    );
+
+    expect(groups).toEqual([["Original", "Typo"]]);
   });
 
   test("skips a preview that cannot be fetched instead of failing the check", async () => {
     const previews = [preview("A", "/a"), preview("Dead", "/dead")];
     const groups = await findDuplicates(previews, async (url) => {
       if (url === "/dead") throw new Error("connection refused");
-      return "<h1>same</h1>";
+      return `${PAGE}<h1>same</h1>`;
     });
 
     expect(groups).toEqual([]);
@@ -126,9 +157,9 @@ describe("findDuplicates", () => {
     const groups = await findDuplicates(
       previews,
       canned({
-        "/": ['<h1>home</h1><script>push("__PAGE__",{})</script>'],
+        "/": [`${PAGE}<h1>home</h1><script>push("__PAGE__",{})</script>`],
         "/?v-hero=wavee": [
-          '<h1>home</h1><script>push("__PAGE__?{\\"v-hero\\":\\"wavee\\"}",{})</script>',
+          `${PAGE}<h1>home</h1><script>push("__PAGE__?{\\"v-hero\\":\\"wavee\\"}",{})</script>`,
         ],
       }),
     );
@@ -141,8 +172,8 @@ describe("findDuplicates", () => {
     const groups = await findDuplicates(
       previews,
       canned({
-        "/a": ["<h1>alpha</h1><script>noise-1</script>"],
-        "/b": ["<h1>beta</h1><script>noise-2</script>"],
+        "/a": [`${PAGE}<h1>alpha</h1><script>noise-1</script>`],
+        "/b": [`${PAGE}<h1>beta</h1><script>noise-2</script>`],
       }),
     );
 
