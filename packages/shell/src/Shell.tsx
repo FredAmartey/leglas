@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
+import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
@@ -171,6 +172,54 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
 
+  /**
+   * Restarting a dev server is routine, so the interface watches for it.
+   *
+   * Without this, an outage is discovered one pane at a time after a fifteen
+   * second timeout, nothing retries when the server returns, and panes that
+   * loaded before it died keep presenting a stale render as if it were
+   * current. That last one is the worst: the tool quietly showing something
+   * untrue.
+   */
+  const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
+  const loadedRef = useRef(st.loaded);
+  loadedRef.current = st.loaded;
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () =>
+      fetch("/leglas/api/health")
+        .then((response) => response.json() as Promise<{ reachable: boolean }>)
+        .then(({ reachable }) => {
+          if (!cancelled) setHealth((current) => nextHealthState(current, reachable));
+        })
+        .catch(() => {
+          // Leglas itself is unreachable; that is not the dev server's fault
+          // and the page will fail visibly enough on its own.
+        });
+    const timer = window.setInterval(poll, 3000);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Once it answers again, reload what broke rather than making the user click
+  // through every pane.
+  useEffect(() => {
+    if (!health.reachable || !health.wasDown) return;
+    setErrored({});
+    setReloadTick((current) => {
+      const next = { ...current };
+      for (const title of Object.keys(loadedRef.current)) {
+        next[title] = (next[title] ?? 0) + 1;
+      }
+      return next;
+    });
+    setHealth((current) => ({ ...current, wasDown: false }));
+  }, [health.reachable, health.wasDown]);
+
   // A declared URL can silently lie: a typo the app ignores serves the default
   // page, so two directions render identically and the comparison is empty.
   // Asked for once at startup, and never allowed to break anything if it fails.
@@ -198,12 +247,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
   useEffect(() => {
     if (st.loaded[st.active] || errored[st.active]) return;
+    // A known-down dev server needs no waiting: the answer is already in.
+    const wait = health.reachable ? LOAD_TIMEOUT_MS : 0;
     const timer = setTimeout(
       () => setErrored((current) => ({ ...current, [st.active]: true })),
-      LOAD_TIMEOUT_MS,
+      wait,
     );
     return () => clearTimeout(timer);
-  }, [st.active, st.loaded, errored, reloadTick]);
+  }, [st.active, st.loaded, errored, reloadTick, health.reachable]);
 
   const reloadPane = (title: string) => {
     setErrored((current) => ({ ...current, [title]: false }));
@@ -494,6 +545,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </div>
           </div>
 
+          {!health.reachable && (
+            <div className="mx-3 mb-1 mt-1 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2.5 py-2">
+              <p className="text-xs font-medium text-amber-300/90">Dev server not responding</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-[#9CA3AF]">
+                Anything on screen is from before it stopped. Previews return on their own once
+                it is back.
+              </p>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <ul
               className="relative flex flex-col gap-1"
@@ -684,10 +745,24 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               {errored[title] ? (
                 <ErrorOverlay
                   onReload={() => reloadPane(title)}
-                  reason={`${st.urlFor(title)} didn’t respond. Check your dev server is running.`}
+                  reason={
+                    health.reachable
+                      ? `${st.urlFor(title)} didn’t respond.`
+                      : "Your dev server stopped. This returns on its own once it is back."
+                  }
                 />
               ) : (
                 <SkeletonOverlay loaded={Boolean(st.loaded[title])} />
+              )}
+              {/* A pane that loaded before the server died keeps showing that
+                  render. Saying so is the difference between a stale preview
+                  and a lie. */}
+              {!health.reachable && st.loaded[title] && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
+                  <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">
+                    Stale — dev server stopped
+                  </span>
+                </div>
               )}
             </div>
           </div>

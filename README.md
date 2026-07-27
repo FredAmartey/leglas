@@ -267,6 +267,19 @@ This is the exception rather than the rule. Directions that can render from the
 server you already have should, because that is what makes switching instant.
 Branches genuinely cannot, so they pay the cost of a checkout.
 
+### When your dev server restarts
+
+Restarting a dev server is routine, and Leglas watches for it rather than
+letting each preview discover the outage on its own.
+
+While it is down the rail says so, previews fail immediately instead of
+waiting out a timeout, and any pane still showing a render from before the
+outage is marked stale. That last one matters most: a preview quietly
+presenting an old render as if it were current is worse than one that admits
+it is broken.
+
+When the server answers again, the previews that failed reload themselves.
+
 ### Keeping a winner
 
 `leglas keep "Aurora" --to src/components/hero.tsx` moves that direction out of
