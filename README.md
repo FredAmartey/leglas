@@ -71,7 +71,10 @@ export default {
 | `url` | yes | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
 | `note` | no | Second line under the title |
 | `tags` | no | The first tag renders as a pill |
+| `branch` | no | Preview a git branch instead of the running dev server |
 | `devServer` | no | Defaults to `http://localhost:3000` |
+| `devCommand` | with `branch` | How to start a checkout; must contain `{port}` |
+| `installCommand` | no | Defaults to `npm install` |
 
 Titles must be unique. A configuration error does not stop the server: it
 starts anyway and the interface reports what is wrong, so you can fix the
@@ -230,6 +233,35 @@ The comparison ignores hydration payloads and per-request values such as
 nonces, so it reflects what was drawn rather than how the framework
 serialised it. The check runs once at startup and never blocks the
 interface. If it fails, the rail is unaffected.
+
+### Comparing branches
+
+A preview can name a git branch instead of pointing at the server you are
+running:
+
+```ts
+export default {
+  devCommand: "pnpm dev --port {port}",
+  previews: [
+    { title: "Main", url: "/" },
+    { title: "Redesign", url: "/", branch: "feature/new-hero" },
+  ],
+};
+```
+
+Leglas checks that branch out into `.leglas/worktrees/`, installs, starts it on
+a free port, and waits until it answers. The preview then behaves like any
+other: same rail, same viewports, same flipping. On exit the checkout is
+removed and its dev server stopped.
+
+The checkout is detached, so previewing a branch never collides with that
+branch being checked out in your own working tree. A branch that fails to
+install or start is reported and skipped rather than taking down the previews
+that do work.
+
+This is the exception rather than the rule. Directions that can render from the
+server you already have should, because that is what makes switching instant.
+Branches genuinely cannot, so they pay the cost of a checkout.
 
 ### Keeping a winner
 

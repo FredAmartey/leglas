@@ -653,14 +653,23 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 key={reloadTick[title] ?? 0}
                 onError={() => setErrored((current) => ({ ...current, [title]: true }))}
                 onLoad={(event) => {
-                  // A failed navigation still fires load, but lands on a
-                  // cross-origin error document whose contentDocument reads as
-                  // null or throws. A real preview is same-origin and readable.
-                  let ok = false;
-                  try {
-                    ok = event.currentTarget.contentDocument != null;
-                  } catch {
-                    ok = false;
+                  // A failed navigation still fires load but lands on an error
+                  // document whose contentDocument reads as null or throws, so
+                  // for same-origin previews readability is the signal.
+                  //
+                  // A preview served from another origin is never readable, so
+                  // the same check would condemn every one of them: a branch
+                  // preview on its own port, or a deployed URL. There, load is
+                  // all the signal available.
+                  const src = st.urlFor(title);
+                  const sameOrigin = src.startsWith("/");
+                  let ok = true;
+                  if (sameOrigin) {
+                    try {
+                      ok = event.currentTarget.contentDocument != null;
+                    } catch {
+                      ok = false;
+                    }
                   }
                   if (ok) {
                     st.markLoaded(title);

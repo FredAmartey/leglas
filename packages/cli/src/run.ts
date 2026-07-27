@@ -1,7 +1,15 @@
 import { createRequire } from "node:module";
 import { dirname, relative } from "node:path";
 
-import { LEGLAS_PREFIX, loadConfig, readLocalPreviews, startServer } from "@leglas/server";
+import {
+  LEGLAS_PREFIX,
+  loadConfig,
+  readLocalPreviews,
+  startServer,
+  startWorktree,
+  type Preview,
+  type RunningWorktree,
+} from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
 
@@ -56,14 +64,46 @@ export async function run(
 
   // Locally added previews append after the shared ones, so the committed
   // config keeps its authored order and exploration accumulates below it.
-  const config =
+  const merged =
     loaded.config === null
       ? null
       : { ...loaded.config, devServer, previews: [...loaded.config.previews, ...local.previews] };
 
+  // A preview naming a branch is served by Leglas rather than by the dev server
+  // the user is running, so it has to be brought up before the interface can
+  // point at it. Isolation is the exception here: only these pay the cost.
+  const worktrees: RunningWorktree[] = [];
+  const worktreeErrors: string[] = [];
+  const previews: Preview[] = [];
+
+  for (const preview of merged?.previews ?? []) {
+    if (preview.branch === undefined || merged?.devCommand === undefined) {
+      previews.push(preview);
+      continue;
+    }
+    if (!options.json) deps.log(`  starting ${preview.branch}…`);
+    try {
+      const worktree = await startWorktree({
+        cwd: options.cwd,
+        branch: preview.branch,
+        installCommand: merged.installCommand,
+        devCommand: merged.devCommand,
+      });
+      worktrees.push(worktree);
+      // Its own origin, so the interface iframes it directly.
+      previews.push({ ...preview, url: `${worktree.url}${preview.url}` });
+    } catch (error) {
+      // A branch that will not start is reported and skipped: the previews that
+      // do work should still be usable.
+      worktreeErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const config = merged === null ? null : { ...merged, previews };
+
   const server = await startServer({
     config,
-    configErrors: [...loaded.errors, ...local.errors],
+    configErrors: [...loaded.errors, ...local.errors, ...worktreeErrors],
     shellDir: findShellDir(),
     // The config file identifies the project when there is one; otherwise the
     // directory does. Either way saved layout survives a port change.
@@ -104,9 +144,9 @@ export async function run(
     deps.log(`config   ${configLabel}`);
     deps.log(`          ${previewCount} preview${previewCount === 1 ? "" : "s"}`);
 
-    if (loaded.errors.length > 0) {
+    if (loaded.errors.length + worktreeErrors.length > 0) {
       deps.log("");
-      for (const error of loaded.errors) deps.log(`  ! ${error}`);
+      for (const error of [...loaded.errors, ...worktreeErrors]) deps.log(`  ! ${error}`);
       deps.log("  Fix the config and reload; Leglas will pick it up on restart.");
     }
 
@@ -124,6 +164,11 @@ export async function run(
     url,
     devServer,
     previewCount,
-    stop: () => server.close(),
+    stop: async () => {
+      // Checkouts go before the server, so a stopped Leglas never leaves a dev
+      // server running on a port nobody remembers.
+      await Promise.all(worktrees.map((worktree) => worktree.stop().catch(() => {})));
+      await server.close();
+    },
   };
 }

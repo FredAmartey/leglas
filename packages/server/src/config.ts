@@ -1,15 +1,28 @@
 export const DEFAULT_DEV_SERVER = "http://localhost:3000";
 
+/** Enough to install a fresh checkout with the package manager most repos use. */
+export const DEFAULT_INSTALL_COMMAND = "npm install";
+
 export type Preview = {
   title: string;
   url: string;
   note: string | undefined;
   tags: readonly string[];
+  /**
+   * A git branch to preview instead of the running dev server. Leglas creates a
+   * worktree for it and starts the app there, so the preview is a URL on
+   * another port. Undefined for the ordinary case, where the URL points at the
+   * server the user already has running.
+   */
+  branch?: string | undefined;
 };
 
 export type LeglasConfig = {
   devServer: string;
   previews: Preview[];
+  /** How to start the app in a checkout Leglas manages. `{port}` is required. */
+  devCommand: string | undefined;
+  installCommand: string;
 };
 
 export type NormalizeResult = {
@@ -31,6 +44,16 @@ function isValidOrigin(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Branch names become directory names under .leglas/worktrees, so anything that
+ * could climb out of it or be read as a flag is refused.
+ */
+function isSafeBranch(value: string): boolean {
+  if (value === "" || value.startsWith("-")) return false;
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) return false;
+  return /^[A-Za-z0-9._/-]+$/.test(value);
 }
 
 /**
@@ -98,19 +121,59 @@ export function normalizeConfig(raw: unknown): NormalizeResult {
       );
     }
 
+    const branch = entry["branch"];
+    if (branch !== undefined) {
+      if (typeof branch !== "string" || !isSafeBranch(branch)) {
+        errors.push(
+          `${at} has an unusable branch ${JSON.stringify(branch)}; use a plain git branch name.`,
+        );
+      } else if (typeof url === "string" && !url.startsWith("/")) {
+        errors.push(
+          `${at} names a branch and an absolute url; a branch preview is served by Leglas, so its url must be a path.`,
+        );
+      }
+    }
+
     const tags = entry["tags"];
     previews.push({
       title: typeof title === "string" ? title : "",
       url: typeof url === "string" ? url : "",
       note: typeof entry["note"] === "string" ? entry["note"] : undefined,
       tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : [],
+      ...(typeof branch === "string" ? { branch } : {}),
     });
   });
+
+  const devCommand = source["devCommand"];
+  if (devCommand !== undefined && typeof devCommand !== "string") {
+    errors.push("devCommand must be a string.");
+  } else if (typeof devCommand === "string" && !devCommand.includes("{port}")) {
+    errors.push(
+      `devCommand must include {port}, so Leglas can start each checkout on a free port. Received ${JSON.stringify(devCommand)}.`,
+    );
+  }
+
+  // A branch preview cannot be served without knowing how to start the app.
+  if (previews.some((preview) => preview.branch !== undefined) && devCommand === undefined) {
+    errors.push(
+      "A preview names a branch, so devCommand is required: Leglas has to start that checkout itself.",
+    );
+  }
+
+  const installCommand = source["installCommand"] ?? DEFAULT_INSTALL_COMMAND;
+  if (typeof installCommand !== "string" || installCommand.trim() === "") {
+    errors.push("installCommand must be a non-empty string.");
+  }
 
   if (errors.length > 0) return { config: null, errors };
 
   return {
-    config: { devServer: devServer as string, previews },
+    config: {
+      devServer: devServer as string,
+      previews,
+      devCommand: typeof devCommand === "string" ? devCommand : undefined,
+      installCommand: installCommand as string,
+    },
     errors: [],
   };
 }
