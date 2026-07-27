@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { addLocalPreview, loadConfig, readLocalPreviews } from "@leglas/server";
+import { addLocalPreview, clearRequests, loadConfig, readLocalPreviews, readRequests } from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
 
@@ -114,4 +114,42 @@ export async function runList(
 
   for (const error of errors) deps.error(`  ! ${error}`);
   return { exitCode: errors.length === 0 ? 0 : 1 };
+}
+
+/**
+ * Hand pending requests to whoever asks. An agent polls this, acts on each
+ * prompt, and clears the queue. Leglas runs no model of its own: the user's
+ * agent already knows their conventions and design system, which is context
+ * no external worker can have.
+ */
+export async function runRequests(
+  options: { json: boolean; clear: boolean; cwd: string },
+  deps: PreviewDeps,
+): Promise<PreviewResult> {
+  if (options.clear) {
+    await clearRequests(options.cwd);
+    if (options.json) envelope(deps, true, { cleared: true });
+    else deps.log("Queue cleared.");
+    return { exitCode: 0 };
+  }
+
+  const requests = await readRequests(options.cwd);
+
+  if (options.json) {
+    envelope(deps, true, { requests });
+    return { exitCode: 0 };
+  }
+
+  if (requests.length === 0) {
+    deps.log("No pending requests.");
+    return { exitCode: 0 };
+  }
+
+  for (const request of requests) {
+    deps.log(`  ${request.title}: ${request.intent}`);
+    if (request.target !== null) deps.log(`    ${request.target}`);
+  }
+  deps.log("");
+  deps.log("Run leglas requests --json to get the full prompts, then --clear when done.");
+  return { exitCode: 0 };
 }

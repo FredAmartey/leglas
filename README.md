@@ -88,6 +88,7 @@ leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
+leglas requests            Collect change requests made from the interface
 
   --user-port <port>   Port your dev server is on
   --port <port>        Port for Leglas (default 4100, next free if taken)
@@ -130,6 +131,19 @@ because it never sees your source, so the contract has to say it.
 
 Every command accepts `--json` and prints a single envelope with a stable exit
 code, so an agent can drive the tool without parsing prose.
+
+### Asking for a change without leaving
+
+The tools popover has a field for the direction you are looking at. Type what
+you want changed and press Enter: Leglas composes a prompt naming that
+direction and the file behind it, copies it to your clipboard, and queues it.
+
+Leglas runs no model of its own. Your agent already knows your conventions,
+your design system and your taste, which is context no external worker has, so
+it does the work. `leglas requests --json` hands over anything pending and
+`leglas requests --clear` empties the queue once it is done. If you would
+rather not wire that up, the clipboard copy is the whole feature: paste and
+go.
 
 ### Scaffolding a surface
 

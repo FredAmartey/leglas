@@ -21,6 +21,7 @@ export type ParseResult =
   | { kind: "new"; surface: string; print: boolean; json: boolean }
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "list"; json: boolean }
+  | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
   | { kind: "version" }
@@ -140,6 +141,14 @@ export function parseArgs(argv: string[]): ParseResult {
       return { kind: "error", message: `leglas init does not take ${unknown}.` };
     }
     return { kind: "init", force: rest.includes("--force"), json: rest.includes("--json") };
+  }
+  if (argv[0] === "requests") {
+    const rest = argv.slice(1);
+    const unknown = rest.find((argument) => argument !== "--json" && argument !== "--clear");
+    if (unknown !== undefined) {
+      return { kind: "error", message: `leglas requests does not take ${unknown}.` };
+    }
+    return { kind: "requests", json: rest.includes("--json"), clear: rest.includes("--clear") };
   }
   if (argv[0] === "list") {
     const rest = argv.slice(1);

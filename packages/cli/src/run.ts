@@ -68,6 +68,7 @@ export async function run(
     // The config file identifies the project when there is one; otherwise the
     // directory does. Either way saved layout survives a port change.
     project: loaded.path ?? options.cwd,
+    cwd: options.cwd,
     ...(options.port === undefined ? {} : { port: options.port }),
   });
 

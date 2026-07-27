@@ -6,6 +6,7 @@ import { extname, join, normalize } from "node:path";
 import type { LeglasConfig } from "./config.js";
 import { findDuplicates } from "./duplicates.js";
 import { createProxyHandler } from "./proxy.js";
+import { appendRequest, composeRequest } from "./requests.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -37,6 +38,8 @@ export type ServerOptions = {
    * project and silently lose the user's rail order and renames.
    */
   project?: string;
+  /** Project root, where the request queue is written. */
+  cwd?: string;
 };
 
 export type RunningServer = {
@@ -149,7 +152,7 @@ async function bind(server: http.Server, requested: number): Promise<number> {
 }
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
-  const { config, configErrors = [], shellDir = null, project = "" } = options;
+  const { config, configErrors = [], shellDir = null, project = "", cwd = process.cwd() } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
 
@@ -163,6 +166,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         devServer: target,
         previews: config?.previews ?? [],
         errors: configErrors,
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/request` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { title?: string; intent?: string };
+        try {
+          parsed = JSON.parse(body || "{}") as { title?: string; intent?: string };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        const preview = (config?.previews ?? []).find((entry) => entry.title === parsed.title);
+        if (!preview || !parsed.intent?.trim()) {
+          return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
+        }
+        const composed = composeRequest(preview, parsed.intent);
+        void appendRequest(cwd, {
+          title: preview.title,
+          url: preview.url,
+          intent: parsed.intent.trim(),
+          ...composed,
+        })
+          .then(() => sendJson(res, 200, { ok: true, ...composed }))
+          // The prompt is still useful even if the queue could not be written,
+          // so the copy path keeps working when the disk does not.
+          .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
       });
     }
 

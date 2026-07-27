@@ -41,6 +41,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const searchRef = useRef<HTMLInputElement | null>(null);
   const st = useShellState({ previews, project, searchRef });
   const [widgetOpen, setWidgetOpen] = useState(false);
+  // Expressing an intent used to mean leaving for a terminal. This keeps it
+  // where the direction is being looked at; the user's own agent still does
+  // the work, because it knows the codebase and Leglas does not.
+  const [intent, setIntent] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -741,6 +747,48 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </button>
               ))}
             </div>
+
+            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+              Change this direction
+            </span>
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const value = intent.trim();
+                if (!value) return;
+                setSending(true);
+                void fetch("/leglas/api/request", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ title: st.active, intent: value }),
+                })
+                  .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
+                  .then((result) => {
+                    // Copied as well as queued, so it works whether the user's
+                    // agent polls or they would rather just paste it.
+                    if (result.prompt) void navigator.clipboard.writeText(result.prompt);
+                    setIntent("");
+                    setSent(result.ok);
+                    window.setTimeout(() => setSent(false), 2000);
+                  })
+                  .finally(() => setSending(false));
+              }}
+            >
+              <input
+                aria-label={`Ask your agent to change the ${st.displayName(st.active)} direction`}
+                className="min-w-0 flex-1 rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1.5 text-xs text-white placeholder:text-[#84848C] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
+                disabled={sending}
+                onChange={(event) => setIntent(event.target.value)}
+                placeholder={sent ? "Copied and queued" : "Make it warmer…"}
+                type="text"
+                value={intent}
+              />
+            </form>
+            <p className="px-1 pb-1 pt-1 text-[10px] leading-snug text-[#84848C]">
+              Enter copies a prompt for your agent and queues it for
+              <span className="font-medium"> leglas requests</span>.
+            </p>
 
             <button
               className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"

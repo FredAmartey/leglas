@@ -3,7 +3,7 @@ export { detectFramework, planNew, surfaceSlug } from "./new.js";
 export { AGENTS_MARKER_END, AGENTS_MARKER_START, planInit } from "./init.js";
 export { runInit } from "./run-init.js";
 export { runNew } from "./run-new.js";
-export { runAdd, runList } from "./run-previews.js";
+export { runAdd, runList, runRequests } from "./run-previews.js";
 export { run } from "./run.js";
 export type { ParseResult, RunOptions } from "./args.js";
 export type { Framework, NewPlan, Write } from "./new.js";
