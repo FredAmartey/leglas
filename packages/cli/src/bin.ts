@@ -33,6 +33,7 @@ Options
 
 Options for new
   --print              Print the scaffold instead of writing it
+  --from <path>        Use an existing component as the baseline
 
 Options for explore
   --count <n>          How many angles (default 3)
@@ -146,7 +147,7 @@ if (parsed.kind === "list") {
 
 if (parsed.kind === "new") {
   const outcome = await runNew(
-    { surface: parsed.surface, print: parsed.print, json: parsed.json, cwd: process.cwd() },
+    { surface: parsed.surface, print: parsed.print, json: parsed.json, from: parsed.from, cwd: process.cwd() },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
   process.exit(outcome.exitCode);

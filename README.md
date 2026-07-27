@@ -167,8 +167,14 @@ go.
 
 ### Scaffolding a surface
 
-`leglas new hero` creates a switcher and a first direction under
-`.leglas/variants/hero/`, and adds `.leglas/` to your `.gitignore`. The
+`leglas new hero --from src/Hero.tsx` creates a switcher and a first direction
+under `.leglas/variants/hero/`, and adds `.leglas/` to your `.gitignore`.
+
+`--from` points at whatever renders that surface today. The baseline then
+re-exports that component rather than copying it, so editing the real
+component changes the baseline too and you are never comparing against a stale
+duplicate of your own code. Without `--from` you get a placeholder to fill in
+yourself. The
 generated code is ordinary application code: it imports nothing from Leglas,
 so removing the tool leaves it working. It also renders the fallback in
 production regardless of the URL, so a branch point that reaches a deployed

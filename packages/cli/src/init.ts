@@ -39,9 +39,11 @@ When asked for design variations, alternatives, or "a few options":
    angles to build, each with what to avoid, so several directions genuinely
    disagree instead of becoming shades of one idea. Follow those angles rather
    than inventing your own variations of the current design.
-3. If the surface has no switcher yet, run \`leglas new <surface>\`. It writes
-   one under \`.leglas/variants/<surface>/\` and prints the single line to add
-   where that surface renders.
+3. If the surface has no switcher yet, run
+   \`leglas new <surface> --from <the component that renders it today>\`. It
+   writes one under \`.leglas/variants/<surface>/\` and prints the single line
+   to add where that surface renders. \`--from\` makes the baseline re-export
+   the real component rather than copying it, so it stays live.
 4. Put each direction in its own file beside the others in
    \`.leglas/variants/<surface>/\`, then list it in the \`DIRECTIONS\` map in
    that folder's \`switch\` file.

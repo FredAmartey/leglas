@@ -18,7 +18,7 @@ export type AddPreview = {
 
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
-  | { kind: "new"; surface: string; print: boolean; json: boolean }
+  | { kind: "new"; surface: string; print: boolean; json: boolean; from: string | undefined }
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "list"; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
@@ -52,8 +52,17 @@ function parseNew(rest: string[]): ParseResult {
   let surface: string | undefined;
   let print = false;
   let json = false;
+  let from: string | undefined;
 
-  for (const argument of rest) {
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index] as string;
+    if (argument === "--from" || argument.startsWith("--from=")) {
+      from = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
+      if (from === undefined || from === "") {
+        return { kind: "error", message: "--from needs a path, for example --from src/Hero.tsx" };
+      }
+      continue;
+    }
     if (argument === "--print") {
       print = true;
       continue;
@@ -78,7 +87,7 @@ function parseNew(rest: string[]): ParseResult {
       message: "leglas new needs a surface name, for example: leglas new hero",
     };
   }
-  return { kind: "new", surface, print, json };
+  return { kind: "new", surface, print, json, from };
 }
 
 function parseAdd(rest: string[]): ParseResult {

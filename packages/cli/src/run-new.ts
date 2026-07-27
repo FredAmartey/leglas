@@ -26,13 +26,26 @@ async function readIfPresent(path: string): Promise<string | null> {
  * more than a line of copying.
  */
 export async function runNew(
-  options: { surface: string; print: boolean; json: boolean; cwd: string },
+  options: { surface: string; print: boolean; json: boolean; from?: string | undefined; cwd: string },
   deps: NewDeps,
 ): Promise<NewResult> {
+  let from: { path: string; contents: string } | undefined;
+  if (options.from !== undefined) {
+    const contents = await readIfPresent(join(options.cwd, options.from));
+    if (contents === null) {
+      const message = `${options.from} does not exist, so there is nothing to use as the baseline.`;
+      if (options.json) deps.log(JSON.stringify({ ok: false, error: message }));
+      else deps.log(message);
+      return { exitCode: 1, written: [] };
+    }
+    from = { path: options.from, contents };
+  }
+
   const plan = planNew({
     surface: options.surface,
     packageJson: await readIfPresent(join(options.cwd, "package.json")),
     gitignore: await readIfPresent(join(options.cwd, ".gitignore")),
+    from,
   });
 
   const fail = (error: string) => {

@@ -1,3 +1,4 @@
+import { baselineFrom } from "./baseline.js";
 import { ignoreEntry } from "./ignore.js";
 
 export type Framework = "next" | "react";
@@ -148,6 +149,8 @@ export function planNew(options: {
   surface: string;
   packageJson: string | null;
   gitignore: string | null;
+  /** An existing component to use as the baseline, instead of a placeholder. */
+  from?: { path: string; contents: string } | undefined;
 }): NewPlan {
   const slug = surfaceSlug(options.surface);
   const framework = detectFramework(options.packageJson);
@@ -161,10 +164,13 @@ export function planNew(options: {
     },
     {
       path: `${dir}/current.tsx`,
-      contents: placeholder(
-        "Current",
-        `Replace this with what your ${slug} renders today, then compare directions against it.`,
-      ),
+      contents:
+        (options.from ? baselineFrom(slug, options.from.path, options.from.contents) : null)
+          ?.contents ??
+        placeholder(
+          "Current",
+          `Re-export what your ${slug} renders today, for example: import { ${name} } from "../../../src/${name}" and return <${name} />. Re-exporting rather than copying keeps this baseline live.`,
+        ),
     },
     {
       path: `${dir}/${slug}-a.tsx`,
