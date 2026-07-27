@@ -22,6 +22,7 @@ export type ParseResult =
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "list"; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
+  | { kind: "explore"; surface: string; count: number; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
   | { kind: "version" }
@@ -141,6 +142,41 @@ export function parseArgs(argv: string[]): ParseResult {
       return { kind: "error", message: `leglas init does not take ${unknown}.` };
     }
     return { kind: "init", force: rest.includes("--force"), json: rest.includes("--json") };
+  }
+  if (argv[0] === "explore") {
+    const rest = argv.slice(1);
+    let surface: string | undefined;
+    let count = 3;
+    let json = false;
+    for (let index = 0; index < rest.length; index += 1) {
+      const argument = rest[index] as string;
+      if (argument === "--json") {
+        json = true;
+        continue;
+      }
+      if (argument === "--count" || argument.startsWith("--count=")) {
+        const raw = argument.includes("=") ? argument.split("=")[1] : rest[(index += 1)];
+        if (raw === undefined || !/^\d+$/.test(raw)) {
+          return { kind: "error", message: "--count needs a number, for example --count 6." };
+        }
+        count = Number(raw);
+        continue;
+      }
+      if (argument.startsWith("-")) {
+        return { kind: "error", message: `leglas explore does not take ${argument}.` };
+      }
+      if (surface !== undefined) {
+        return { kind: "error", message: "leglas explore takes one surface name." };
+      }
+      surface = argument;
+    }
+    if (surface === undefined) {
+      return {
+        kind: "error",
+        message: "leglas explore needs a surface name, for example: leglas explore hero --count 6",
+      };
+    }
+    return { kind: "explore", surface, count, json };
   }
   if (argv[0] === "requests") {
     const rest = argv.slice(1);

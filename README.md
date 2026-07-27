@@ -86,6 +86,7 @@ bundler or extra dependency involved.
 leglas init                Prepare a project and teach its agents
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
+leglas explore <surface>   Print distinct angles for an agent to build
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
 leglas requests            Collect change requests made from the interface
@@ -99,6 +100,7 @@ leglas requests            Collect change requests made from the interface
   -v, --version
 
   --print              (new) Print the scaffold instead of writing it
+  --count <n>          (explore) How many angles, default 3
   --note <text>        (add) Second line under the title
   --tag <text>         (add) Repeatable
 ```
@@ -131,6 +133,19 @@ because it never sees your source, so the contract has to say it.
 
 Every command accepts `--json` and prints a single envelope with a stable exit
 code, so an agent can drive the tool without parsing prose.
+
+### Exploring several directions at once
+
+`leglas explore hero --count 6` prints six distinct angles to build, each with
+a line naming the obvious approach that would collapse the difference. Left to
+itself an agent iterates narrowly around its first idea, so six requests come
+back as six shades of one design. The angles vary composition, medium, density,
+motion, texture and palette rather than colour alone, and they are ordered for
+spread so asking for three still explores widely.
+
+The `AGENTS.md` section tells agents to run this first, so "give me a few
+options" reaches for the angles instead of inventing variations of what is
+already there.
 
 ### Asking for a change without leaving
 

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 import { parseArgs } from "./args.js";
+import { runExplore } from "./run-explore.js";
 import { runInit } from "./run-init.js";
 import { runNew } from "./run-new.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
@@ -14,6 +15,7 @@ Usage
   leglas init                Prepare a project and teach its agents
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
+  leglas explore <surface>   Print distinct angles for an agent to build
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
   leglas requests            Show change requests made from the interface
@@ -29,6 +31,9 @@ Options
 
 Options for new
   --print              Print the scaffold instead of writing it
+
+Options for explore
+  --count <n>          How many angles (default 3)
 
 Options for add
   --note <text>        Second line under the title
@@ -104,6 +109,14 @@ if (parsed.kind === "add") {
   const outcome = await runAdd(
     { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
     previewDeps,
+  );
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "explore") {
+  const outcome = runExplore(
+    { surface: parsed.surface, count: parsed.count, json: parsed.json },
+    { log: (line) => process.stdout.write(`${line}\n`) },
   );
   process.exit(outcome.exitCode);
 }

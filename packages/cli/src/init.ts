@@ -30,16 +30,24 @@ When asked for design variations, alternatives, or "a few options":
    from the one dev server that is already running, which is what makes
    switching between them instant. Two directions that rewrite the same file
    cannot both exist, and recovering from that costs a rebuild per direction.
-2. If the surface has no switcher yet, run \`leglas new <surface>\`. It writes
+2. Run \`leglas explore <surface> --count <n>\` first. It returns distinct
+   angles to build, each with what to avoid, so several directions genuinely
+   disagree instead of becoming shades of one idea. Follow those angles rather
+   than inventing your own variations of the current design.
+3. If the surface has no switcher yet, run \`leglas new <surface>\`. It writes
    one under \`.leglas/variants/<surface>/\` and prints the single line to add
    where that surface renders.
-3. Put each direction in its own file beside the others in
+4. Put each direction in its own file beside the others in
    \`.leglas/variants/<surface>/\`, then list it in the \`DIRECTIONS\` map in
    that folder's \`switch\` file.
-4. Register it so it appears in the interface:
+5. Register each one so it appears in the interface:
    \`leglas add --title "Aurora" --url "/?v-<surface>=aurora" --note "One line on the idea."\`
-5. Tell the user to open the interface, or to run \`leglas\` if it is not
+6. Tell the user to open the interface, or to run \`leglas\` if it is not
    already running.
+
+When the user asks to change one direction, check \`leglas requests --json\`
+first: they may have described it from the interface, and the request names the
+exact file. Clear the queue with \`leglas requests --clear\` once done.
 
 Useful to know:
 
