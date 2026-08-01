@@ -205,10 +205,13 @@ Layout is saved per project, so it survives restarts and a change of port.
 ### Comparing two at once
 
 Flipping shows a difference over time. A split shows it at once, which is what
-you want for the last two directions still in contention. `\` or the tools
-popover splits the stage: the active direction goes left, and the one you were
-looking at before it goes right, so opening a comparison needs no second
-choice. Pick a different one from the popover to pin it there.
+you want for the last two directions still in contention.
+
+Hover any direction in the rail and press its compare button. It becomes the
+right pane, the active direction stays on the left, and the row is marked so
+you can see what you are comparing against without hovering. Press it again to
+close the split. `\` splits against whichever direction you were looking at
+before this one.
 
 The tools widget can be dragged to any corner, since a floating control has a
 habit of sitting exactly where you need to look. Its corner is remembered.

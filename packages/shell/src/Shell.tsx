@@ -210,6 +210,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   });
   const visible = paneTitles({ active: st.active, compare, split });
   const splitting = visible.length > 1;
+  // Panes mount when first activated, so a direction compared against without
+  // ever having been opened would have nothing to render. Anything on stage
+  // has to be mounted whether or not it was ever the active one.
+  const mounted = [...new Set([...st.panes, ...visible])];
 
   // The widget is the only way into the tools, so it must never end up under
   // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
@@ -509,7 +513,17 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               >
                 {st.displayName(title)}
               </span>
-              {twins[title] ? (
+              {splitting && title === compare ? (
+                <span
+                  className={`shrink-0 rounded-md bg-white/[0.08] px-2 py-[3px] text-[11px] leading-none text-[#E8E8EA] transition-opacity duration-150 ${
+                    dragging
+                      ? ""
+                      : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
+                  }`}
+                >
+                  Comparing
+                </span>
+              ) : twins[title] ? (
                 <Tip
                   label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
                 >
@@ -554,6 +568,42 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
           }`}
         >
+          {/* Choosing the second direction belongs where the directions are.
+              The active row is the left pane, so this only appears on the
+              others. */}
+          {title !== st.active && (
+            <Tip
+              label={
+                splitting && title === compare
+                  ? "Stop comparing"
+                  : `Compare with ${st.displayName(st.active)}`
+              }
+            >
+              <button
+                aria-label={
+                  splitting && title === compare
+                    ? `Stop comparing ${st.displayName(title)}`
+                    : `Compare ${st.displayName(title)} with ${st.displayName(st.active)}`
+                }
+                aria-pressed={splitting && title === compare}
+                className={`${ICON_BUTTON} ${
+                  splitting && title === compare ? "text-white" : ""
+                }`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (splitting && title === compare) {
+                    setSplit(false);
+                    return;
+                  }
+                  setComparePin(title);
+                  setSplit(true);
+                }}
+                type="button"
+              >
+                <PIcon d={P.split} />
+              </button>
+            </Tip>
+          )}
           <Tip label={st.copied === title ? "Copied" : "Copy reference URL"}>
             <button
               aria-label={`Copy link to the ${st.displayName(title)} direction`}
@@ -813,7 +863,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         className={`relative min-w-0 flex-1 ${splitting ? "flex" : "overflow-auto"}`}
         ref={stageRef}
       >
-        {st.panes.map((title) => (
+        {mounted.map((title) => (
           <div
             className={
               !visible.includes(title)
@@ -989,44 +1039,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </button>
               ))}
             </div>
-
-            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Compare
-            </span>
-            <button
-              className={`${ROW_BUTTON} ${split ? "text-white" : "text-[#9CA3AF]"}`}
-              disabled={compare === null}
-              onClick={() => {
-                // Pin whatever is on the right when the split opens, so it
-                // stops following history and stays put while you flip.
-                if (!split && compare !== null) setComparePin(compare);
-                setSplit((current) => !current);
-              }}
-              type="button"
-            >
-              <span>Side by side</span>
-              <span className="text-[10px] text-[#84848C]">
-                {compare === null ? "needs two" : splitting ? st.displayName(compare) : "\\"}
-              </span>
-            </button>
-            {splitting && (
-              <div className="max-h-32 overflow-y-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {st.rows
-                  .filter((title) => title !== st.active)
-                  .map((title) => (
-                    <button
-                      className={`${ROW_BUTTON} justify-start ${
-                        title === compare ? "text-white" : "text-[#9CA3AF]"
-                      }`}
-                      key={title}
-                      onClick={() => setComparePin(title)}
-                      type="button"
-                    >
-                      {st.displayName(title)}
-                    </button>
-                  ))}
-              </div>
-            )}
 
             <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
               Preview
