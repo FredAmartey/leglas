@@ -18,9 +18,11 @@ export type ShellStateProps = {
   project: string;
   /** Owned by the body; this only focuses it. */
   searchRef: React.RefObject<HTMLInputElement | null>;
+  /** Invoked by the \\ shortcut; the split itself lives in the shell. */
+  onToggleSplit?: (() => void) | undefined;
 };
 
-export function useShellState({ previews, project, searchRef }: ShellStateProps) {
+export function useShellState({ previews, project, searchRef, onToggleSplit }: ShellStateProps) {
   const key = storageKey(project);
   const initial = () =>
     loadPrefs(typeof window === "undefined" ? null : window.localStorage.getItem(key), previews);
@@ -119,6 +121,9 @@ export function useShellState({ previews, project, searchRef }: ShellStateProps)
         event.preventDefault();
         setPrefs((current) => (current.collapsed ? { ...current, collapsed: false } : current));
         searchRef.current?.focus();
+      } else if (event.key === "\\") {
+        event.preventDefault();
+        onToggleSplit?.();
       } else if (event.key === "[") {
         setPrefs((current) => ({ ...current, collapsed: !current.collapsed }));
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -134,7 +139,7 @@ export function useShellState({ previews, project, searchRef }: ShellStateProps)
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, rows.join("|")]);
+  }, [active, rows.join("|"), onToggleSplit]);
 
   const copyReference = (title: string) => {
     const url = `${window.location.origin}${urlFor(title)}`;

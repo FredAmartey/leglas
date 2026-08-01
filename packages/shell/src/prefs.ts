@@ -16,6 +16,14 @@ export const VIEWPORTS = [
 
 export type Prefs = {
   collapsed: boolean;
+  /** Which corner the tools widget sits in; it is draggable between them. */
+  corner: "bottom-left" | "bottom-right" | "top-left" | "top-right";
+  /**
+   * Hide framework dev overlays inside previews. Next and others paint their
+   * own floating badge over the app, which lands on top of the design being
+   * judged and fights the tools widget for the same corner.
+   */
+  hideDevOverlays: boolean;
   /** Interface typeface choice, validated by the shell against its options. */
   font: string;
   hidden: string[];
@@ -28,6 +36,8 @@ export type Prefs = {
 
 export const DEFAULT_PREFS: Prefs = {
   collapsed: false,
+  corner: "bottom-right",
+  hideDevOverlays: true,
   font: "satoshi",
   hidden: [],
   order: [],
@@ -55,8 +65,18 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
     const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
       titles.includes(title),
     );
+    const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
     return {
       collapsed: Boolean(parsed.collapsed),
+      // An unrecognised corner would leave the widget unpositioned, and it is
+      // the only way into the tools.
+      corner: CORNERS.includes(parsed.corner as (typeof CORNERS)[number])
+        ? (parsed.corner as Prefs["corner"])
+        : DEFAULT_PREFS.corner,
+      hideDevOverlays:
+        typeof parsed.hideDevOverlays === "boolean"
+          ? parsed.hideDevOverlays
+          : DEFAULT_PREFS.hideDevOverlays,
       font: typeof parsed.font === "string" ? parsed.font : DEFAULT_PREFS.font,
       hidden: (Array.isArray(parsed.hidden) ? parsed.hidden : []).filter((title) =>
         titles.includes(title),

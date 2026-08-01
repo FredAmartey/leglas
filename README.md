@@ -194,12 +194,30 @@ answered, and any configuration errors.
 | Key | Action |
 | --- | --- |
 | Up, Down | Move between directions |
+| `\` | Split the stage and compare two directions |
 | `/` | Focus search |
 | `[` | Collapse or open the rail |
 | Escape | Clear search, or close the tools popover |
 
 Directions can be renamed, removed, restored and dragged into any order.
 Layout is saved per project, so it survives restarts and a change of port.
+
+### Comparing two at once
+
+Flipping shows a difference over time. A split shows it at once, which is what
+you want for the last two directions still in contention. `\` or the tools
+popover splits the stage: the active direction goes left, and the one you were
+looking at before it goes right, so opening a comparison needs no second
+choice. Pick a different one from the popover to pin it there.
+
+The tools widget can be dragged to any corner, since a floating control has a
+habit of sitting exactly where you need to look. Its corner is remembered.
+
+Frameworks paint their own dev badge over the running app, which lands on the
+same corner and is tooling rather than design. Leglas hides those by default,
+and the popover turns them back on. This is done by styling inside the
+preview frame, never by altering what the proxy forwards, so what your dev
+server sent is what your app receives.
 
 ## How it works
 

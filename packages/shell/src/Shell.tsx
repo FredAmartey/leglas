@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
+import { nextCompare, paneTitles } from "./compare.js";
 import { renderedSignature, twinsOf } from "./rendered.js";
+import { clampWidget, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
@@ -41,7 +43,13 @@ type Drag = {
 
 export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const st = useShellState({ previews, project, searchRef });
+  const splitRef = useRef<(() => void) | null>(null);
+  const st = useShellState({
+    previews,
+    project,
+    searchRef,
+    onToggleSplit: () => splitRef.current?.(),
+  });
   const [widgetOpen, setWidgetOpen] = useState(false);
   // Expressing an intent used to mean leaving for a terminal. This keeps it
   // where the direction is being looked at; the user's own agent still does
@@ -165,6 +173,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     };
   }, [widgetOpen]);
 
+  const ROW_BUTTON =
+    "flex h-7 w-full items-center justify-between gap-2 rounded px-2 text-xs hover:bg-[#2E2E2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
   const dragging = drag?.started ?? false;
@@ -172,6 +183,70 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
+
+  // Flipping shows a difference over time; a split shows it at once, which is
+  // what you want for the last two directions still in contention.
+  const [split, setSplit] = useState(false);
+  const [comparePin, setComparePin] = useState<string | null>(null);
+  const previousRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Cleanup runs just before the next change, so this holds the direction
+    // looked at before the current one.
+    return () => {
+      previousRef.current = st.active;
+    };
+  }, [st.active]);
+
+  splitRef.current = () => {
+    if (!split && compare !== null) setComparePin(compare);
+    if (compare !== null || split) setSplit((current) => !current);
+  };
+
+  const compare = nextCompare({
+    active: st.active,
+    previous: previousRef.current,
+    pinned: comparePin,
+    rows: st.rows,
+  });
+  const visible = paneTitles({ active: st.active, compare, split });
+  const splitting = visible.length > 1;
+
+  // The widget is the only way into the tools, so it must never end up under
+  // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
+  const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const onWidgetPointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    const stage = stageRef.current?.getBoundingClientRect();
+    if (!stage) return;
+    let moved = false;
+    const onMove = (move: PointerEvent) => {
+      moved = true;
+      setWidgetDrag(
+        clampWidget(
+          { x: move.clientX - stage.left, y: move.clientY - stage.top },
+          { width: stage.width, height: stage.height },
+        ),
+      );
+    };
+    const onUp = (up: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setWidgetDrag(null);
+      if (!moved) return;
+      // A drag settles into a corner rather than staying wherever it was let
+      // go, so it never sits over the middle of a design being judged.
+      const { corner } = nearestCorner(
+        { x: up.clientX - stage.left, y: up.clientY - stage.top },
+        { width: stage.width, height: stage.height },
+      );
+      st.setPrefs((current) => ({ ...current, corner }));
+      setWidgetOpen(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   /**
    * Restarting a dev server is routine, so the interface watches for it.
@@ -227,6 +302,44 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // on screen and the only thing that works for a client-rendered app.
   const [signatures, setSignatures] = useState<Record<string, string | null>>({});
   const twins = twinsOf(signatures);
+
+  /**
+   * Hide the framework's own dev badge inside a preview.
+   *
+   * Next and others paint a floating indicator over the running app. It is
+   * tooling rather than design, it lands on top of the corner being judged,
+   * and with four of them open it is four badges.
+   *
+   * Injected into the frame's document rather than rewritten into the proxied
+   * response, deliberately: the bytes Leglas forwards stay exactly what the
+   * dev server sent, so this is a viewing preference and never a change to the
+   * app. Toggling it off restores the badge without a reload.
+   */
+  const applyOverlayPref = (frame: HTMLIFrameElement, hide: boolean) => {
+    let doc: Document | null = null;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      return;
+    }
+    if (!doc?.head) return;
+
+    const ID = "leglas-hide-dev-overlays";
+    const existing = doc.getElementById(ID);
+    if (!hide) {
+      existing?.remove();
+      return;
+    }
+    if (existing) return;
+
+    const style = doc.createElement("style");
+    style.id = ID;
+    // Next's dev tools render into a portal element; the others are the
+    // common custom elements shipped by dev builds.
+    style.textContent = `nextjs-portal,[data-nextjs-toolbar],#__next-build-watcher,
+      vite-error-overlay,#nuxt-devtools-anchor,astro-dev-toolbar{display:none!important}`;
+    doc.head.appendChild(style);
+  };
 
   const readRendered = (title: string, frame: HTMLIFrameElement) => {
     // Cross-origin panes are unreadable by design; a branch preview or a
@@ -696,14 +809,35 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         {st.copied ? "Reference URL copied" : ""}
       </span>
 
-      <div className="relative min-w-0 flex-1 overflow-auto">
+      <div
+        className={`relative min-w-0 flex-1 ${splitting ? "flex" : "overflow-auto"}`}
+        ref={stageRef}
+      >
         {st.panes.map((title) => (
           <div
-            className={`${title === st.active ? "" : "hidden"} ${
-              framed ? "flex min-h-full justify-center p-6" : "absolute inset-0"
-            }`}
+            className={
+              !visible.includes(title)
+                ? "hidden"
+                : splitting
+                  ? `relative min-w-0 flex-1 overflow-auto ${
+                      title === compare ? "border-l border-[#232328]" : ""
+                    } ${framed ? "flex min-h-full justify-center p-6" : ""}`
+                  : framed
+                    ? "flex min-h-full justify-center p-6"
+                    : "absolute inset-0"
+            }
             key={title}
+            style={splitting ? { order: visible.indexOf(title) } : undefined}
           >
+            {splitting && (
+              // Two panes need naming; one does not, because the rail already
+              // shows which is active.
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+                <span className="rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur">
+                  {st.displayName(title)}
+                </span>
+              </div>
+            )}
             <div
               className={
                 framed
@@ -741,6 +875,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     // A client-rendered app draws after load, so read once the
                     // frame has had a chance to paint rather than at load.
                     const frame = event.currentTarget;
+                    applyOverlayPref(frame, st.prefs.hideDevOverlays);
                     window.setTimeout(() => readRendered(title, frame), 600);
                   } else {
                     setErrored((current) => ({ ...current, [title]: true }));
@@ -775,11 +910,27 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </div>
         ))}
 
-        <div className="absolute bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        <div
+          className={`absolute z-50 flex gap-2 ${
+            widgetDrag
+              ? "flex-col items-end"
+              : {
+                  "bottom-right": "bottom-4 right-4 flex-col items-end",
+                  "bottom-left": "bottom-4 left-4 flex-col items-start",
+                  "top-right": "right-4 top-4 flex-col-reverse items-end",
+                  "top-left": "left-4 top-4 flex-col-reverse items-start",
+                }[st.prefs.corner]
+          }`}
+          style={
+            widgetDrag
+              ? { left: widgetDrag.x, top: widgetDrag.y, bottom: "auto", right: "auto" }
+              : undefined
+          }
+        >
           <div
             aria-hidden={!widgetOpen}
             aria-label="Leglas tools"
-            className={`w-56 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+            className={`w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
               widgetOpen
                 ? "translate-y-0 scale-100 opacity-100"
                 : "pointer-events-none translate-y-1 scale-95 opacity-0"
@@ -838,6 +989,68 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </button>
               ))}
             </div>
+
+            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+              Compare
+            </span>
+            <button
+              className={`${ROW_BUTTON} ${split ? "text-white" : "text-[#9CA3AF]"}`}
+              disabled={compare === null}
+              onClick={() => {
+                // Pin whatever is on the right when the split opens, so it
+                // stops following history and stays put while you flip.
+                if (!split && compare !== null) setComparePin(compare);
+                setSplit((current) => !current);
+              }}
+              type="button"
+            >
+              <span>Side by side</span>
+              <span className="text-[10px] text-[#84848C]">
+                {compare === null ? "needs two" : splitting ? st.displayName(compare) : "\\"}
+              </span>
+            </button>
+            {splitting && (
+              <div className="max-h-32 overflow-y-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {st.rows
+                  .filter((title) => title !== st.active)
+                  .map((title) => (
+                    <button
+                      className={`${ROW_BUTTON} justify-start ${
+                        title === compare ? "text-white" : "text-[#9CA3AF]"
+                      }`}
+                      key={title}
+                      onClick={() => setComparePin(title)}
+                      type="button"
+                    >
+                      {st.displayName(title)}
+                    </button>
+                  ))}
+              </div>
+            )}
+
+            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+              Preview
+            </span>
+            <button
+              className={`${ROW_BUTTON} ${
+                st.prefs.hideDevOverlays ? "text-white" : "text-[#9CA3AF]"
+              }`}
+              onClick={() => {
+                const hide = !st.prefs.hideDevOverlays;
+                st.setPrefs((current) => ({ ...current, hideDevOverlays: hide }));
+                // Applied to every open pane at once, so the change is visible
+                // without reloading anything.
+                for (const frame of document.querySelectorAll("iframe")) {
+                  applyOverlayPref(frame as HTMLIFrameElement, hide);
+                }
+              }}
+              type="button"
+            >
+              <span>Hide dev overlays</span>
+              <span className="text-[10px] text-[#84848C]">
+                {st.prefs.hideDevOverlays ? "on" : "off"}
+              </span>
+            </button>
 
             <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
               Change this direction
@@ -907,7 +1120,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               aria-label="Leglas tools"
               className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-[#1C1C20] shadow-lg transition-[border-color,transform] duration-150 hover:scale-[1.04] hover:border-white/20 active:scale-[0.95] motion-reduce:transform-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100"
               onClick={() => setWidgetOpen((value) => !value)}
-              ref={widgetButtonRef}
+              onPointerDown={onWidgetPointerDown}
+            ref={widgetButtonRef}
               type="button"
             >
               <Mark size={20} />
