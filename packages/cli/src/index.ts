@@ -9,6 +9,7 @@ export { runInit } from "./run-init.js";
 export { runKeep } from "./run-keep.js";
 export { runNew } from "./run-new.js";
 export { runAdd, runList, runRequests } from "./run-previews.js";
+export { runClassify } from "./run-classify.js";
 export { run } from "./run.js";
 export type { ParseResult, RunOptions } from "./args.js";
 export type { Framework, NewPlan, Write } from "./new.js";

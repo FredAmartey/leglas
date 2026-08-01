@@ -1,0 +1,27 @@
+{
+  "name": "@leglas/mcp",
+  "version": "0.0.0",
+  "description": "Stdio MCP server exposing Leglas to agent hosts that cannot run a shell.",
+  "type": "module",
+  "bin": {
+    "leglas-mcp": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "leglas": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  }
+}

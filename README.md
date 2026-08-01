@@ -143,6 +143,31 @@ because it never sees your source, so the contract has to say it.
 Every command accepts `--json` and prints a single envelope with a stable exit
 code, so an agent can drive the tool without parsing prose.
 
+### Agent hosts that cannot run a shell
+
+`@leglas/mcp` is a stdio MCP server exposing the same operations as tools:
+`start`, `add`, `list`, `classify`, `explore`, `scaffold`, `keep`,
+`requests`, and `init`. It holds no logic of its own; each tool calls
+exactly what the CLI calls and returns the same JSON envelope.
+
+Register it in your agent host from the project directory, for example in
+Claude Code:
+
+```sh
+claude mcp add leglas -- npx -y @leglas/mcp
+```
+
+or in a `.mcp.json`:
+
+```json
+{ "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "@leglas/mcp"] } } }
+```
+
+The host's working directory names the project, the same contract as the
+CLI. The `start` tool boots the viewer and returns the interface URL, and
+the server it started stops when the session ends, so a dead host never
+leaves a dev server running on a forgotten port.
+
 ### When a direction cannot be additive
 
 Most directions are additive: new files beside what exists, rendering from
@@ -327,6 +352,7 @@ pnpm typecheck   # type check every package
 | `packages/server` | Config loading, the proxy, and the local server |
 | `packages/shell` | The interface, a React application built with Vite |
 | `packages/cli` | The `leglas` binary |
+| `packages/mcp` | The `leglas-mcp` stdio server for agent hosts |
 
 To work on the interface with live reload, run a Leglas server in one
 terminal and `pnpm --filter @leglas/shell dev` in another. The dev server
