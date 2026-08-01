@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
+import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { renderedSignature, twinsOf } from "./rendered.js";
 import { clampWidget, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
@@ -312,12 +313,17 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    *
    * Next and others paint a floating indicator over the running app. It is
    * tooling rather than design, it lands on top of the corner being judged,
-   * and with four of them open it is four badges.
+   * and with two panes open it is two badges.
    *
-   * Injected into the frame's document rather than rewritten into the proxied
-   * response, deliberately: the bytes Leglas forwards stay exactly what the
-   * dev server sent, so this is a viewing preference and never a change to the
-   * app. Toggling it off restores the badge without a reload.
+   * Error overlays are deliberately left alone. Next renders its badge and its
+   * error modals into one `nextjs-portal` element, so hiding the host would
+   * suppress every compilation and runtime error it reports, leaving a stale
+   * or blank preview looking healthy. Its shadow root is open and the badge is
+   * one identifiable child, so this reaches in for that child alone.
+   *
+   * Injected into the frame rather than rewritten into the proxied response,
+   * deliberately: the bytes Leglas forwards stay exactly what the dev server
+   * sent, so this is a viewing preference and never a change to the app.
    */
   const applyOverlayPref = (frame: HTMLIFrameElement, hide: boolean) => {
     let doc: Document | null = null;
@@ -329,20 +335,26 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     if (!doc?.head) return;
 
     const ID = "leglas-hide-dev-overlays";
-    const existing = doc.getElementById(ID);
-    if (!hide) {
-      existing?.remove();
-      return;
-    }
-    if (existing) return;
+    // `find` and `into` differ: a style is looked up on the document but has to
+    // be appended to its head, because a Document may hold only one element.
+    const put = (find: Document | ShadowRoot, into: Node, css: string) => {
+      const existing = find.getElementById(ID);
+      if (!hide) {
+        existing?.remove();
+        return;
+      }
+      if (existing) return;
+      const style = (doc as Document).createElement("style");
+      style.id = ID;
+      style.textContent = css;
+      into.appendChild(style);
+    };
 
-    const style = doc.createElement("style");
-    style.id = ID;
-    // Next's dev tools render into a portal element; the others are the
-    // common custom elements shipped by dev builds.
-    style.textContent = `nextjs-portal,[data-nextjs-toolbar],#__next-build-watcher,
-      vite-error-overlay,#nuxt-devtools-anchor,astro-dev-toolbar{display:none!important}`;
-    doc.head.appendChild(style);
+    put(doc, doc.head, BADGE_CSS);
+    for (const portal of doc.querySelectorAll("nextjs-portal")) {
+      const root = portal.shadowRoot;
+      if (root) put(root, root, NEXT_BADGE_CSS);
+    }
   };
 
   /**
