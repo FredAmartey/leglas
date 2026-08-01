@@ -1,0 +1,65 @@
+name: Publish
+
+# Releases are tag-driven: land the version bump, push v<version>, and this
+# publishes both packages. Nothing here holds a credential. npm trusts this
+# workflow, in this repository, through OIDC, so the long-lived token that
+# would otherwise sit in repository secrets does not exist at all. That is
+# the point: a publish token is what the registry's worms harvest, and npm
+# is removing direct publish from such tokens anyway.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # lets GitHub mint the OIDC token npm verifies
+
+jobs:
+  publish:
+    # OIDC works only on cloud-hosted runners; a self-hosted one cannot publish.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6 # version comes from packageManager
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # A tag that disagrees with the version publishes the wrong thing, or
+      # fails deep in the release with a confusing "already published".
+      - name: Refuse a tag that does not match the version
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          for package in cli mcp; do
+            declared=$(node -p "require('./packages/$package/package.json').version")
+            if [ "$tagged" != "$declared" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match packages/$package at $declared." >&2
+              exit 1
+            fi
+          done
+
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # pnpm rather than npm: leglas-mcp depends on leglas through workspace:^,
+      # and pnpm is what rewrites that to a real range when packing.
+      # --no-git-checks because a tag is a detached HEAD, and prepack writes the
+      # README into the package directory before packing.
+      #
+      # No NODE_AUTH_TOKEN anywhere, deliberately. npm falls back to OIDC only
+      # when it finds no token, and an empty string counts as a token.
+      - name: Publish leglas
+        run: pnpm publish --access public --no-git-checks
+        working-directory: packages/cli
+
+      - name: Publish leglas-mcp
+        run: pnpm publish --access public --no-git-checks
+        working-directory: packages/mcp

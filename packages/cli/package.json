@@ -3,6 +3,12 @@
   "version": "0.1.1",
   "description": "Compare design directions inside your own running app.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FredAmartey/leglas.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/FredAmartey/leglas#readme",
   "type": "module",
   "keywords": [
     "design",

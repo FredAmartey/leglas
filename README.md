@@ -386,6 +386,13 @@ To work on the interface with live reload, run a Leglas server in one
 terminal and `pnpm --filter @leglas/shell dev` in another. The dev server
 proxies the API through to port 4100.
 
+Two packages are published, both unscoped: `leglas`, which bundles the
+server and the built interface so one install is the whole tool, and
+`leglas-mcp`. Releases are tag-driven. Bump both versions, commit, and
+push a `v<version>` tag; GitHub Actions runs the suite and publishes
+through npm's trusted publishing, so no npm token exists anywhere in the
+project.
+
 ## License
 
 MIT
