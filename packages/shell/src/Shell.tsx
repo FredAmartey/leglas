@@ -345,6 +345,24 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     doc.head.appendChild(style);
   };
 
+  /**
+   * Re-apply to every frame after each render.
+   *
+   * Doing this only on load is not enough: a fresh iframe fires load for its
+   * initial about:blank document before navigating to its real src, so the
+   * style lands in a document that is then thrown away. That is why a real
+   * Next badge stayed visible while the preference said otherwise.
+   *
+   * The work is idempotent and skips a frame that already has the style, so
+   * running it on every render costs a lookup per pane and removes the
+   * dependence on catching one particular event.
+   */
+  useEffect(() => {
+    for (const frame of document.querySelectorAll("iframe")) {
+      applyOverlayPref(frame as HTMLIFrameElement, st.prefs.hideDevOverlays);
+    }
+  });
+
   const readRendered = (title: string, frame: HTMLIFrameElement) => {
     // Cross-origin panes are unreadable by design; a branch preview or a
     // deployed URL simply goes uncompared.
@@ -926,7 +944,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     // frame has had a chance to paint rather than at load.
                     const frame = event.currentTarget;
                     applyOverlayPref(frame, st.prefs.hideDevOverlays);
-                    window.setTimeout(() => readRendered(title, frame), 600);
+                    window.setTimeout(() => {
+                      applyOverlayPref(frame, st.prefs.hideDevOverlays);
+                      readRendered(title, frame);
+                    }, 600);
                   } else {
                     setErrored((current) => ({ ...current, [title]: true }));
                   }
