@@ -194,7 +194,7 @@ answered, and any configuration errors.
 | Key | Action |
 | --- | --- |
 | Up, Down | Move between directions |
-| `\` | Split the stage and compare two directions |
+| `\` | Split the stage against the direction you were last on |
 | `/` | Focus search |
 | `[` | Collapse or open the rail |
 | Escape | Clear search, or close the tools popover |
