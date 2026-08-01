@@ -230,76 +230,20 @@ not preview, and the interface says so rather than showing an empty pane.
 
 ## When two directions render the same page
 
-Leglas compares what your previews actually render and warns when two of
-them are identical. This catches the failure that is otherwise invisible: a
-typo like `?v-hero=wavee` that your app ignores, serving its default page
-while the rail implies you are comparing something.
+Leglas compares what each preview actually draws and warns when two of them are
+identical. This catches the failure that is otherwise invisible: a typo like
+`?v-hero=wavee` that your app ignores, serving its default page while the rail
+implies you are comparing something.
 
-The comparison ignores hydration payloads and per-request values such as
-nonces, so it reflects what was drawn rather than how the framework
-serialised it. The check runs once at startup and never blocks the
-interface. If it fails, the rail is unaffected.
+The comparison reads the rendered page rather than the server's response, so it
+works whether your app renders on the server or in the browser. A single-page
+app returns the same HTML for every URL, which makes any server-side comparison
+useless there.
 
-It stays silent for client-rendered apps. A single-page app serves one shell
-for every URL and picks the direction in the browser, so the server cannot say
-which is which. A warning that is wrong would be worse than none.
-
-### Comparing branches
-
-A preview can name a git branch instead of pointing at the server you are
-running:
-
-```ts
-export default {
-  devCommand: "pnpm dev --port {port}",
-  previews: [
-    { title: "Main", url: "/" },
-    { title: "Redesign", url: "/", branch: "feature/new-hero" },
-  ],
-};
-```
-
-Leglas checks that branch out into `.leglas/worktrees/`, installs, starts it on
-a free port, and waits until it answers. The preview then behaves like any
-other: same rail, same viewports, same flipping. On exit the checkout is
-removed and its dev server stopped.
-
-The checkout is detached, so previewing a branch never collides with that
-branch being checked out in your own working tree. A branch that fails to
-install or start is reported and skipped rather than taking down the previews
-that do work.
-
-This is the exception rather than the rule. Directions that can render from the
-server you already have should, because that is what makes switching instant.
-Branches genuinely cannot, so they pay the cost of a checkout.
-
-### When your dev server restarts
-
-Restarting a dev server is routine, and Leglas watches for it rather than
-letting each preview discover the outage on its own.
-
-While it is down the rail says so, previews fail immediately instead of
-waiting out a timeout, and any pane still showing a render from before the
-outage is marked stale. That last one matters most: a preview quietly
-presenting an old render as if it were current is worse than one that admits
-it is broken.
-
-When the server answers again, the previews that failed reload themselves.
-
-### Keeping a winner
-
-`leglas keep "Aurora" --to src/components/hero.tsx` moves that direction out of
-the ignored directory into real source, renames its export to suit its new
-home, deletes the rest of the exploration, and drops those directions from the
-rail. The one step left to you is pointing your component at the kept
-component instead of the switcher.
-
-This works because Leglas knows where it put those files. A direction whose URL
-it did not generate is refused rather than guessed at, and a destination inside
-`.leglas/` or outside the project is refused too.
-
-Exploring is only worth starting if finishing is cheap, which is what this
-command is for.
+Previews are compared once they have been opened, and a preview served from
+another origin is never compared, because the browser will not let one page read
+another origin's content. Nothing here blocks the interface, and it stays quiet
+rather than guessing.
 
 ## Limitations
 

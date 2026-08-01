@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
+import { renderedSignature, twinsOf } from "./rendered.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
@@ -221,29 +222,31 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   }, [health.reachable, health.wasDown]);
 
   // A declared URL can silently lie: a typo the app ignores serves the default
-  // page, so two directions render identically and the comparison is empty.
-  // Asked for once at startup, and never allowed to break anything if it fails.
-  const [twins, setTwins] = useState<Record<string, string[]>>({});
+  // page, so two directions draw the same thing and the comparison is empty.
+  // Read from what each pane actually rendered, which is the claim being made
+  // on screen and the only thing that works for a client-rendered app.
+  const [signatures, setSignatures] = useState<Record<string, string | null>>({});
+  const twins = twinsOf(signatures);
 
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/leglas/api/duplicates")
-      .then((response) => response.json() as Promise<{ groups: string[][] }>)
-      .then(({ groups }) => {
-        if (cancelled) return;
-        const next: Record<string, string[]> = {};
-        for (const group of groups) {
-          for (const title of group) next[title] = group.filter((other) => other !== title);
-        }
-        setTwins(next);
-      })
-      .catch(() => {
-        // A courtesy check; its failure is not the user's problem.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const readRendered = (title: string, frame: HTMLIFrameElement) => {
+    // Cross-origin panes are unreadable by design; a branch preview or a
+    // deployed URL simply goes uncompared.
+    let doc: Document | null = null;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      return;
+    }
+    if (!doc?.body) return;
+
+    const tags = [...doc.body.querySelectorAll("*")]
+      .slice(0, 400)
+      .map((element) => element.tagName);
+    const signature = renderedSignature(doc.body.innerText ?? "", tags);
+    setSignatures((current) =>
+      current[title] === signature ? current : { ...current, [title]: signature },
+    );
+  };
 
   useEffect(() => {
     if (st.loaded[st.active] || errored[st.active]) return;
@@ -735,6 +738,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   if (ok) {
                     st.markLoaded(title);
                     setErrored((current) => (current[title] ? { ...current, [title]: false } : current));
+                    // A client-rendered app draws after load, so read once the
+                    // frame has had a chance to paint rather than at load.
+                    const frame = event.currentTarget;
+                    window.setTimeout(() => readRendered(title, frame), 600);
                   } else {
                     setErrored((current) => ({ ...current, [title]: true }));
                   }

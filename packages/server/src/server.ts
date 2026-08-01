@@ -4,7 +4,6 @@ import net from "node:net";
 import { extname, join, normalize } from "node:path";
 
 import type { LeglasConfig } from "./config.js";
-import { findDuplicates } from "./duplicates.js";
 import { createProxyHandler } from "./proxy.js";
 import { appendRequest, composeRequest } from "./requests.js";
 
@@ -195,18 +194,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           // so the copy path keeps working when the disk does not.
           .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
       });
-    }
-
-    if (path === `${LEGLAS_PREFIX}/api/duplicates`) {
-      // Fetched through this server, so relative preview URLs resolve exactly
-      // as the browser resolves them in a pane.
-      const origin = `http://127.0.0.1:${port}`;
-      return void findDuplicates(config?.previews ?? [], async (previewUrl) => {
-        const response = await fetch(`${origin}${previewUrl}`);
-        return response.text();
-      })
-        .then((groups) => sendJson(res, 200, { groups }))
-        .catch(() => sendJson(res, 200, { groups: [] }));
     }
 
     if (path === `${LEGLAS_PREFIX}/api/health`) {
