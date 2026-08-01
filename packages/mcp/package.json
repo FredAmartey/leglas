@@ -1,6 +1,6 @@
 {
-  "name": "@leglas/mcp",
-  "version": "0.0.0",
+  "name": "leglas-mcp",
+  "version": "0.1.0",
   "description": "Stdio MCP server exposing Leglas to agent hosts that cannot run a shell.",
   "type": "module",
   "bin": {
@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "leglas": "workspace:*",
+    "leglas": "workspace:^",
     "zod": "^3.25.76"
   },
   "license": "MIT",

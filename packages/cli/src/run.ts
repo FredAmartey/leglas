@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   FILES_PREFIX,
@@ -20,12 +21,15 @@ import {
 import type { RunOptions } from "./args.js";
 
 /**
- * Locate the built interface. Resolved through the package graph rather than
- * a relative path, so it works the same from the workspace and from an
- * installed copy. A missing build is survivable: the server falls back to a
- * placeholder rather than refusing to start.
+ * Locate the built interface. The published package is self-contained, with
+ * the shell bundled beside this file at dist/shell/, so that is looked for
+ * first; the workspace resolves it through the package graph instead. A
+ * missing build is survivable: the server falls back to a placeholder rather
+ * than refusing to start.
  */
 function findShellDir(): string | null {
+  const bundled = join(dirname(fileURLToPath(import.meta.url)), "shell");
+  if (existsSync(join(bundled, "index.html"))) return bundled;
   try {
     const require = createRequire(import.meta.url);
     return dirname(require.resolve("@leglas/shell/dist/index.html"));

@@ -1,6 +1,6 @@
 {
   "name": "leglas",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Compare design directions inside your own running app.",
   "license": "MIT",
   "type": "module",
@@ -21,12 +21,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "build": "tsup && tsc -p tsconfig.declarations.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "cp ../../README.md ./README.md"
   },
-  "dependencies": {
+  "devDependencies": {
     "@leglas/server": "workspace:*",
-    "@leglas/shell": "workspace:*"
+    "@leglas/shell": "workspace:*",
+    "tsup": "^8.5.0"
   },
   "engines": {
     "node": ">=24"

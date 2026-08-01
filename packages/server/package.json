@@ -1,6 +1,7 @@
 {
   "name": "@leglas/server",
   "version": "0.0.0",
+  "private": true,
   "description": "Local server: serves the shell, proxies the target dev server, loads config.",
   "type": "module",
   "main": "./dist/index.js",

@@ -146,7 +146,7 @@ code, so an agent can drive the tool without parsing prose.
 
 ### Agent hosts that cannot run a shell
 
-`@leglas/mcp` is a stdio MCP server exposing the same operations as tools:
+`leglas-mcp` is a stdio MCP server exposing the same operations as tools:
 `start`, `add`, `list`, `classify`, `explore`, `scaffold`, `keep`,
 `requests`, and `init`. It holds no logic of its own; each tool calls
 exactly what the CLI calls and returns the same JSON envelope.
@@ -155,13 +155,13 @@ Register it in your agent host from the project directory, for example in
 Claude Code:
 
 ```sh
-claude mcp add leglas -- npx -y @leglas/mcp
+claude mcp add leglas -- npx -y leglas-mcp
 ```
 
 or in a `.mcp.json`:
 
 ```json
-{ "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "@leglas/mcp"] } } }
+{ "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "leglas-mcp"] } } }
 ```
 
 The host's working directory names the project, the same contract as the

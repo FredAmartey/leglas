@@ -1,6 +1,7 @@
 {
   "name": "@leglas/shell",
   "version": "0.0.0",
+  "private": true,
   "description": "The Leglas interface: a React SPA served by the local server.",
   "type": "module",
   "scripts": {
