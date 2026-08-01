@@ -11,10 +11,11 @@ export type RunOptions = {
 
 export type AddPreview = {
   title: string;
-  url: string;
+  url: string | undefined;
   note: string | undefined;
   tags: string[] | undefined;
   branch: string | undefined;
+  file: string | undefined;
 };
 
 export type ClassifyChange = {
@@ -102,6 +103,7 @@ function parseAdd(rest: string[]): ParseResult {
   let url: string | undefined;
   let note: string | undefined;
   let branch: string | undefined;
+  let file: string | undefined;
   const tags: string[] = [];
   let json = false;
 
@@ -123,7 +125,7 @@ function parseAdd(rest: string[]): ParseResult {
       value = argument.slice(equals + 1);
     }
 
-    if (!["--title", "--url", "--note", "--tag", "--branch"].includes(flag)) {
+    if (!["--title", "--url", "--note", "--tag", "--branch", "--file"].includes(flag)) {
       return { kind: "error", message: `leglas add does not take ${flag}.` };
     }
     if (value === undefined || value === "") {
@@ -134,19 +136,24 @@ function parseAdd(rest: string[]): ParseResult {
     else if (flag === "--url") url = value;
     else if (flag === "--note") note = value;
     else if (flag === "--branch") branch = value;
+    else if (flag === "--file") file = value;
     else tags.push(value);
   }
 
   if (title === undefined) {
     return { kind: "error", message: "leglas add needs --title, which is how the preview is identified." };
   }
-  if (url === undefined) {
-    return { kind: "error", message: "leglas add needs --url, for example --url '/?v-hero=aurora'." };
+  if (url === undefined && file === undefined) {
+    return {
+      kind: "error",
+      message:
+        "leglas add needs --url (for example --url '/?v-hero=aurora') or --file for a page Leglas serves itself.",
+    };
   }
 
   return {
     kind: "add",
-    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined, branch },
+    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined, branch, file },
     json,
   };
 }

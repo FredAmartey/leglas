@@ -47,7 +47,8 @@ export function targetFor(url: string): string | null {
  * taking over generation.
  */
 export function composeRequest(preview: Preview, intent: string): ComposedRequest {
-  const target = targetFor(preview.url);
+  // A file-backed preview names its own source; a URL has to be decoded.
+  const target = preview.file ?? targetFor(preview.url);
   const cleaned = intent.trim();
 
   const where =

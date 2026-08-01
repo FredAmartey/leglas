@@ -54,6 +54,7 @@ export async function runAdd(
       note: options.preview.note,
       tags: options.preview.tags,
       branch: options.preview.branch,
+      file: options.preview.file,
     },
     shared,
   );
@@ -77,15 +78,18 @@ export async function runAdd(
   if (options.json) {
     envelope(deps, true, {
       added: options.preview.title,
-      url: options.preview.url,
+      ...(options.preview.url === undefined ? {} : { url: options.preview.url }),
       local: true,
       ...(options.preview.branch === undefined ? {} : { branch: options.preview.branch }),
+      ...(options.preview.file === undefined ? {} : { file: options.preview.file }),
       ...(needsDevCommand
         ? { warning: "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config." }
         : {}),
     });
   } else {
-    deps.log(`  added  ${options.preview.title}  ${options.preview.url}`);
+    deps.log(
+      `  added  ${options.preview.title}  ${options.preview.url ?? options.preview.file ?? ""}`,
+    );
     deps.log("");
     if (needsDevCommand) {
       deps.log("  ! The config sets no devCommand, so Leglas cannot start this branch yet.");
@@ -117,6 +121,7 @@ export async function runList(
         url: preview.url,
         local: preview.local,
         branch: preview.branch ?? null,
+        file: preview.file ?? null,
       })),
       errors,
     });
@@ -129,10 +134,12 @@ export async function runList(
     const width = Math.max(...previews.map((preview) => preview.title.length));
     for (const preview of previews) {
       // A branch-backed preview does not live in the tree the user's editor
-      // has open, so the listing says where it comes from.
+      // has open, so the listing says where it comes from. A file preview's
+      // url is assigned at boot, so its file is the honest thing to show.
+      const source = preview.file ?? preview.url;
       const origin = preview.branch === undefined ? "" : `  (branch ${preview.branch})`;
       const scope = preview.local ? "  (local)" : "";
-      deps.log(`  ${preview.title.padEnd(width)}  ${preview.url}${origin}${scope}`);
+      deps.log(`  ${preview.title.padEnd(width)}  ${source}${origin}${scope}`);
     }
   }
 

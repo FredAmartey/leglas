@@ -74,6 +74,11 @@ Useful to know:
 
 - \`.leglas/\` is gitignored. Exploration is disposable and nothing in there
   ships. Move a direction into real source only when it wins.
+- If the project has no running app yet, a direction can be a plain HTML
+  file: write it under \`.leglas/pages/\` and register it with
+  \`leglas add --title "Aurora" --file .leglas/pages/aurora.html\`. Leglas
+  serves the file itself, so no dev server is needed. Sibling assets in the
+  same directory resolve normally.
 - Titles identify previews and must be unique.
 - \`leglas list\` shows every direction, shared and local.
 - Every command accepts \`--json\` and prints one envelope with a stable exit

@@ -100,15 +100,20 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
         "Use branch for a direction that lives on its own git branch.",
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),
-        url: z.string().min(1).describe('Root-relative ("/?v-hero=aurora") or absolute URL.'),
+        url: z.string().min(1).optional()
+          .describe('Root-relative ("/?v-hero=aurora") or absolute URL. Omit for a file preview.'),
         note: z.string().optional().describe("One line on the idea, shown under the title."),
         tags: z.array(z.string()).optional(),
         branch: z.string().optional()
           .describe("Back the preview with a checkout of this git branch."),
+        file: z.string().optional()
+          .describe("Project-relative HTML file for Leglas to serve itself; no dev server needed."),
       },
     },
-    async ({ title, url, note, tags, branch }) =>
-      capture((deps) => runAdd({ preview: { title, url, note, tags, branch }, json: true, cwd }, deps)),
+    async ({ title, url, note, tags, branch, file }) =>
+      capture((deps) =>
+        runAdd({ preview: { title, url, note, tags, branch, file }, json: true, cwd }, deps),
+      ),
   );
 
   server.registerTool(

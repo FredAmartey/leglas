@@ -177,3 +177,45 @@ describe("branch-backed local previews", () => {
     expect(outcome.error).toContain("branch");
   });
 });
+
+describe("file-backed local previews", () => {
+  test("stores the file and no url, and reads back cleanly", async () => {
+    const dir = scratch();
+
+    const outcome = await addLocalPreview(
+      dir,
+      { title: "Aurora", file: ".leglas/pages/aurora.html" },
+      shared,
+    );
+
+    expect(outcome.ok).toBe(true);
+    const result = await readLocalPreviews(dir);
+    expect(result.errors).toEqual([]);
+    expect(result.previews[0]?.file).toBe(".leglas/pages/aurora.html");
+  });
+
+  test("survives a second add: the filled-in empty url must not round-trip", async () => {
+    const dir = scratch();
+    await addLocalPreview(dir, { title: "Aurora", file: ".leglas/pages/aurora.html" }, shared);
+
+    const outcome = await addLocalPreview(dir, { title: "Ember", url: "/?v-hero=ember" }, shared);
+
+    expect(outcome.ok).toBe(true);
+    const written = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8"));
+    expect(written.previews[0]).not.toHaveProperty("url");
+    const result = await readLocalPreviews(dir);
+    expect(result.errors).toEqual([]);
+    expect(result.previews).toHaveLength(2);
+  });
+
+  test("refuses a file that could escape the project", async () => {
+    const outcome = await addLocalPreview(
+      scratch(),
+      { title: "Bad", file: "../../outside.html" },
+      shared,
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toContain("file");
+  });
+});

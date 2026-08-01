@@ -1,13 +1,19 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 
 import {
+  FILES_PREFIX,
   LEGLAS_PREFIX,
   loadConfig,
+  probe,
   readLocalPreviews,
+  startAppProcess,
   startServer,
   startWorktree,
+  worktreeSlug,
   type Preview,
+  type RunningApp,
   type RunningWorktree,
 } from "@leglas/server";
 
@@ -57,7 +63,7 @@ export async function run(
   const loaded = await loadConfig(options.cwd);
   const local = await readLocalPreviews(options.cwd);
 
-  const devServer =
+  let devServer =
     options.userPort === undefined
       ? loaded.config?.devServer ?? "http://localhost:3000"
       : `http://localhost:${options.userPort}`;
@@ -69,14 +75,65 @@ export async function run(
       ? null
       : { ...loaded.config, devServer, previews: [...loaded.config.previews, ...local.previews] };
 
-  // A preview naming a branch is served by Leglas rather than by the dev server
-  // the user is running, so it has to be brought up before the interface can
-  // point at it. Isolation is the exception here: only these pay the cost.
   const worktrees: RunningWorktree[] = [];
   const worktreeErrors: string[] = [];
   const previews: Preview[] = [];
 
+  // The greenfield case, half one: nothing is listening, but the config says
+  // how to start the app, so Leglas starts it the way it already starts a
+  // checkout. Skipped when --user-port named a server explicitly: starting a
+  // different one behind that flag would lie about what is being previewed.
+  let app: RunningApp | null = null;
+  const needsApp = (merged?.previews ?? []).some(
+    (preview) =>
+      preview.file === undefined && preview.branch === undefined && preview.url.startsWith("/"),
+  );
+  if (
+    needsApp &&
+    merged?.devCommand !== undefined &&
+    options.userPort === undefined &&
+    !(await probe(devServer))
+  ) {
+    if (!options.json) deps.log(`  starting your app (${merged.devCommand})…`);
+    try {
+      app = await startAppProcess({
+        cwd: options.cwd,
+        devCommand: merged.devCommand,
+        label: "your app",
+      });
+      devServer = app.url;
+      merged.devServer = app.url;
+    } catch (error) {
+      worktreeErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Previews served by Leglas itself rather than by the user's dev server: a
+  // branch is brought up in its own checkout, and a file's directory is
+  // mounted under the Leglas origin, which is the greenfield case, half two.
+  // Isolation is the exception here: only branches pay a boot.
+  const fileMounts = new Map<string, string>();
+
   for (const preview of merged?.previews ?? []) {
+    if (preview.file !== undefined) {
+      const absolute = join(options.cwd, preview.file);
+      if (!existsSync(absolute)) {
+        worktreeErrors.push(
+          `"${preview.title}" names file ${preview.file}, which does not exist. The preview is skipped.`,
+        );
+        continue;
+      }
+      let slug = worktreeSlug(preview.title) || "file";
+      for (let suffix = 2; fileMounts.has(slug); suffix += 1) {
+        slug = `${worktreeSlug(preview.title) || "file"}-${suffix}`;
+      }
+      fileMounts.set(slug, dirname(absolute));
+      previews.push({
+        ...preview,
+        url: `${FILES_PREFIX}/${slug}/${encodeURIComponent(basename(absolute))}`,
+      });
+      continue;
+    }
     if (preview.branch === undefined) {
       previews.push(preview);
       continue;
@@ -114,6 +171,7 @@ export async function run(
   const server = await startServer({
     config,
     configErrors: [...loaded.errors, ...local.errors, ...worktreeErrors],
+    fileMounts,
     shellDir: findShellDir(),
     // The config file identifies the project when there is one; otherwise the
     // directory does. Either way saved layout survives a port change.
@@ -138,6 +196,7 @@ export async function run(
         port: server.port,
         devServer,
         devServerReachable: health.reachable,
+        startedApp: app !== null,
         previews: previewCount,
         config: loaded.path,
         errors: loaded.errors,
@@ -150,7 +209,9 @@ export async function run(
         : relative(options.cwd, loaded.path) || loaded.path;
 
     deps.log(`Leglas   ${url}`);
-    deps.log(`app      ${devServer}${health.reachable ? "" : "  (not reachable)"}`);
+    deps.log(
+      `app      ${devServer}${app !== null ? "  (started by Leglas)" : health.reachable ? "" : "  (not reachable)"}`,
+    );
     deps.log(`config   ${configLabel}`);
     deps.log(`          ${previewCount} preview${previewCount === 1 ? "" : "s"}`);
 
@@ -160,10 +221,13 @@ export async function run(
       deps.log("  Fix the config and reload; Leglas will pick it up on restart.");
     }
 
-    if (!health.reachable) {
+    if (!health.reachable && needsApp) {
       deps.log("");
       deps.log(`  ! ${devServer} is not reachable. Start your dev server, or`);
       deps.log("    point Leglas elsewhere with --user-port.");
+      if (merged?.devCommand === undefined) {
+        deps.log("    Set devCommand in the config and Leglas will start it for you.");
+      }
     }
   }
 
@@ -175,9 +239,10 @@ export async function run(
     devServer,
     previewCount,
     stop: async () => {
-      // Checkouts go before the server, so a stopped Leglas never leaves a dev
-      // server running on a port nobody remembers.
+      // Everything Leglas started goes before the server, so a stopped Leglas
+      // never leaves a dev server running on a port nobody remembers.
       await Promise.all(worktrees.map((worktree) => worktree.stop().catch(() => {})));
+      await app?.stop().catch(() => {});
       await server.close();
     },
   };

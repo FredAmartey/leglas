@@ -19,6 +19,12 @@ export type RunningWorktree = {
   stop(): Promise<void>;
 };
 
+export type RunningApp = {
+  port: number;
+  url: string;
+  stop(): Promise<void>;
+};
+
 /** A branch name flattened into one directory name. */
 export function worktreeSlug(branch: string): string {
   return branch
@@ -114,11 +120,53 @@ export async function startWorktree(options: {
     throw new Error(`Install failed in ${options.branch}: ${detail.split("\n")[0]}`);
   }
 
+  try {
+    const app = await startAppProcess({
+      cwd: path,
+      devCommand: options.devCommand,
+      label: options.branch,
+      readyTimeoutMs,
+      onLog: log,
+    });
+    return {
+      branch: options.branch,
+      path,
+      port: app.port,
+      url: app.url,
+      stop: async () => {
+        await app.stop();
+        await cleanup();
+      },
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
+/**
+ * Start a dev server with its command and wait until it answers.
+ *
+ * Shared by the two places Leglas owns an app process: a worktree checkout,
+ * and the project's own app when nothing is listening and the config says how
+ * to start one (the greenfield case).
+ */
+export async function startAppProcess(options: {
+  cwd: string;
+  devCommand: string;
+  /** How the process is named in errors: a branch, or "your app". */
+  label: string;
+  readyTimeoutMs?: number;
+  onLog?: (line: string) => void;
+}): Promise<RunningApp> {
+  const readyTimeoutMs = options.readyTimeoutMs ?? 90_000;
+  const log = options.onLog ?? (() => {});
+
   const port = await freePort();
   let child: ChildProcess;
   try {
     child = spawn(substitutePort(options.devCommand, port), {
-      cwd: path,
+      cwd: options.cwd,
       shell: true,
       // Own process group, so stopping kills the shell and whatever it spawned
       // rather than orphaning a dev server holding the port.
@@ -126,9 +174,8 @@ export async function startWorktree(options: {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    await cleanup();
     throw new Error(
-      `Could not start ${options.branch}: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not start ${options.label}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
@@ -145,26 +192,24 @@ export async function startWorktree(options: {
     } catch {
       child.kill("SIGTERM");
     }
-    await cleanup();
   };
 
   const deadline = Date.now() + readyTimeoutMs;
   while (Date.now() < deadline) {
     if (exited !== null) {
-      await cleanup();
       throw new Error(
-        `${options.branch} did not start: its dev command exited with code ${exited}.`,
+        `${options.label} did not start: its dev command exited with code ${exited}.`,
       );
     }
     if (await answers(port)) {
-      return { branch: options.branch, path, port, url: `http://127.0.0.1:${port}`, stop };
+      return { port, url: `http://127.0.0.1:${port}`, stop };
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
   await stop();
   throw new Error(
-    `${options.branch} did not start within ${Math.round(readyTimeoutMs / 1000)}s. ` +
+    `${options.label} did not start within ${Math.round(readyTimeoutMs / 1000)}s. ` +
       `Check that its dev command serves the port it is given.`,
   );
 }

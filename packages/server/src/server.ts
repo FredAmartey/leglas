@@ -17,12 +17,24 @@ const PORT_ATTEMPTS = 20;
 
 const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
   ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
+
+/** Where file-backed previews are served from, under the Leglas prefix. */
+export const FILES_PREFIX = `${LEGLAS_PREFIX}/files`;
 
 export type ServerOptions = {
   /** Null when the config failed validation; errors are served instead. */
@@ -39,6 +51,12 @@ export type ServerOptions = {
   project?: string;
   /** Project root, where the request queue is written. */
   cwd?: string;
+  /**
+   * Directories served under FILES_PREFIX, keyed by mount slug. This is how a
+   * file-backed preview renders with no dev server at all: the whole
+   * directory is mounted, so a page's sibling assets resolve too.
+   */
+  fileMounts?: ReadonlyMap<string, string>;
 };
 
 export type RunningServer = {
@@ -61,7 +79,7 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
  * request, because a framework mid-compile may accept the socket long before
  * it answers, and "starting up" should read as reachable.
  */
-function probe(target: string, timeoutMs = 1000): Promise<boolean> {
+export function probe(target: string, timeoutMs = 1000): Promise<boolean> {
   return new Promise((resolve) => {
     let url: URL;
     try {
@@ -84,15 +102,12 @@ function probe(target: string, timeoutMs = 1000): Promise<boolean> {
   });
 }
 
-function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: string): boolean {
-  // normalize() collapses ".." before it can escape the shell directory.
-  const relative = normalize(urlPath.slice(LEGLAS_PREFIX.length)).replace(/^(\.\.[/\\])+/, "");
-  // normalize("") is ".", and a bare "/leglas" or "/leglas/" both mean the root
-  // document, so all three resolve to index.html.
-  const isRoot = relative === "" || relative === "." || relative === "/";
-  const candidate = join(shellDir, isRoot ? "index.html" : relative);
+/** Serve one file from inside a directory, refusing anything that escapes it. */
+function serveFrom(res: http.ServerResponse, dir: string, relativePath: string): boolean {
+  const relative = normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
+  const candidate = join(dir, relative);
 
-  if (!candidate.startsWith(shellDir)) return false;
+  if (!candidate.startsWith(dir)) return false;
   if (!existsSync(candidate) || !statSync(candidate).isFile()) return false;
 
   res.writeHead(200, {
@@ -101,6 +116,15 @@ function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: str
   });
   createReadStream(candidate).pipe(res);
   return true;
+}
+
+function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: string): boolean {
+  // normalize() collapses ".." before it can escape the shell directory.
+  const relative = normalize(urlPath.slice(LEGLAS_PREFIX.length)).replace(/^(\.\.[/\\])+/, "");
+  // normalize("") is ".", and a bare "/leglas" or "/leglas/" both mean the root
+  // document, so all three resolve to index.html.
+  const isRoot = relative === "" || relative === "." || relative === "/";
+  return serveFrom(res, shellDir, isRoot ? "index.html" : relative);
 }
 
 const PLACEHOLDER = `<!doctype html>
@@ -151,7 +175,14 @@ async function bind(server: http.Server, requested: number): Promise<number> {
 }
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
-  const { config, configErrors = [], shellDir = null, project = "", cwd = process.cwd() } = options;
+  const {
+    config,
+    configErrors = [],
+    shellDir = null,
+    project = "",
+    cwd = process.cwd(),
+    fileMounts = new Map<string, string>(),
+  } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
 
@@ -200,6 +231,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return void probe(target).then((reachable) =>
         sendJson(res, 200, { devServer: target, reachable }),
       );
+    }
+
+    if (path.startsWith(`${FILES_PREFIX}/`)) {
+      const rest = path.slice(FILES_PREFIX.length + 1);
+      const slash = rest.indexOf("/");
+      const slug = slash === -1 ? rest : rest.slice(0, slash);
+      let relative = slash === -1 ? "" : rest.slice(slash + 1);
+      try {
+        relative = decodeURIComponent(relative);
+      } catch {
+        relative = "";
+      }
+      const dir = fileMounts.get(slug);
+      if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      return res.end("Leglas: no such preview file.");
     }
 
     if (path === LEGLAS_PREFIX || path.startsWith(`${LEGLAS_PREFIX}/`)) {

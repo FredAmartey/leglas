@@ -167,3 +167,81 @@ describe("branch previews without a devCommand", () => {
     expect(output).toContain("PR");
   });
 });
+
+describe("greenfield", () => {
+  test("serves a file preview from the Leglas origin, with no dev server at all", async () => {
+    const dir = projectWith(
+      `export default { previews: [{ title: "Aurora", file: "pages/aurora.html" }] };`,
+    );
+    mkdirSync(join(dir, "pages"), { recursive: true });
+    writeFileSync(join(dir, "pages", "aurora.html"), "<!doctype html><h1>aurora page</h1>");
+    writeFileSync(join(dir, "pages", "style.css"), "h1{color:teal}");
+
+    const { result } = await boot(dir, { open: false });
+
+    const config = (await (
+      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
+    ).json()) as { previews: { title: string; url: string }[] };
+    const preview = config.previews[0];
+    expect(preview?.url).toContain("/leglas/files/");
+
+    const base = result.url.replace(/\/leglas$/, "");
+    const page = await fetch(`${base}${preview?.url}`);
+    expect(await page.text()).toContain("aurora page");
+
+    const asset = await fetch(`${base}${preview?.url.replace("aurora.html", "style.css")}`);
+    expect(await asset.text()).toContain("teal");
+  });
+
+  test("reports a file preview whose file does not exist, and skips it", async () => {
+    const dir = projectWith(
+      `export default { previews: [{ title: "Ghost", file: "pages/missing.html" }] };`,
+    );
+
+    const { result, output } = await boot(dir, { open: false });
+
+    expect(result.previewCount).toBe(0);
+    expect(output).toContain("does not exist");
+  });
+
+  test("starts the app itself when nothing is listening and the config says how", async () => {
+    const dir = projectWith("placeholder");
+    writeFileSync(
+      join(dir, "app.mjs"),
+      `import http from "node:http";\n` +
+        `http.createServer((q, s) => s.end("greenfield-app")).listen(Number(process.argv[2]), "127.0.0.1");\n`,
+    );
+    writeFileSync(
+      join(dir, "leglas.config.ts"),
+      `export default {\n` +
+        `  devServer: "http://127.0.0.1:1",\n` +
+        `  devCommand: "node app.mjs {port}",\n` +
+        `  previews: [{ title: "App", url: "/" }],\n` +
+        `};`,
+    );
+
+    const { result, output } = await boot(dir, { open: false });
+
+    expect(output).toContain("started by Leglas");
+    const base = result.url.replace(/\/leglas$/, "");
+    const proxied = await fetch(`${base}/`);
+    expect(await proxied.text()).toBe("greenfield-app");
+  });
+
+  test("does not start the app behind an explicit --user-port", async () => {
+    const dir = projectWith("placeholder");
+    writeFileSync(join(dir, "app.mjs"), `process.exit(0);`);
+    writeFileSync(
+      join(dir, "leglas.config.ts"),
+      `export default {\n` +
+        `  devCommand: "node app.mjs {port}",\n` +
+        `  previews: [{ title: "App", url: "/" }],\n` +
+        `};`,
+    );
+
+    const { output } = await boot(dir, { open: false, userPort: 1 });
+
+    expect(output).not.toContain("started by Leglas");
+    expect(output).toContain("not reachable");
+  });
+});

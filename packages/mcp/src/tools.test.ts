@@ -139,6 +139,18 @@ describe("the MCP face", () => {
     expect(envelope["directions"]).toHaveLength(4);
   });
 
+  test("add accepts a file preview for the greenfield case", async () => {
+    const client = await connect(scratch());
+
+    const { envelope, isError } = await call(client, "add", {
+      title: "Aurora",
+      file: ".leglas/pages/aurora.html",
+    });
+
+    expect(isError).toBe(false);
+    expect(envelope["file"]).toBe(".leglas/pages/aurora.html");
+  });
+
   test("requests is empty for a fresh project", async () => {
     const client = await connect(scratch());
 

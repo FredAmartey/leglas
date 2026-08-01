@@ -15,6 +15,13 @@ export type Preview = {
    * server the user already has running.
    */
   branch?: string | undefined;
+  /**
+   * A project-relative HTML file to preview instead of a URL. Leglas serves
+   * the file's directory itself, so a project with no dev server at all can
+   * still compare directions: the greenfield case. The url is filled in at
+   * boot, exactly as a branch preview's is.
+   */
+  file?: string | undefined;
 };
 
 export type LeglasConfig = {
@@ -75,6 +82,16 @@ function isValidPreviewUrl(value: string): boolean {
 }
 
 /**
+ * A preview file is served from inside the project, so anything absolute or
+ * climbing out of it is refused before it can name a file it should not.
+ */
+function isSafePreviewFile(value: string): boolean {
+  if (value === "" || value.startsWith("/") || value.startsWith("\\")) return false;
+  if (/^[A-Za-z]:/.test(value)) return false;
+  return !value.split(/[/\\]/).some((segment) => segment === "..");
+}
+
+/**
  * Validate and fill in a raw config. Collects every problem rather than
  * stopping at the first, so one run fixes the whole file, and returns a null
  * config when anything is wrong so callers cannot half-use a broken one.
@@ -114,6 +131,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
 
     const title = entry["title"];
     const url = entry["url"];
+    const file = entry["file"];
 
     if (typeof title !== "string" || title.trim() === "") {
       errors.push(`${at} needs a title; the rail has nothing to show without one.`);
@@ -123,7 +141,18 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       seenTitles.add(title);
     }
 
-    if (typeof url !== "string" || url.trim() === "") {
+    if (file !== undefined) {
+      // A file preview's url is Leglas's to assign at boot; declaring one too
+      // would make the entry claim two different sources.
+      if (typeof file !== "string" || !isSafePreviewFile(file)) {
+        errors.push(
+          `${at} has an unusable file ${JSON.stringify(file)}; use a path inside the project, like "directions/hero.html".`,
+        );
+      }
+      if (url !== undefined) {
+        errors.push(`${at} names a file and a url; a file preview's url is assigned by Leglas.`);
+      }
+    } else if (typeof url !== "string" || url.trim() === "") {
       errors.push(`${at} needs a url.`);
     } else if (!isValidPreviewUrl(url)) {
       errors.push(
@@ -142,6 +171,11 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
           `${at} names a branch and an absolute url; a branch preview is served by Leglas, so its url must be a path.`,
         );
       }
+      if (file !== undefined) {
+        errors.push(
+          `${at} names a branch and a file; a file preview is served by Leglas itself and has no checkout.`,
+        );
+      }
     }
 
     const tags = entry["tags"];
@@ -151,6 +185,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       note: typeof entry["note"] === "string" ? entry["note"] : undefined,
       tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : [],
       ...(typeof branch === "string" ? { branch } : {}),
+      ...(typeof file === "string" ? { file } : {}),
     });
   });
 

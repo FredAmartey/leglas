@@ -14,11 +14,14 @@ export type LocalPreview = Preview & { local: true };
 
 export type AddInput = {
   title: string;
-  url: string;
+  /** Absent for a file preview, whose url Leglas assigns at boot. */
+  url?: string | undefined;
   note?: string | undefined;
   tags?: readonly string[] | undefined;
   /** Back the preview with a checkout of this branch instead of the running server. */
   branch?: string | undefined;
+  /** A project-relative HTML file for Leglas to serve itself. */
+  file?: string | undefined;
 };
 
 export async function readLocalPreviews(
@@ -85,10 +88,11 @@ export async function addLocalPreview(
 
   const candidate = {
     title: input.title,
-    url: input.url,
+    ...(input.url === undefined ? {} : { url: input.url }),
     ...(input.note === undefined ? {} : { note: input.note }),
     ...(input.tags === undefined ? {} : { tags: input.tags }),
     ...(input.branch === undefined ? {} : { branch: input.branch }),
+    ...(input.file === undefined ? {} : { file: input.file }),
   };
 
   const check = normalizeConfig({ previews: [candidate] }, { requireDevCommand: false });
@@ -103,12 +107,7 @@ export async function addLocalPreview(
   await writeFile(
     path,
     `${JSON.stringify(
-      {
-        previews: [
-          ...existing.previews.map(({ local: _local, ...preview }) => preview),
-          candidate,
-        ],
-      },
+      { previews: [...existing.previews.map(toStored), candidate] },
       null,
       2,
     )}\n`,
@@ -116,6 +115,16 @@ export async function addLocalPreview(
   );
 
   return { ok: true };
+}
+
+/**
+ * A file preview declares no url; validation fills an empty placeholder when
+ * reading. Writing that placeholder back would make the entry claim a url and
+ * a file at once and fail its next read, so it is dropped on the way out.
+ */
+function toStored(preview: LocalPreview): Record<string, unknown> {
+  const { local: _local, url, ...rest } = preview;
+  return preview.file !== undefined && url === "" ? rest : { url, ...rest };
 }
 
 /**
@@ -133,11 +142,7 @@ export async function dropLocalPreviews(cwd: string, titles: readonly string[]):
   await mkdir(dirname(path), { recursive: true });
   await writeFile(
     path,
-    `${JSON.stringify(
-      { previews: keep.map(({ local: _local, ...preview }) => preview) },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({ previews: keep.map(toStored) }, null, 2)}\n`,
     "utf8",
   );
   return existing.previews.length - keep.length;

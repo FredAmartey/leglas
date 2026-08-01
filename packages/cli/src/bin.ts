@@ -48,6 +48,7 @@ Options for add
   --note <text>        Second line under the title
   --tag <text>         Repeatable
   --branch <name>      Back the preview with a checkout of this git branch
+  --file <path>        Preview a plain HTML file served by Leglas itself
 `;
 
 function version(): string {

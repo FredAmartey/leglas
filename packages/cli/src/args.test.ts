@@ -258,3 +258,22 @@ describe("adding a branch preview", () => {
     expect(result.preview.branch).toBeUndefined();
   });
 });
+
+describe("adding a file preview", () => {
+  test("takes a file instead of a url", () => {
+    const result = parseArgs(["add", "--title", "Aurora", "--file", ".leglas/pages/aurora.html"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.file).toBe(".leglas/pages/aurora.html");
+    expect(result.preview.url).toBeUndefined();
+  });
+
+  test("still requires a url or a file", () => {
+    const result = parseArgs(["add", "--title", "Aurora"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--file");
+  });
+});

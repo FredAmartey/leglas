@@ -109,3 +109,30 @@ describe("normalizing without the devCommand coupling", () => {
     expect(result.config).toBeNull();
   });
 });
+
+describe("previews backed by a file", () => {
+  test("accepts a file with no url, whose url Leglas assigns at boot", () => {
+    const config = ok({ previews: [{ title: "Aurora", file: ".leglas/pages/aurora.html" }] });
+
+    expect(config.previews[0]?.file).toBe(".leglas/pages/aurora.html");
+    expect(config.previews[0]?.url).toBe("");
+  });
+
+  test("rejects a file combined with a url, which claims two sources", () => {
+    expect(errors({ previews: [{ title: "A", url: "/", file: "a.html" }] })).toContain("file");
+  });
+
+  test("rejects a file combined with a branch", () => {
+    expect(
+      errors({
+        devCommand: "npm run dev -- --port {port}",
+        previews: [{ title: "A", file: "a.html", branch: "main" }],
+      }),
+    ).toContain("branch and a file");
+  });
+
+  test("rejects a file that could escape the project", () => {
+    expect(errors({ previews: [{ title: "A", file: "../outside.html" }] })).toContain("file");
+    expect(errors({ previews: [{ title: "B", file: "/etc/hosts" }] })).toContain("file");
+  });
+});

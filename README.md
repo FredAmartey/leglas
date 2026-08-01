@@ -68,12 +68,13 @@ export default {
 | Field | Required | Purpose |
 | --- | --- | --- |
 | `title` | yes | Label in the rail, and the key for your saved layout |
-| `url` | yes | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
+| `url` | unless `file` | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
 | `note` | no | Second line under the title |
 | `tags` | no | The first tag renders as a pill |
 | `branch` | no | Preview a git branch instead of the running dev server |
+| `file` | no | A project-relative HTML file served by Leglas itself, instead of `url` |
 | `devServer` | no | Defaults to `http://localhost:3000` |
-| `devCommand` | with `branch` | How to start a checkout; must contain `{port}` |
+| `devCommand` | with `branch` | How to start the app; must contain `{port}`. Also lets Leglas start your own app when nothing is listening |
 | `installCommand` | no | Defaults to `npm install` |
 
 Titles must be unique. A configuration error does not stop the server: it
@@ -305,6 +306,37 @@ serve:
 Absolute URLs load directly rather than through the proxy, so they are
 subject to the target's frame policy. A site that refuses to be framed will
 not preview, and the interface says so rather than showing an empty pane.
+
+## Starting before you have an app
+
+Leglas does not require a running app.
+
+**If the project exists but nothing is listening**, set `devCommand` in the
+config (with `{port}`) and Leglas starts your app itself on a free port,
+proxies it, and stops it when you quit, exactly as it does for branch
+checkouts. This is reported as status, never asked as a question. When
+`--user-port` names a server explicitly, Leglas never starts a different
+one behind that flag.
+
+**If there is no app at all**, a direction can be a plain HTML file:
+
+```ts
+export default {
+  previews: [
+    { title: "Aurora", file: ".leglas/pages/aurora.html" },
+    { title: "Ember", file: ".leglas/pages/ember.html" },
+  ],
+};
+```
+
+Leglas serves each file itself, from its own origin, so the full rail,
+stage, viewports, and split comparison work with no dev server anywhere.
+The file's directory is mounted rather than the lone file, so stylesheets
+and images beside it resolve normally. `leglas add --title "Aurora" --file
+.leglas/pages/aurora.html` registers one from the command line, and the
+AGENTS.md section teaches agents the same loop, so "show me three landing
+page directions" works in an empty repository. When the real app arrives,
+directions graduate to app code and nothing about the interface changes.
 
 ## When two directions render the same page
 
