@@ -30,6 +30,15 @@ export type NormalizeResult = {
   errors: string[];
 };
 
+export type NormalizeOptions = {
+  /**
+   * The shared config must pair a branch preview with a devCommand, or the
+   * checkout cannot be started. The local previews file is validated without
+   * that coupling, because its devCommand lives in the shared config.
+   */
+  requireDevCommand?: boolean;
+};
+
 /** Zero-config: with no file, preview the app root and let the user add the rest live. */
 const IMPLICIT_PREVIEW = { title: "App", url: "/" };
 
@@ -70,7 +79,8 @@ function isValidPreviewUrl(value: string): boolean {
  * stopping at the first, so one run fixes the whole file, and returns a null
  * config when anything is wrong so callers cannot half-use a broken one.
  */
-export function normalizeConfig(raw: unknown): NormalizeResult {
+export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): NormalizeResult {
+  const requireDevCommand = options.requireDevCommand ?? true;
   const errors: string[] = [];
   const source = raw === undefined || raw === null ? {} : raw;
 
@@ -154,7 +164,11 @@ export function normalizeConfig(raw: unknown): NormalizeResult {
   }
 
   // A branch preview cannot be served without knowing how to start the app.
-  if (previews.some((preview) => preview.branch !== undefined) && devCommand === undefined) {
+  if (
+    requireDevCommand &&
+    previews.some((preview) => preview.branch !== undefined) &&
+    devCommand === undefined
+  ) {
     errors.push(
       "A preview names a branch, so devCommand is required: Leglas has to start that checkout itself.",
     );

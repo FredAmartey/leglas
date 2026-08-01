@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -145,5 +145,25 @@ describe("run", () => {
     const { output } = await boot(dir);
 
     expect(output).toContain("leglas.config.ts");
+  });
+});
+
+describe("branch previews without a devCommand", () => {
+  test("reports the missing devCommand and skips the preview instead of showing the wrong server", async () => {
+    const port = await startOrigin();
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
+    );
+    mkdirSync(join(dir, ".leglas"), { recursive: true });
+    writeFileSync(
+      join(dir, ".leglas", "previews.json"),
+      JSON.stringify({ previews: [{ title: "PR", url: "/", branch: "main" }] }),
+    );
+
+    const { result, output } = await boot(dir, { open: false });
+
+    expect(result.previewCount).toBe(1);
+    expect(output).toContain("devCommand");
+    expect(output).toContain("PR");
   });
 });

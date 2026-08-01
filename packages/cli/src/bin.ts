@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 import { parseArgs } from "./args.js";
+import { runClassify } from "./run-classify.js";
 import { runExplore } from "./run-explore.js";
 import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
@@ -17,6 +18,7 @@ Usage
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
   leglas explore <surface>   Print distinct angles for an agent to build
+  leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
   leglas requests            Show change requests made from the interface
@@ -38,9 +40,14 @@ Options for new
 Options for explore
   --count <n>          How many angles (default 3)
 
+Options for classify
+  --change <path>      A file the direction creates or wires up (repeatable)
+  --rewrite <path>     An existing file whose behaviour it must change (repeatable)
+
 Options for add
   --note <text>        Second line under the title
   --tag <text>         Repeatable
+  --branch <name>      Back the preview with a checkout of this git branch
 `;
 
 function version(): string {
@@ -104,6 +111,14 @@ if (parsed.kind === "init") {
   const outcome = await runInit(
     { cwd: process.cwd(), force: parsed.force, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
+  );
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "classify") {
+  const outcome = await runClassify(
+    { changes: parsed.changes, json: parsed.json, cwd: process.cwd() },
+    previewDeps,
   );
   process.exit(outcome.exitCode);
 }

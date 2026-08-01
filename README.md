@@ -90,6 +90,7 @@ leglas init                Prepare a project and teach its agents
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
 leglas explore <surface>   Print distinct angles for an agent to build
+leglas classify            Decide where a direction should live
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
 leglas requests            Collect change requests made from the interface
@@ -108,6 +109,9 @@ leglas keep <title>        Keep a winner and end the exploration
   --to <path>          (keep) Where the winner should live
   --note <text>        (add) Second line under the title
   --tag <text>         (add) Repeatable
+  --branch <name>      (add) Back the preview with a checkout of this branch
+  --change <path>      (classify) A file the direction creates or wires up
+  --rewrite <path>     (classify) An existing file whose behaviour it must change
 ```
 
 ### Shared and local previews
@@ -138,6 +142,34 @@ because it never sees your source, so the contract has to say it.
 
 Every command accepts `--json` and prints a single envelope with a stable exit
 code, so an agent can drive the tool without parsing prose.
+
+### When a direction cannot be additive
+
+Most directions are additive: new files beside what exists, rendering from
+the dev server you already run. Some genuinely are not. A direction that
+changes dependencies, changes build configuration, or only works by
+rewriting what an existing file renders cannot share the running server
+with its siblings.
+
+`leglas classify` decides which kind you have, before the code is written.
+Declare what the direction will touch and it answers with the route and the
+reason:
+
+```sh
+leglas classify --change package.json --rewrite src/theme.css --json
+```
+
+`--change` marks a file the direction creates or wires up; `--rewrite`
+marks an existing file whose behaviour it must alter. The answer is either
+`in-app`, the ordinary path under `.leglas/variants/`, or `checkout`: build
+the direction on its own git branch and register it with
+`leglas add --title "Calm" --url "/" --branch <branch>`. Branch-backed
+previews need `devCommand` in the config so Leglas can start the checkout,
+and they appear in the same rail as everything else.
+
+The escalation is the exception, and it is never silent: isolation costs an
+install and a boot, so a direction goes to a checkout only when it names a
+reason it cannot sit in the running app.
 
 ### Exploring several directions at once
 

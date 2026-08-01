@@ -17,6 +17,8 @@ export type AddInput = {
   url: string;
   note?: string | undefined;
   tags?: readonly string[] | undefined;
+  /** Back the preview with a checkout of this branch instead of the running server. */
+  branch?: string | undefined;
 };
 
 export async function readLocalPreviews(
@@ -47,8 +49,10 @@ export async function readLocalPreviews(
   }
 
   // Validated exactly as the config is, so a hand-edited file cannot slip
-  // through a weaker check than the one the shared file gets.
-  const result = normalizeConfig(parsed);
+  // through a weaker check than the one the shared file gets. Only the
+  // branch-devCommand coupling is relaxed: devCommand lives in the shared
+  // config, and whether it is set there is checked where the two merge.
+  const result = normalizeConfig(parsed, { requireDevCommand: false });
   if (result.config === null) {
     return { previews: [], errors: result.errors.map((error) => `${LOCAL_PREVIEWS_PATH}: ${error}`) };
   }
@@ -84,9 +88,10 @@ export async function addLocalPreview(
     url: input.url,
     ...(input.note === undefined ? {} : { note: input.note }),
     ...(input.tags === undefined ? {} : { tags: input.tags }),
+    ...(input.branch === undefined ? {} : { branch: input.branch }),
   };
 
-  const check = normalizeConfig({ previews: [candidate] });
+  const check = normalizeConfig({ previews: [candidate] }, { requireDevCommand: false });
   if (check.config === null) {
     return { ok: false, error: check.errors.join(" ") };
   }

@@ -88,3 +88,24 @@ describe("previews backed by a branch", () => {
     expect(ok({ previews: [] }).installCommand).toBeTruthy();
   });
 });
+
+describe("normalizing without the devCommand coupling", () => {
+  test("accepts a lone branch preview when asked, for the local previews file", () => {
+    const result = normalizeConfig(
+      { previews: [{ title: "PR", url: "/", branch: "main" }] },
+      { requireDevCommand: false },
+    );
+
+    expect(result.config).not.toBeNull();
+    expect(result.config?.previews[0]?.branch).toBe("main");
+  });
+
+  test("still validates everything else about the preview", () => {
+    const result = normalizeConfig(
+      { previews: [{ title: "PR", url: "/", branch: "../../etc" }] },
+      { requireDevCommand: false },
+    );
+
+    expect(result.config).toBeNull();
+  });
+});

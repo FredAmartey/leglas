@@ -140,3 +140,40 @@ describe("addLocalPreview", () => {
     expect(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8")).toContain("\n  ");
   });
 });
+
+describe("branch-backed local previews", () => {
+  test("stores the branch, so a routed direction can be registered without config edits", async () => {
+    const dir = scratch();
+
+    const outcome = await addLocalPreview(
+      dir,
+      { title: "Calm hero", url: "/", branch: "leglas/calm-hero" },
+      shared,
+    );
+
+    expect(outcome.ok).toBe(true);
+    const written = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8"));
+    expect(written.previews[0].branch).toBe("leglas/calm-hero");
+  });
+
+  test("reads back without demanding devCommand, which lives in the shared config", async () => {
+    const dir = scratch();
+    seed(dir, JSON.stringify({ previews: [{ title: "PR", url: "/", branch: "main" }] }));
+
+    const result = await readLocalPreviews(dir);
+
+    expect(result.errors).toEqual([]);
+    expect(result.previews[0]?.branch).toBe("main");
+  });
+
+  test("still refuses a branch name that could escape a path", async () => {
+    const outcome = await addLocalPreview(
+      scratch(),
+      { title: "Bad", url: "/", branch: "../../etc" },
+      shared,
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toContain("branch");
+  });
+});

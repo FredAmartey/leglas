@@ -77,8 +77,18 @@ export async function run(
   const previews: Preview[] = [];
 
   for (const preview of merged?.previews ?? []) {
-    if (preview.branch === undefined || merged?.devCommand === undefined) {
+    if (preview.branch === undefined) {
       previews.push(preview);
+      continue;
+    }
+    if (merged?.devCommand === undefined) {
+      // Registered with --branch while the config never gained a devCommand.
+      // Pointing its URL at the user's own dev server would silently render
+      // the wrong code, which is worse than no preview at all.
+      worktreeErrors.push(
+        `"${preview.title}" names branch ${preview.branch}, but the config sets no devCommand, ` +
+          `so Leglas cannot start that checkout. Add devCommand (with {port}) to the config.`,
+      );
       continue;
     }
     if (!options.json) deps.log(`  starting ${preview.branch}…`);

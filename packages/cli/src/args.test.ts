@@ -199,3 +199,62 @@ describe("the list command", () => {
     expect(result.json).toBe(true);
   });
 });
+
+describe("the classify command", () => {
+  test("collects changed and rewritten paths with their intent", () => {
+    const result = parseArgs([
+      "classify",
+      "--change",
+      "package.json",
+      "--rewrite",
+      "src/theme.css",
+      "--json",
+    ]);
+
+    expect(result.kind).toBe("classify");
+    if (result.kind !== "classify") return;
+    expect(result.changes).toEqual([
+      { path: "package.json", kind: "change" },
+      { path: "src/theme.css", kind: "rewrite" },
+    ]);
+    expect(result.json).toBe(true);
+  });
+
+  test("accepts --flag=value as well as --flag value", () => {
+    const result = parseArgs(["classify", "--rewrite=src/hero.tsx"]);
+
+    expect(result.kind).toBe("classify");
+    if (result.kind !== "classify") return;
+    expect(result.changes[0]?.path).toBe("src/hero.tsx");
+  });
+
+  test("needs at least one declared path", () => {
+    const result = parseArgs(["classify"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("classify");
+  });
+
+  test("rejects flags it does not know", () => {
+    expect(parseArgs(["classify", "--deps"]).kind).toBe("error");
+  });
+});
+
+describe("adding a branch preview", () => {
+  test("takes the branch to back the preview with", () => {
+    const result = parseArgs(["add", "--title", "PR", "--url", "/", "--branch", "feature/hero"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.branch).toBe("feature/hero");
+  });
+
+  test("leaves branch undefined for an ordinary preview", () => {
+    const result = parseArgs(["add", "--title", "A", "--url", "/?a"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.branch).toBeUndefined();
+  });
+});

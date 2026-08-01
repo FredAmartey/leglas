@@ -53,6 +53,7 @@ export async function runAdd(
       url: options.preview.url,
       note: options.preview.note,
       tags: options.preview.tags,
+      branch: options.preview.branch,
     },
     shared,
   );
@@ -67,11 +68,30 @@ export async function runAdd(
   // sweep it into a commit.
   await ensureIgnored(options.cwd);
 
+  // A branch preview is only as good as the config's devCommand: without one
+  // Leglas cannot start the checkout. Say so at add time, when it is one edit
+  // away, rather than at boot, when it reads as a broken preview.
+  const needsDevCommand =
+    options.preview.branch !== undefined && loaded.config?.devCommand === undefined;
+
   if (options.json) {
-    envelope(deps, true, { added: options.preview.title, url: options.preview.url, local: true });
+    envelope(deps, true, {
+      added: options.preview.title,
+      url: options.preview.url,
+      local: true,
+      ...(options.preview.branch === undefined ? {} : { branch: options.preview.branch }),
+      ...(needsDevCommand
+        ? { warning: "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config." }
+        : {}),
+    });
   } else {
     deps.log(`  added  ${options.preview.title}  ${options.preview.url}`);
     deps.log("");
+    if (needsDevCommand) {
+      deps.log("  ! The config sets no devCommand, so Leglas cannot start this branch yet.");
+      deps.log("    Add devCommand (with {port}) to the config.");
+      deps.log("");
+    }
     deps.log("Local to this machine. Restart Leglas to see it, or run leglas list.");
   }
   return { exitCode: 0 };
@@ -96,6 +116,7 @@ export async function runList(
         title: preview.title,
         url: preview.url,
         local: preview.local,
+        branch: preview.branch ?? null,
       })),
       errors,
     });
@@ -107,8 +128,11 @@ export async function runList(
   } else {
     const width = Math.max(...previews.map((preview) => preview.title.length));
     for (const preview of previews) {
+      // A branch-backed preview does not live in the tree the user's editor
+      // has open, so the listing says where it comes from.
+      const origin = preview.branch === undefined ? "" : `  (branch ${preview.branch})`;
       const scope = preview.local ? "  (local)" : "";
-      deps.log(`  ${preview.title.padEnd(width)}  ${preview.url}${scope}`);
+      deps.log(`  ${preview.title.padEnd(width)}  ${preview.url}${origin}${scope}`);
     }
   }
 

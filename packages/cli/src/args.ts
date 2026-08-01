@@ -14,12 +14,19 @@ export type AddPreview = {
   url: string;
   note: string | undefined;
   tags: string[] | undefined;
+  branch: string | undefined;
+};
+
+export type ClassifyChange = {
+  path: string;
+  kind: "change" | "rewrite";
 };
 
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
   | { kind: "new"; surface: string; print: boolean; json: boolean; from: string | undefined }
   | { kind: "add"; preview: AddPreview; json: boolean }
+  | { kind: "classify"; changes: ClassifyChange[]; json: boolean }
   | { kind: "list"; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "explore"; surface: string; count: number; json: boolean }
@@ -94,6 +101,7 @@ function parseAdd(rest: string[]): ParseResult {
   let title: string | undefined;
   let url: string | undefined;
   let note: string | undefined;
+  let branch: string | undefined;
   const tags: string[] = [];
   let json = false;
 
@@ -115,7 +123,7 @@ function parseAdd(rest: string[]): ParseResult {
       value = argument.slice(equals + 1);
     }
 
-    if (!["--title", "--url", "--note", "--tag"].includes(flag)) {
+    if (!["--title", "--url", "--note", "--tag", "--branch"].includes(flag)) {
       return { kind: "error", message: `leglas add does not take ${flag}.` };
     }
     if (value === undefined || value === "") {
@@ -125,6 +133,7 @@ function parseAdd(rest: string[]): ParseResult {
     if (flag === "--title") title = value;
     else if (flag === "--url") url = value;
     else if (flag === "--note") note = value;
+    else if (flag === "--branch") branch = value;
     else tags.push(value);
   }
 
@@ -137,14 +146,57 @@ function parseAdd(rest: string[]): ParseResult {
 
   return {
     kind: "add",
-    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined },
+    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined, branch },
     json,
   };
+}
+
+/**
+ * The declaration is per file, tagged with intent: --change for creating a
+ * file or mounting a branch point in one, --rewrite for altering what an
+ * existing file renders. The distinction is the input the routing rules need
+ * and only the author knows it.
+ */
+function parseClassify(rest: string[]): ParseResult {
+  const changes: ClassifyChange[] = [];
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index] as string;
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+
+    const equals = argument.indexOf("=");
+    const flag = equals === -1 ? argument : argument.slice(0, equals);
+    if (flag !== "--change" && flag !== "--rewrite") {
+      return { kind: "error", message: `leglas classify does not take ${argument}.` };
+    }
+
+    const value = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+    if (value === undefined || value === "") {
+      return { kind: "error", message: `${flag} needs a path, for example ${flag} package.json` };
+    }
+    changes.push({ path: value, kind: flag === "--change" ? "change" : "rewrite" });
+  }
+
+  if (changes.length === 0) {
+    return {
+      kind: "error",
+      message:
+        "leglas classify needs what the direction will touch, for example: " +
+        "leglas classify --change package.json --rewrite src/theme.css",
+    };
+  }
+  return { kind: "classify", changes, json };
 }
 
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
   if (argv[0] === "add") return parseAdd(argv.slice(1));
+  if (argv[0] === "classify") return parseClassify(argv.slice(1));
   if (argv[0] === "init") {
     const rest = argv.slice(1);
     const unknown = rest.find((argument) => argument !== "--force" && argument !== "--json");
