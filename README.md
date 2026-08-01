@@ -34,10 +34,6 @@ preview of your app root, which is enough to confirm the connection.
 
 To compare more than one thing, add a config file.
 
-> Leglas is not published to npm yet. To try it now, clone this repository,
-> run `pnpm install && pnpm build`, and invoke
-> `node <path-to-repo>/packages/cli/dist/bin.js` from your project.
-
 ## Configuration
 
 Create `leglas.config.ts` at the root of the project you want to preview.
