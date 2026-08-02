@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { EASE } from "./prefs.js";
+import { fitShift, shouldFlipBelow } from "./tip.js";
+
+/** Where a tooltip sits relative to its control, after any correction. */
+type Placement = "bottom" | "right" | "top";
 
 /**
  * Two offset rounded squares: layers of the same app. Monochrome, because the
@@ -75,9 +79,49 @@ export function Tip({
   side?: "right" | "top";
 }) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const bubbleRef = useRef<HTMLSpanElement | null>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [tip, setTip] = useState<{ out: boolean; x: number; y: number } | null>(null);
+  const [tip, setTip] = useState<{
+    at: Placement;
+    out: boolean;
+    shift: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  /**
+   * Nudge the label back on screen once it has been measured.
+   *
+   * Placing from the anchor alone puts it off the top in a top corner and past
+   * the right edge in the bottom right, which is where the floating widget
+   * lives. Corrections run before paint, so nothing is seen out of place, and
+   * both converge in one pass: a shift is measured again as zero, and a flip
+   * lands somewhere with room.
+   */
+  useLayoutEffect(() => {
+    const bubble = bubbleRef.current;
+    const control = anchorRef.current?.firstElementChild;
+    if (!tip || tip.out || !bubble || !control) return;
+    // Layout size, not the painted rect: the label enters at scale(0.8), so
+    // measuring the rect mid-animation reads it narrower than it lands and
+    // under-corrects. Transforms do not touch offsetWidth.
+    const width = bubble.offsetWidth;
+    const height = bubble.offsetHeight;
+    const left = tip.at === "right" ? tip.x + tip.shift : tip.x + tip.shift - width / 2;
+    const top = tip.at === "top" ? tip.y - height : tip.at === "bottom" ? tip.y : tip.y - height / 2;
+    const rect = { bottom: top + height, left, right: left + width, top };
+
+    const anchor = control.getBoundingClientRect();
+    if (tip.at === "top" && shouldFlipBelow(rect, anchor, window.innerHeight)) {
+      setTip((current) => (current ? { ...current, at: "bottom", y: anchor.bottom + 8 } : current));
+      return;
+    }
+    const shift = fitShift(rect, window.innerWidth);
+    if (shift !== 0) {
+      setTip((current) => (current ? { ...current, shift: current.shift + shift } : current));
+    }
+  }, [tip?.at, tip?.out, tip?.shift, tip?.x, tip?.y]);
 
   useEffect(
     () => () => {
@@ -94,8 +138,8 @@ export function Tip({
     if (hideTimer.current) clearTimeout(hideTimer.current);
     setTip(
       side === "top"
-        ? { out: false, x: rect.left + rect.width / 2, y: rect.top - 8 }
-        : { out: false, x: rect.right + 8, y: rect.top + rect.height / 2 },
+        ? { at: "top", out: false, shift: 0, x: rect.left + rect.width / 2, y: rect.top - 8 }
+        : { at: "right", out: false, shift: 0, x: rect.right + 8, y: rect.top + rect.height / 2 },
     );
   };
   const enter = () => {
@@ -124,20 +168,25 @@ export function Tip({
     >
       {children}
       {tip && (
-        <span aria-hidden className="pointer-events-none fixed z-[60]" style={{ left: tip.x, top: tip.y }}>
+        <span
+          aria-hidden
+          className="pointer-events-none fixed z-[60]"
+          style={{ left: tip.x + tip.shift, top: tip.y }}
+        >
           <span
-            className={`block ${side === "top" ? "-translate-x-1/2 -translate-y-full" : "-translate-y-1/2"}`}
+            className={`block ${
+              {
+                bottom: "-translate-x-1/2",
+                right: "-translate-y-1/2",
+                top: "-translate-x-1/2 -translate-y-full",
+              }[tip.at]
+            }`}
           >
             <span
               className={`leglas-tip block whitespace-nowrap rounded-lg border border-white/10 bg-[#171717] px-2 py-1 text-xs font-medium text-white shadow-lg ${
-                tip.out
-                  ? side === "top"
-                    ? "leglas-tip-out-top"
-                    : "leglas-tip-out-right"
-                  : side === "top"
-                    ? "leglas-tip-in-top"
-                    : "leglas-tip-in-right"
+                tip.out ? `leglas-tip-out-${tip.at}` : `leglas-tip-in-${tip.at}`
               }`}
+              ref={bubbleRef}
             >
               {label}
             </span>

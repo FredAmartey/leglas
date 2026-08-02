@@ -98,6 +98,24 @@ body {
     transform: translateX(0) scale(1);
   }
 }
+@keyframes leglas-tip-rise-bottom {
+  from {
+    transform: translateY(-4px) scale(0.8);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes leglas-tip-drop-bottom {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+}
 @keyframes leglas-tip-drop {
   from {
     opacity: 1;
@@ -157,19 +175,29 @@ body {
     leglas-tip-fade 90ms ease-out both,
     leglas-tip-rise-right 340ms var(--tip-spring) both;
 }
+.leglas-tip-in-bottom {
+  animation:
+    leglas-tip-fade 90ms ease-out both,
+    leglas-tip-rise-bottom 340ms var(--tip-spring) both;
+}
 .leglas-tip-out-top {
   animation: leglas-tip-drop 120ms ease-in both;
 }
 .leglas-tip-out-right {
   animation: leglas-tip-drop-right 120ms ease-in both;
 }
+.leglas-tip-out-bottom {
+  animation: leglas-tip-drop-bottom 120ms ease-in both;
+}
 @media (prefers-reduced-motion: reduce) {
   .leglas-tip-in-top,
-  .leglas-tip-in-right {
+  .leglas-tip-in-right,
+  .leglas-tip-in-bottom {
     animation: leglas-tip-fade 80ms ease-out both;
   }
   .leglas-tip-out-top,
-  .leglas-tip-out-right {
+  .leglas-tip-out-right,
+  .leglas-tip-out-bottom {
     animation: leglas-tip-fade 80ms ease-in reverse both;
   }
 }
