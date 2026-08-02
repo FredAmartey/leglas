@@ -1,84 +1,204 @@
-# Leglas
+<h1 align="center">Leglas</h1>
 
-Compare design directions inside your own running app.
+<p align="center">Your app is the canvas.</p>
 
-Leglas is a local development tool. You point it at a dev server you are
-already running, list the URLs you want to compare, and flip between them in
-one interface. Every preview is your real application: real data, real
-authentication, real behaviour. Nothing is mocked, nothing is cloned, and
-your project needs no changes to work with it.
+<p align="center">
+  <a href="https://www.npmjs.com/package/leglas"><img src="https://img.shields.io/npm/v/leglas" alt="npm"></a>
+  <a href="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml"><img src="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/leglas" alt="license"></a>
+</p>
 
-## Requirements
+Code is becoming the source of truth. Features go from prompt to
+working code in minutes, and mockups/design files eventually lag behind the product and drift out of sync. The
+fastest teams already design in the medium they ship. Leglas is built
+for working that way: it lets you explore many design directions at
+once, live, in your own app.
 
-- Node.js 24 or newer, developed and tested against Node 26
-- A dev server you can run locally
+The goal is to help devs and designers try many variations of a component, feature, page or user-flow quickly and make coming up with ideas extremely easy.
 
-TypeScript config files rely on Node stripping types natively, which is
-available without a flag from Node 23.6. On an older runtime, use
-`leglas.config.mjs` or `leglas.config.json` instead.
+Ask your agent for a handful of directions for the landing page,
+or the checkout component, or the empty states, or your onboarding flow. Leglas runs them all as your
+actual app, side by side in one place, and holds your notes on each. Explore far and wide without losing focus: you see more ideas
+without losing your opinion of any of them.
 
-Leglas never imports or executes your framework, so the target can be Next,
-Vite, Remix, Create React App, SvelteKit, Astro, or static output.
+And because every variation is the real product, your judgment is real
+too. Everything behaves the way it will in production, motion and data
+included. Choosing between two directions is choosing between two
+things that already exist, and the winner never has to be rebuilt from
+a picture or design file.
 
-## Getting started
+Your app doesn't change to make any of this work. Leglas proxies the same
+dev server in your project: one config file to delete when you're done
+and sessions that clean up after themselves.
 
-Start your dev server as usual, then run Leglas from your project directory:
+## What you can do with Leglas
+
+- Pick any two variations for side-by-side comparison when it gets hard to choose.
+- Name each direction, drag to reorder and organise your variants, set aside the ones that
+  don't feel right. Your actions on every idea survive a long exploration.
+- Send a teammate the link to a direction. They open the live version
+  instead of a screenshot and a paragraph of explanation.
+- Compare things no design tool can hold: 3 git branches, a local
+  build against production, yesterday's direction against today's, or even 7 different worktrees.
+- `leglas init` teaches any coding agent the workflow, and
+  `leglas explore` hands it genuinely different creative angles. Five
+  directions can be five separate ideas, or five variations of the one
+  you already like. You choose the spread.
+- Ask for changes without leaving the comparison: describe what you
+  want on the direction you're looking at, and Leglas turns it into a
+  precise request for your agent, file path included.
+- Keep the winner with one command. Leglas moves it into your source
+  tree and clears the exploration away.
+- No app yet or want plain HTML comparisons? Some people want exactly that, and it works fine. Same comparison, no dev server.
+
+## Quick start
+
+Start your dev server, then run Leglas from the project directory:
 
 ```sh
 npx leglas
 ```
 
-Leglas starts on port 4100, proxies your app, and opens the interface at
-`http://localhost:4100/leglas`. With no configuration it shows a single
-preview of your app root, which is enough to confirm the connection.
+Leglas starts on port 4100, proxies your app, and opens
+`http://localhost:4100/leglas`. With no configuration you get a single
+preview of your app root. Add a config file to compare more than one thing.
 
-To compare more than one thing, add a config file.
+It works with whatever you're building in. Leglas never imports or
+executes your framework, so the target can be Next, Vite, Remix,
+SvelteKit, Astro, or a folder of static files. Requires Node 24 or
+newer.
+
+## Working with coding agents
+
+Run `leglas init` once. It writes a section into your project's
+`AGENTS.md`, creates a starter config, and gitignores Leglas's working
+directory. That section travels with the repo, so Claude Code, Cursor,
+Codex, or whatever you switch to next opens the project already knowing
+how to add design directions to it. Every command accepts `--json` and
+prints a single machine-readable envelope, so agents drive the same CLI
+you do.
+
+The instructions center on one rule: add beside what exists, never
+rewrite it. Two directions that rewrite the same file cannot render from
+one server, and asking an agent to "make the hero calmer" tempts it to
+edit the hero. The supporting commands:
+
+- `leglas explore hero --count 6` prints six genuinely different angles
+  to build, each naming the obvious approach that would collapse the
+  difference. Without it, six requests come back as six shades of one
+  idea.
+- `leglas new hero --from src/Hero.tsx` scaffolds a switcher under
+  `.leglas/variants/hero/`. With `--from`, the baseline re-exports your
+  real component, so you never compare against a stale copy. Leglas
+  prints the one line to add in your component and does not edit it,
+  because rewriting a file it does not understand is how a tool breaks a
+  codebase. Scaffolded branch points return the fallback in production
+  builds, so a committed one cannot expose an unreleased direction.
+- `leglas classify --change package.json --rewrite src/theme.css` answers
+  where a direction should live before it is written. Changing
+  dependencies, build configuration, or an existing file's behaviour
+  cannot be additive, so those directions build on their own git branch
+  and register with `leglas add --branch`. Everything else stays in-app,
+  where switching is instant.
+- `leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
+  into real source and ends the exploration.
+
+Asking for a change works from the interface too. Type what you want
+changed into the tools popover and Leglas composes a prompt naming the
+direction and the file behind it, copies it to your clipboard, and queues
+it. Your agent drains the queue with `leglas requests --json` and clears
+it with `--clear`. Leglas runs no model of its own; your agent already
+knows your conventions and your taste.
+
+### MCP server
+
+For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
+same operations as MCP tools over stdio: `start`, `add`, `list`,
+`classify`, `explore`, `scaffold`, `keep`, `requests`, and `init`. Each
+tool calls exactly what the CLI calls and returns the same envelope.
+
+```sh
+claude mcp add leglas -- npx -y leglas-mcp
+```
+
+Or in `.mcp.json`:
+
+```json
+{ "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "leglas-mcp"] } } }
+```
+
+The host's working directory names the project. The `start` tool boots
+the viewer and returns its URL, and anything it started stops when the
+session ends.
 
 ## Configuration
 
-Create `leglas.config.ts` at the root of the project you want to preview.
-`.js`, `.mjs` and `.json` also work. Config resolution walks upward from the
-working directory, so in a monorepo the nearest file wins.
+Create `leglas.config.ts` at the project root. `.js`, `.mjs`, and `.json`
+work too. Resolution walks upward from the working directory, so in a
+monorepo the nearest file wins. Node reads the TypeScript config natively;
+there is no compiler or extra dependency involved.
 
 ```ts
 export default {
   devServer: "http://localhost:3000",
   previews: [
     { title: "Current", url: "/" },
-    {
-      title: "Wave",
-      url: "/?v-hero=wave",
-      note: "Client artwork, bottom anchored.",
-      tags: ["Hero"],
-    },
+    { title: "Wave", url: "/?v-hero=wave", note: "Full-bleed, anchored low.", tags: ["Hero"] },
     {
       title: "Dot grid",
       url: "/?v-hero=dotgrid",
-      note: "Purple lattice that wakes near the pointer.",
+      note: "Lattice that wakes near the pointer.",
       tags: ["Hero"],
     },
   ],
 };
 ```
 
-| Field | Required | Purpose |
-| --- | --- | --- |
-| `title` | yes | Label in the rail, and the key for your saved layout |
-| `url` | unless `file` | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
-| `note` | no | Second line under the title |
-| `tags` | no | The first tag renders as a pill |
-| `branch` | no | Preview a git branch instead of the running dev server |
-| `file` | no | A project-relative HTML file served by Leglas itself, instead of `url` |
-| `devServer` | no | Defaults to `http://localhost:3000` |
-| `devCommand` | with `branch` | How to start the app; must contain `{port}`. Also lets Leglas start your own app when nothing is listening |
-| `installCommand` | no | Defaults to `npm install` |
+| Field            | Required      | Purpose                                                                |
+| ---------------- | ------------- | ---------------------------------------------------------------------- |
+| `title`          | yes           | Label in the rail, and the key for your saved layout. Must be unique.  |
+| `url`            | unless `file` | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
+| `note`           | no            | Second line under the title                                            |
+| `tags`           | no            | The first tag renders as a pill                                        |
+| `branch`         | no            | Preview a git branch instead of the running dev server                 |
+| `file`           | no            | An HTML file served by Leglas itself, instead of `url`                 |
+| `devServer`      | no            | Defaults to `http://localhost:3000`                                    |
+| `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                           |
+| `installCommand` | no            | Defaults to `npm install`                                              |
 
-Titles must be unique. A configuration error does not stop the server: it
-starts anyway and the interface reports what is wrong, so you can fix the
-file without hunting through a stack trace.
+A broken config never stops the server. Leglas starts anyway and the
+interface reports what to fix, so you are not hunting through a stack
+trace.
 
-TypeScript config files are read natively by Node, so there is no compiler,
-bundler or extra dependency involved.
+## The interface
+
+Directions live in a rail on the left. The stage shows the active one in
+a framed viewport at Full, 1440, 834, or 390 wide. Rename, reorder, hide,
+and tag directions from the rail; layout is saved per project and
+survives restarts and port changes.
+
+Flipping shows a difference over time. A split shows it at once, which is
+what you want for the last two directions in contention: hover a
+direction and press its compare button, and it becomes the right pane
+while the active direction holds the left.
+
+| Key      | Action                                       |
+| -------- | -------------------------------------------- |
+| Up, Down | Move between directions                      |
+| `\`      | Split against the direction you were last on |
+| `/`      | Focus search                                 |
+| `[`      | Collapse or open the rail                    |
+| Escape   | Clear search, or close the tools popover     |
+
+A small tools widget floats over the stage and can be dragged to any
+corner, because a floating control has a habit of sitting exactly where
+you need to look. Its popover holds the viewport presets, the field for
+requesting changes, and a few preferences.
+
+Frameworks paint a dev badge over the corner of the running app. Leglas
+hides those by default (the popover turns them back on), and does it by
+styling inside the preview frame, never by altering what the proxy
+forwards.
 
 ## Command line
 
@@ -97,224 +217,45 @@ leglas keep <title>        Keep a winner and end the exploration
   --port <port>        Port for Leglas (default 4100, next free if taken)
   --config <path>      Use this config file instead of searching upward
   --no-open            Do not open the browser
-  --json               Print one machine readable envelope
-  -h, --help
-  -v, --version
+  --json               Print one machine-readable envelope
 
   --print              (new) Print the scaffold instead of writing it
+  --from <path>        (new) Use an existing component as the baseline
   --count <n>          (explore) How many angles, default 3
-  --to <path>          (keep) Where the winner should live
+  --change <path>      (classify) A file the direction creates or wires up
+  --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title
   --tag <text>         (add) Repeatable
   --branch <name>      (add) Back the preview with a checkout of this branch
-  --change <path>      (classify) A file the direction creates or wires up
-  --rewrite <path>     (classify) An existing file whose behaviour it must change
+  --file <path>        (add) An HTML file served by Leglas itself
+  --to <path>          (keep) Where the winner should live
 ```
 
-### Shared and local previews
+`leglas.config.ts` is the shared description of a project: commit it and a
+teammate gets the same directions on clone. `leglas add` registers a
+preview on your machine only, in `.leglas/previews.json`, because
+exploration is short-lived and its code lives in a gitignored directory.
+`leglas list` shows both and marks which are local.
 
-`leglas.config.ts` is the shared description of a project: commit it, and a
-teammate gets the same directions on clone.
+## Comparing branches
 
-`leglas add` registers a preview on your machine only, in
-`.leglas/previews.json`. Exploration is short-lived and its code lives in a
-gitignored directory, so a teammate must never receive a config entry
-pointing at something they do not have. `leglas list` shows both, marking
-which are local. Any command that writes into `.leglas/` also makes sure the
-directory is gitignored.
+A preview with a `branch` field is served from its own checkout: Leglas
+creates a worktree, installs, starts the app with your `devCommand` on a
+free port, and tears it all down when you quit. In the interface it looks
+like any other direction, so a branch against your working tree, or three
+branches against each other, compares the same way two query parameters
+do.
 
-### Working with coding agents
-
-`leglas init` writes a section into your project's `AGENTS.md`, creates a
-starter config, and ignores the working directory. The section is read by
-Cursor, Claude Code and most other agents, and needs no per-user setup: it
-travels with the clone, so anyone who opens the repository gets an agent that
-already knows how to add design directions to it.
-
-The instruction that matters most in that section is to add directions beside
-what exists rather than rewriting it. Asked to make a hero calmer, an agent's
-instinct is to edit the hero, and two directions that both rewrite the same
-file cannot render from one server. Nothing in Leglas can prevent that,
-because it never sees your source, so the contract has to say it.
-
-Every command accepts `--json` and prints a single envelope with a stable exit
-code, so an agent can drive the tool without parsing prose.
-
-### Agent hosts that cannot run a shell
-
-`leglas-mcp` is a stdio MCP server exposing the same operations as tools:
-`start`, `add`, `list`, `classify`, `explore`, `scaffold`, `keep`,
-`requests`, and `init`. It holds no logic of its own; each tool calls
-exactly what the CLI calls and returns the same JSON envelope.
-
-Register it in your agent host from the project directory, for example in
-Claude Code:
-
-```sh
-claude mcp add leglas -- npx -y leglas-mcp
-```
-
-or in a `.mcp.json`:
-
-```json
-{ "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "leglas-mcp"] } } }
-```
-
-The host's working directory names the project, the same contract as the
-CLI. The `start` tool boots the viewer and returns the interface URL, and
-the server it started stops when the session ends, so a dead host never
-leaves a dev server running on a forgotten port.
-
-### When a direction cannot be additive
-
-Most directions are additive: new files beside what exists, rendering from
-the dev server you already run. Some genuinely are not. A direction that
-changes dependencies, changes build configuration, or only works by
-rewriting what an existing file renders cannot share the running server
-with its siblings.
-
-`leglas classify` decides which kind you have, before the code is written.
-Declare what the direction will touch and it answers with the route and the
-reason:
-
-```sh
-leglas classify --change package.json --rewrite src/theme.css --json
-```
-
-`--change` marks a file the direction creates or wires up; `--rewrite`
-marks an existing file whose behaviour it must alter. The answer is either
-`in-app`, the ordinary path under `.leglas/variants/`, or `checkout`: build
-the direction on its own git branch and register it with
-`leglas add --title "Calm" --url "/" --branch <branch>`. Branch-backed
-previews need `devCommand` in the config so Leglas can start the checkout,
-and they appear in the same rail as everything else.
-
-The escalation is the exception, and it is never silent: isolation costs an
-install and a boot, so a direction goes to a checkout only when it names a
-reason it cannot sit in the running app.
-
-### Exploring several directions at once
-
-`leglas explore hero --count 6` prints six distinct angles to build, each with
-a line naming the obvious approach that would collapse the difference. Left to
-itself an agent iterates narrowly around its first idea, so six requests come
-back as six shades of one design. The angles vary composition, medium, density,
-motion, texture and palette rather than colour alone, and they are ordered for
-spread so asking for three still explores widely.
-
-The `AGENTS.md` section tells agents to run this first, so "give me a few
-options" reaches for the angles instead of inventing variations of what is
-already there.
-
-### Asking for a change without leaving
-
-The tools popover has a field for the direction you are looking at. Type what
-you want changed and press Enter: Leglas composes a prompt naming that
-direction and the file behind it, copies it to your clipboard, and queues it.
-
-Leglas runs no model of its own. Your agent already knows your conventions,
-your design system and your taste, which is context no external worker has, so
-it does the work. `leglas requests --json` hands over anything pending and
-`leglas requests --clear` empties the queue once it is done. If you would
-rather not wire that up, the clipboard copy is the whole feature: paste and
-go.
-
-### Scaffolding a surface
-
-`leglas new hero --from src/Hero.tsx` creates a switcher and a first direction
-under `.leglas/variants/hero/`, and adds `.leglas/` to your `.gitignore`.
-
-`--from` points at whatever renders that surface today. The baseline then
-re-exports that component rather than copying it, so editing the real
-component changes the baseline too and you are never comparing against a stale
-duplicate of your own code. Without `--from` you get a placeholder to fill in
-yourself. The
-generated code is ordinary application code: it imports nothing from Leglas,
-so removing the tool leaves it working. It also renders the fallback in
-production regardless of the URL, so a branch point that reaches a deployed
-build cannot expose an unreleased direction.
-
-One step is left to you. Leglas prints the import and the element to use, but
-does not edit the component itself, because rewriting a file it does not
-understand is how a tool breaks a codebase. Use `--print` to see the scaffold
-without writing anything.
-
-`--json` exists so coding agents can drive the tool. It prints a single
-object with the interface URL, the resolved port, whether the dev server
-answered, and any configuration errors.
-
-## Keyboard
-
-| Key | Action |
-| --- | --- |
-| Up, Down | Move between directions |
-| `\` | Split the stage against the direction you were last on |
-| `/` | Focus search |
-| `[` | Collapse or open the rail |
-| Escape | Clear search, or close the tools popover |
-
-Directions can be renamed, removed, restored and dragged into any order.
-Layout is saved per project, so it survives restarts and a change of port.
-
-### Comparing two at once
-
-Flipping shows a difference over time. A split shows it at once, which is what
-you want for the last two directions still in contention.
-
-Hover any direction in the rail and press its compare button. It becomes the
-right pane, the active direction stays on the left, and the row is marked so
-you can see what you are comparing against without hovering. Press it again to
-close the split. `\` splits against whichever direction you were looking at
-before this one.
-
-The tools widget can be dragged to any corner, since a floating control has a
-habit of sitting exactly where you need to look. Its corner is remembered.
-
-Frameworks paint their own dev badge over the running app, which lands on the
-same corner and is tooling rather than design. Leglas hides those by default,
-and the popover turns them back on. This is done by styling inside the
-preview frame, never by altering what the proxy forwards, so what your dev
-server sent is what your app receives.
-
-## How it works
-
-Leglas runs a local server that does two things. It serves the interface at
-`/leglas`, and it forwards every other request to your dev server. Because
-previews load through that proxy, they are same origin with the interface,
-which means no CORS configuration and no special cases for cookies.
-
-The proxy is designed to be invisible. Hot module replacement survives the
-hop, so editing a file still updates every preview. Redirects that point at
-your dev server are rewritten to keep you inside the interface, and
-redirects to anywhere else are left alone. Responses stream rather than
-buffer. If an app behaves differently through Leglas than it does on its own
-port, that is a bug.
-
-## Comparing more than design variants
-
-A preview is a URL, so the same interface compares anything your server can
-serve:
-
-- Two implementations of a surface, selected by a query parameter
-- Two routes, such as `/pricing` against `/pricing-v2`
-- A local server against a deployed one
-
-Absolute URLs load directly rather than through the proxy, so they are
-subject to the target's frame policy. A site that refuses to be framed will
-not preview, and the interface says so rather than showing an empty pane.
-
-## Starting before you have an app
+## Without a dev server
 
 Leglas does not require a running app.
 
-**If the project exists but nothing is listening**, set `devCommand` in the
-config (with `{port}`) and Leglas starts your app itself on a free port,
-proxies it, and stops it when you quit, exactly as it does for branch
-checkouts. This is reported as status, never asked as a question. When
+If the project exists but nothing is listening, set `devCommand` and
+Leglas starts your app itself, proxies it, and stops it on exit. When
 `--user-port` names a server explicitly, Leglas never starts a different
 one behind that flag.
 
-**If there is no app at all**, a direction can be a plain HTML file:
+If there is no app at all, a direction can be a plain HTML file:
 
 ```ts
 export default {
@@ -325,44 +266,48 @@ export default {
 };
 ```
 
-Leglas serves each file itself, from its own origin, so the full rail,
-stage, viewports, and split comparison work with no dev server anywhere.
-The file's directory is mounted rather than the lone file, so stylesheets
-and images beside it resolve normally. `leglas add --title "Aurora" --file
-.leglas/pages/aurora.html` registers one from the command line, and the
-AGENTS.md section teaches agents the same loop, so "show me three landing
-page directions" works in an empty repository. When the real app arrives,
-directions graduate to app code and nothing about the interface changes.
+Leglas serves each file from its own origin, so the full interface works
+with no dev server anywhere. The file's directory is mounted rather than
+the lone file, so stylesheets and images beside it resolve. When the real
+app arrives, directions graduate to app code and nothing about the
+interface changes.
 
-## When two directions render the same page
+## How it works
 
-Leglas compares what each preview actually draws and warns when two of them are
-identical. This catches the failure that is otherwise invisible: a typo like
-`?v-hero=wavee` that your app ignores, serving its default page while the rail
-implies you are comparing something.
+Leglas runs one local server that serves the interface at `/leglas` and
+forwards every other request to your dev server. Previews load through
+that proxy, so they are same origin with the interface: no CORS
+configuration, no cookie special cases.
 
-The comparison reads the rendered page rather than the server's response, so it
-works whether your app renders on the server or in the browser. A single-page
-app returns the same HTML for every URL, which makes any server-side comparison
-useless there.
+The proxy is designed to be invisible. Hot module replacement survives
+the hop, redirects that point at your dev server are rewritten to keep
+you inside the interface, and responses stream rather than buffer. If an
+app behaves differently through Leglas than on its own port, that is a
+bug.
 
-Previews are compared once they have been opened, and a preview served from
-another origin is never compared, because the browser will not let one page read
-another origin's content. Nothing here blocks the interface, and it stays quiet
-rather than guessing.
+Because a preview is a URL, the same interface compares two routes, two
+implementations behind a query parameter, or a local server against a
+deployed one. Absolute URLs load directly rather than through the proxy,
+so a site that refuses to be framed will not preview; the interface says
+so instead of showing an empty pane.
+
+Leglas also compares what each preview actually draws and warns when two
+are identical. This catches a typo like `?v-hero=wavee` that your app
+silently ignores while the rail implies a comparison. The check reads the
+rendered page, runs only on previews you have opened, and skips
+cross-origin previews, which the browser will not let it read.
 
 ## Limitations
 
-Leglas shows design directions. It does not create them. Comparing routes
-that already exist costs nothing, but a new direction is still code you or
-your agent writes in the app.
-
-Only the rendered markup is compared for duplicates, and only when the server
-renders one. Two previews that differ solely in a script are reported as the
-same, and in a client-rendered app the check says nothing at all.
-
-The interface is built for desktop widths. It is a development tool and is
-not intended to ship in a production runtime.
+- Leglas shows directions; it does not create them. Comparing existing
+  routes costs nothing, but a new direction is still code you or your
+  agent writes.
+- The duplicate check compares rendered markup only, and only when the
+  server renders some. Two previews that differ solely in a script are
+  reported as identical, and in a fully client-rendered app the check
+  says nothing.
+- The interface is built for desktop widths.
+- Leglas is a development tool. Nothing in it ships to production.
 
 ## Development
 
@@ -375,24 +320,22 @@ pnpm test        # run the test suite
 pnpm typecheck   # type check every package
 ```
 
-| Package | Contents |
-| --- | --- |
-| `packages/server` | Config loading, the proxy, and the local server |
-| `packages/shell` | The interface, a React application built with Vite |
-| `packages/cli` | The `leglas` binary |
-| `packages/mcp` | The `leglas-mcp` stdio server for agent hosts |
+| Package           | Contents                                           |
+| ----------------- | -------------------------------------------------- |
+| `packages/server` | Config loading, the proxy, and the local server    |
+| `packages/shell`  | The interface, a React application built with Vite |
+| `packages/cli`    | The `leglas` binary                                |
+| `packages/mcp`    | The `leglas-mcp` stdio server for agent hosts      |
 
 To work on the interface with live reload, run a Leglas server in one
-terminal and `pnpm --filter @leglas/shell dev` in another. The dev server
-proxies the API through to port 4100.
+terminal and `pnpm --filter @leglas/shell dev` in another.
 
 Two packages are published, both unscoped: `leglas`, which bundles the
-server and the built interface so one install is the whole tool, and
-`leglas-mcp`. Releases are tag-driven. Bump both versions, commit, and
-push a `v<version>` tag; GitHub Actions runs the suite and publishes
-through npm's trusted publishing, so no npm token exists anywhere in the
-project.
+server and the built interface, and `leglas-mcp`. Releases are
+tag-driven: bump both versions, push a `v<version>` tag, and CI runs the
+suite and publishes through npm trusted publishing. No npm token exists
+anywhere in the project.
 
 ## License
 
-MIT
+[MIT](LICENSE)
