@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { WIDGET_MARGIN, clampWidget, nearestCorner } from "./widget.js";
+import { WIDGET_MARGIN, WIDGET_SIZE, clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 
 const stage = { width: 1000, height: 800 };
 
@@ -52,3 +52,59 @@ describe("nearestCorner", () => {
     expect(nearestCorner({ x: 500, y: 400 }, stage)).toEqual({ corner: "bottom-right" });
   });
 });
+
+describe("isDrag", () => {
+  /**
+   * The widget is a button first and a draggable second. Without a threshold
+   * any jitter during a tap counts as a drag, which repositions it under the
+   * pointer and eats the click that was meant to open the tools.
+   */
+  test("treats pointer travel during a tap as a click, not a drag", () => {
+    const start = { x: 100, y: 100 };
+    // A real trackpad press slides several pixels; 5 and 6 were what actually
+    // broke the widget before this threshold existed.
+    for (const point of [
+      { x: 100, y: 100 },
+      { x: 101, y: 100 },
+      { x: 100, y: 103 },
+      { x: 105, y: 105 },
+      { x: 106, y: 106 },
+      { x: 92, y: 94 },
+    ]) {
+      expect(isDrag(start, point)).toBe(false);
+    }
+  });
+
+  test("treats deliberate travel as a drag", () => {
+    const start = { x: 100, y: 100 };
+    expect(isDrag(start, { x: 120, y: 100 })).toBe(true);
+    expect(isDrag(start, { x: 100, y: 60 })).toBe(true);
+    expect(isDrag(start, { x: 100, y: 140 })).toBe(true);
+    expect(isDrag(start, { x: 111, y: 100 })).toBe(true);
+  });
+})
+
+describe("dragAnchor", () => {
+  /**
+   * The popover shares the widget's box and stays mounted while hidden, so
+   * anchoring the box at the pointer used to leave the button a popover's
+   * height below it and its width to the right. What is dragged has to be
+   * what is under the hand.
+   */
+  test("centres the button on the pointer", () => {
+    const pointer = { x: 640, y: 400 };
+    const anchor = dragAnchor(pointer);
+    expect(anchor.x + WIDGET_SIZE / 2).toBe(pointer.x);
+    expect(anchor.y + WIDGET_SIZE / 2).toBe(pointer.y);
+  });
+
+  test("keeps the pointer inside the button's box", () => {
+    for (const pointer of [{ x: 0, y: 0 }, { x: 1000, y: 500 }, { x: 24, y: 972 }]) {
+      const a = dragAnchor(pointer);
+      expect(pointer.x).toBeGreaterThanOrEqual(a.x);
+      expect(pointer.x).toBeLessThanOrEqual(a.x + WIDGET_SIZE);
+      expect(pointer.y).toBeGreaterThanOrEqual(a.y);
+      expect(pointer.y).toBeLessThanOrEqual(a.y + WIDGET_SIZE);
+    }
+  });
+})

@@ -6,7 +6,7 @@ import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { renderedSignature, twinsOf } from "./rendered.js";
-import { clampWidget, nearestCorner } from "./widget.js";
+import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
@@ -138,6 +138,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   });
   const [widgetOpen, setWidgetOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  // The widget is the only way into the tools, so it must never end up under
+  // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
+  const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
+  const widgetDragging = widgetDrag !== null;
+  // Pointer capture keeps the click alive through a drag, so the press that
+  // parked the widget in a corner would also spring the tools open. The rail
+  // suppresses its post-drag click the same way.
+  const widgetClickSuppressed = useRef(false);
   // Expressing an intent used to mean leaving for a terminal. This keeps it
   // where the direction is being looked at; the user's own agent still does
   // the work, because it knows the codebase and Leglas does not.
@@ -266,7 +274,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
   const dragging = drag?.started ?? false;
-  const busy = st.resizing || dragging;
+  // Dragging the widget counts as busy too: a preview that keeps taking the
+  // pointer lights up its own hover states under a drag that is not for it.
+  const busy = st.resizing || dragging || widgetDragging;
 
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
@@ -302,17 +312,32 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // has to be mounted whether or not it was ever the active one.
   const mounted = [...new Set([...st.panes, ...visible])];
 
-  // The widget is the only way into the tools, so it must never end up under
-  // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
-  const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const widgetAnchor = widgetDrag
+    ? (() => {
+        const { x, y } = dragAnchor(widgetDrag);
+        return { bottom: "auto", left: x, right: "auto", top: y } as const;
+      })()
+    : undefined;
 
-  const onWidgetPointerDown = (event: React.PointerEvent) => {
+  const onWidgetPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     const stage = stageRef.current?.getBoundingClientRect();
     if (!stage) return;
+    // Pointer capture routes every move back here even while the pointer is
+    // over a preview. Without it the iframe, being its own document, takes the
+    // events and the widget freezes the moment it crosses a design. The rail's
+    // resize handle solves the same problem the same way.
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    widgetClickSuppressed.current = false;
+    // A tap is never perfectly still, so the widget only starts following the
+    // pointer once it has travelled far enough to mean it. Below that it stays
+    // put and the click through to the button survives.
+    const origin = { x: event.clientX, y: event.clientY };
     let moved = false;
     const onMove = (move: PointerEvent) => {
+      if (!moved && !isDrag(origin, { x: move.clientX, y: move.clientY })) return;
       moved = true;
       setWidgetDrag(
         clampWidget(
@@ -322,10 +347,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       );
     };
     const onUp = (up: PointerEvent) => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      if (handle.hasPointerCapture(up.pointerId)) handle.releasePointerCapture(up.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
       setWidgetDrag(null);
       if (!moved) return;
+      widgetClickSuppressed.current = true;
       // A drag settles into a corner rather than staying wherever it was let
       // go, so it never sits over the middle of a design being judged.
       const { corner } = nearestCorner(
@@ -335,8 +363,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       st.setPrefs((current) => ({ ...current, corner }));
       setWidgetOpen(false);
     };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
   };
 
   /**
@@ -1093,7 +1122,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         <div
           className={`absolute z-50 flex gap-2 ${
             widgetDrag
-              ? "flex-col items-end"
+              ? "flex-col items-start"
               : {
                   "bottom-right": "bottom-4 right-4 flex-col items-end",
                   "bottom-left": "bottom-4 left-4 flex-col items-start",
@@ -1101,16 +1130,17 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   "top-left": "left-4 top-4 flex-col-reverse items-start",
                 }[st.prefs.corner]
           }`}
-          style={
-            widgetDrag
-              ? { left: widgetDrag.x, top: widgetDrag.y, bottom: "auto", right: "auto" }
-              : undefined
-          }
+          style={widgetAnchor}
         >
           <div
             aria-hidden={!widgetOpen}
             aria-label="Leglas tools"
             className={`w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+              // Out of the layout entirely while dragging: hidden it still
+              // occupies its full box, which is what pushed the button off the
+              // pointer.
+              widgetDrag ? "hidden " : ""
+            }${
               widgetOpen
                 ? "translate-y-0 scale-100 opacity-100"
                 : "pointer-events-none translate-y-1 scale-95 opacity-0"
@@ -1274,7 +1304,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               aria-haspopup="dialog"
               aria-label="Leglas tools"
               className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-[#1C1C20] shadow-lg transition-[border-color,transform] duration-150 hover:scale-[1.04] hover:border-white/20 active:scale-[0.95] motion-reduce:transform-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100"
-              onClick={() => setWidgetOpen((value) => !value)}
+              onClick={() => {
+                if (widgetClickSuppressed.current) {
+                  widgetClickSuppressed.current = false;
+                  return;
+                }
+                setWidgetOpen((value) => !value);
+              }}
               onPointerDown={onWidgetPointerDown}
             ref={widgetButtonRef}
               type="button"
