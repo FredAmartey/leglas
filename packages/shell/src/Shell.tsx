@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
+import { searchCap, shortcutList } from "./keymap.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
@@ -28,6 +29,80 @@ const FONTS = [
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
 
+/** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+const SEARCH_CAP = searchCap(IS_MAC);
+
+/**
+ * The keymap, on ? and from the tools popover.
+ *
+ * It reads SHORTCUTS rather than restating the bindings, so the list cannot
+ * describe a key that no longer does anything. Defined here rather than inside
+ * Shell so it is not a new component type on every render.
+ */
+function HelpOverlay({ mac, onClose }: { mac: boolean; onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const shortcuts = shortcutList(mac);
+
+  useEffect(() => {
+    const returnTo = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      returnTo?.focus?.();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        aria-label="Keyboard shortcuts"
+        aria-modal="true"
+        className="w-full max-w-sm rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl focus:outline-none"
+        ref={panelRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <span className="block pb-3 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+          Keyboard
+        </span>
+        <dl className="flex flex-col gap-2.5">
+          {shortcuts.map((shortcut) => (
+            <div className="flex items-baseline justify-between gap-4" key={shortcut.label}>
+              <dt className="flex shrink-0 items-baseline gap-1">
+                {shortcut.keys.map((cap, index) => (
+                  <span className="flex items-baseline gap-1" key={cap}>
+                    {index > 0 && shortcut.join ? (
+                      <span className="text-[10px] text-[#84848C]">{shortcut.join}</span>
+                    ) : null}
+                    <kbd className="rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[11px] text-[#E8E8EA]">
+                      {cap}
+                    </kbd>
+                  </span>
+                ))}
+              </dt>
+              <dd className="text-right text-xs leading-snug text-[#9CA3AF]">{shortcut.label}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 type Drag = {
   dy: number;
   from: number;
@@ -45,13 +120,24 @@ type Drag = {
 export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const splitRef = useRef<(() => void) | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Stable, so the window key listener attaches once rather than on every
+  // render of the shell.
+  const onToggleSplit = useCallback(() => splitRef.current?.(), []);
+  const onToggleHelp = useCallback(() => setHelpOpen((open) => !open), []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
   const st = useShellState({
     previews,
     project,
     searchRef,
-    onToggleSplit: () => splitRef.current?.(),
+    onToggleSplit,
+    onToggleHelp,
+    // While the keymap is on screen it is the subject, not a way to drive what
+    // is behind it. ? still closes it.
+    suspended: helpOpen,
   });
   const [widgetOpen, setWidgetOpen] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   // Expressing an intent used to mean leaving for a terminal. This keeps it
   // where the direction is being looked at; the user's own agent still does
   // the work, because it knows the codebase and Leglas does not.
@@ -724,9 +810,20 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#D1D5DB]">
                 <PIcon d={P.search} />
               </span>
+              {/* The hint steps aside once the field is in use, so it never
+                  sits behind what is being typed. */}
+              <kbd
+                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[10px] leading-none tracking-wide text-[#84848C] transition-opacity duration-150 motion-reduce:transition-none ${
+                  st.query || searchFocused ? "opacity-0" : "opacity-100"
+                }`}
+              >
+                {SEARCH_CAP}
+              </kbd>
               <input
                 aria-label="Search directions"
-                className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-1.5 pl-7 pr-2 text-xs text-white placeholder:text-[#E8EAED] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
+                className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-1.5 pl-7 pr-16 text-xs text-white placeholder:text-[#E8EAED] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
+                onBlur={() => setSearchFocused(false)}
+                onFocus={() => setSearchFocused(true)}
                 onChange={(event) => st.setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key !== "Escape") return;
@@ -1156,6 +1253,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               <span className="inline-block size-3 rounded-sm border border-current" />
               Open in new tab
             </a>
+            <button
+              className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
+              onClick={() => {
+                setWidgetOpen(false);
+                setHelpOpen(true);
+              }}
+              type="button"
+            >
+              <span>Keyboard shortcuts</span>
+              <kbd className="rounded border border-[#232328] bg-[#2E2E2E]/60 px-1 py-0.5 font-sans text-[10px] text-[#84848C]">
+                ?
+              </kbd>
+            </button>
           </div>
 
           <Tip label="Leglas tools">
@@ -1177,6 +1287,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </Tip>
         </div>
       </div>
+
+      {helpOpen ? <HelpOverlay mac={IS_MAC} onClose={closeHelp} /> : null}
     </main>
   );
 }

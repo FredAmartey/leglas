@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { MAX_W, MIN_W, VIEWPORTS, loadPrefs, reorder, storageKey, type Prefs } from "./prefs.js";
+import { resolveKey } from "./keymap.js";
 import type { Preview } from "./types.js";
 
 /**
@@ -18,11 +19,24 @@ export type ShellStateProps = {
   project: string;
   /** Owned by the body; this only focuses it. */
   searchRef: React.RefObject<HTMLInputElement | null>;
-  /** Invoked by the \\ shortcut; the split itself lives in the shell. */
+  /** Invoked by the compare shortcut; the split itself lives in the shell. */
   onToggleSplit?: (() => void) | undefined;
+  /** Invoked by the help shortcut; the overlay lives in the shell. */
+  onToggleHelp?: (() => void) | undefined;
+  /**
+   * Hold every shortcut but help, for when something on top owns the keyboard.
+   */
+  suspended?: boolean | undefined;
 };
 
-export function useShellState({ previews, project, searchRef, onToggleSplit }: ShellStateProps) {
+export function useShellState({
+  previews,
+  project,
+  searchRef,
+  onToggleSplit,
+  onToggleHelp,
+  suspended = false,
+}: ShellStateProps) {
   const key = storageKey(project);
   const initial = () =>
     loadPrefs(typeof window === "undefined" ? null : window.localStorage.getItem(key), previews);
@@ -104,42 +118,96 @@ export function useShellState({ previews, project, searchRef, onToggleSplit }: S
     setRenaming(null);
   };
 
-  // ↑↓ cycle rows, / focuses search, [ toggles the rail.
+  // Which key does what lives in keymap.ts; this only carries the actions out.
   useEffect(() => {
     const cycle = rows;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      )
-        return;
-      if (event.key === "/") {
+      // Read the tag rather than instanceof: a target inside a preview comes
+      // from that frame's realm, where the parent's HTMLInputElement never
+      // matches, and every keystroke typed into the app would look like a
+      // shortcut.
+      const tag = target?.tagName?.toLowerCase();
+      const action = resolveKey({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        typing:
+          tag === "input" ||
+          tag === "textarea" ||
+          tag === "select" ||
+          (target?.isContentEditable ?? false),
+      });
+      if (!action) return;
+      if (suspended && action.kind !== "help") return;
+
+      if (action.kind === "search") {
         event.preventDefault();
         setPrefs((current) => (current.collapsed ? { ...current, collapsed: false } : current));
         searchRef.current?.focus();
-      } else if (event.key === "\\") {
+      } else if (action.kind === "split") {
         event.preventDefault();
         onToggleSplit?.();
-      } else if (event.key === "[") {
+      } else if (action.kind === "help") {
+        event.preventDefault();
+        onToggleHelp?.();
+      } else if (action.kind === "rail") {
         setPrefs((current) => ({ ...current, collapsed: !current.collapsed }));
-      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      } else if (action.kind === "jump") {
+        // Past the end is a miss rather than the last direction: the digit
+        // names a slot, and a slot that is not there has no sensible stand-in.
+        const next = cycle[action.index];
+        if (next) {
+          event.preventDefault();
+          setActive(next);
+        }
+      } else if (action.kind === "move") {
         event.preventDefault();
         const index = cycle.indexOf(active);
         const next =
-          event.key === "ArrowDown"
+          action.delta === 1
             ? cycle[Math.min(cycle.length - 1, index + 1)]
             : cycle[Math.max(0, index - 1)];
         if (next) setActive(next);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    /**
+     * Clicking a design moves focus into its frame, and a keydown there never
+     * reaches this window, so the shortcuts went dead until something pulled
+     * focus back out. Listening on each same-origin preview as well keeps them
+     * alive while a design has focus, which is most of the time. A cross-origin
+     * preview cannot be reached and keeps its own keyboard.
+     */
+    const targets: (Document | Window)[] = [window];
+    for (const frame of Array.from(document.querySelectorAll("iframe"))) {
+      try {
+        const doc = frame.contentDocument;
+        if (doc) targets.push(doc);
+      } catch {
+        // Cross-origin: not ours to listen on.
+      }
+    }
+    for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+    return () => {
+      for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, rows.join("|"), onToggleSplit]);
+  }, [
+    active,
+    rows.join("|"),
+    onToggleSplit,
+    onToggleHelp,
+    suspended,
+    // Re-attach as previews mount and as each one finishes loading, since a
+    // fresh document does not inherit the old one's listener.
+    mounted.join("|"),
+    Object.entries(loaded)
+      .filter(([, done]) => done)
+      .map(([title]) => title)
+      .join("|"),
+  ]);
 
   const copyReference = (title: string) => {
     const url = `${window.location.origin}${urlFor(title)}`;

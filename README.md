@@ -178,17 +178,13 @@ and tag directions from the rail; layout is saved per project and
 survives restarts and port changes.
 
 Flipping shows a difference over time. A split shows it at once, which is
-what you want for the last two directions in contention: hover a
-direction and press its compare button, and it becomes the right pane
-while the active direction holds the left.
+what you want for the last two directions in contention: press `C`, or
+hover a direction and press its compare button, and it becomes the right
+pane while the active direction holds the left.
 
-| Key      | Action                                       |
-| -------- | -------------------------------------------- |
-| Up, Down | Move between directions                      |
-| `\`      | Split against the direction you were last on |
-| `/`      | Focus search                                 |
-| `[`      | Collapse or open the rail                    |
-| Escape   | Clear search, or close the tools popover     |
+Arrows move between directions, `1` to `9` jump straight to one, `Cmd K`
+(`Ctrl K` elsewhere) searches and `B` collapses the rail. Press `?` for
+the whole keymap.
 
 A small tools widget floats over the stage and can be dragged to any
 corner, because a floating control has a habit of sitting exactly where
