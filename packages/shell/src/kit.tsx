@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ThinkingOrb } from "thinking-orbs";
 
+import { MOOD } from "./orb.js";
 import { EASE } from "./prefs.js";
 import { fitShift, shouldFlipBelow } from "./tip.js";
 
@@ -273,8 +275,9 @@ export function SkeletonOverlay({ loaded }: { loaded: boolean }) {
           }}
         />
       </div>
-      <span className="leglas-shimmer-text absolute bottom-4 right-5 text-xs font-medium">
-        Loading preview…
+      <span className="absolute bottom-4 right-5 flex items-center gap-2">
+        <ThinkingOrb aria-label="" size={20} state={MOOD} theme="light" />
+        <span className="leglas-shimmer-text text-xs font-medium">Loading preview…</span>
       </span>
     </div>
   );

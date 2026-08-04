@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "thinking-orbs": "^0.2.0"
   },
   "devDependencies": {
     "@fontsource-variable/manrope": "^5.2.5",

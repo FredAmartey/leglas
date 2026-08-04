@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ThinkingOrb } from "thinking-orbs";
 
 import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
 import { searchCap, shortcutList } from "./keymap.js";
+import { MOOD } from "./orb.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
@@ -538,6 +540,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    */
   const scanning = health.reachable ? (scanQueue(previews, signatures, mounted)[0] ?? null) : null;
 
+  /**
+   * Whether a row's duplicate verdict is still being earned. Verdicts are
+   * re-derived from real renders every session, precisely because the agent
+   * edits these pages between visits, so for a few seconds after load the
+   * honest state of a row is still cooking, and saying so quietly is what
+   * keeps a tag that appears late from reading as a glitch.
+   */
+  const checking = (title: string) =>
+    health.reachable && !(title in signatures) && st.urlFor(title).startsWith("/");
 
   // A hung navigation would stall the walk, so a scan that produces nothing
   // within the pane timeout records the null verdict and the queue moves on.
@@ -775,6 +786,17 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
                   </span>
                 </Tip>
+              ) : checking(title) ? (
+                <span
+                  className={`flex h-5 shrink-0 items-center gap-1 rounded-md bg-white/[0.04] pl-0.5 pr-2 text-[11px] leading-none text-[#84848C]/80 transition-opacity duration-150 ${
+                    dragging
+                      ? ""
+                      : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
+                  }`}
+                >
+                  <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
+                  Cooking
+                </span>
               ) : (
                 preview?.tags[0] && (
                   <span
