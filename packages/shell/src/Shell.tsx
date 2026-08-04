@@ -6,6 +6,7 @@ import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
+import { scanQueue } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
@@ -519,6 +520,53 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     setSignatures((current) =>
       current[title] === signature ? current : { ...current, [title]: signature },
     );
+  };
+
+  /**
+   * The duplicate check without waiting for clicks.
+   *
+   * Signatures used to come only from panes the user had opened, so "Same as"
+   * appeared one click at a time, after the judgment it exists to protect.
+   * Unopened previews are read here instead: one hidden off-stage frame walks
+   * them sequentially, records each signature, and unmounts. One at a time
+   * keeps the cost to a single extra app instance, briefly, per direction.
+   *
+   * The frame is parked off-viewport rather than display:none, because a
+   * hidden document lays out nothing and reads as empty. It only runs while
+   * the dev server answers: scanning a down server would record N failures.
+   */
+  const scanning = health.reachable ? (scanQueue(previews, signatures, mounted)[0] ?? null) : null;
+
+  // A hung navigation would stall the walk, so a scan that produces nothing
+  // within the pane timeout records the null verdict and the queue moves on.
+  useEffect(() => {
+    if (scanning === null) return;
+    const timer = window.setTimeout(() => {
+      setSignatures((current) =>
+        scanning in current ? current : { ...current, [scanning]: null },
+      );
+    }, LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [scanning]);
+
+  const onScanLoad = (title: string, frame: HTMLIFrameElement) => {
+    // The stage reads panes with the overlay preference applied, and a hidden
+    // badge leaves the text. The scan has to read through the same lens or
+    // one page would produce two signatures depending on who read it.
+    applyOverlayPref(frame, st.prefs.hideDevOverlays);
+    window.setTimeout(() => {
+      applyOverlayPref(frame, st.prefs.hideDevOverlays);
+      let readable = false;
+      try {
+        readable = frame.contentDocument != null;
+      } catch {
+        readable = false;
+      }
+      if (readable) readRendered(title, frame);
+      // Unreadable means a failed navigation; the null verdict moves the
+      // queue on instead of retrying forever.
+      else setSignatures((current) => ({ ...current, [title]: null }));
+    }, 600);
   };
 
   useEffect(() => {
@@ -1334,6 +1382,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </Tip>
         </div>
       </div>
+
+      {scanning !== null && (
+        <iframe
+          aria-hidden
+          className="pointer-events-none fixed border-0"
+          key={scanning}
+          onLoad={(event) => onScanLoad(scanning, event.currentTarget)}
+          src={st.urlFor(scanning)}
+          style={{ height: 800, left: -2400, top: 0, width: 1280 }}
+          tabIndex={-1}
+          title="Off-stage duplicate scan"
+        />
+      )}
 
       {helpOpen ? <HelpOverlay mac={IS_MAC} onClose={closeHelp} /> : null}
     </main>
