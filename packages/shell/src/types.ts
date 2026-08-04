@@ -9,6 +9,8 @@ export type Preview = {
   url: string;
   note?: string | undefined;
   tags: readonly string[];
+  /** The direction this preview is a shade of; the rail groups the family. */
+  basedOn?: string | undefined;
 };
 
 export type ConfigPayload = {

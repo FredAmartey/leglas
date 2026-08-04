@@ -10,6 +10,7 @@ import {
   storageKey,
   type Prefs,
 } from "./prefs.js";
+import { collapseRows, familyRows, rootOf } from "./families.js";
 import { resolveKey } from "./keymap.js";
 import type { Preview } from "./types.js";
 
@@ -105,7 +106,48 @@ export function useShellState({
   // Derived every render rather than reconciled once at load, so previews an
   // agent registers mid-session get rows the moment they arrive.
   const ordered = railOrder(prefs.order, titles);
-  const rows = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
+
+  // Family structure: shades sit under the direction they are based on, and a
+  // collapsed family folds its shades away. Search overrides collapse, since
+  // a query that matches a folded shade must be able to reveal it. Computed
+  // from the visible titles, so hiding a direction promotes its shades to
+  // roots instead of stranding them.
+  const basedOnMap = new Map(
+    previews.flatMap((preview) =>
+      preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
+    ),
+  );
+  const grouped = familyRows(
+    ordered.filter((title) => !prefs.hidden.includes(title) && matches(title)),
+    basedOnMap,
+  );
+  const rowsWithDepth = collapseRows(
+    grouped,
+    new Set(prefs.collapsedFamilies),
+    query.trim() !== "",
+  );
+  const rows = rowsWithDepth.map((row) => row.title);
+  /** Per-title rail metadata: indent depth, shade count, folded state. */
+  const rowMeta = new Map(
+    rowsWithDepth.map((row) => {
+      const shades =
+        row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
+      return [
+        row.title,
+        { depth: row.depth, shades, folded: prefs.collapsedFamilies.includes(row.title) },
+      ] as const;
+    }),
+  );
+  const toggleFamily = (title: string) =>
+    setPrefs((current) => ({
+      ...current,
+      collapsedFamilies: current.collapsedFamilies.includes(title)
+        ? current.collapsedFamilies.filter((entry) => entry !== title)
+        : [...current.collapsedFamilies, title],
+    }));
+  /** The direction a shade is based on, for its default comparison. */
+  const parentOf = (title: string) => byTitle.get(title)?.basedOn ?? null;
+
   /** Rows that would show if the search were cleared, for the empty state. */
   const visibleCount = ordered.filter((title) => !prefs.hidden.includes(title)).length;
 
@@ -282,9 +324,12 @@ export function useShellState({
     query,
     rename,
     renaming,
+    parentOf,
     resetLoaded,
     resizing,
+    rowMeta,
     rows,
+    toggleFamily,
     setActive,
     setPrefs,
     setQuery,

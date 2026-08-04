@@ -16,6 +16,8 @@ export const VIEWPORTS = [
 
 export type Prefs = {
   collapsed: boolean;
+  /** Family roots whose shades are folded away in the rail. */
+  collapsedFamilies: string[];
   /** Which corner the tools widget sits in; it is draggable between them. */
   corner: "bottom-left" | "bottom-right" | "top-left" | "top-right";
   /**
@@ -36,6 +38,7 @@ export type Prefs = {
 
 export const DEFAULT_PREFS: Prefs = {
   collapsed: false,
+  collapsedFamilies: [],
   corner: "bottom-right",
   hideDevOverlays: true,
   font: "satoshi",
@@ -68,6 +71,10 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
     const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
     return {
       collapsed: Boolean(parsed.collapsed),
+      collapsedFamilies: (Array.isArray(parsed.collapsedFamilies)
+        ? parsed.collapsedFamilies
+        : []
+      ).filter((title) => titles.includes(title)),
       // An unrecognised corner would leave the widget unpositioned, and it is
       // the only way into the tools.
       corner: CORNERS.includes(parsed.corner as (typeof CORNERS)[number])
@@ -98,7 +105,6 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
   }
 }
 
-/** Reorder `title` to sit at `toIndex` among the visible rows. */
 /**
  * The rail's row order, from saved order and the previews that exist now.
  *
@@ -116,6 +122,7 @@ export function railOrder(order: readonly string[], titles: readonly string[]): 
   return [...kept, ...titles.filter((title) => !listed.has(title))];
 }
 
+/** Reorder `title` to sit at `toIndex` among the visible rows. */
 export function reorder(prefs: Prefs, previews: readonly Preview[], title: string, toIndex: number): string[] {
   const titles = previews.map((preview) => preview.title);
   const order = (prefs.order.length ? prefs.order : titles).filter((entry) => entry !== title);

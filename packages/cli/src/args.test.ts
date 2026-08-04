@@ -305,3 +305,23 @@ describe("the explore command", () => {
     expect(result.message).toContain("--based-on");
   });
 });
+
+describe("add --based-on", () => {
+  test("records the direction a shade is based on", () => {
+    const result = parseArgs([
+      "add", "--title", "Meridian Dusk", "--url", "/?v-hero=meridian-dusk", "--based-on", "Meridian",
+    ]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.basedOn).toBe("Meridian");
+  });
+
+  test("is optional, and absent means an ordinary root", () => {
+    const result = parseArgs(["add", "--title", "Ledger", "--url", "/?v-hero=ledger"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.basedOn).toBeUndefined();
+  });
+});

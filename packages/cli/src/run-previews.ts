@@ -46,6 +46,20 @@ export async function runAdd(
   const loaded = await loadConfig(options.cwd);
   const shared = loaded.config?.previews ?? [];
 
+  // A shade names the direction it is based on, and that direction has to
+  // exist: it was registered in the diverge round the shade came from, so an
+  // unknown title here is a typo, refused rather than guessed at.
+  if (options.preview.basedOn !== undefined) {
+    const local = await readLocalPreviews(options.cwd);
+    const titles = new Set([...shared, ...local.previews].map((preview) => preview.title));
+    if (!titles.has(options.preview.basedOn)) {
+      const error = `--based-on names ${JSON.stringify(options.preview.basedOn)}, which is not a registered direction. leglas list shows what exists.`;
+      if (options.json) envelope(deps, false, { error });
+      else deps.error(error);
+      return { exitCode: 1 };
+    }
+  }
+
   const outcome = await addLocalPreview(
     options.cwd,
     {
@@ -55,6 +69,7 @@ export async function runAdd(
       tags: options.preview.tags,
       branch: options.preview.branch,
       file: options.preview.file,
+      basedOn: options.preview.basedOn,
     },
     shared,
   );

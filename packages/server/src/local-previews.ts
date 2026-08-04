@@ -22,6 +22,8 @@ export type AddInput = {
   branch?: string | undefined;
   /** A project-relative HTML file for Leglas to serve itself. */
   file?: string | undefined;
+  /** The direction this preview is a shade of; the rail groups the family. */
+  basedOn?: string | undefined;
 };
 
 export async function readLocalPreviews(
@@ -93,6 +95,7 @@ export async function addLocalPreview(
     ...(input.tags === undefined ? {} : { tags: input.tags }),
     ...(input.branch === undefined ? {} : { branch: input.branch }),
     ...(input.file === undefined ? {} : { file: input.file }),
+    ...(input.basedOn === undefined ? {} : { basedOn: input.basedOn }),
   };
 
   const check = normalizeConfig({ previews: [candidate] }, { requireDevCommand: false });

@@ -22,6 +22,12 @@ export type Preview = {
    * boot, exactly as a branch preview's is.
    */
   file?: string | undefined;
+  /**
+   * The title of the direction this preview is a shade of. The rail groups a
+   * direction with its shades and a shade's default comparison is its parent.
+   * Purely descriptive: an unknown title makes the preview an ordinary root.
+   */
+  basedOn?: string | undefined;
 };
 
 export type LeglasConfig = {
@@ -178,6 +184,11 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       }
     }
 
+    const basedOn = entry["basedOn"];
+    if (basedOn !== undefined && (typeof basedOn !== "string" || basedOn.trim() === "")) {
+      errors.push(`${at} has a basedOn that is not a direction title.`);
+    }
+
     const tags = entry["tags"];
     previews.push({
       title: typeof title === "string" ? title : "",
@@ -186,6 +197,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : [],
       ...(typeof branch === "string" ? { branch } : {}),
       ...(typeof file === "string" ? { file } : {}),
+      ...(typeof basedOn === "string" && basedOn.trim() !== "" ? { basedOn } : {}),
     });
   });
 

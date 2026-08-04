@@ -108,11 +108,13 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
           .describe("Back the preview with a checkout of this git branch."),
         file: z.string().optional()
           .describe("Project-relative HTML file for Leglas to serve itself; no dev server needed."),
+        basedOn: z.string().optional()
+          .describe("Title of the direction this is a shade of; the rail groups the family."),
       },
     },
-    async ({ title, url, note, tags, branch, file }) =>
+    async ({ title, url, note, tags, branch, file, basedOn }) =>
       capture((deps) =>
-        runAdd({ preview: { title, url, note, tags, branch, file }, json: true, cwd }, deps),
+        runAdd({ preview: { title, url, note, tags, branch, file, basedOn }, json: true, cwd }, deps),
       ),
   );
 

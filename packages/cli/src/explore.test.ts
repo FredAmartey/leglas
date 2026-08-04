@@ -49,11 +49,22 @@ describe("planExplore", () => {
     expect(plan.instructions.toLowerCase()).not.toContain("genuinely disagree");
   });
 
-  test("both modes share the same registration mechanics", () => {
+  test("shades register with the direction they are based on", () => {
+    const shades = planExplore("hero", 3, "Aurora").instructions;
+
+    expect(shades).toContain('--based-on "Aurora"');
+    // Spread directions are roots and carry no parent.
+    expect(planExplore("hero", 3).instructions).not.toContain("--based-on");
+  });
+
+  test("both modes share the same file mechanics", () => {
     const spread = planExplore("hero", 3).instructions;
     const shades = planExplore("hero", 3, "Aurora").instructions;
-    const mechanics = spread.slice(spread.indexOf("Each one is its own file"));
+    const shared = spread.slice(
+      spread.indexOf("Each one is its own file"),
+      spread.indexOf("Register each"),
+    );
 
-    expect(shades).toContain(mechanics);
+    expect(shades).toContain(shared);
   });
 });

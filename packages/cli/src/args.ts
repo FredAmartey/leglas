@@ -16,6 +16,8 @@ export type AddPreview = {
   tags: string[] | undefined;
   branch: string | undefined;
   file: string | undefined;
+  /** The direction this preview is a shade of; the rail groups them. */
+  basedOn: string | undefined;
 };
 
 export type ClassifyChange = {
@@ -104,6 +106,7 @@ function parseAdd(rest: string[]): ParseResult {
   let note: string | undefined;
   let branch: string | undefined;
   let file: string | undefined;
+  let basedOn: string | undefined;
   const tags: string[] = [];
   let json = false;
 
@@ -125,7 +128,7 @@ function parseAdd(rest: string[]): ParseResult {
       value = argument.slice(equals + 1);
     }
 
-    if (!["--title", "--url", "--note", "--tag", "--branch", "--file"].includes(flag)) {
+    if (!["--title", "--url", "--note", "--tag", "--branch", "--file", "--based-on"].includes(flag)) {
       return { kind: "error", message: `leglas add does not take ${flag}.` };
     }
     if (value === undefined || value === "") {
@@ -137,6 +140,7 @@ function parseAdd(rest: string[]): ParseResult {
     else if (flag === "--note") note = value;
     else if (flag === "--branch") branch = value;
     else if (flag === "--file") file = value;
+    else if (flag === "--based-on") basedOn = value;
     else tags.push(value);
   }
 
@@ -153,7 +157,7 @@ function parseAdd(rest: string[]): ParseResult {
 
   return {
     kind: "add",
-    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined, branch, file },
+    preview: { title, url, note, tags: tags.length > 0 ? tags : undefined, branch, file, basedOn },
     json,
   };
 }

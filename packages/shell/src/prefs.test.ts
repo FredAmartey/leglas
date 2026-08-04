@@ -103,3 +103,25 @@ describe("railOrder", () => {
     expect(railOrder(["B", "Gone", "A"], ["A", "B"])).toEqual(["B", "A"]);
   });
 });
+
+describe("collapsedFamilies", () => {
+  const previews: Preview[] = [
+    { title: "Meridian", url: "/?v-hero=meridian", tags: [] },
+    { title: "Meridian Dusk", url: "/?v-hero=meridian-dusk", tags: [] },
+  ];
+
+  test("survives a save and load round trip", () => {
+    const saved = JSON.stringify({ collapsedFamilies: ["Meridian"] });
+    expect(loadPrefs(saved, previews).collapsedFamilies).toEqual(["Meridian"]);
+  });
+
+  test("drops roots that no longer exist", () => {
+    const saved = JSON.stringify({ collapsedFamilies: ["Gone"] });
+    expect(loadPrefs(saved, previews).collapsedFamilies).toEqual([]);
+  });
+
+  test("defaults to nothing collapsed, including for pre-family saves", () => {
+    expect(loadPrefs(JSON.stringify({ order: [] }), previews).collapsedFamilies).toEqual([]);
+    expect(loadPrefs(null, previews).collapsedFamilies).toEqual([]);
+  });
+});

@@ -304,6 +304,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     active: st.active,
     previous: previousRef.current,
     pinned: comparePin,
+    parent: st.parentOf(st.active),
     rows: st.rows,
   });
   const visible = paneTitles({ active: st.active, compare, split });
@@ -537,6 +538,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    */
   const scanning = health.reachable ? (scanQueue(previews, signatures, mounted)[0] ?? null) : null;
 
+
   // A hung navigation would stall the walk, so a scan that produces nothing
   // within the pane timeout records the null verdict and the queue moves on.
   useEffect(() => {
@@ -640,6 +642,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     const preview = st.previewFor(title);
     const isDragged = dragging && drag?.title === title;
     const shift = dragging && !isDragged ? shiftFor(index) : 0;
+    const meta = st.rowMeta.get(title);
+    const isShade = meta?.depth === 1;
+    const shadeCount = meta?.shades ?? 0;
+    const folded = meta?.folded ?? false;
 
     if (st.renaming === title) {
       return (
@@ -688,9 +694,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       >
         <div
           aria-pressed={isActive}
-          className={`relative flex w-full cursor-grab items-start gap-2 rounded-md px-3 py-2 text-left transition-colors active:cursor-grabbing ${
-            isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""
-          }`}
+          className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pr-3 text-left transition-colors active:cursor-grabbing ${
+            isShade ? "pl-11" : "pl-3"
+          } ${isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""}`}
           onClick={() => {
             if (dragMeta.current?.suppressed) {
               dragMeta.current.suppressed = false;
@@ -710,6 +716,34 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         >
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
+              {shadeCount > 0 && (
+                <Tip label={folded ? `Show ${shadeCount} shade${shadeCount === 1 ? "" : "s"}` : "Fold the shades away"}>
+                  <button
+                    aria-expanded={!folded}
+                    aria-label={`${folded ? "Show" : "Hide"} the shades of ${st.displayName(title)}`}
+                    className="-ml-1 flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      st.toggleFamily(title);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    type="button"
+                  >
+                    <svg
+                      className={`size-2.5 transition-transform duration-150 motion-reduce:transition-none ${folded ? "-rotate-90" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      viewBox="0 0 10 10"
+                    >
+                      <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {folded ? (
+                      <span className="text-[10px] leading-none tabular-nums">{shadeCount}</span>
+                    ) : null}
+                  </button>
+                </Tip>
+              )}
               <span
                 className={`min-w-0 flex-1 select-text truncate text-sm font-medium transition-colors duration-150 ${
                   isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"

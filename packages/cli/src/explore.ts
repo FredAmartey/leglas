@@ -47,11 +47,16 @@ export function planExplore(surface: string, count: number, basedOn: string | nu
         `variation grows into a new direction, it belongs in its own ` +
         `exploration instead.`;
 
+  const register =
+    basedOn === null
+      ? `  leglas add --title "<name>" --url "/?v-${slug}=<key>" --note "<the idea, one line>"`
+      : `  leglas add --title "<name>" --url "/?v-${slug}=<key>" --based-on ${JSON.stringify(basedOn)} --note "<the idea, one line>"`;
+
   const mechanics =
     `Each one is its own file under .leglas/variants/${slug}/, listed in the ` +
     `DIRECTIONS map in that folder's switch file. If there is no switch file ` +
     `yet, run \`leglas new ${slug}\` first. Register each as you decide it:\n\n` +
-    `  leglas add --title "<name>" --url "/?v-${slug}=<key>" --note "<the idea, one line>"\n\n` +
+    `${register}\n\n` +
     `The title and note are what the user judges from in the rail, so name ` +
     `each one for its idea rather than numbering it.`;
 

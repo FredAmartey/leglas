@@ -54,3 +54,42 @@ describe("paneTitles", () => {
     expect(paneTitles({ active: "Quiet", compare: "Quiet", split: true })).toEqual(["Quiet"]);
   });
 });
+
+describe("a shade's default comparison", () => {
+  test("prefers the direction it is based on over history", () => {
+    // The question a shade set asks is "how far is this from the original".
+    expect(
+      nextCompare({
+        active: "Meridian Dusk",
+        previous: "Bulletin",
+        pinned: null,
+        parent: "Meridian",
+        rows: ["Meridian", "Meridian Dusk", "Bulletin"],
+      }),
+    ).toBe("Meridian");
+  });
+
+  test("an explicit pin still beats the parent", () => {
+    expect(
+      nextCompare({
+        active: "Meridian Dusk",
+        previous: null,
+        pinned: "Bulletin",
+        parent: "Meridian",
+        rows: ["Meridian", "Meridian Dusk", "Bulletin"],
+      }),
+    ).toBe("Bulletin");
+  });
+
+  test("a parent that is not on the rail falls back to history", () => {
+    expect(
+      nextCompare({
+        active: "Meridian Dusk",
+        previous: "Bulletin",
+        pinned: null,
+        parent: "Meridian",
+        rows: ["Meridian Dusk", "Bulletin"],
+      }),
+    ).toBe("Bulletin");
+  });
+});

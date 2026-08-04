@@ -165,6 +165,7 @@ export default {
 | `tags`           | no            | The first tag renders as a pill                                        |
 | `branch`         | no            | Preview a git branch instead of the running dev server                 |
 | `file`           | no            | An HTML file served by Leglas itself, instead of `url`                 |
+| `basedOn`        | no            | Title of the direction this is a shade of; the rail groups the family  |
 | `devServer`      | no            | Defaults to `http://localhost:3000`                                    |
 | `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                           |
 | `installCommand` | no            | Defaults to `npm install`                                              |
@@ -222,6 +223,7 @@ leglas keep <title>        Keep a winner and end the exploration
   --from <path>        (new) Use an existing component as the baseline
   --count <n>          (explore) How many directions, default 3
   --based-on <title>     (explore) Shades of an existing direction instead of new ones
+  --based-on <title>     (add) The direction this preview is a shade of; groups the family
   --change <path>      (classify) A file the direction creates or wires up
   --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title
