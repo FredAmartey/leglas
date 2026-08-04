@@ -28,11 +28,13 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/leglas/api/config")
-      .then((response) => {
+    const read = () =>
+      fetch("/leglas/api/config").then((response) => {
         if (!response.ok) throw new Error(`the server answered ${response.status}`);
         return response.json() as Promise<ConfigPayload>;
-      })
+      });
+
+    void read()
       .then((config) => {
         if (!cancelled) setLoad({ status: "ready", config });
       })
@@ -43,8 +45,28 @@ export function App() {
           message: error instanceof Error ? error.message : String(error),
         });
       });
+
+    // An agent registers directions while this is open, so the config is
+    // polled and new previews appear as they are added. Updates only apply on
+    // a changed payload, so the steady state re-renders nothing, and a failed
+    // poll changes nothing: transient server hiccups are the health banner's
+    // story, not a reason to blank the rail.
+    const timer = setInterval(() => {
+      void read()
+        .then((config) => {
+          if (cancelled) return;
+          setLoad((current) => {
+            if (current.status !== "ready") return current;
+            if (JSON.stringify(current.config) === JSON.stringify(config)) return current;
+            return { status: "ready", config };
+          });
+        })
+        .catch(() => undefined);
+    }, 3000);
+
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 

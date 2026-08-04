@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -78,6 +78,38 @@ describe("startServer", () => {
     expect(res.status).toBe(200);
     expect(body.previews).toHaveLength(1);
     expect(body.errors).toEqual([]);
+  });
+
+  test("a url preview registered after boot joins the config live", async () => {
+    // An agent runs `leglas add` while the interface is open. The rail polls
+    // this endpoint, so the direction has to appear without a restart.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-"));
+    mkdirSync(join(cwd, ".leglas"));
+    const config = configFor(await startOrigin(), [{ title: "Current", url: "/" }]);
+    const server = await start({ config, port: 0, cwd });
+
+    const before = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: { title: string }[];
+    };
+    expect(before.previews.map((preview) => preview.title)).toEqual(["Current"]);
+
+    writeFileSync(
+      join(cwd, ".leglas/previews.json"),
+      JSON.stringify({
+        previews: [
+          { title: "Aurora", url: "/?v-hero=aurora" },
+          // A file preview needs its mount, which only boot builds, so it
+          // must NOT join live and render broken.
+          { title: "Paper", file: ".leglas/pages/paper.html" },
+        ],
+      }),
+      { flag: "w" },
+    );
+
+    const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: { title: string; local?: boolean }[];
+    };
+    expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
 
   test("identifies the project, so saved layout survives a port change", async () => {

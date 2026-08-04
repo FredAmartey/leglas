@@ -99,6 +99,23 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
 }
 
 /** Reorder `title` to sit at `toIndex` among the visible rows. */
+/**
+ * The rail's row order, from saved order and the previews that exist now.
+ *
+ * Saved order used to be reconciled with the config once, at load. Previews
+ * can appear mid-session now, registered by an agent while the interface is
+ * open, and a saved order that predates them would leave their rows invisible.
+ * So the reconciliation happens every render: saved order first, minus titles
+ * that no longer exist, with unknown titles appended in config order.
+ */
+export function railOrder(order: readonly string[], titles: readonly string[]): string[] {
+  if (order.length === 0) return [...titles];
+  const known = new Set(titles);
+  const kept = order.filter((title) => known.has(title));
+  const listed = new Set(kept);
+  return [...kept, ...titles.filter((title) => !listed.has(title))];
+}
+
 export function reorder(prefs: Prefs, previews: readonly Preview[], title: string, toIndex: number): string[] {
   const titles = previews.map((preview) => preview.title);
   const order = (prefs.order.length ? prefs.order : titles).filter((entry) => entry !== title);

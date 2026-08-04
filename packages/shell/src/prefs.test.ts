@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_W, MAX_W, MIN_W, loadPrefs, reorder, type Prefs } from "./prefs.js";
+import { DEFAULT_W, MAX_W, MIN_W, loadPrefs, railOrder, reorder, type Prefs } from "./prefs.js";
 import type { Preview } from "./types.js";
 
 const previews: Preview[] = [
@@ -85,5 +85,21 @@ describe("reorder", () => {
     // Visible rows are Original, Aurora; moving Aurora to slot 0 must not
     // reshuffle the hidden Wave out of the stored order.
     expect(reorder(prefs, previews, "Aurora", 0)).toContain("Wave");
+  });
+});
+
+describe("railOrder", () => {
+  test("no saved order means config order", () => {
+    expect(railOrder([], ["A", "B"])).toEqual(["A", "B"]);
+  });
+
+  test("appends previews that arrived after the order was saved", () => {
+    // An agent registers directions while the interface is open; a saved
+    // order that predates them must not leave their rows invisible.
+    expect(railOrder(["B", "A"], ["A", "B", "New"])).toEqual(["B", "A", "New"]);
+  });
+
+  test("drops titles that no longer exist", () => {
+    expect(railOrder(["B", "Gone", "A"], ["A", "B"])).toEqual(["B", "A"]);
   });
 });

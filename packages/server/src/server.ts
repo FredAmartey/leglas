@@ -4,6 +4,7 @@ import net from "node:net";
 import { extname, join, normalize } from "node:path";
 
 import type { LeglasConfig } from "./config.js";
+import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { appendRequest, composeRequest } from "./requests.js";
 
@@ -191,25 +192,56 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const path = url.split("?")[0] ?? "/";
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
-      return sendJson(res, 200, {
-        project,
-        devServer: target,
-        previews: config?.previews ?? [],
-        errors: configErrors,
-      });
+      // Local previews are re-read on every request, so a direction an agent
+      // registers while the interface is open appears without a restart. Only
+      // plain url previews can join live: a branch needs its checkout and a
+      // file needs its mount, both of which are built at boot, so those wait
+      // for the restart the CLI already tells the agent about. A local file
+      // that fails to read or validate changes nothing: the boot list stands.
+      const boot = config?.previews ?? [];
+      return void readLocalPreviews(cwd)
+        .then(({ previews: local }) => {
+          const known = new Set(boot.map((preview) => preview.title));
+          const fresh = local.filter(
+            (preview) =>
+              !known.has(preview.title) && preview.branch === undefined && preview.file === undefined,
+          );
+          sendJson(res, 200, {
+            project,
+            devServer: target,
+            previews: [...boot, ...fresh],
+            errors: configErrors,
+          });
+        })
+        .catch(() =>
+          sendJson(res, 200, {
+            project,
+            devServer: target,
+            previews: boot,
+            errors: configErrors,
+          }),
+        );
     }
 
     if (path === `${LEGLAS_PREFIX}/api/request` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
-      return void req.on("end", () => {
+      return void req.on("end", async () => {
         let parsed: { title?: string; intent?: string };
         try {
           parsed = JSON.parse(body || "{}") as { title?: string; intent?: string };
         } catch {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        const preview = (config?.previews ?? []).find((entry) => entry.title === parsed.title);
+        // Same live lookup as /api/config: a direction registered after boot
+        // is on the rail, so a change request against it has to resolve.
+        const local = await readLocalPreviews(cwd).then(
+          (read) => read.previews,
+          () => [],
+        );
+        const preview = [...(config?.previews ?? []), ...local].find(
+          (entry) => entry.title === parsed.title,
+        );
         if (!preview || !parsed.intent?.trim()) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }

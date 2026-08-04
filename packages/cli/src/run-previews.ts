@@ -96,7 +96,13 @@ export async function runAdd(
       deps.log("    Add devCommand (with {port}) to the config.");
       deps.log("");
     }
-    deps.log("Local to this machine. Restart Leglas to see it, or run leglas list.");
+    // Plain url previews join a running interface live; a branch needs its
+    // checkout and a file its mount, both built when Leglas starts.
+    if (options.preview.branch === undefined && options.preview.file === undefined) {
+      deps.log("Local to this machine. A running interface picks it up within seconds.");
+    } else {
+      deps.log("Local to this machine. Restart Leglas to see it, or run leglas list.");
+    }
   }
   return { exitCode: 0 };
 }

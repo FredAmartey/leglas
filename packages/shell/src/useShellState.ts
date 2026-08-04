@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
-import { MAX_W, MIN_W, VIEWPORTS, loadPrefs, reorder, storageKey, type Prefs } from "./prefs.js";
+import {
+  MAX_W,
+  MIN_W,
+  VIEWPORTS,
+  loadPrefs,
+  railOrder,
+  reorder,
+  storageKey,
+  type Prefs,
+} from "./prefs.js";
 import { resolveKey } from "./keymap.js";
 import type { Preview } from "./types.js";
 
@@ -93,7 +102,9 @@ export function useShellState({
   };
 
   const titles = previews.map((preview) => preview.title);
-  const ordered = prefs.order.length ? prefs.order : titles;
+  // Derived every render rather than reconciled once at load, so previews an
+  // agent registers mid-session get rows the moment they arrive.
+  const ordered = railOrder(prefs.order, titles);
   const rows = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
   /** Rows that would show if the search were cleared, for the empty state. */
   const visibleCount = ordered.filter((title) => !prefs.hidden.includes(title)).length;
