@@ -5,7 +5,7 @@ import { searchCap, shortcutList } from "./keymap.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
-import { renderedSignature, twinsOf } from "./rendered.js";
+import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { useShellState } from "./useShellState.js";
@@ -504,7 +504,18 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     const tags = [...doc.body.querySelectorAll("*")]
       .slice(0, 400)
       .map((element) => element.tagName);
-    const signature = renderedSignature(doc.body.innerText ?? "", tags);
+    const view = doc.defaultView;
+    const paint = view
+      ? paintSample(doc.body, (element) => {
+          const style = view.getComputedStyle(element as Element);
+          return {
+            backgroundColor: style.backgroundColor,
+            backgroundImage: style.backgroundImage,
+            color: style.color,
+          };
+        })
+      : [];
+    const signature = renderedSignature(doc.body.innerText ?? "", tags, paint);
     setSignatures((current) =>
       current[title] === signature ? current : { ...current, [title]: signature },
     );
