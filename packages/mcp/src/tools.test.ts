@@ -130,13 +130,27 @@ describe("the MCP face", () => {
     expect(String(envelope["reason"])).toContain("dependency");
   });
 
-  test("explore returns the asked-for number of angles", async () => {
+  test("explore briefs the set without prescribing designs", async () => {
     const client = await connect(scratch());
 
     const { envelope } = await call(client, "explore", { surface: "hero", count: 4 });
 
     expect(envelope["ok"]).toBe(true);
-    expect(envelope["directions"]).toHaveLength(4);
+    expect(String(envelope["instructions"])).toContain("Build 4 design directions");
+    expect(String(envelope["instructions"])).toContain(".leglas/variants/hero/");
+  });
+
+  test("explore based on a direction asks for shades instead", async () => {
+    const client = await connect(scratch());
+
+    const { envelope } = await call(client, "explore", {
+      surface: "hero",
+      count: 3,
+      basedOn: "Aurora",
+    });
+
+    expect(envelope["ok"]).toBe(true);
+    expect(String(envelope["instructions"])).toContain('variations of the "Aurora" direction');
   });
 
   test("add accepts a file preview for the greenfield case", async () => {

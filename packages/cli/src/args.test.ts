@@ -277,3 +277,31 @@ describe("adding a file preview", () => {
     expect(result.message).toContain("--file");
   });
 });
+
+describe("the explore command", () => {
+  test("defaults to three new directions", () => {
+    const result = parseArgs(["explore", "hero"]);
+
+    expect(result.kind).toBe("explore");
+    if (result.kind !== "explore") return;
+    expect(result.count).toBe(3);
+    expect(result.basedOn).toBeNull();
+  });
+
+  test("takes a direction title to build shades of", () => {
+    const result = parseArgs(["explore", "hero", "--based-on", "Aurora", "--count", "4"]);
+
+    expect(result.kind).toBe("explore");
+    if (result.kind !== "explore") return;
+    expect(result.basedOn).toBe("Aurora");
+    expect(result.count).toBe(4);
+  });
+
+  test("refuses --based-on with no title, which would brief shades of nothing", () => {
+    const result = parseArgs(["explore", "hero", "--based-on"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--based-on");
+  });
+});

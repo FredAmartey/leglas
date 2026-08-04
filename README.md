@@ -41,9 +41,9 @@ and sessions that clean up after themselves.
 - Compare things no design tool can hold: 3 git branches, a local
   build against production, yesterday's direction against today's, or even 7 different worktrees.
 - `leglas init` teaches any coding agent the workflow, and
-  `leglas explore` hands it genuinely different creative angles. Five
-  directions can be five separate ideas, or five variations of the one
-  you already like. You choose the spread.
+  `leglas explore` briefs an exploration. Five directions can be five
+  separate ideas, or five shades of the one you already like: you choose
+  the spread, your agent supplies the taste.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
   precise request for your agent, file path included.
@@ -83,10 +83,13 @@ rewrite it. Two directions that rewrite the same file cannot render from
 one server, and asking an agent to "make the hero calmer" tempts it to
 edit the hero. The supporting commands:
 
-- `leglas explore hero --count 6` prints six genuinely different angles
-  to build, each naming the obvious approach that would collapse the
-  difference. Without it, six requests come back as six shades of one
-  idea.
+- `leglas explore hero --count 6` briefs the exploration: what the set
+  is for, why it only works if the six genuinely disagree, and how each
+  direction registers. Unbriefed, six requests come back as six shades
+  of one idea. With `--based-on "Aurora"` the goal flips: six deliberate
+  shades of a direction you already like, and drifting into a new
+  direction is the failure. The designs themselves are the agent's;
+  Leglas prescribes none.
 - `leglas new hero --from src/Hero.tsx` scaffolds a switcher under
   `.leglas/variants/hero/`. With `--from`, the baseline re-exports your
   real component, so you never compare against a stale copy. Leglas
@@ -202,7 +205,7 @@ forwards.
 leglas init                Prepare a project and teach its agents
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
-leglas explore <surface>   Print distinct angles for an agent to build
+leglas explore <surface>   Brief an agent's exploration of a surface
 leglas classify            Decide where a direction should live
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
@@ -217,7 +220,8 @@ leglas keep <title>        Keep a winner and end the exploration
 
   --print              (new) Print the scaffold instead of writing it
   --from <path>        (new) Use an existing component as the baseline
-  --count <n>          (explore) How many angles, default 3
+  --count <n>          (explore) How many directions, default 3
+  --based-on <title>     (explore) Shades of an existing direction instead of new ones
   --change <path>      (classify) A file the direction creates or wires up
   --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title

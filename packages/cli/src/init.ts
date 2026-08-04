@@ -43,10 +43,12 @@ When asked for design variations, alternatives, or "a few options":
    and register it with \`leglas add --title "…" --url "/" --branch <branch>\`
    (the config needs \`devCommand\` with \`{port}\`). Everything below is the
    ordinary, in-app path.
-2. Run \`leglas explore <surface> --count <n>\` first. It returns distinct
-   angles to build, each with what to avoid, so several directions genuinely
-   disagree instead of becoming shades of one idea. Follow those angles rather
-   than inventing your own variations of the current design.
+2. Run \`leglas explore <surface> --count <n>\` first, adding
+   \`--based-on "<title>"\` when the user wants variations of a direction they
+   already like. It prints what the set needs and how to register it. In
+   short: new directions must genuinely disagree with each other, shades of
+   one must not, and either way decide the whole set before building any of
+   it. The designs themselves are yours.
 3. If the surface has no switcher yet, run
    \`leglas new <surface> --from <the component that renders it today>\`. It
    writes one under \`.leglas/variants/<surface>/\` and prints the single line

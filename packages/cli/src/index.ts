@@ -1,5 +1,5 @@
 export { parseArgs } from "./args.js";
-export { ALL_BRIEFS, briefsFor, planBriefs } from "./briefs.js";
+export { planExplore } from "./explore.js";
 export { runExplore } from "./run-explore.js";
 export { detectFramework, planNew, surfaceSlug } from "./new.js";
 export { AGENTS_MARKER_END, AGENTS_MARKER_START, planInit } from "./init.js";

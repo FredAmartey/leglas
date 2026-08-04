@@ -151,17 +151,25 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
   server.registerTool(
     "explore",
     {
-      title: "Get distinct angles for a surface",
+      title: "Brief an exploration",
       description:
-        "Distinct design angles to build for a surface, each naming what to avoid, ordered for " +
-        "spread. Use these instead of inventing variations of the current design.",
+        "What a set for a surface needs and how it registers here. Directions must genuinely " +
+        "disagree; with basedOn, shades of that direction must not. The designs themselves are " +
+        "yours. Run before building a set.",
       inputSchema: {
         surface: z.string().min(1),
-        count: z.number().int().min(1).max(24).optional().describe("How many angles; default 3."),
+        count: z.number().int().min(1).max(24).optional().describe("How many; default 3."),
+        basedOn: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("An existing direction's title: ask for shades of it instead of new directions."),
       },
     },
-    async ({ surface, count }) =>
-      capture((deps) => runExplore({ surface, count: count ?? 3, json: true }, deps)),
+    async ({ surface, count, basedOn }) =>
+      capture((deps) =>
+        runExplore({ surface, count: count ?? 3, basedOn: basedOn ?? null, json: true }, deps),
+      ),
   );
 
   server.registerTool(

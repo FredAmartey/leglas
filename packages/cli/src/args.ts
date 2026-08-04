@@ -30,7 +30,7 @@ export type ParseResult =
   | { kind: "classify"; changes: ClassifyChange[]; json: boolean }
   | { kind: "list"; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
-  | { kind: "explore"; surface: string; count: number; json: boolean }
+  | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
   | { kind: "keep"; title: string; to: string; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
@@ -253,6 +253,7 @@ export function parseArgs(argv: string[]): ParseResult {
     const rest = argv.slice(1);
     let surface: string | undefined;
     let count = 3;
+    let basedOn: string | null = null;
     let json = false;
     for (let index = 0; index < rest.length; index += 1) {
       const argument = rest[index] as string;
@@ -266,6 +267,17 @@ export function parseArgs(argv: string[]): ParseResult {
           return { kind: "error", message: "--count needs a number, for example --count 6." };
         }
         count = Number(raw);
+        continue;
+      }
+      if (argument === "--based-on" || argument.startsWith("--based-on=")) {
+        const raw = argument.includes("=") ? argument.split("=")[1] : rest[(index += 1)];
+        if (raw === undefined || raw === "") {
+          return {
+            kind: "error",
+            message: '--based-on needs a direction title, for example --based-on "Aurora".',
+          };
+        }
+        basedOn = raw;
         continue;
       }
       if (argument.startsWith("-")) {
@@ -282,7 +294,7 @@ export function parseArgs(argv: string[]): ParseResult {
         message: "leglas explore needs a surface name, for example: leglas explore hero --count 6",
       };
     }
-    return { kind: "explore", surface, count, json };
+    return { kind: "explore", surface, count, basedOn, json };
   }
   if (argv[0] === "requests") {
     const rest = argv.slice(1);

@@ -17,7 +17,7 @@ Usage
   leglas init                Prepare a project and teach its agents
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
-  leglas explore <surface>   Print distinct angles for an agent to build
+  leglas explore <surface>   Brief an agent's exploration of a surface
   leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
@@ -38,7 +38,8 @@ Options for new
   --from <path>        Use an existing component as the baseline
 
 Options for explore
-  --count <n>          How many angles (default 3)
+  --count <n>          How many directions (default 3)
+  --based-on <title>     Shades of an existing direction instead of new ones
 
 Options for classify
   --change <path>      A file the direction creates or wires up (repeatable)
@@ -142,7 +143,7 @@ if (parsed.kind === "keep") {
 
 if (parsed.kind === "explore") {
   const outcome = runExplore(
-    { surface: parsed.surface, count: parsed.count, json: parsed.json },
+    { surface: parsed.surface, count: parsed.count, basedOn: parsed.basedOn, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
   process.exit(outcome.exitCode);
