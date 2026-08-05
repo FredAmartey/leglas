@@ -3,11 +3,8 @@ import { ThinkingOrb } from "thinking-orbs";
 
 import { MOOD } from "./orb.js";
 import { EASE } from "./prefs.js";
-import { fitShift, shouldFlipBelow } from "./tip.js";
+import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
-
-/** Where a tooltip sits relative to its control, after any correction. */
-type Placement = "bottom" | "right" | "top";
 
 /**
  * Two offset rounded squares: layers of the same app. Monochrome, because the
@@ -99,8 +96,12 @@ export function Tip({
    * Placing from the anchor alone puts it off the top in a top corner and past
    * the right edge in the bottom right, which is where the floating widget
    * lives. Corrections run before paint, so nothing is seen out of place, and
-   * both converge in one pass: a shift is measured again as zero, and a flip
-   * lands somewhere with room.
+   * they converge: a pass that changes nothing returns null.
+   *
+   * The label is a dependency because it can change while the tip is open:
+   * clicking the fold chevron swaps "Show 2 variants" for the wider "Fold the
+   * variants away" without closing it, and a fit measured for the short label
+   * left the long one clipped by the rail edge.
    */
   useLayoutEffect(() => {
     const bubble = bubbleRef.current;
@@ -109,22 +110,16 @@ export function Tip({
     // Layout size, not the painted rect: the label enters at scale(0.8), so
     // measuring the rect mid-animation reads it narrower than it lands and
     // under-corrects. Transforms do not touch offsetWidth.
-    const width = bubble.offsetWidth;
-    const height = bubble.offsetHeight;
-    const left = tip.at === "right" ? tip.x + tip.shift : tip.x + tip.shift - width / 2;
-    const top = tip.at === "top" ? tip.y - height : tip.at === "bottom" ? tip.y : tip.y - height / 2;
-    const rect = { bottom: top + height, left, right: left + width, top };
-
-    const anchor = control.getBoundingClientRect();
-    if (tip.at === "top" && shouldFlipBelow(rect, anchor, window.innerHeight)) {
-      setTip((current) => (current ? { ...current, at: "bottom", y: anchor.bottom + 8 } : current));
-      return;
+    const corrected = placeTip(
+      tip,
+      { height: bubble.offsetHeight, width: bubble.offsetWidth },
+      control.getBoundingClientRect(),
+      { height: window.innerHeight, width: window.innerWidth },
+    );
+    if (corrected) {
+      setTip((current) => (current ? { ...current, ...corrected } : current));
     }
-    const shift = fitShift(rect, window.innerWidth);
-    if (shift !== 0) {
-      setTip((current) => (current ? { ...current, shift: current.shift + shift } : current));
-    }
-  }, [tip?.at, tip?.out, tip?.shift, tip?.x, tip?.y]);
+  }, [label, tip?.at, tip?.out, tip?.shift, tip?.x, tip?.y]);
 
   useEffect(
     () => () => {
