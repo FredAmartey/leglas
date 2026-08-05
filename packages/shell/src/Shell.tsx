@@ -9,6 +9,7 @@ import {
   PIcon,
   RenameForm,
   SkeletonOverlay,
+  Switch,
   Tip,
   Toasts,
 } from "./kit.js";
@@ -165,17 +166,20 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const onToggleSplit = useCallback(() => splitRef.current?.(), []);
   const onToggleHelp = useCallback(() => setHelpOpen((open) => !open), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
+  const [widgetOpen, setWidgetOpen] = useState(false);
+  // The way into the tools when the widget is switched off the stage.
+  const onToggleTools = useCallback(() => setWidgetOpen((open) => !open), []);
   const st = useShellState({
     previews,
     project,
     searchRef,
     onToggleSplit,
     onToggleHelp,
+    onToggleTools,
     // While the keymap is on screen it is the subject, not a way to drive what
     // is behind it. ? still closes it.
     suspended: helpOpen,
   });
-  const [widgetOpen, setWidgetOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   // The widget is the only way into the tools, so it must never end up under
   // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
@@ -202,6 +206,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // active row carries its own persistent surface, so this is hover-only.
   const listRef = useRef<HTMLUListElement | null>(null);
   const [glow, setGlow] = useState({ height: 0, on: false, top: 0 });
+
+  // The panel is measured from the row the pointer entered, and rows move as
+  // a search narrows the list or a family folds. Left on, it hangs over
+  // whatever now occupies that spot, so any change to the rows puts it away
+  // until the pointer says where it is again.
+  useEffect(() => {
+    setGlow((current) => (current.on ? { ...current, on: false } : current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st.rows.join("|")]);
 
   // Window-level listeners rather than pointer capture, so a drag survives
   // leaving the rail; a 4px threshold separates it from a click.
@@ -543,7 +556,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    */
   useEffect(() => {
     for (const frame of document.querySelectorAll("iframe")) {
-      applyOverlayPref(frame as HTMLIFrameElement, st.prefs.hideDevOverlays);
+      applyOverlayPref(frame as HTMLIFrameElement, !st.prefs.showDevOverlays);
     }
   });
 
@@ -619,9 +632,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // The stage reads panes with the overlay preference applied, and a hidden
     // badge leaves the text. The scan has to read through the same lens or
     // one page would produce two signatures depending on who read it.
-    applyOverlayPref(frame, st.prefs.hideDevOverlays);
+    applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
-      applyOverlayPref(frame, st.prefs.hideDevOverlays);
+      applyOverlayPref(frame, !st.prefs.showDevOverlays);
       let readable = false;
       try {
         readable = frame.contentDocument != null;
@@ -978,17 +991,26 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               </button>
             </Tip>
           )}
-          <Tip label={st.copied === title ? "Copied" : "Copy reference"}>
+          {/* The reflex copy: someone says "show me" and this goes into the
+              message. The reference, which says what the direction is, is the
+              deliberate one and lives under the rail. */}
+          <Tip
+            label={
+              st.copied?.kind === "link" && st.copied.title === title
+                ? "Copied"
+                : "Copy preview link"
+            }
+          >
             <button
-              aria-label={`Copy a reference to the ${st.displayName(title)} direction`}
+              aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
               className={ICON_BUTTON}
-              onClick={() => st.copyReference(title)}
+              onClick={() => st.copyLink(title)}
               type="button"
             >
-              {st.copied === title ? (
+              {st.copied?.kind === "link" && st.copied.title === title ? (
                 <span className="text-[10px] text-emerald-300">✓</span>
               ) : (
-                <PIcon d={P.copy} />
+                <PIcon d={P.link} />
               )}
             </button>
           </Tip>
@@ -1266,16 +1288,41 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </form>
 
           <div className="flex items-center justify-between gap-2 px-3 py-2">
-            <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-              Enter queues it for <span className="font-medium">leglas requests</span>
-            </span>
-            <Tip label="Copy a reference to the active direction">
+            {/* While the tools are switched off the composer hint gives its
+                slot to the way back, so the toast is not the only sign. */}
+            {st.prefs.showWidget ? (
+              <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                Enter queues it for <span className="font-medium">leglas requests</span>
+              </span>
+            ) : (
               <button
+                className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                onClick={() => setWidgetOpen(true)}
+                type="button"
+              >
+                Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
+              </button>
+            )}
+            {/* Named for what lands on the clipboard rather than for the
+                gesture: "Share" said nothing about how it differs from the
+                copy button on every row, which is now the plain link. */}
+            <Tip
+              label={
+                <>
+                  <span className="block">Copy a detailed reference.</span>
+                  <span className="block">For a teammate or an agent.</span>
+                </>
+              }
+            >
+              <button
+                aria-label={`Copy a reference to the ${st.displayName(st.active)} direction`}
                 className="shrink-0 rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
                 onClick={() => st.copyReference(st.active)}
                 type="button"
               >
-                {st.copied === st.active ? "Copied" : "Share"}
+                {st.copied?.kind === "reference" && st.copied.title === st.active
+                  ? "Copied"
+                  : "Copy reference"}
               </button>
             </Tip>
           </div>
@@ -1325,7 +1372,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       </aside>
 
       <span aria-live="polite" className="sr-only" role="status">
-        {st.copied ? "Reference URL copied" : ""}
+        {st.copied === null ? "" : st.copied.kind === "link" ? "Link copied" : "Reference copied"}
       </span>
 
       <div
@@ -1394,9 +1441,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     // A client-rendered app draws after load, so read once the
                     // frame has had a chance to paint rather than at load.
                     const frame = event.currentTarget;
-                    applyOverlayPref(frame, st.prefs.hideDevOverlays);
+                    applyOverlayPref(frame, !st.prefs.showDevOverlays);
                     window.setTimeout(() => {
-                      applyOverlayPref(frame, st.prefs.hideDevOverlays);
+                      applyOverlayPref(frame, !st.prefs.showDevOverlays);
                       readRendered(title, frame);
                     }, 600);
                   } else {
@@ -1517,39 +1564,51 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               Dev overlays
             </span>
             <button
-              aria-checked={st.prefs.hideDevOverlays}
+              aria-checked={st.prefs.showDevOverlays}
               className={`${ROW_BUTTON} ${
-                st.prefs.hideDevOverlays ? "text-white" : "text-[#9CA3AF]"
+                st.prefs.showDevOverlays ? "text-white" : "text-[#9CA3AF]"
               }`}
               onClick={() => {
-                const hide = !st.prefs.hideDevOverlays;
-                st.setPrefs((current) => ({ ...current, hideDevOverlays: hide }));
+                const show = !st.prefs.showDevOverlays;
+                st.setPrefs((current) => ({ ...current, showDevOverlays: show }));
                 // Applied to every open pane at once, so the change is visible
                 // without reloading anything.
                 for (const frame of document.querySelectorAll("iframe")) {
-                  applyOverlayPref(frame as HTMLIFrameElement, hide);
+                  applyOverlayPref(frame as HTMLIFrameElement, !show);
                 }
               }}
               role="switch"
               type="button"
             >
-              <span>Hide in previews</span>
-              {/* The track is darker than the row's hover surface, not the same
-                  #2E2E2E, so it stays visible under the pointer. */}
-              <span
-                aria-hidden="true"
-                className={`relative h-3.5 w-6 shrink-0 rounded-full transition-colors duration-150 motion-reduce:transition-none ${
-                  st.prefs.hideDevOverlays ? "bg-[#E6E8EC]" : "bg-[#17181B]"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 size-2.5 rounded-full transition-transform duration-150 motion-reduce:transition-none ${
-                    st.prefs.hideDevOverlays
-                      ? "translate-x-2.5 bg-[#17181B]"
-                      : "bg-[#84848C]"
-                  }`}
-                />
-              </span>
+              <span>Show dev tool overlay</span>
+              <Switch on={st.prefs.showDevOverlays} />
+            </button>
+            <button
+              aria-checked={st.prefs.showWidget}
+              className={`${ROW_BUTTON} ${
+                st.prefs.showWidget ? "text-white" : "text-[#9CA3AF]"
+              }`}
+              onClick={() => {
+                const show = !st.prefs.showWidget;
+                st.setPrefs((current) => ({ ...current, showWidget: show }));
+                // This switch lives inside the thing it hides, so the way back
+                // is named the moment the door is closed, and for longer than
+                // a plain confirmation: this one is teaching a key. The rail's
+                // foot keeps a line saying the same for as long as it matters.
+                if (!show) {
+                  st.notify({
+                    kind: "widget",
+                    message: "Press T to reopen the tools",
+                    tone: "info",
+                    ttl: TOAST_TTL.plain + 3000,
+                  });
+                }
+              }}
+              role="switch"
+              type="button"
+            >
+              <span>Show Leglas dev tool overlay</span>
+              <Switch on={st.prefs.showWidget} />
             </button>
 
             <button
@@ -1558,7 +1617,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               type="button"
             >
               <PIcon d={P.copy} size={12} />
-              {st.copied === st.active ? "Copied" : "Copy reference"}
+              {st.copied?.kind === "reference" && st.copied.title === st.active
+                ? "Copied"
+                : "Copy reference"}
             </button>
             <Tip label="Or double-click any direction in the rail">
               <a
@@ -1586,29 +1647,34 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </button>
           </div>
 
-          <Tip label="Leglas tools">
-            <button
-              aria-expanded={widgetOpen}
-              aria-haspopup="dialog"
-              aria-label="Leglas tools"
-              className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-[#1C1C20] shadow-lg transition-[border-color,transform] duration-150 hover:scale-[1.04] hover:border-white/20 active:scale-[0.95] motion-reduce:transform-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100"
-              onClick={() => {
-                if (widgetClickSuppressed.current) {
-                  widgetClickSuppressed.current = false;
-                  return;
-                }
-                setWidgetOpen((value) => !value);
-              }}
-              onPointerDown={onWidgetPointerDown}
-            ref={widgetButtonRef}
-              type="button"
-            >
-              <Mark size={20} />
-              {!st.loaded[st.active] && (
-                <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-amber-400 motion-reduce:animate-none" />
-              )}
-            </button>
-          </Tip>
+          {/* Switched off, the button leaves the stage but comes back for as
+              long as the popover is open, since the popover is anchored to it
+              and the switch that undoes the choice lives inside. */}
+          {(st.prefs.showWidget || widgetOpen) && (
+            <Tip label="Leglas tools">
+              <button
+                aria-expanded={widgetOpen}
+                aria-haspopup="dialog"
+                aria-label="Leglas tools"
+                className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-[#1C1C20] shadow-lg transition-[border-color,transform] duration-150 hover:scale-[1.04] hover:border-white/20 active:scale-[0.95] motion-reduce:transform-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100"
+                onClick={() => {
+                  if (widgetClickSuppressed.current) {
+                    widgetClickSuppressed.current = false;
+                    return;
+                  }
+                  setWidgetOpen((value) => !value);
+                }}
+                onPointerDown={onWidgetPointerDown}
+                ref={widgetButtonRef}
+                type="button"
+              >
+                <Mark size={20} />
+                {!st.loaded[st.active] && (
+                  <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-amber-400 motion-reduce:animate-none" />
+                )}
+              </button>
+            </Tip>
+          )}
         </div>
       </div>
 

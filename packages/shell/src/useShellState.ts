@@ -33,6 +33,9 @@ import type { Preview } from "./types.js";
  * instant without paying for every direction upfront. Nested inside another
  * preview, only the active pane mounts, or self-hosting multiplies iframes.
  */
+/** The link on its own, or the block that says what the direction is. */
+export type CopyKind = "link" | "reference";
+
 export type ShellStateProps = {
   previews: readonly Preview[];
   project: string;
@@ -42,6 +45,8 @@ export type ShellStateProps = {
   onToggleSplit?: (() => void) | undefined;
   /** Invoked by the help shortcut; the overlay lives in the shell. */
   onToggleHelp?: (() => void) | undefined;
+  /** Invoked by the tools shortcut; the widget and popover live in the shell. */
+  onToggleTools?: (() => void) | undefined;
   /**
    * Hold every shortcut but help, for when something on top owns the keyboard.
    */
@@ -54,6 +59,7 @@ export function useShellState({
   searchRef,
   onToggleSplit,
   onToggleHelp,
+  onToggleTools,
   suspended = false,
 }: ShellStateProps) {
   const key = storageKey(project);
@@ -72,12 +78,26 @@ export function useShellState({
   const [active, setActiveRaw] = useState<string>(firstVisible);
   const nested = typeof window !== "undefined" && window.self !== window.top;
   const [mounted, setMounted] = useState<readonly string[]>(() => [firstVisible()]);
-  const [query, setQuery] = useState("");
+  const [query, setQueryRaw] = useState("");
+  /**
+   * Folds made while a search is active, scoped to that search. Starting
+   * empty is what lets a fresh query reveal variants their family had folded
+   * away, and folding here leaves the saved preference alone: putting rows
+   * away while looking for something is a viewing gesture, not a decision
+   * about the rail.
+   */
+  const [searchFolded, setSearchFolded] = useState<readonly string[]>([]);
+  const setQuery = (value: string) => {
+    // A new query is a new search; folds made against the old one are stale.
+    setSearchFolded((current) => (current.length ? [] : current));
+    setQueryRaw(value);
+  };
   const [showHidden, setShowHidden] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Why the open rename form refused what was typed into it. */
   const [renameError, setRenameError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  /** Which control just copied, so the tick lands on that one and not its twin. */
+  const [copied, setCopied] = useState<{ kind: CopyKind; title: string } | null>(null);
   const [resizing, setResizing] = useState(false);
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
@@ -136,10 +156,13 @@ export function useShellState({
   const ordered = railOrder(prefs.order, titles);
 
   // Family structure: variants sit under the direction they are based on, and a
-  // collapsed family folds its variants away. Search overrides collapse, since
-  // a query that matches a folded variant must be able to reveal it. Computed
-  // from the visible titles, so hiding a direction promotes its variants to
-  // roots instead of stranding them.
+  // collapsed family folds its variants away. While a search is active the
+  // saved folds step aside for the per-search set, so a query that matches a
+  // folded variant reveals it and the fold control keeps working against what
+  // is on screen. Computed from the visible titles, so hiding a direction
+  // promotes its variants to roots instead of stranding them.
+  const searching = query.trim() !== "";
+  const foldedNow = searching ? searchFolded : prefs.collapsedFamilies;
   const basedOnMap = new Map(
     previews.flatMap((preview) =>
       preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
@@ -149,11 +172,7 @@ export function useShellState({
     ordered.filter((title) => !prefs.hidden.includes(title) && matches(title)),
     basedOnMap,
   );
-  const rowsWithDepth = collapseRows(
-    grouped,
-    new Set(prefs.collapsedFamilies),
-    query.trim() !== "",
-  );
+  const rowsWithDepth = collapseRows(grouped, new Set(foldedNow));
   const rows = rowsWithDepth.map((row) => row.title);
   /** Per-title rail metadata: indent depth, variant count, folded state. */
   const rowMeta = new Map(
@@ -162,17 +181,19 @@ export function useShellState({
         row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
       return [
         row.title,
-        { depth: row.depth, variants, folded: prefs.collapsedFamilies.includes(row.title) },
+        { depth: row.depth, variants, folded: foldedNow.includes(row.title) },
       ] as const;
     }),
   );
+  const toggleIn = (list: readonly string[], title: string) =>
+    list.includes(title) ? list.filter((entry) => entry !== title) : [...list, title];
   const toggleFamily = (title: string) =>
-    setPrefs((current) => ({
-      ...current,
-      collapsedFamilies: current.collapsedFamilies.includes(title)
-        ? current.collapsedFamilies.filter((entry) => entry !== title)
-        : [...current.collapsedFamilies, title],
-    }));
+    searching
+      ? setSearchFolded((current) => toggleIn(current, title))
+      : setPrefs((current) => ({
+          ...current,
+          collapsedFamilies: toggleIn(current.collapsedFamilies, title),
+        }));
   /** The direction a variant is based on, for its default comparison. */
   const parentOf = (title: string) => byTitle.get(title)?.basedOn ?? null;
 
@@ -320,6 +341,9 @@ export function useShellState({
       } else if (action.kind === "help") {
         event.preventDefault();
         onToggleHelp?.();
+      } else if (action.kind === "tools") {
+        event.preventDefault();
+        onToggleTools?.();
       } else if (action.kind === "rail") {
         setPrefs((current) => ({ ...current, collapsed: !current.collapsed }));
       } else if (action.kind === "jump") {
@@ -366,6 +390,7 @@ export function useShellState({
     rows.join("|"),
     onToggleSplit,
     onToggleHelp,
+    onToggleTools,
     suspended,
     // Re-attach as previews mount and as each one finishes loading, since a
     // fresh document does not inherit the old one's listener.
@@ -377,20 +402,30 @@ export function useShellState({
   ]);
 
   /**
+   * Two things are worth copying about a direction, and they are wanted at
+   * different moments. The link is the reflex: someone says "show me" and it
+   * goes straight into a message. The reference is the considered one, for
+   * handing a direction to a teammate or an agent with what it is and the file
+   * behind it. Each gets its own control rather than one control with a
+   * choice hung off it, so neither costs a second click.
+   *
    * The tick on the button is the fast answer and the toast is the durable
    * one, because the button that was clicked is often gone from under the
    * cursor by the time the eye gets back to it. A clipboard that refused shows
-   * neither: it shows the link instead, which is the one part of the reference
-   * small enough to retype.
+   * neither: it shows the link instead, which is the one part small enough to
+   * retype.
    */
-  const copyReference = (title: string) => {
+  const copy = (title: string, kind: CopyKind) => {
     const url = absoluteUrl(urlFor(title), window.location.origin);
-    const text = referenceText({
-      displayName: displayName(title),
-      preview: byTitle.get(title),
-      previewUrl: url,
-      title,
-    });
+    const text =
+      kind === "link"
+        ? url
+        : referenceText({
+            displayName: displayName(title),
+            preview: byTitle.get(title),
+            previewUrl: url,
+            title,
+          });
     void copyText(text).then((outcome) => {
       if (outcome === "blocked") {
         setCopied(null);
@@ -403,17 +438,23 @@ export function useShellState({
         });
         return;
       }
-      setCopied(title);
+      setCopied({ kind, title });
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(null), 1200);
       notify({
         kind: "copy",
-        message: `Reference to ${displayName(title)} copied`,
+        message:
+          kind === "link"
+            ? `Link to ${displayName(title)} copied`
+            : `Reference to ${displayName(title)} copied`,
         tone: "success",
         ttl: TOAST_TTL.plain,
       });
     });
   };
+
+  const copyLink = (title: string) => copy(title, "link");
+  const copyReference = (title: string) => copy(title, "reference");
 
   // Pointer capture keeps every move routed to the handle, even over the
   // preview iframe, which is a separate document that swallows pointer events.
@@ -452,6 +493,7 @@ export function useShellState({
   return {
     active,
     copied,
+    copyLink,
     copyReference,
     displayName,
     dismissToast: dismiss,

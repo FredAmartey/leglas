@@ -41,6 +41,9 @@ export const P = {
   copy: "M216,28H88A12,12,0,0,0,76,40V76H40A12,12,0,0,0,28,88V216a12,12,0,0,0,12,12H168a12,12,0,0,0,12-12V180h36a12,12,0,0,0,12-12V40A12,12,0,0,0,216,28ZM156,204H52V100H156Zm48-48H180V88a12,12,0,0,0-12-12H100V52H204Z",
   pencil:
     "M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM91,204H52V165l84-84,39,39ZM192,103,153,64l18.34-18.34,39,39Z",
+  // link-simple rather than link: the diagonal chain silts up at 13px, where
+  // this one still reads as two links meeting.
+  link: "M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z",
   search:
     "M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z",
   split:
@@ -53,6 +56,30 @@ export const P = {
 
 export const ICON_BUTTON =
   "flex h-6 w-6 items-center justify-center rounded text-[#D1D5DB] hover:bg-[#2E2E2E] hover:text-white";
+
+/**
+ * The track a settings row flips. Presentation only: the row button carries
+ * the switch role and the checked state, this just draws it.
+ *
+ * The off track is darker than the row's hover surface, not the same #2E2E2E,
+ * so it stays visible under the pointer.
+ */
+export function Switch({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`relative h-3.5 w-6 shrink-0 rounded-full transition-colors duration-150 motion-reduce:transition-none ${
+        on ? "bg-[#E6E8EC]" : "bg-[#17181B]"
+      }`}
+    >
+      <span
+        className={`absolute left-0.5 top-0.5 size-2.5 rounded-full transition-transform duration-150 motion-reduce:transition-none ${
+          on ? "translate-x-2.5 bg-[#17181B]" : "bg-[#84848C]"
+        }`}
+      />
+    </span>
+  );
+}
 
 export function PIcon({ d, size = 13 }: { d: string; size?: number }) {
   return (

@@ -66,16 +66,18 @@ export function familyRows(
 }
 
 /**
- * Collapse applied to family rows. Children of a collapsed root are omitted;
- * a search overrides collapse entirely, because a query that matches a hidden
- * variant must be able to reveal it.
+ * Collapse applied to family rows: children of a collapsed root are omitted.
+ *
+ * Which roots count as collapsed is the caller's decision. The shell passes
+ * the saved preference normally and a separate per-search set while a query
+ * is active, so a fresh search always reveals matching variants without this
+ * function knowing anything about searching.
  */
 export function collapseRows(
   rows: readonly FamilyRow[],
   collapsed: ReadonlySet<string>,
-  searching: boolean,
 ): FamilyRow[] {
-  if (searching || collapsed.size === 0) return [...rows];
+  if (collapsed.size === 0) return [...rows];
   let currentRoot: string | null = null;
   return rows.filter((row) => {
     if (row.depth === 0) {

@@ -53,11 +53,16 @@ describe("loadPrefs", () => {
     expect(loadPrefs(stored({ viewport: 834 }), previews).viewport).toBe(834);
   });
 
-  test("leaves the app's own dev overlays alone until asked", () => {
+  test("shows the app's own dev overlays until asked otherwise", () => {
     // The badge belongs to the user's app. Hiding it unasked makes the
     // preview quietly differ from what their dev server renders.
-    expect(loadPrefs(null, previews).hideDevOverlays).toBe(false);
-    expect(loadPrefs(stored({ hideDevOverlays: true }), previews).hideDevOverlays).toBe(true);
+    expect(loadPrefs(null, previews).showDevOverlays).toBe(true);
+    expect(loadPrefs(stored({ showDevOverlays: false }), previews).showDevOverlays).toBe(false);
+  });
+
+  test("keeps the tools widget on screen until asked otherwise", () => {
+    expect(loadPrefs(null, previews).showWidget).toBe(true);
+    expect(loadPrefs(stored({ showWidget: false }), previews).showWidget).toBe(false);
   });
 
   test("survives a corrupt store rather than refusing to start", () => {

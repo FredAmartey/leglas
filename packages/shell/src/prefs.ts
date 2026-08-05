@@ -20,20 +20,25 @@ export type Prefs = {
   collapsedFamilies: string[];
   /** Which corner the tools widget sits in; it is draggable between them. */
   corner: "bottom-left" | "bottom-right" | "top-left" | "top-right";
-  /**
-   * Hide framework dev overlays inside previews. Next and others paint their
-   * own floating badge over the app, which lands on top of the design being
-   * judged and fights the tools widget for the same corner. Off by default:
-   * the badge belongs to the user's app, and a preview that quietly differs
-   * from what their dev server renders is the wrong thing to judge against.
-   */
-  hideDevOverlays: boolean;
   /** Interface typeface choice, validated by the shell against its options. */
   font: string;
   hidden: string[];
   /** Full order, hidden included; empty means config order. */
   order: string[];
   renames: Record<string, string>;
+  /**
+   * Show framework dev overlays inside previews. Next and others paint their
+   * own floating badge over the app, which lands on top of the design being
+   * judged and fights the tools widget for the same corner. On by default:
+   * the badge belongs to the user's app, and a preview that quietly differs
+   * from what their dev server renders is the wrong thing to judge against.
+   */
+  showDevOverlays: boolean;
+  /**
+   * Show the tools widget over the stage. Turning it off leaves the stage to
+   * the previews alone; T reopens the tools, so the switch is never a trap.
+   */
+  showWidget: boolean;
   viewport: number | null;
   width: number;
 };
@@ -42,11 +47,12 @@ export const DEFAULT_PREFS: Prefs = {
   collapsed: false,
   collapsedFamilies: [],
   corner: "bottom-right",
-  hideDevOverlays: false,
   font: "satoshi",
   hidden: [],
   order: [],
   renames: {},
+  showDevOverlays: true,
+  showWidget: true,
   viewport: null,
   width: DEFAULT_W,
 };
@@ -66,7 +72,8 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
   const titles = previews.map((preview) => preview.title);
   try {
     if (!raw) return { ...DEFAULT_PREFS, order: titles };
-    const parsed = { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+    const saved = JSON.parse(raw) as Partial<Prefs>;
+    const parsed = { ...DEFAULT_PREFS, ...saved };
     const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
       titles.includes(title),
     );
@@ -82,10 +89,6 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
       corner: CORNERS.includes(parsed.corner as (typeof CORNERS)[number])
         ? (parsed.corner as Prefs["corner"])
         : DEFAULT_PREFS.corner,
-      hideDevOverlays:
-        typeof parsed.hideDevOverlays === "boolean"
-          ? parsed.hideDevOverlays
-          : DEFAULT_PREFS.hideDevOverlays,
       font: typeof parsed.font === "string" ? parsed.font : DEFAULT_PREFS.font,
       hidden: (Array.isArray(parsed.hidden) ? parsed.hidden : []).filter((title) =>
         titles.includes(title),
@@ -95,6 +98,12 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
       renames: Object.fromEntries(
         Object.entries(parsed.renames ?? {}).filter(([title]) => titles.includes(title)),
       ),
+      showDevOverlays:
+        typeof saved.showDevOverlays === "boolean"
+          ? saved.showDevOverlays
+          : DEFAULT_PREFS.showDevOverlays,
+      showWidget:
+        typeof saved.showWidget === "boolean" ? saved.showWidget : DEFAULT_PREFS.showWidget,
       viewport: VIEWPORTS.some((viewport) => viewport.width === parsed.viewport)
         ? parsed.viewport
         : null,

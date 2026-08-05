@@ -18,6 +18,7 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "c" })).toEqual({ kind: "split" });
     expect(resolveKey({ key: "b" })).toEqual({ kind: "rail" });
     expect(resolveKey({ key: "r" })).toEqual({ kind: "request" });
+    expect(resolveKey({ key: "t" })).toEqual({ kind: "tools" });
     expect(resolveKey({ key: "k", metaKey: true })).toEqual({ kind: "search" });
     expect(resolveKey({ key: "?" })).toEqual({ kind: "help" });
   });
@@ -54,10 +55,11 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "C" })).toEqual({ kind: "split" });
     expect(resolveKey({ key: "B" })).toEqual({ kind: "rail" });
     expect(resolveKey({ key: "R" })).toEqual({ kind: "request" });
+    expect(resolveKey({ key: "T" })).toEqual({ kind: "tools" });
   });
 
   test("ignores everything while typing", () => {
-    for (const key of ["c", "b", "r", "/", "?", "1", "ArrowDown"]) {
+    for (const key of ["c", "b", "r", "t", "/", "?", "1", "ArrowDown"]) {
       expect(resolveKey({ key, typing: true })).toBeNull();
     }
   });
@@ -80,7 +82,7 @@ describe("resolveKey", () => {
     const advertised = SHORTCUTS.flatMap((shortcut) => shortcut.keys);
     // Escape is handled where the thing being closed lives, and the search
     // caps only mean anything together, which its own tests cover.
-    const skip = ["Esc", "Cmd+K", "Ctrl+K"];
+    const skip = ["Esc", "⌘Cmd+K", "Ctrl+K"];
     for (const cap of advertised.filter((cap) => !skip.includes(cap))) {
       const key = cap === "↑" ? "ArrowUp" : cap === "↓" ? "ArrowDown" : cap;
       expect(resolveKey({ key })).not.toBeNull();
@@ -88,7 +90,7 @@ describe("resolveKey", () => {
   });
 
   test("names the search chord for the platform it is shown on", () => {
-    expect(shortcutList(true).find((s) => s.label === "Search")?.keys).toEqual(["Cmd+K"]);
+    expect(shortcutList(true).find((s) => s.label === "Search")?.keys).toEqual(["⌘Cmd+K"]);
     expect(shortcutList(false).find((s) => s.label === "Search")?.keys).toEqual(["Ctrl+K"]);
   });
 

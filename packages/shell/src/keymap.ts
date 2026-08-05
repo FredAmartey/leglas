@@ -24,7 +24,8 @@ export type KeyAction =
   | { kind: "rail" }
   | { kind: "request" }
   | { kind: "search" }
-  | { kind: "split" };
+  | { kind: "split" }
+  | { kind: "tools" };
 
 export type Keystroke = {
   key: string;
@@ -65,6 +66,9 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
   if (letter === "c") return { kind: "split" };
   if (letter === "b") return { kind: "rail" };
   if (letter === "r") return { kind: "request" };
+  // The way back to the tools when the widget is switched off from inside
+  // them, as well as a shortcut in its own right.
+  if (letter === "t") return { kind: "tools" };
 
   if (key.length === 1 && key >= "1" && key <= String(MAX_JUMP)) {
     return { kind: "jump", index: Number(key) - 1 };
@@ -81,10 +85,11 @@ export type Shortcut = {
 
 /**
  * How the search chord is written, for the hint in the search field and the
- * overlay. Spelled out rather than ⌘ so it reads the same on both platforms.
+ * overlay. Spelled out beside the symbol on a Mac; Ctrl has no symbol worth
+ * showing, so Windows and Linux read the words alone.
  */
 export function searchCap(mac: boolean): string {
-  return mac ? "Cmd+K" : "Ctrl+K";
+  return mac ? "⌘Cmd+K" : "Ctrl+K";
 }
 
 /**
@@ -102,6 +107,7 @@ export function shortcutList(mac: boolean): readonly Shortcut[] {
     { keys: ["R"], label: "Ask for a change to this direction" },
     { keys: [searchCap(mac)], label: "Search" },
     { keys: ["B"], label: "Collapse or open the rail" },
+    { keys: ["T"], label: "Open or close the Leglas dev tool menu" },
     { keys: ["?"], label: "This list" },
     { keys: ["Esc"], label: "Clear the search, or close what is open" },
   ];

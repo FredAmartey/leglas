@@ -80,17 +80,15 @@ describe("collapseRows", () => {
   ] as const;
 
   test("hides the children of a collapsed family, never the root", () => {
-    expect(collapseRows(ROWS, new Set(["Meridian"]), false)).toEqual([
+    expect(collapseRows(ROWS, new Set(["Meridian"]))).toEqual([
       { title: "Meridian", depth: 0 },
       { title: "Bulletin", depth: 0 },
     ]);
   });
 
-  test("search overrides collapse, so a matching variant can be revealed", () => {
-    expect(collapseRows(ROWS, new Set(["Meridian"]), true)).toHaveLength(3);
-  });
-
+  // A search revealing folded variants is the caller passing a set that does
+  // not name their family, which is this case.
   test("nothing collapsed changes nothing", () => {
-    expect(collapseRows(ROWS, new Set(), false)).toEqual([...ROWS]);
+    expect(collapseRows(ROWS, new Set())).toEqual([...ROWS]);
   });
 });
