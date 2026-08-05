@@ -47,7 +47,11 @@ and sessions that clean up after themselves.
   want on the direction you're looking at, and Leglas turns it into a
   precise request for your agent, file path included. Leave
   `leglas watch --run "claude -p {prompt}"` running in another terminal
-  and your agent picks each request up as you send it.
+  and your agent picks each request up as you send it. In Claude Code,
+  the Leglas MCP server can also push each request straight into your
+  open session as a channel event (channels are a research preview:
+  start Claude Code with `--dangerously-load-development-channels
+  server:<your leglas server name>`).
 - Keep the winner with one command. Leglas moves it into your source
   tree and clears the exploration away.
 - No app yet or want plain HTML comparisons? Some people want exactly that, and it works fine. Same comparison, no dev server.

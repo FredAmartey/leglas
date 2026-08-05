@@ -236,7 +236,9 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       title: "Collect change requests",
       description:
         "Pending change requests made from the interface, each naming the direction and the file " +
-        "behind it. Pass clear once they are done.",
+        "behind it. Call this when starting work in a project that uses Leglas, and again before " +
+        "changing any direction: the user may have described the change from the interface while " +
+        "you worked, and collecting marks it picked up there. Pass clear once they are done.",
       inputSchema: {
         clear: z.boolean().optional(),
       },

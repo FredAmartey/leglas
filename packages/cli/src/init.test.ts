@@ -58,6 +58,13 @@ describe("planInit", () => {
     );
   });
 
+  test("teaches the hands-free path so agents can offer it", () => {
+    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
+
+    expect(contents).toContain("leglas watch --run");
+    expect(contents).toContain("{prompt}");
+  });
+
   test("names the commands an agent needs", () => {
     const contents = write(plan(), "AGENTS.md")?.contents ?? "";
 
