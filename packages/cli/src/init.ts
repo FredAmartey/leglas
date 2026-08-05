@@ -54,13 +54,17 @@ When asked for design variations, alternatives, or "a few options":
    writes one under \`.leglas/variants/<surface>/\` and prints the single line
    to add where that surface renders. \`--from\` makes the baseline re-export
    the real component rather than copying it, so it stays live.
-4. Put each direction in its own file beside the others in
-   \`.leglas/variants/<surface>/\`, then list it in the \`DIRECTIONS\` map in
-   that folder's \`switch\` file.
-5. Register each one so it appears in the interface:
+4. Before building, make sure the interface is up. If \`leglas\` is not
+   already running, tell the user to run it, and hand them the URL now
+   rather than when the set is done: the rail picks up each registration
+   within seconds, so they get to watch the exploration fill in.
+5. Build one direction at a time: its own file beside the others in
+   \`.leglas/variants/<surface>/\`, listed in the \`DIRECTIONS\` map in that
+   folder's \`switch\` file, then registered the moment it renders:
    \`leglas add --title "Aurora" --url "/?v-<surface>=aurora" --note "One line on the idea."\`
-6. Tell the user to open the interface, or to run \`leglas\` if it is not
-   already running.
+   Register each direction as it lands, never the whole set at the end. To
+   the user watching the rail, a batch at the end is minutes of nothing and
+   then everything at once.
 
 When the user asks to change one direction, check \`leglas requests --json\`
 first: they may have described it from the interface, and the request names the
