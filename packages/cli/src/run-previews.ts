@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { addLocalPreview, clearRequests, loadConfig, readLocalPreviews, readRequests } from "@leglas/server";
+import { addLocalPreview, clearRequests, collectRequests, loadConfig, readLocalPreviews } from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
 
@@ -193,7 +193,7 @@ export async function runRequests(
     return { exitCode: 0 };
   }
 
-  const requests = await readRequests(options.cwd);
+  const requests = await collectRequests(options.cwd);
 
   if (options.json) {
     envelope(deps, true, { requests });

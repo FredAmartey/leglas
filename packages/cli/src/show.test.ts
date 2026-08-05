@@ -23,6 +23,8 @@ const previews = [
 ];
 
 const request = (title: string, intent: string): PendingRequest => ({
+  id: `${title}-${intent}`,
+  status: "queued",
   title,
   url: "/?v-hero=aurora",
   intent,

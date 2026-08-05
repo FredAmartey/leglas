@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { runAdd } from "./run-previews.js";
+import { runAdd, runRequests } from "./run-previews.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-add-"));
@@ -66,5 +66,25 @@ describe("runAdd with --based-on", () => {
       previews: { title: string; basedOn?: string }[];
     };
     expect(written.previews.find((entry) => entry.title === "Dusk")?.basedOn).toBe("Meridian");
+  });
+});
+
+describe("runRequests", () => {
+  test("collects requests and includes id and status in the envelope", async () => {
+    const cwd = scratch();
+    const { appendRequest, readRequests } = await import("@leglas/server");
+    await appendRequest(cwd, { title: "X", url: "/", intent: "warmer", target: null, prompt: "prompt" });
+    const output = collect();
+    await runRequests({ json: true, clear: false, cwd }, output.deps);
+    expect(JSON.parse(output.lines[0] ?? "{}").requests[0]).toMatchObject({ id: expect.any(String), status: "picked-up" });
+    expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
+  });
+
+  test("clear still empties the queue", async () => {
+    const cwd = scratch();
+    const { appendRequest, readRequests } = await import("@leglas/server");
+    await appendRequest(cwd, { title: "X", url: "/", intent: "warmer", target: null, prompt: "prompt" });
+    await runRequests({ json: false, clear: true, cwd }, collect().deps);
+    expect(await readRequests(cwd)).toEqual([]);
   });
 });

@@ -7,7 +7,7 @@ import type { LeglasConfig } from "./config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
-import { appendRequest, composeRequest } from "./requests.js";
+import { appendRequest, composeRequest, readRequests } from "./requests.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -137,7 +137,8 @@ const PLACEHOLDER = `<!doctype html>
 <p>The server is running and proxying your app. The interface has not been
 built into this install yet.</p>
 <p><a href="/leglas/api/config">/leglas/api/config</a> ·
-<a href="/leglas/api/health">/leglas/api/health</a></p>
+<a href="/leglas/api/health">/leglas/api/health</a> ·
+<a href="/leglas/api/requests">/leglas/api/requests</a></p>
 </body>`;
 
 function listen(server: http.Server, port: number): Promise<number> {
@@ -258,6 +259,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           // so the copy path keeps working when the disk does not.
           .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
       });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/requests` && req.method === "GET") {
+      // The queue is read fresh just like config: an agent can collect or clear
+      // requests while the interface is open, and the next poll tells the truth.
+      return void readRequests(cwd).then((requests) =>
+        sendJson(res, 200, {
+          requests: requests.map(({ id, title, intent, status }) => ({ id, title, intent, status })),
+        }),
+      );
     }
 
     // The rail holds the renames; this puts them where the commands can read

@@ -41,7 +41,7 @@ export type ShowPlan =
       variants: ShowDirection[];
       /** Every other direction's title: what this one is up against. */
       comparedWith: string[];
-      requests: { intent: string; target: string | null; prompt: string }[];
+      requests: { id: string; intent: string; target: string | null; prompt: string; status: PendingRequest["status"] }[];
     }
   | { ok: false; error: string };
 
@@ -92,9 +92,11 @@ export function planShow({ title, previews, requests }: ShowInput): ShowPlan {
     requests: requests
       .filter((request) => request.title === title)
       .map((request) => ({
+        id: request.id,
         intent: request.intent,
         target: request.target,
         prompt: request.prompt,
+        status: request.status,
       })),
   };
 }
