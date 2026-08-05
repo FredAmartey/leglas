@@ -11,7 +11,11 @@ import {
   type Prefs,
 } from "./prefs.js";
 import { collapseRows, familyRows, rootOf } from "./families.js";
+import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
+import { checkName } from "./naming.js";
+import { absoluteUrl, referenceText } from "./reference.js";
+import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
 import type { Preview } from "./types.js";
 
 /**
@@ -19,6 +23,11 @@ import type { Preview } from "./types.js";
  * remove, copy, keyboard, resize, and pane mounting. Bodies own how it looks;
  * this owns how it behaves. That split is what lets the interface be explored
  * as a design surface without reimplementing its mechanics.
+ *
+ * Anything that changes the list also reports what it did. Copy, rename and
+ * remove each end in a toast naming the direction they touched, and the two
+ * that can be taken back carry their own undo, so nothing here is a change you
+ * have to squint at the rail to confirm.
  *
  * Panes mount lazily on first activation and stay mounted after, so flips are
  * instant without paying for every direction upfront. Nested inside another
@@ -66,10 +75,20 @@ export function useShellState({
   const [query, setQuery] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** Why the open rename form refused what was typed into it. */
+  const [renameError, setRenameError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [resizing, setResizing] = useState(false);
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
+  const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastToast = useRef(0);
+
+  const notify = (toast: Omit<Toast, "id">) => {
+    lastToast.current += 1;
+    setToasts((current) => pushToast(current, { ...toast, id: lastToast.current }));
+  };
+  const dismiss = (id: number) => setToasts((current) => dismissToast(current, id));
 
   const setActive = (title: string) => {
     setActiveRaw(title);
@@ -154,21 +173,87 @@ export function useShellState({
   const moveOption = (title: string, toIndex: number) =>
     setPrefs((current) => ({ ...current, order: reorder(current, previews, title, toIndex) }));
 
-  const hide = (title: string) => {
-    setPrefs((current) => ({ ...current, hidden: [...current.hidden, title] }));
-    if (active !== title) return;
-    const next = ordered.find((entry) => entry !== title && !prefs.hidden.includes(entry));
-    if (next) setActive(next);
+  /**
+   * Put a removed direction back. Order is untouched by removal, so it returns
+   * to its own slot rather than the end, and undoing the removal of whatever
+   * was on stage puts it back on stage: a restore that leaves you looking at
+   * something else has only half undone the thing.
+   */
+  const restore = (title: string, select = false) => {
+    setPrefs((current) => ({
+      ...current,
+      hidden: current.hidden.filter((entry) => entry !== title),
+    }));
+    if (select) setActive(title);
   };
 
-  const rename = (title: string, value: string) => {
+  const hide = (title: string) => {
+    const name = displayName(title);
+    const wasActive = active === title;
+    setPrefs((current) => ({ ...current, hidden: [...current.hidden, title] }));
+    if (wasActive) {
+      const next = ordered.find((entry) => entry !== title && !prefs.hidden.includes(entry));
+      if (next) setActive(next);
+    }
+    notify({
+      action: { label: "Undo", run: () => restore(title, wasActive) },
+      kind: `remove:${title}`,
+      message: `${name} removed from the list`,
+      tone: "info",
+      ttl: TOAST_TTL.action,
+    });
+  };
+
+  const setRenameValue = (title: string, value: string | undefined) =>
     setPrefs((current) => {
       const renames = { ...current.renames };
-      if (!value || value === title) delete renames[title];
+      if (value === undefined) delete renames[title];
       else renames[title] = value;
       return { ...current, renames };
     });
-    setRenaming(null);
+
+  /** Open the rename form on a row, or close it; either way the error clears. */
+  const startRename = (title: string | null) => {
+    setRenaming(title);
+    setRenameError(null);
+  };
+
+  /**
+   * Submitting keeps the form open on a refused name so it can be corrected in
+   * place; clicking away accepts that the rename is abandoned and says so
+   * rather than trapping the cursor in a field the user has already left.
+   */
+  const rename = (title: string, raw: string, via: "blur" | "submit" = "submit") => {
+    const names = new Map(titles.map((entry) => [entry, displayName(entry)]));
+    const check = checkName(raw, title, names);
+
+    if (check.kind === "taken") {
+      if (via === "submit") {
+        setRenameError(`${check.by} already goes by that name.`);
+        return;
+      }
+      startRename(null);
+      notify({
+        kind: `rename:${title}`,
+        message: `Still called ${displayName(title)}. ${check.by} already goes by that name.`,
+        tone: "info",
+        ttl: TOAST_TTL.plain,
+      });
+      return;
+    }
+
+    startRename(null);
+    if (check.kind === "same") return;
+
+    const before = prefs.renames[title];
+    setRenameValue(title, check.kind === "reset" ? undefined : check.value);
+    notify({
+      action: { label: "Undo", run: () => setRenameValue(title, before) },
+      kind: `rename:${title}`,
+      message: check.kind === "reset" ? `Name reset to ${check.value}` : `Renamed to ${check.value}`,
+      tone: "success",
+      ttl: TOAST_TTL.action,
+    });
   };
 
   // Which key does what lives in keymap.ts; this only carries the actions out.
@@ -262,12 +347,42 @@ export function useShellState({
       .join("|"),
   ]);
 
+  /**
+   * The tick on the button is the fast answer and the toast is the durable
+   * one, because the button that was clicked is often gone from under the
+   * cursor by the time the eye gets back to it. A clipboard that refused shows
+   * neither: it shows the link instead, which is the one part of the reference
+   * small enough to retype.
+   */
   const copyReference = (title: string) => {
-    const url = `${window.location.origin}${urlFor(title)}`;
-    void navigator.clipboard.writeText(url).then(() => {
+    const url = absoluteUrl(urlFor(title), window.location.origin);
+    const text = referenceText({
+      displayName: displayName(title),
+      preview: byTitle.get(title),
+      previewUrl: url,
+      title,
+    });
+    void copyText(text).then((outcome) => {
+      if (outcome === "blocked") {
+        setCopied(null);
+        notify({
+          detail: url,
+          kind: "copy",
+          message: "Your browser blocked the clipboard. The direction is at:",
+          tone: "danger",
+          ttl: null,
+        });
+        return;
+      }
       setCopied(title);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(null), 1200);
+      notify({
+        kind: "copy",
+        message: `Reference to ${displayName(title)} copied`,
+        tone: "success",
+        ttl: TOAST_TTL.plain,
+      });
     });
   };
 
@@ -310,6 +425,7 @@ export function useShellState({
     copied,
     copyReference,
     displayName,
+    dismissToast: dismiss,
     hiddenCount: prefs.hidden.length,
     hide,
     loaded,
@@ -317,25 +433,29 @@ export function useShellState({
     matches,
     moveOption,
     nested,
+    notify,
     onHandlePointerDown,
     panes,
     prefs,
     previewFor: (title: string) => byTitle.get(title),
     query,
     rename,
+    renameError,
     renaming,
     parentOf,
     resetLoaded,
     resizing,
+    restore,
     rowMeta,
     rows,
     toggleFamily,
     setActive,
     setPrefs,
     setQuery,
-    setRenaming,
     setShowHidden,
     showHidden,
+    startRename,
+    toasts,
     urlFor,
     visibleCount,
     viewports: VIEWPORTS,

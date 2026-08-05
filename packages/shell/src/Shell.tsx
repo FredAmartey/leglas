@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
-import { ErrorOverlay, ICON_BUTTON, Mark, P, PIcon, RenameForm, SkeletonOverlay, Tip } from "./kit.js";
+import {
+  ErrorOverlay,
+  ICON_BUTTON,
+  Mark,
+  P,
+  PIcon,
+  RenameForm,
+  SkeletonOverlay,
+  Tip,
+  Toasts,
+} from "./kit.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
@@ -11,6 +21,7 @@ import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
 import { scanQueue } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
+import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
 
@@ -31,6 +42,9 @@ const FONTS = [
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
+
+/** The rail's share strip, which toasts stack on top of rather than over. */
+const RAIL_FOOTER_H = 44;
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC =
@@ -648,6 +662,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     return 0;
   };
 
+  /**
+   * The design by itself in a new tab. A preview URL is the app's own URL, so
+   * what opens is the direction filling the window with none of this chrome
+   * around it — the closest thing to seeing it shipped.
+   */
+  const openAlone = (title: string) => {
+    window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
+  };
+
   const renderRow = (title: string, index: number) => {
     const isActive = title === st.active;
     const preview = st.previewFor(title);
@@ -657,19 +680,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     const isShade = meta?.depth === 1;
     const shadeCount = meta?.shades ?? 0;
     const folded = meta?.folded ?? false;
-
-    if (st.renaming === title) {
-      return (
-        <li className="relative z-10" key={title}>
-          <RenameForm
-            initial={st.displayName(title)}
-            label={`Rename the ${st.displayName(title)} direction`}
-            onCancel={() => st.setRenaming(null)}
-            onCommit={(value) => st.rename(title, value)}
-          />
-        </li>
-      );
-    }
+    // Renaming edits the name where it sits. Replacing the whole row with a
+    // form meant every neighbour moved, the note vanished, and the row you
+    // were aiming at stopped looking like itself. The field carries the
+    // title's own metrics instead, so nothing below it shifts by a pixel.
+    const renamingThis = st.renaming === title;
 
     return (
       <li
@@ -709,11 +724,23 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             isShade ? "pl-11" : "pl-3"
           } ${isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""}`}
           onClick={() => {
+            if (renamingThis) return;
             if (dragMeta.current?.suppressed) {
               dragMeta.current.suppressed = false;
               return;
             }
             st.setActive(title);
+          }}
+          onDoubleClick={(event) => {
+            // The whole card opens the design, and only two things carve out
+            // of it: the buttons, which have their own jobs, and the name,
+            // which stops the event itself. Everything else — the note, the
+            // badge, the empty space beside them — is one target.
+            if (renamingThis) return;
+            if ((event.target as HTMLElement).closest("button")) return;
+            // The second click of the pair has already selected a word.
+            window.getSelection()?.removeAllRanges();
+            openAlone(title);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -755,13 +782,50 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   </button>
                 </Tip>
               )}
-              <span
-                className={`min-w-0 flex-1 select-text truncate text-sm font-medium transition-colors duration-150 ${
-                  isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
-                }`}
-              >
-                {st.displayName(title)}
-              </span>
+              {renamingThis ? (
+                <RenameForm
+                  error={st.renameError}
+                  initial={st.displayName(title)}
+                  label={`Rename the ${st.displayName(title)} direction`}
+                  onCancel={() => st.startRename(null)}
+                  onCommit={(value, via) => st.rename(title, value, via)}
+                />
+              ) : (
+                <span
+                  className={`min-w-0 flex-1 text-sm font-medium leading-5 transition-colors duration-150 ${
+                    isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
+                  }`}
+                >
+                  {/* Two targets share this row and the split between them is
+                      the whole trick. The outer box is flex-1, so hanging the
+                      gesture there made most of the card rename instead of
+                      open. Hanging it on the glyphs alone was the other
+                      extreme: a four-character name is a sliver to hit.
+
+                      So the name gets a box of its own — at least 70% of the
+                      line the rename field will fill, growing to fit a longer
+                      name. Each padding is cancelled by an equal negative
+                      margin, which buys territory without moving a pixel of
+                      text or changing the row's height. It reaches into the
+                      left gutter, where there is nothing to take it from,
+                      except on a family root where the fold control is
+                      already sitting there. What is left for opening the
+                      design is the note beneath, the badge, and the last
+                      third of the title line. */}
+                  <span
+                    className={`block w-fit min-w-[70%] max-w-full cursor-text select-text truncate -my-1 py-1 pr-2 ${
+                      shadeCount > 0 ? "" : "-ml-3 pl-3"
+                    }`}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      window.getSelection()?.removeAllRanges();
+                      st.startRename(title);
+                    }}
+                  >
+                    {st.displayName(title)}
+                  </span>
+                </span>
+              )}
               {splitting && title === compare ? (
                 <span
                   className={`shrink-0 rounded-md bg-white/[0.08] px-2 py-[3px] text-[11px] leading-none text-[#E8E8EA] transition-opacity duration-150 ${
@@ -811,18 +875,28 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 )
               )}
             </span>
+            {/* A refused name takes this line rather than adding one. The two
+                are never both worth reading, and swapping them keeps the row
+                the height it already was. */}
             <span
               className={`mt-0.5 line-clamp-2 block cursor-text select-text text-xs leading-snug transition-colors ${
-                isActive ? "text-[#D1D5DB]" : "text-[#84848C]"
+                renamingThis && st.renameError
+                  ? "text-amber-300/90"
+                  : isActive
+                    ? "text-[#D1D5DB]"
+                    : "text-[#84848C]"
               }`}
               data-selectable=""
+              id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
             >
-              {preview?.note ?? preview?.url}
+              {renamingThis && st.renameError ? st.renameError : (preview?.note ?? preview?.url)}
             </span>
           </span>
         </div>
         <div
           className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
+            renamingThis ? "invisible" : ""
+          } ${
             dragging
               ? ""
               : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
@@ -864,9 +938,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               </button>
             </Tip>
           )}
-          <Tip label={st.copied === title ? "Copied" : "Copy reference URL"}>
+          <Tip label={st.copied === title ? "Copied" : "Copy reference"}>
             <button
-              aria-label={`Copy link to the ${st.displayName(title)} direction`}
+              aria-label={`Copy a reference to the ${st.displayName(title)} direction`}
               className={ICON_BUTTON}
               onClick={() => st.copyReference(title)}
               type="button"
@@ -882,7 +956,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             <button
               aria-label={`Rename the ${st.displayName(title)} direction`}
               className={ICON_BUTTON}
-              onClick={() => st.setRenaming(title)}
+              onClick={() => st.startRename(title)}
               type="button"
             >
               <PIcon d={P.pencil} size={12} />
@@ -1053,12 +1127,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       </span>
                       <button
                         className="rounded text-[11px] text-[#9CA3AF] transition-colors hover:text-white"
-                        onClick={() =>
-                          st.setPrefs((prefs) => ({
-                            ...prefs,
-                            hidden: prefs.hidden.filter((entry) => entry !== title),
-                          }))
-                        }
+                        onClick={() => {
+                          st.restore(title);
+                          st.notify({
+                            kind: `remove:${title}`,
+                            message: `${st.displayName(title)} is back in the list`,
+                            tone: "success",
+                            ttl: TOAST_TTL.plain,
+                          });
+                        }}
                         type="button"
                       >
                         Restore
@@ -1071,7 +1148,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </div>
 
           <div className="flex justify-end px-3 py-2">
-            <Tip label="Copy a link to the active direction">
+            <Tip label="Copy a reference to the active direction">
               <button
                 className="rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
                 onClick={() => st.copyReference(st.active)}
@@ -1316,7 +1393,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </div>
 
             <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Preview
+              Dev overlays
             </span>
             <button
               className={`${ROW_BUTTON} ${
@@ -1333,7 +1410,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               }}
               type="button"
             >
-              <span>Hide dev overlays</span>
+              <span>Hide in previews</span>
               <span className="text-[10px] text-[#84848C]">
                 {st.prefs.hideDevOverlays ? "on" : "off"}
               </span>
@@ -1387,17 +1464,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               type="button"
             >
               <PIcon d={P.copy} size={12} />
-              {st.copied === st.active ? "Copied" : "Copy reference URL"}
+              {st.copied === st.active ? "Copied" : "Copy reference"}
             </button>
-            <a
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
-              href={st.urlFor(st.active)}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <span className="inline-block size-3 rounded-sm border border-current" />
-              Open in new tab
-            </a>
+            <Tip label="Or double-click any direction in the rail">
+              <a
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
+                href={st.urlFor(st.active)}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="inline-block size-3 rounded-sm border border-current" />
+                Open in new tab
+              </a>
+            </Tip>
             <button
               className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
               onClick={() => {
@@ -1438,6 +1517,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           </Tip>
         </div>
       </div>
+
+      {/* Above the rail's own footer when there is a rail, and just clear of
+          the collapsed strip when there is not. */}
+      <Toasts
+        bottom={st.prefs.collapsed ? 12 : RAIL_FOOTER_H + 8}
+        left={st.prefs.collapsed ? 60 : 12}
+        onDismiss={st.dismissToast}
+        toasts={st.toasts}
+        width={(st.prefs.collapsed ? 320 : st.prefs.width) - 24}
+      />
 
       {scanning !== null && (
         <iframe

@@ -4,6 +4,7 @@ import { ThinkingOrb } from "thinking-orbs";
 import { MOOD } from "./orb.js";
 import { EASE } from "./prefs.js";
 import { fitShift, shouldFlipBelow } from "./tip.js";
+import type { Toast } from "./toasts.js";
 
 /** Where a tooltip sits relative to its control, after any correction. */
 type Placement = "bottom" | "right" | "top";
@@ -199,37 +200,62 @@ export function Tip({
   );
 }
 
+/**
+ * The name, made editable where it sits.
+ *
+ * It carries the title's own type and line height and draws its edge with a
+ * ring rather than a border, because a ring takes no space: the row keeps its
+ * exact height, and nothing below it moves while a name is being changed. The
+ * caller owns the surrounding layout and shows the error in its own slot.
+ *
+ * Submitting and clicking away both commit, and they are told apart because
+ * they deserve different treatment when the name is refused: a name typed and
+ * entered should be correctable where it stands, while someone who has already
+ * moved on should not be dragged back into a field they left.
+ */
 export function RenameForm({
+  error,
   initial,
   label,
   onCancel,
   onCommit,
 }: {
+  error?: string | null;
   initial: string;
   label: string;
   onCancel: () => void;
-  onCommit: (value: string) => void;
+  onCommit: (value: string, via: "blur" | "submit") => void;
 }) {
   const cancelled = useRef(false);
+  // A refused submit leaves the form standing, so the guard the submit raised
+  // has to come back down or the corrected name would never commit on blur.
+  useEffect(() => {
+    if (error) cancelled.current = false;
+  });
+
   return (
     <form
-      className="px-3 py-1.5"
+      className="leglas-rename min-w-0 flex-1"
       onSubmit={(event) => {
         event.preventDefault();
         const value = new FormData(event.currentTarget).get("name");
         cancelled.current = true;
-        onCommit(typeof value === "string" ? value.trim() : "");
+        onCommit(typeof value === "string" ? value.trim() : "", "submit");
       }}
     >
       <input
+        aria-describedby={error ? "leglas-rename-error" : undefined}
+        aria-invalid={error ? true : undefined}
         aria-label={label}
         autoFocus
-        className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
+        className={`-mx-1 block w-[calc(100%+0.5rem)] rounded-[4px] bg-transparent px-1 py-0 text-sm font-medium leading-5 text-white outline-none ring-1 ${
+          error ? "ring-amber-400/60" : "ring-[#D1D5DB]/45 focus:ring-[#D1D5DB]/70"
+        }`}
         defaultValue={initial}
         name="name"
         onBlur={(event) => {
           if (cancelled.current) return;
-          onCommit(event.currentTarget.value.trim());
+          onCommit(event.currentTarget.value.trim(), "blur");
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -240,6 +266,137 @@ export function RenameForm({
         type="text"
       />
     </form>
+  );
+}
+
+const TOAST_DOT = {
+  danger: "bg-amber-300",
+  info: "bg-[#9CA3AF]",
+  success: "bg-emerald-300",
+} as const;
+
+/** How long the leaving animation runs; the toast holds its slot until then. */
+const TOAST_OUT_MS = 140;
+
+function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }) {
+  const [out, setOut] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  /** What is left of the toast's time, so a pause resumes instead of restarting. */
+  const remaining = useRef(toast.ttl);
+  const outTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const leave = () => {
+    if (outTimer.current) return;
+    setOut(true);
+    outTimer.current = setTimeout(onDismiss, TOAST_OUT_MS);
+  };
+
+  // A toast holding an undo must not expire out from under the cursor reaching
+  // for it, so hovering or focusing it stops the clock where it stands.
+  const paused = hovered || focused;
+  useEffect(() => {
+    if (out || paused || remaining.current === null) return;
+    const startedAt = Date.now();
+    const timer = setTimeout(leave, remaining.current);
+    return () => {
+      clearTimeout(timer);
+      if (remaining.current !== null) {
+        remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt));
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [out, paused]);
+
+  useEffect(
+    () => () => {
+      if (outTimer.current) clearTimeout(outTimer.current);
+    },
+    [],
+  );
+
+  // The surface is lighter than the rail it sits in, so a toast reads as
+  // something that arrived rather than another panel that was always there.
+  return (
+    <li
+      className={`pointer-events-auto flex items-start gap-2.5 rounded-lg border border-white/10 bg-[#2E2E2E] px-3 py-2.5 shadow-xl shadow-black/40 ${
+        out ? "leglas-toast-out" : "leglas-toast-in"
+      }`}
+      onBlur={() => setFocused(false)}
+      onFocus={() => setFocused(true)}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <span aria-hidden className={`mt-[5px] size-1.5 shrink-0 rounded-full ${TOAST_DOT[toast.tone]}`} />
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs leading-snug text-[#E8E8EA]">{toast.message}</span>
+        {toast.detail ? (
+          <span
+            className="mt-1 block cursor-text select-text break-all text-[10px] leading-snug text-[#9CA3AF]"
+            data-selectable=""
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            {toast.detail}
+          </span>
+        ) : null}
+      </span>
+      {toast.action ? (
+        <button
+          className="shrink-0 rounded px-1 py-0.5 text-[11px] font-medium text-white underline decoration-white/30 underline-offset-2 transition-colors hover:decoration-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60"
+          onClick={() => {
+            toast.action?.run();
+            leave();
+          }}
+          type="button"
+        >
+          {toast.action.label}
+        </button>
+      ) : null}
+      <button
+        aria-label="Dismiss"
+        className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60"
+        onClick={leave}
+        type="button"
+      >
+        <svg className="size-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 10 10">
+          <path d="M2.5 2.5 7.5 7.5M7.5 2.5 2.5 7.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Outcomes, stacked at the foot of the rail rather than over the stage.
+ *
+ * Everything else in this chrome stays off the design being judged, and a
+ * toast is no different: it belongs with the rows whose actions raised it.
+ * Newest sits at the bottom, nearest where the eye already is. With the rail
+ * collapsed there is no rail to sit in, so the stack steps just clear of it.
+ */
+export function Toasts({
+  bottom,
+  left,
+  onDismiss,
+  toasts,
+  width,
+}: {
+  bottom: number;
+  left: number;
+  onDismiss: (id: number) => void;
+  toasts: readonly Toast[];
+  width: number;
+}) {
+  return (
+    <ol
+      aria-live="polite"
+      className={`pointer-events-none fixed z-40 flex flex-col gap-2 transition-[bottom,left,width] duration-200 ${EASE} motion-reduce:transition-none`}
+      style={{ bottom, left, width }}
+    >
+      {toasts.map((toast) => (
+        <ToastItem key={toast.id} onDismiss={() => onDismiss(toast.id)} toast={toast} />
+      ))}
+    </ol>
   );
 }
 

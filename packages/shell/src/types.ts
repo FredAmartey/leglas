@@ -11,6 +11,14 @@ export type Preview = {
   tags: readonly string[];
   /** The direction this preview is a shade of; the rail groups the family. */
   basedOn?: string | undefined;
+  /**
+   * How the direction is backed, when it is not just a route on the running
+   * app. The server has always sent these; the interface reads them so a
+   * copied reference can name a direction's source rather than only its URL,
+   * which is the part an agent can act on.
+   */
+  branch?: string | undefined;
+  file?: string | undefined;
 };
 
 export type ConfigPayload = {

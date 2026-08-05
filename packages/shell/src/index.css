@@ -74,6 +74,65 @@ body {
   }
 }
 
+/* The rename field takes the title's place at the same size, so the only thing
+   left to animate is the edge arriving. It fades up from nothing rather than
+   snapping on, which is what makes an in-place edit read as the name opening
+   up instead of the row being replaced. */
+@keyframes leglas-rename-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.leglas-rename input {
+  animation: leglas-rename-in 160ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .leglas-rename input {
+    animation: none;
+  }
+}
+
+/* Toasts rise into place and drop out again, on the shell's own easing rather
+   than the tooltip's spring: a tooltip answers a hover and can afford to
+   bounce, while an outcome the user did not ask to see should arrive quietly. */
+@keyframes leglas-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes leglas-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+.leglas-toast-in {
+  animation: leglas-toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.leglas-toast-out {
+  animation: leglas-toast-out 140ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .leglas-toast-in {
+    animation: leglas-tip-fade 80ms ease-out both;
+  }
+  .leglas-toast-out {
+    animation: leglas-tip-fade 80ms ease-in reverse both;
+  }
+}
+
 @keyframes leglas-tip-fade {
   from {
     opacity: 0;
