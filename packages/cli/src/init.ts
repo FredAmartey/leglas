@@ -81,8 +81,14 @@ Useful to know:
   \`leglas add --title "Aurora" --file .leglas/pages/aurora.html\`. Leglas
   serves the file itself, so no dev server is needed. Sibling assets in the
   same directory resolve normally.
-- Titles identify previews and must be unique.
+- Titles identify previews and must be unique. The user may rename one in the
+  rail, which renames it on their machine only; the commands answer to either
+  name, so use whichever they said.
 - \`leglas list\` shows every direction, shared and local.
+- \`leglas show "<title>" --json\` answers for one of them: the file behind it,
+  the variants based on it, what it is being compared against, and anything
+  they have asked for that is not done yet. Run it when handed a direction you
+  did not register yourself.
 - Every command accepts \`--json\` and prints one envelope with a stable exit
   code, so you can drive it without parsing prose.
 

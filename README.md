@@ -36,8 +36,7 @@ and sessions that clean up after themselves.
 - Pick any two variations for side-by-side comparison when it gets hard to choose.
 - Name each direction, drag to reorder and organise your variants, set aside the ones that
   don't feel right. Your actions on every idea survive a long exploration.
-- Send a teammate the link to a direction. They open the live version
-  instead of a screenshot and a paragraph of explanation.
+- Send a teammate the link to a direction. They open the live version instead of a screenshot and a paragraph of explanation.
 - Compare things no design tool can hold: 3 git branches, a local
   build against production, yesterday's direction against today's, or even 7 different worktrees.
 - `leglas init` teaches any coding agent the workflow, and
@@ -122,7 +121,7 @@ knows your conventions and your taste.
 ### MCP server
 
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
-same operations as MCP tools over stdio: `start`, `add`, `list`,
+same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
 `classify`, `explore`, `scaffold`, `keep`, `requests`, and `init`. Each
 tool calls exactly what the CLI calls and returns the same envelope.
 
@@ -163,18 +162,18 @@ export default {
 };
 ```
 
-| Field            | Required      | Purpose                                                                |
-| ---------------- | ------------- | ---------------------------------------------------------------------- |
-| `title`          | yes           | Label in the rail, and the key for your saved layout. Must be unique.  |
-| `url`            | unless `file` | Root relative (`/pricing`) or absolute (`https://staging.example.com`) |
-| `note`           | no            | Second line under the title                                            |
-| `tags`           | no            | The first tag renders as a pill                                        |
-| `branch`         | no            | Preview a git branch instead of the running dev server                 |
-| `file`           | no            | An HTML file served by Leglas itself, instead of `url`                 |
-| `basedOn`        | no            | Title of the direction this is a variant of; the rail groups the family  |
-| `devServer`      | no            | Defaults to `http://localhost:3000`                                    |
-| `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                           |
-| `installCommand` | no            | Defaults to `npm install`                                              |
+| Field            | Required      | Purpose                                                                 |
+| ---------------- | ------------- | ----------------------------------------------------------------------- |
+| `title`          | yes           | Label in the rail, and the key for your saved layout. Must be unique.   |
+| `url`            | unless `file` | Root relative (`/pricing`) or absolute (`https://staging.example.com`)  |
+| `note`           | no            | Second line under the title                                             |
+| `tags`           | no            | The first tag renders as a pill                                         |
+| `branch`         | no            | Preview a git branch instead of the running dev server                  |
+| `file`           | no            | An HTML file served by Leglas itself, instead of `url`                  |
+| `basedOn`        | no            | Title of the direction this is a variant of; the rail groups the family |
+| `devServer`      | no            | Defaults to `http://localhost:3000`                                     |
+| `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                            |
+| `installCommand` | no            | Defaults to `npm install`                                               |
 
 A broken config never stops the server. Leglas starts anyway and the
 interface reports what to fix, so you are not hunting through a stack
@@ -245,6 +244,12 @@ teammate gets the same directions on clone. `leglas add` registers a
 preview on your machine only, in `.leglas/previews.json`, because
 exploration is short-lived and its code lives in a gitignored directory.
 `leglas list` shows both and marks which are local.
+
+Renaming a direction in the rail is local in the same way, recorded in
+`.leglas/renames.json`. Leglas will not edit your config to rename
+something you only renamed for yourself, so the config title stays the
+one a teammate sees, and `leglas show` and `leglas keep` take either
+name.
 
 ## Comparing branches
 
