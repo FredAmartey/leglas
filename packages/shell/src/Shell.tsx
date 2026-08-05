@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import {
@@ -454,31 +454,35 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // it answers the same question the queue does: is anyone going to act on
   // what I just typed.
   const [attached, setAttached] = useState(false);
-  const requestsPollCancelled = useRef(false);
-  const pollRequests = useCallback(() =>
-    fetch("/leglas/api/requests")
-      .then(
-        (response) =>
-          response.json() as Promise<{ requests: RequestStatus[]; agent?: { attached: boolean } }>,
-      )
-      .then((payload) => {
-        if (requestsPollCancelled.current) return;
-        setRequests((current) =>
-          JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
-        );
-        setAttached(payload.agent?.attached === true);
-      })
-      .catch(() => {}), []);
+  // Bumped after a submit so the hint updates without waiting out the
+  // interval; the effect restarting is the immediate poll.
+  const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
-    requestsPollCancelled.current = false;
-    const poll = () => {
-      if (requestsPollCancelled.current) return;
-      void pollRequests();
+    // Guard per effect run, like the health poll below: a shared flag would be
+    // reset by a remount while the torn-down run's fetch is still in flight,
+    // and that response must not land.
+    let cancelled = false;
+    const poll = () =>
+      fetch("/leglas/api/requests")
+        .then(
+          (response) =>
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: { attached: boolean } }>,
+        )
+        .then((payload) => {
+          if (cancelled) return;
+          setRequests((current) =>
+            JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
+          );
+          setAttached(payload.agent?.attached === true);
+        })
+        .catch(() => {});
+    const timer = window.setInterval(() => void poll(), 3000);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
-    const timer = window.setInterval(poll, 3000);
-    poll();
-    return () => { requestsPollCancelled.current = true; window.clearInterval(timer); };
-  }, [pollRequests]);
+  }, [requestsTick]);
   const loadedRef = useRef(st.loaded);
   loadedRef.current = st.loaded;
 
@@ -1263,7 +1267,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 .then(async (result) => {
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
-                  void pollRequests();
+                  bumpRequests();
                   // Said before the clipboard is touched, because the queue is
                   // the durable half and the clipboard is the half that can
                   // hang: a browser sitting on a permission prompt never
