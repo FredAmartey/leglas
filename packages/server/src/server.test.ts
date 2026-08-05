@@ -1,10 +1,10 @@
 import http from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { LeglasConfig } from "./config.js";
 import { startServer, type RunningServer } from "./server.js";
@@ -61,6 +61,89 @@ describe("startServer", () => {
     expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer" }]);
     const second = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof first;
     expect(second).toEqual(first);
+  });
+
+  test("reads the queue without collecting it, so watch still has work to do", async () => {
+    // Reading is what the interface does three times a second. If it marked
+    // anything, the queue would empty itself just by being looked at.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-read-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: unknown[];
+      agent: { attached: boolean };
+    };
+
+    expect(body.requests).toEqual([]);
+    expect(body.agent).toEqual({ attached: false });
+    expect(existsSync(join(cwd, ".leglas"))).toBe(false);
+  });
+
+  test("an agent counts as attached while its heartbeat is fresh, and not once it stops", async () => {
+    // Only Date is faked: the server and the client are real sockets, and
+    // faking their timers would stall the request this test depends on.
+    const origin = await startOrigin();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const server = await start({ config: configFor(origin), port: 0 });
+      const attached = async () =>
+        (
+          (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+            agent: { attached: boolean };
+          }
+        ).agent.attached;
+
+      const beat = await fetch(`${server.url}/leglas/api/watch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ watching: true }),
+      });
+      expect(beat.status).toBe(200);
+      expect(await attached()).toBe(true);
+
+      // One missed beat is still attached: watch beats every two seconds.
+      vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+      expect(await attached()).toBe(true);
+
+      vi.setSystemTime(new Date("2026-01-01T00:00:07Z"));
+      expect(await attached()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a watcher shutting down detaches immediately rather than aging out", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+    const beat = (watching: boolean) =>
+      fetch(`${server.url}/leglas/api/watch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ watching }),
+      });
+    const attached = async () =>
+      (
+        (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+          agent: { attached: boolean };
+        }
+      ).agent.attached;
+
+    await beat(true);
+    expect(await attached()).toBe(true);
+    await beat(false);
+    expect(await attached()).toBe(false);
+  });
+
+  test("refuses a heartbeat that says nothing about watching", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const res = await fetch(`${server.url}/leglas/api/watch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
   });
   test("reports the port and url it actually bound", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });

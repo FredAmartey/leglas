@@ -10,6 +10,7 @@ import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
 import { runShow } from "./run-show.js";
+import { runWatch } from "./run-watch.js";
 import { run } from "./run.js";
 
 const HELP = `leglas - compare design directions inside your own running app
@@ -24,6 +25,7 @@ Usage
   leglas list                Show every preview, shared and local
   leglas show <title>        Everything Leglas knows about one direction
   leglas requests            Show change requests made from the interface
+  leglas watch --run "<cmd>" Hand each request to your agent as it arrives
   leglas keep <title> --to <path>  Keep a winner and end the exploration
 
 Options
@@ -42,6 +44,11 @@ Options for new
 Options for explore
   --count <n>          How many directions (default 3)
   --based-on <title>     Variants of an existing direction instead of new ones
+
+Options for watch
+  --run <command>      Your agent, with {prompt} where the request goes, for
+                       example "claude -p {prompt}". Remembered after first use
+  --port <port>        Port Leglas itself is on (default: 4100)
 
 Options for classify
   --change <path>      A file the direction creates or wires up (repeatable)
@@ -154,6 +161,16 @@ if (parsed.kind === "explore") {
 if (parsed.kind === "requests") {
   const outcome = await runRequests(
     { json: parsed.json, clear: parsed.clear, cwd: process.cwd() },
+    previewDeps,
+  );
+  process.exit(outcome.exitCode);
+}
+
+// Long-running like leglas itself, so it prints progress rather than a single
+// envelope, and returns only once a signal has stopped it.
+if (parsed.kind === "watch") {
+  const outcome = await runWatch(
+    { run: parsed.run, port: parsed.port, cwd: process.cwd() },
     previewDeps,
   );
   process.exit(outcome.exitCode);

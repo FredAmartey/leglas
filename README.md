@@ -45,7 +45,9 @@ and sessions that clean up after themselves.
   the spread, your agent supplies the taste.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
-  precise request for your agent, file path included.
+  precise request for your agent, file path included. Leave
+  `leglas watch --run "claude -p {prompt}"` running in another terminal
+  and your agent picks each request up as you send it.
 - Keep the winner with one command. Leglas moves it into your source
   tree and clears the exploration away.
 - No app yet or want plain HTML comparisons? Some people want exactly that, and it works fine. Same comparison, no dev server.

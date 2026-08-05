@@ -20,3 +20,24 @@ describe("requestStatusLine", () => {
     expect(requestStatusLine([request("Aurora", "picked-up"), request("Aurora", "queued")], "Aurora")).toBe("1 change queued for your agent"),
   );
 });
+
+describe("requestStatusLine with an agent attached", () => {
+  test("says the agent is listening when there is nothing pending", () =>
+    expect(requestStatusLine([], "Aurora", true)).toBe("Your agent is listening"),
+  );
+  test("still says nothing when no direction is active", () =>
+    expect(requestStatusLine([], null, true)).toBeNull(),
+  );
+  test("counts queued requests rather than announcing the agent", () =>
+    expect(requestStatusLine([request("Aurora", "queued")], "Aurora", true)).toBe("1 change queued for your agent"),
+  );
+  test("reports work in progress rather than announcing the agent", () =>
+    expect(requestStatusLine([request("Aurora", "picked-up")], "Aurora", true)).toBe("Your agent is on it"),
+  );
+  test("ignores an attached agent's work on another direction", () =>
+    expect(requestStatusLine([request("Ledger", "picked-up")], "Aurora", true)).toBe("Your agent is listening"),
+  );
+  test("behaves exactly as before when nothing is attached", () =>
+    expect(requestStatusLine([], "Aurora", false)).toBeNull(),
+  );
+});

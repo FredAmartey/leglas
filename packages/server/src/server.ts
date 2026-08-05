@@ -17,6 +17,13 @@ export const DEFAULT_PORT = 4100;
 /** Ports tried before giving up, so a few stale instances do not block startup. */
 const PORT_ATTEMPTS = 20;
 
+/**
+ * How long a watch heartbeat counts for. Watch beats every 2s, so this is three
+ * beats: one missed beat under load must not make the interface flicker between
+ * attached and not, and three seconds of silence is a process that has gone.
+ */
+const ATTACHED_WINDOW_MS = 6000;
+
 const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".gif": "image/gif",
@@ -189,6 +196,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
 
+  /**
+   * When watch last said it was listening. In memory and nowhere else: an
+   * attached agent is a running process or it is nothing, and a file would
+   * outlive the process that wrote it and promise the user an agent that is no
+   * longer there.
+   */
+  let lastSeen: number | null = null;
+
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
@@ -261,12 +276,36 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
+    // Watch says it is alive here, and only here. The heartbeat carries no
+    // identity: two watchers on one project is a mistake the user makes in
+    // their own terminals, and the interface has one thing to say either way.
+    if (path === `${LEGLAS_PREFIX}/api/watch` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { watching?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { watching?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.watching !== "boolean") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a watching boolean." });
+        }
+        // A watcher shutting down clears the mark rather than letting it age
+        // out, so the hint stops promising an agent the moment it is gone.
+        lastSeen = parsed.watching ? Date.now() : null;
+        sendJson(res, 200, { ok: true });
+      });
+    }
+
     if (path === `${LEGLAS_PREFIX}/api/requests` && req.method === "GET") {
       // The queue is read fresh just like config: an agent can collect or clear
       // requests while the interface is open, and the next poll tells the truth.
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
           requests: requests.map(({ id, title, intent, status }) => ({ id, title, intent, status })),
+          agent: { attached: lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS },
         }),
       );
     }

@@ -127,6 +127,42 @@ export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
   return collected;
 }
 
+/**
+ * Mark one request as taken, leaving the rest of the queue alone.
+ *
+ * collectRequests hands the whole queue over at once, which is right for an
+ * agent that reads them all and works through them itself. Watch takes one at
+ * a time, and flipping every request to picked-up would tell the interface
+ * that directions nobody has started are already being worked on.
+ */
+export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
+  const requests = await readRequests(cwd);
+  if (!requests.some((request) => request.id === id && request.status !== "picked-up")) return false;
+  await writeQueue(
+    cwd,
+    requests.map((request) =>
+      request.id === id ? { ...request, status: "picked-up" as const } : request,
+    ),
+  );
+  return true;
+}
+
+/**
+ * Drop one request, which is the only way a request completes.
+ *
+ * There is no "done" status: an agent that finished has nothing further to say
+ * about the request, and a queue that keeps finished entries becomes a log
+ * nobody reads. Scoped to a single id because anything queued while the agent
+ * was working has to survive.
+ */
+export async function removeRequest(cwd: string, id: string): Promise<boolean> {
+  const requests = await readRequests(cwd);
+  const remaining = requests.filter((request) => request.id !== id);
+  if (remaining.length === requests.length) return false;
+  await writeQueue(cwd, remaining);
+  return true;
+}
+
 export async function clearRequests(cwd: string): Promise<void> {
   await writeQueue(cwd, []);
 }

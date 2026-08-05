@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, readRequests, targetFor } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -121,5 +121,50 @@ describe("request lifecycle", () => {
     await appendRequest(root, input);
     await clearRequests(root);
     expect(await readRequests(root)).toEqual([]);
+  });
+
+  test("marking one picked-up leaves the others queued", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    await appendRequest(root, { ...input, title: "Ledger" });
+    const [first] = await readRequests(root);
+
+    expect(await markPickedUp(root, first?.id ?? "")).toBe(true);
+
+    expect((await readRequests(root)).map((request) => request.status)).toEqual([
+      "picked-up",
+      "queued",
+    ]);
+  });
+
+  test("marking an unknown id changes nothing", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    expect(await markPickedUp(root, "nope")).toBe(false);
+    expect((await readRequests(root))[0]?.status).toBe("queued");
+  });
+
+  test("removing one request leaves everything queued behind it", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    await appendRequest(root, { ...input, title: "Ledger" });
+    const [first] = await readRequests(root);
+
+    expect(await removeRequest(root, first?.id ?? "")).toBe(true);
+
+    expect((await readRequests(root)).map((request) => request.title)).toEqual(["Ledger"]);
+  });
+
+  test("removing an unknown id is a no-op, not an empty queue", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    expect(await removeRequest(root, "nope")).toBe(false);
+    expect(await readRequests(root)).toHaveLength(1);
+  });
+
+  test("removing from a queue that was never written leaves no trace on disk", async () => {
+    const root = cwd();
+    expect(await removeRequest(root, "nope")).toBe(false);
+    expect(existsSync(join(root, ".leglas"))).toBe(false);
   });
 });

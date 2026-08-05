@@ -325,3 +325,43 @@ describe("add --based-on", () => {
     expect(result.preview.basedOn).toBeUndefined();
   });
 });
+
+describe("watch", () => {
+  test("takes the agent command as one argument", () => {
+    const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);
+
+    expect(result.kind).toBe("watch");
+    if (result.kind !== "watch") return;
+    expect(result.run).toBe("claude -p {prompt}");
+    expect(result.port).toBeUndefined();
+  });
+
+  test("runs with no flags at all, on whatever was remembered", () => {
+    const result = parseArgs(["watch"]);
+
+    expect(result.kind).toBe("watch");
+    if (result.kind !== "watch") return;
+    expect(result.run).toBeUndefined();
+  });
+
+  test("takes the port Leglas is on, for the attachment heartbeat", () => {
+    const result = parseArgs(["watch", "--run=codex exec {prompt}", "--port", "4200"]);
+
+    expect(result.kind).toBe("watch");
+    if (result.kind !== "watch") return;
+    expect(result.run).toBe("codex exec {prompt}");
+    expect(result.port).toBe(4200);
+  });
+
+  test("refuses --run with nothing after it", () => {
+    const result = parseArgs(["watch", "--run"]);
+
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--run");
+  });
+
+  test("rejects an unknown flag rather than ignoring it", () => {
+    expect(parseArgs(["watch", "--json"]).kind).toBe("error");
+  });
+});
