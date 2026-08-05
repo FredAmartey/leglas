@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import {
@@ -26,6 +26,7 @@ import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
+import { requestStatusLine, type RequestStatus } from "./request-status.js";
 
 /**
  * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
@@ -448,6 +449,32 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * untrue.
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
+  const [requests, setRequests] = useState<RequestStatus[]>([]);
+  // Bumped after a submit so the hint updates without waiting out the
+  // interval; the effect restarting is the immediate poll.
+  const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    // Guard per effect run, like the health poll below: a shared flag would be
+    // reset by a remount while the torn-down run's fetch is still in flight,
+    // and that response must not land.
+    let cancelled = false;
+    const poll = () =>
+      fetch("/leglas/api/requests")
+        .then((response) => response.json() as Promise<{ requests: RequestStatus[] }>)
+        .then((payload) => {
+          if (cancelled) return;
+          setRequests((current) =>
+            JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
+          );
+        })
+        .catch(() => {});
+    const timer = window.setInterval(() => void poll(), 3000);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [requestsTick]);
   const loadedRef = useRef(st.loaded);
   loadedRef.current = st.loaded;
 
@@ -1232,6 +1259,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 .then(async (result) => {
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
+                  bumpRequests();
                   // Said before the clipboard is touched, because the queue is
                   // the durable half and the clipboard is the half that can
                   // hang: a browser sitting on a permission prompt never
@@ -1292,7 +1320,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
               <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                Enter queues it for <span className="font-medium">leglas requests</span>
+                {requestStatusLine(requests, st.active) ?? <>Enter queues it for <span className="font-medium">leglas requests</span></>}
               </span>
             ) : (
               <button

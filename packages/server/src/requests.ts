@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import type { Preview } from "./config.js";
@@ -71,6 +72,8 @@ export function composeRequest(preview: Preview, intent: string): ComposedReques
 export const REQUESTS_PATH = ".leglas/requests.json";
 
 export type PendingRequest = {
+  id: string;
+  status: "queued" | "picked-up";
   title: string;
   url: string;
   intent: string;
@@ -82,7 +85,15 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
   try {
     const raw = await readFile(join(cwd, REQUESTS_PATH), "utf8");
     const parsed = JSON.parse(raw) as { requests?: unknown };
-    return Array.isArray(parsed.requests) ? (parsed.requests as PendingRequest[]) : [];
+    if (!Array.isArray(parsed.requests)) return [];
+    return parsed.requests.map((request, index) => {
+      const entry = request as Partial<PendingRequest>;
+      return {
+        ...entry,
+        id: typeof entry.id === "string" ? entry.id : String(index),
+        status: entry.status === "picked-up" ? "picked-up" : "queued",
+      } as PendingRequest;
+    });
   } catch {
     // No queue yet, or an unreadable one. Either way nothing is pending, and a
     // broken queue must never stop the interface from working.
@@ -96,8 +107,24 @@ async function writeQueue(cwd: string, requests: PendingRequest[]): Promise<void
   await writeFile(path, `${JSON.stringify({ requests }, null, 2)}\n`, "utf8");
 }
 
-export async function appendRequest(cwd: string, request: PendingRequest): Promise<void> {
-  await writeQueue(cwd, [...(await readRequests(cwd)), request]);
+export async function appendRequest(
+  cwd: string,
+  request: Omit<PendingRequest, "id" | "status">,
+): Promise<void> {
+  await writeQueue(cwd, [
+    ...(await readRequests(cwd)),
+    { ...request, id: randomBytes(6).toString("base64url"), status: "queued" },
+  ]);
+}
+
+export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
+  const requests = await readRequests(cwd);
+  const collected = requests.map((request) => ({ ...request, status: "picked-up" as const }));
+  // Collecting an empty queue writes nothing: this is the one command agents
+  // run speculatively, and a probe must not materialise .leglas/ in a project
+  // that never used the interface.
+  if (requests.some((request) => request.status !== "picked-up")) await writeQueue(cwd, collected);
+  return collected;
 }
 
 export async function clearRequests(cwd: string): Promise<void> {

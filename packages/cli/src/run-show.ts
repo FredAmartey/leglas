@@ -78,7 +78,7 @@ export async function runShow(
   if (plan.requests.length > 0) {
     deps.log("");
     deps.log(`  Pending, not yet done (${plan.requests.length}):`);
-    for (const request of plan.requests) deps.log(`    ${request.intent}`);
+    for (const request of plan.requests) deps.log(`    ${request.status}  ${request.intent}`);
     deps.log("");
     deps.log("  Run leglas requests --json for the full prompts.");
   }

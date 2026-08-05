@@ -48,6 +48,20 @@ async function start(options: Parameters<typeof startServer>[0]): Promise<Runnin
 }
 
 describe("startServer", () => {
+  test("POST then GET exposes queued request state without collecting it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
+    const server = await start({ config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]), port: 0, cwd });
+    const posted = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Aurora", intent: "warmer" }),
+    });
+    expect(posted.status).toBe(200);
+    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as { requests: { id: string; status: string; intent: string }[] };
+    expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer" }]);
+    const second = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof first;
+    expect(second).toEqual(first);
+  });
   test("reports the port and url it actually bound", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 

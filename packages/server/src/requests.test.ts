@@ -1,6 +1,9 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { composeRequest, targetFor } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, readRequests, targetFor } from "./requests.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -76,5 +79,47 @@ describe("composeRequest", () => {
 
     expect(prompt).toContain("What to change: warmer");
     expect(prompt).not.toMatch(/\n{3}/);
+  });
+});
+
+describe("request lifecycle", () => {
+  const cwd = () => mkdtempSync(join(tmpdir(), "leglas-requests-"));
+  const input = { title: "Aurora", url: "/", intent: "warmer", target: null, prompt: "prompt" };
+
+  test("append assigns an id and queued status", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    const [request] = await readRequests(root);
+    expect(request).toMatchObject({ title: "Aurora", id: expect.any(String), status: "queued" });
+  });
+
+  test("collect marks requests picked-up and persists", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    const collected = await collectRequests(root);
+    expect(collected[0]?.status).toBe("picked-up");
+    expect((await readRequests(root))[0]?.status).toBe("picked-up");
+  });
+
+  test("collecting an empty queue leaves no trace on disk", async () => {
+    const root = cwd();
+    expect(await collectRequests(root)).toEqual([]);
+    expect(existsSync(join(root, ".leglas"))).toBe(false);
+  });
+
+  test("reads legacy entries with a stable fallback id", async () => {
+    const root = cwd();
+    const queue = join(root, ".leglas/requests.json");
+    mkdirSync(join(root, ".leglas"));
+    writeFileSync(queue, JSON.stringify({ requests: [input] }));
+    expect(await readRequests(root)).toEqual([{ ...input, id: "0", status: "queued" }]);
+    expect(JSON.parse(readFileSync(queue, "utf8"))).toEqual({ requests: [input] });
+  });
+
+  test("clear empties the queue", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    await clearRequests(root);
+    expect(await readRequests(root)).toEqual([]);
   });
 });
