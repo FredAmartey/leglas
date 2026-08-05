@@ -33,6 +33,7 @@ export type ParseResult =
   | { kind: "list"; json: boolean }
   | { kind: "show"; title: string; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
+  | { kind: "watch"; run: string | undefined; port: number | undefined }
   | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
   | { kind: "keep"; title: string; to: string; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
@@ -205,8 +206,52 @@ function parseClassify(rest: string[]): ParseResult {
   return { kind: "classify", changes, json };
 }
 
+/**
+ * The agent command arrives as one argument on purpose: the user quotes it, so
+ * the shell hands it over whole and Leglas is the only thing that ever splits
+ * it. Collecting loose trailing words instead would mean the prompt's own
+ * quoting had already been eaten by a shell before watch saw it.
+ */
+function parseWatch(rest: string[]): ParseResult {
+  let run: string | undefined;
+  let port: number | undefined;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index] as string;
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+
+    const equals = argument.indexOf("=");
+    const flag = equals === -1 ? argument : argument.slice(0, equals);
+    if (flag !== "--run" && flag !== "--port") {
+      return { kind: "error", message: `leglas watch does not take ${argument}.` };
+    }
+
+    const value = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+    if (value === undefined || value === "") {
+      return {
+        kind: "error",
+        message:
+          flag === "--run"
+            ? '--run needs an agent command, for example --run "claude -p {prompt}"'
+            : "--port needs a value.",
+      };
+    }
+
+    if (flag === "--run") {
+      run = value;
+      continue;
+    }
+    const parsed = parsePort(flag, value);
+    if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
+    port = parsed;
+  }
+
+  return { kind: "watch", run, port };
+}
+
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
+  if (argv[0] === "watch") return parseWatch(argv.slice(1));
   if (argv[0] === "add") return parseAdd(argv.slice(1));
   if (argv[0] === "classify") return parseClassify(argv.slice(1));
   if (argv[0] === "init") {

@@ -450,6 +450,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
   const [requests, setRequests] = useState<RequestStatus[]>([]);
+  // Whether leglas watch is running somewhere. It rides the same poll because
+  // it answers the same question the queue does: is anyone going to act on
+  // what I just typed.
+  const [attached, setAttached] = useState(false);
   // Bumped after a submit so the hint updates without waiting out the
   // interval; the effect restarting is the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
@@ -460,12 +464,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     let cancelled = false;
     const poll = () =>
       fetch("/leglas/api/requests")
-        .then((response) => response.json() as Promise<{ requests: RequestStatus[] }>)
+        .then(
+          (response) =>
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: { attached: boolean } }>,
+        )
         .then((payload) => {
           if (cancelled) return;
           setRequests((current) =>
             JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
           );
+          setAttached(payload.agent?.attached === true);
         })
         .catch(() => {});
     const timer = window.setInterval(() => void poll(), 3000);
@@ -1320,7 +1328,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
               <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                {requestStatusLine(requests, st.active) ?? <>Enter queues it for <span className="font-medium">leglas requests</span></>}
+                {requestStatusLine(requests, st.active, attached) ?? <>Enter queues it for <span className="font-medium">leglas requests</span></>}
               </span>
             ) : (
               <button
