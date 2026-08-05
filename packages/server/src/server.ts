@@ -6,6 +6,7 @@ import { extname, join, normalize } from "node:path";
 import type { LeglasConfig } from "./config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
+import { writeRenames } from "./renames.js";
 import { appendRequest, composeRequest } from "./requests.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -256,6 +257,37 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           // The prompt is still useful even if the queue could not be written,
           // so the copy path keeps working when the disk does not.
           .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
+      });
+    }
+
+    // The rail holds the renames; this puts them where the commands can read
+    // them, so a direction the user renamed still answers to that name from a
+    // terminal. Whole map at once, because that is how the interface holds it
+    // and a partial update would drift from what is on screen.
+    if (path === `${LEGLAS_PREFIX}/api/renames` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { renames?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { renames?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (parsed.renames === null || typeof parsed.renames !== "object") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a renames object." });
+        }
+        const renames = Object.fromEntries(
+          Object.entries(parsed.renames as Record<string, unknown>).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
+          ),
+        );
+        // A rename that cannot be persisted is not worth failing over: the rail
+        // still shows it, and the CLI keeps working on config titles.
+        void writeRenames(cwd, renames).then(
+          () => sendJson(res, 200, { ok: true }),
+          () => sendJson(res, 200, { ok: false }),
+        );
       });
     }
 

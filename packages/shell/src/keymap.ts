@@ -22,6 +22,7 @@ export type KeyAction =
   | { kind: "jump"; index: number }
   | { kind: "move"; delta: 1 | -1 }
   | { kind: "rail" }
+  | { kind: "request" }
   | { kind: "search" }
   | { kind: "split" };
 
@@ -63,6 +64,7 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
   const letter = key.length === 1 ? key.toLowerCase() : "";
   if (letter === "c") return { kind: "split" };
   if (letter === "b") return { kind: "rail" };
+  if (letter === "r") return { kind: "request" };
 
   if (key.length === 1 && key >= "1" && key <= String(MAX_JUMP)) {
     return { kind: "jump", index: Number(key) - 1 };
@@ -97,6 +99,7 @@ export function shortcutList(mac: boolean): readonly Shortcut[] {
     { keys: ["↑", "↓"], label: "Move between directions" },
     { keys: ["1", "9"], join: "to", label: "Jump straight to a direction" },
     { keys: ["C"], label: "Compare against the direction you were last on" },
+    { keys: ["R"], label: "Ask for a change to this direction" },
     { keys: [searchCap(mac)], label: "Search" },
     { keys: ["B"], label: "Collapse or open the rail" },
     { keys: ["?"], label: "This list" },

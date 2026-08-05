@@ -16,7 +16,7 @@ export type AddPreview = {
   tags: string[] | undefined;
   branch: string | undefined;
   file: string | undefined;
-  /** The direction this preview is a shade of; the rail groups them. */
+  /** The direction this preview is a variant of; the rail groups them. */
   basedOn: string | undefined;
 };
 
@@ -31,6 +31,7 @@ export type ParseResult =
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "classify"; changes: ClassifyChange[]; json: boolean }
   | { kind: "list"; json: boolean }
+  | { kind: "show"; title: string; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
   | { kind: "keep"; title: string; to: string; json: boolean }
@@ -315,6 +316,34 @@ export function parseArgs(argv: string[]): ParseResult {
       return { kind: "error", message: `leglas list does not take ${unknown}.` };
     }
     return { kind: "list", json: rest.includes("--json") };
+  }
+  // Deliberately no "variant" alias: a variant is a version of a direction
+  // here, so `leglas variant "Aurora"` would read as "the variant of Aurora"
+  // while doing "show me Aurora", and teach the wrong shape of the vocabulary.
+  if (argv[0] === "show") {
+    const rest = argv.slice(1);
+    let title: string | undefined;
+    let json = false;
+    for (const argument of rest) {
+      if (argument === "--json") {
+        json = true;
+        continue;
+      }
+      if (argument.startsWith("-")) {
+        return { kind: "error", message: `leglas show does not take ${argument}.` };
+      }
+      if (title !== undefined) {
+        return { kind: "error", message: "leglas show takes one direction title." };
+      }
+      title = argument;
+    }
+    if (title === undefined) {
+      return {
+        kind: "error",
+        message: 'leglas show needs a direction title, for example: leglas show "Aurora" --json',
+      };
+    }
+    return { kind: "show", title, json };
   }
 
   const options: RunOptions = {

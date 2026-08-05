@@ -23,8 +23,8 @@ export type Preview = {
    */
   file?: string | undefined;
   /**
-   * The title of the direction this preview is a shade of. The rail groups a
-   * direction with its shades and a shade's default comparison is its parent.
+   * The title of the direction this preview is a variant of. The rail groups a
+   * direction with its variants and a variant's default comparison is its parent.
    * Purely descriptive: an unknown title makes the preview an ordinary root.
    */
   basedOn?: string | undefined;

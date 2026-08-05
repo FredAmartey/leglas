@@ -60,6 +60,7 @@ describe("the MCP face", () => {
       "list",
       "requests",
       "scaffold",
+      "show",
       "start",
     ]);
   });
@@ -79,6 +80,32 @@ describe("the MCP face", () => {
     expect(envelope["added"]).toBe("Aurora");
     const written = JSON.parse(readFileSync(join(dir, ".leglas/previews.json"), "utf8"));
     expect(written.previews[0].title).toBe("Aurora");
+  });
+
+  test("show answers for one direction, file behind it included", async () => {
+    const dir = scratch();
+    const client = await connect(dir);
+    await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora", note: "Warm." });
+    await call(client, "add", { title: "Dusk", url: "/?v-hero=dusk" });
+
+    const { envelope, isError } = await call(client, "show", { title: "Aurora" });
+
+    expect(isError).toBe(false);
+    const direction = envelope["direction"] as Record<string, unknown>;
+    expect(direction["note"]).toBe("Warm.");
+    expect(direction["target"]).toBe(".leglas/variants/hero/aurora.tsx");
+    expect(envelope["comparedWith"]).toContain("Dusk");
+    expect(envelope["comparedWith"]).not.toContain("Aurora");
+  });
+
+  test("show marks an unknown title as an error, with the CLI's message", async () => {
+    const client = await connect(scratch());
+
+    const { envelope, isError } = await call(client, "show", { title: "Nope" });
+
+    expect(isError).toBe(true);
+    expect(envelope["ok"]).toBe(false);
+    expect(String(envelope["error"])).toContain("No direction called");
   });
 
   test("add with a branch carries the warning about the missing devCommand", async () => {
@@ -140,7 +167,7 @@ describe("the MCP face", () => {
     expect(String(envelope["instructions"])).toContain(".leglas/variants/hero/");
   });
 
-  test("explore based on a direction asks for shades instead", async () => {
+  test("explore based on a direction asks for variants instead", async () => {
     const client = await connect(scratch());
 
     const { envelope } = await call(client, "explore", {

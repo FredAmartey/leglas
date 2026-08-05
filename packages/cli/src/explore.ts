@@ -13,7 +13,7 @@ import { surfaceSlug } from "./new.js";
  * counts as different, belong to the agent that knows the product.
  *
  * Two kinds of set, opposite goals. Directions exist to be chosen between, so
- * they only work if they genuinely disagree. Shades pick within a direction
+ * they only work if they genuinely disagree. Variants pick within a direction
  * already chosen, so they only work if they do not.
  */
 export type ExplorePlan = {
@@ -32,7 +32,7 @@ export function planExplore(surface: string, count: number, basedOn: string | nu
     basedOn === null
       ? `Build ${count} design directions for "${surface}".\n\n` +
         `The set exists to be chosen from, and the choice only means something ` +
-        `if the directions genuinely disagree: ${count} shades of one idea would ` +
+        `if the directions genuinely disagree: ${count} variants of one idea would ` +
         `make it empty. What counts as different is yours to decide, and the ` +
         `strongest sets disagree about more than styling.\n\n` +
         `One trap, seen every time this goes wrong: a set collapses toward ` +
@@ -40,9 +40,9 @@ export function planExplore(surface: string, count: number, basedOn: string | nu
         `any, and if two would read as the same direction at a glance, replace ` +
         `one of them.`
       : `Build ${count} variations of the "${basedOn}" direction for "${surface}".\n\n` +
-        `The set exists to pick a shade of a direction already chosen, so every ` +
+        `The set exists to pick a variant of a direction already chosen, so every ` +
         `variation must stay recognisably that direction. The trap here is ` +
-        `drift: change enough and the comparison stops being about the shade. ` +
+        `drift: change enough and the comparison stops being about the variant. ` +
         `Vary each one deliberately and hold everything else still; if a ` +
         `variation grows into a new direction, it belongs in its own ` +
         `exploration instead.`;

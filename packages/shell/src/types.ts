@@ -9,7 +9,7 @@ export type Preview = {
   url: string;
   note?: string | undefined;
   tags: readonly string[];
-  /** The direction this preview is a shade of; the rail groups the family. */
+  /** The direction this preview is a variant of; the rail groups the family. */
   basedOn?: string | undefined;
   /**
    * How the direction is backed, when it is not just a route on the running

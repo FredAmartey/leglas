@@ -1,14 +1,14 @@
 /**
- * Grouping shades under the direction they are based on.
+ * Grouping variants under the direction they are based on.
  *
  * An exploration has structure the flat rail erased: diverge produces
- * directions, converge produces shades of one of them, and eight rows read as
- * eight siblings when the head says "four directions, one being shaded". A
+ * directions, converge produces variants of one of them, and eight rows read as
+ * eight siblings when the head says "four directions, one of them varied". A
  * preview may name the direction it is based on, and the rail keeps each
- * family together: the direction, then its shades indented one level.
+ * family together: the direction, then its variants indented one level.
  *
  * One visual level, deliberately. Judgment happens between siblings, not
- * across history, so a shade of a shade still displays under the family's
+ * across history, so a variant of a variant still displays under the family's
  * root while the recorded parent stays exact for the compare default. A full
  * lineage view is version control for designs, which is a different tool.
  */
@@ -19,7 +19,7 @@ const WALK_CAP = 10;
 
 /**
  * The family root a title displays under. A missing parent promotes the title
- * to root, so hiding or removing a direction never strands its shades, and a
+ * to root, so hiding or removing a direction never strands its variants, and a
  * cycle resolves to wherever the walk stops rather than hanging.
  */
 export function rootOf(title: string, basedOn: ReadonlyMap<string, string>): string {
@@ -68,7 +68,7 @@ export function familyRows(
 /**
  * Collapse applied to family rows. Children of a collapsed root are omitted;
  * a search overrides collapse entirely, because a query that matches a hidden
- * shade must be able to reveal it.
+ * variant must be able to reveal it.
  */
 export function collapseRows(
   rows: readonly FamilyRow[],

@@ -2,9 +2,10 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { dropLocalPreviews, loadConfig, readLocalPreviews } from "@leglas/server";
+import { dropLocalPreviews, loadConfig, readLocalPreviews, readRenames } from "@leglas/server";
 
 import { planKeep } from "./keep.js";
+import { resolveOrExplain } from "./resolve-title.js";
 
 export type KeepDeps = { log(line: string): void; error(line: string): void };
 
@@ -34,13 +35,23 @@ export async function runKeep(
   const local = await readLocalPreviews(options.cwd);
   const previews = [...(loaded.config?.previews ?? []), ...local.previews];
 
-  const plan = planKeep({ title: options.title, previews, to: options.to });
-
   const fail = (error: string) => {
     if (options.json) deps.log(JSON.stringify({ ok: false, error }));
     else deps.error(error);
     return { exitCode: 1 };
   };
+
+  // Keeping is the destructive one: it moves a file and deletes the rest of
+  // the exploration. So the name has to resolve to exactly one direction, and
+  // a local rename that matches two is refused rather than picked between.
+  const resolved = resolveOrExplain(
+    options.title,
+    previews.map((preview) => preview.title),
+    await readRenames(options.cwd),
+  );
+  if (!resolved.ok) return fail(resolved.error);
+
+  const plan = planKeep({ title: resolved.title, previews, to: options.to });
 
   if (!plan.ok) return fail(plan.error);
 
@@ -66,7 +77,7 @@ export async function runKeep(
     deps.log(
       JSON.stringify({
         ok: true,
-        kept: options.title,
+        kept: resolved.title,
         to: plan.move.to,
         exportName: plan.exportName,
         removed: plan.removeDir,

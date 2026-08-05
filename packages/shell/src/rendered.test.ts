@@ -84,10 +84,10 @@ describe("paint in the signature", () => {
   const TEXT = "Every incident, one timeline. Start free";
   const TAGS = ["MAIN", "DIV", "H1", "P", "BUTTON"];
 
-  test("colour shades of one direction are different pages", () => {
-    // Four deliberate shades share every word and every element; only the
+  test("colour variants of one direction are different pages", () => {
+    // Four deliberate variants share every word and every element; only the
     // painted field differs. Calling them duplicates told the user their
-    // shade set was a mistake.
+    // variant set was a mistake.
     const dawn = renderedSignature(TEXT, TAGS, ["rgba(0,0,0,0);linear-gradient(#0E1B3A,#F2A65A);#fff"]);
     const dusk = renderedSignature(TEXT, TAGS, ["rgba(0,0,0,0);linear-gradient(#0B1026,#E0623A);#fff"]);
 
@@ -124,7 +124,7 @@ describe("paintSample", () => {
     // Vite injects its module script into body, so body has two element
     // children in every app it serves. Counting the script stopped the
     // descent at the body, whose colour is the same for every direction,
-    // which put the shade collision right back.
+    // which put the variant collision right back.
     const body = node("transparent", [
       node("", [], "SCRIPT"),
       node("transparent", [node("#0E1B3A")]),

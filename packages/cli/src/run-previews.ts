@@ -46,8 +46,8 @@ export async function runAdd(
   const loaded = await loadConfig(options.cwd);
   const shared = loaded.config?.previews ?? [];
 
-  // A shade names the direction it is based on, and that direction has to
-  // exist: it was registered in the diverge round the shade came from, so an
+  // A variant names the direction it is based on, and that direction has to
+  // exist: it was registered in the diverge round the variant came from, so an
   // unknown title here is a typo, refused rather than guessed at.
   if (options.preview.basedOn !== undefined) {
     const local = await readLocalPreviews(options.cwd);
@@ -137,9 +137,17 @@ export async function runList(
 
   if (options.json) {
     envelope(deps, errors.length === 0, {
+      // The whole record, not a summary of it. What the config holds about a
+      // preview — its note, its tags, the direction it is a variant of — is
+      // exactly what tells an agent why these are being compared, and leaving
+      // it out made the listing thinner than the reference block that points
+      // at it.
       previews: previews.map((preview) => ({
         title: preview.title,
         url: preview.url,
+        note: preview.note ?? null,
+        tags: preview.tags,
+        basedOn: preview.basedOn ?? null,
         local: preview.local,
         branch: preview.branch ?? null,
         file: preview.file ?? null,

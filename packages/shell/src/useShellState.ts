@@ -81,6 +81,15 @@ export function useShellState({
   const [resizing, setResizing] = useState(false);
   const [loaded, setLoaded] = useState<Record<string, boolean>>({});
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
+  /**
+   * A field the keyboard has asked for, which the shell focuses once the rail
+   * it lives in has rendered. The nonce is what makes pressing the same key
+   * twice in a row a second request rather than a no-op.
+   */
+  const [focusing, setFocusing] = useState<{ target: "request" | "search"; nonce: number } | null>(
+    null,
+  );
+  const focusNonce = useRef(1);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastToast = useRef(0);
 
@@ -126,10 +135,10 @@ export function useShellState({
   // agent registers mid-session get rows the moment they arrive.
   const ordered = railOrder(prefs.order, titles);
 
-  // Family structure: shades sit under the direction they are based on, and a
-  // collapsed family folds its shades away. Search overrides collapse, since
-  // a query that matches a folded shade must be able to reveal it. Computed
-  // from the visible titles, so hiding a direction promotes its shades to
+  // Family structure: variants sit under the direction they are based on, and a
+  // collapsed family folds its variants away. Search overrides collapse, since
+  // a query that matches a folded variant must be able to reveal it. Computed
+  // from the visible titles, so hiding a direction promotes its variants to
   // roots instead of stranding them.
   const basedOnMap = new Map(
     previews.flatMap((preview) =>
@@ -146,14 +155,14 @@ export function useShellState({
     query.trim() !== "",
   );
   const rows = rowsWithDepth.map((row) => row.title);
-  /** Per-title rail metadata: indent depth, shade count, folded state. */
+  /** Per-title rail metadata: indent depth, variant count, folded state. */
   const rowMeta = new Map(
     rowsWithDepth.map((row) => {
-      const shades =
+      const variants =
         row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
       return [
         row.title,
-        { depth: row.depth, shades, folded: prefs.collapsedFamilies.includes(row.title) },
+        { depth: row.depth, variants, folded: prefs.collapsedFamilies.includes(row.title) },
       ] as const;
     }),
   );
@@ -164,7 +173,7 @@ export function useShellState({
         ? current.collapsedFamilies.filter((entry) => entry !== title)
         : [...current.collapsedFamilies, title],
     }));
-  /** The direction a shade is based on, for its default comparison. */
+  /** The direction a variant is based on, for its default comparison. */
   const parentOf = (title: string) => byTitle.get(title)?.basedOn ?? null;
 
   /** Rows that would show if the search were cleared, for the empty state. */
@@ -204,11 +213,26 @@ export function useShellState({
     });
   };
 
+  /**
+   * The rail's names also go to the server, because the name that comes out of
+   * a rename is the one the user then says to their agent. Without this the
+   * CLI answers that name with "no direction called that", which reads as the
+   * direction being gone. Local state is not gated on the write: a rename is
+   * theirs whether or not the disk agrees.
+   */
   const setRenameValue = (title: string, value: string | undefined) =>
     setPrefs((current) => {
       const renames = { ...current.renames };
       if (value === undefined) delete renames[title];
       else renames[title] = value;
+      void fetch("/leglas/api/renames", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ renames }),
+      }).catch(() => {
+        // Nothing to tell the user: the rail is renamed, and every command
+        // still answers to the config title.
+      });
       return { ...current, renames };
     });
 
@@ -281,10 +305,15 @@ export function useShellState({
       if (!action) return;
       if (suspended && action.kind !== "help") return;
 
-      if (action.kind === "search") {
+      if (action.kind === "search" || action.kind === "request") {
         event.preventDefault();
         setPrefs((current) => (current.collapsed ? { ...current, collapsed: false } : current));
-        searchRef.current?.focus();
+        // Both fields live in the rail, and a collapsed rail is inert, where
+        // nothing can take focus. So the field is not focused here: the shell
+        // does it in an effect, which React runs after the rail has committed
+        // wide again. A timer would race that, and in a backgrounded window it
+        // may not run at all.
+        setFocusing({ target: action.kind, nonce: focusNonce.current++ });
       } else if (action.kind === "split") {
         event.preventDefault();
         onToggleSplit?.();
@@ -426,6 +455,7 @@ export function useShellState({
     copyReference,
     displayName,
     dismissToast: dismiss,
+    focusing,
     hiddenCount: prefs.hidden.length,
     hide,
     loaded,

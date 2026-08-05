@@ -8,6 +8,8 @@ export { createProxyHandler } from "./proxy.js";
 export { WORKTREES_DIR, startAppProcess, startWorktree, substitutePort, worktreeSlug } from "./worktree.js";
 export type { RunningApp, RunningWorktree } from "./worktree.js";
 export { REQUESTS_PATH, appendRequest, clearRequests, composeRequest, readRequests, targetFor } from "./requests.js";
+export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";
+export type { Renames, TitleResolution } from "./renames.js";
 export { DEFAULT_PORT, FILES_PREFIX, LEGLAS_PREFIX, probe, startServer } from "./server.js";
 export type { LeglasConfig, NormalizeResult, Preview } from "./config.js";
 export type { LoadResult } from "./load-config.js";

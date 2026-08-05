@@ -288,7 +288,7 @@ describe("the explore command", () => {
     expect(result.basedOn).toBeNull();
   });
 
-  test("takes a direction title to build shades of", () => {
+  test("takes a direction title to build variants of", () => {
     const result = parseArgs(["explore", "hero", "--based-on", "Aurora", "--count", "4"]);
 
     expect(result.kind).toBe("explore");
@@ -297,7 +297,7 @@ describe("the explore command", () => {
     expect(result.count).toBe(4);
   });
 
-  test("refuses --based-on with no title, which would brief shades of nothing", () => {
+  test("refuses --based-on with no title, which would brief variants of nothing", () => {
     const result = parseArgs(["explore", "hero", "--based-on"]);
 
     expect(result.kind).toBe("error");
@@ -307,7 +307,7 @@ describe("the explore command", () => {
 });
 
 describe("add --based-on", () => {
-  test("records the direction a shade is based on", () => {
+  test("records the direction a variant is based on", () => {
     const result = parseArgs([
       "add", "--title", "Meridian Dusk", "--url", "/?v-hero=meridian-dusk", "--based-on", "Meridian",
     ]);

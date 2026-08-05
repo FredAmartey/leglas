@@ -39,7 +39,7 @@ describe("planExplore", () => {
     expect(text).toContain("before building");
   });
 
-  test("shades state the opposite goal and the drift trap", () => {
+  test("variants state the opposite goal and the drift trap", () => {
     const plan = planExplore("hero", 4, "Aurora");
 
     expect(plan.basedOn).toBe("Aurora");
@@ -49,22 +49,22 @@ describe("planExplore", () => {
     expect(plan.instructions.toLowerCase()).not.toContain("genuinely disagree");
   });
 
-  test("shades register with the direction they are based on", () => {
-    const shades = planExplore("hero", 3, "Aurora").instructions;
+  test("variants register with the direction they are based on", () => {
+    const variants = planExplore("hero", 3, "Aurora").instructions;
 
-    expect(shades).toContain('--based-on "Aurora"');
+    expect(variants).toContain('--based-on "Aurora"');
     // Spread directions are roots and carry no parent.
     expect(planExplore("hero", 3).instructions).not.toContain("--based-on");
   });
 
   test("both modes share the same file mechanics", () => {
     const spread = planExplore("hero", 3).instructions;
-    const shades = planExplore("hero", 3, "Aurora").instructions;
+    const variants = planExplore("hero", 3, "Aurora").instructions;
     const shared = spread.slice(
       spread.indexOf("Each one is its own file"),
       spread.indexOf("Register each"),
     );
 
-    expect(shades).toContain(shared);
+    expect(variants).toContain(shared);
   });
 });

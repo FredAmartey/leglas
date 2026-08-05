@@ -56,10 +56,15 @@ export function referenceText({
   else if (preview?.branch) lines.push(`Branch: ${preview.branch}`);
   else if (preview) lines.push(`Route: ${preview.url}`);
   lines.push(`Preview: ${previewUrl}`);
-  if (preview?.basedOn) lines.push(`A shade of: ${preview.basedOn}`);
+  if (preview?.basedOn) lines.push(`A variant of: ${preview.basedOn}`);
 
-  // The set matters as much as the one direction: comparing is the whole point,
-  // and an agent handed a single direction has no idea what it is up against.
-  lines.push("", "Everything being compared:", "  leglas list --json");
+  // What the block cannot carry: the source file behind the direction, and the
+  // set it is being judged against. The first is the thing an agent opens; the
+  // second is why it must not improve this one straight out of the comparison.
+  // Both come back from show, so one pointer covers them.
+  //
+  // Quoted with the config title rather than the display name, because that is
+  // what every command addresses and a renamed direction still answers to it.
+  lines.push("", "Inspect this direction in full:", `  leglas show ${JSON.stringify(title)} --json`);
   return lines.join("\n");
 }

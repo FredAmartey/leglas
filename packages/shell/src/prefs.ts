@@ -16,14 +16,16 @@ export const VIEWPORTS = [
 
 export type Prefs = {
   collapsed: boolean;
-  /** Family roots whose shades are folded away in the rail. */
+  /** Family roots whose variants are folded away in the rail. */
   collapsedFamilies: string[];
   /** Which corner the tools widget sits in; it is draggable between them. */
   corner: "bottom-left" | "bottom-right" | "top-left" | "top-right";
   /**
    * Hide framework dev overlays inside previews. Next and others paint their
    * own floating badge over the app, which lands on top of the design being
-   * judged and fights the tools widget for the same corner.
+   * judged and fights the tools widget for the same corner. Off by default:
+   * the badge belongs to the user's app, and a preview that quietly differs
+   * from what their dev server renders is the wrong thing to judge against.
    */
   hideDevOverlays: boolean;
   /** Interface typeface choice, validated by the shell against its options. */
@@ -40,7 +42,7 @@ export const DEFAULT_PREFS: Prefs = {
   collapsed: false,
   collapsedFamilies: [],
   corner: "bottom-right",
-  hideDevOverlays: true,
+  hideDevOverlays: false,
   font: "satoshi",
   hidden: [],
   order: [],

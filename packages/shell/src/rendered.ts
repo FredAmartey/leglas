@@ -23,7 +23,7 @@ const MEANINGFUL_TEXT = 12;
  * Text, structure, and paint together. Text alone would call two very
  * different layouts of the same copy identical; structure alone would call
  * two different headlines in the same layout identical; and without paint,
- * deliberate colour shades of one direction were flagged as duplicates, which
+ * deliberate colour variants of one direction were flagged as duplicates, which
  * they visibly are not. An accidental duplicate renders identical colours
  * along with identical words, so it stays caught.
  */

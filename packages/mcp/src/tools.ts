@@ -10,6 +10,7 @@ import {
   runList,
   runNew,
   runRequests,
+  runShow,
   type RunResult,
 } from "leglas";
 import { z } from "zod";
@@ -109,7 +110,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
         file: z.string().optional()
           .describe("Project-relative HTML file for Leglas to serve itself; no dev server needed."),
         basedOn: z.string().optional()
-          .describe("Title of the direction this is a shade of; the rail groups the family."),
+          .describe("Title of the direction this is a variant of; the rail groups the family."),
       },
     },
     async ({ title, url, note, tags, branch, file, basedOn }) =>
@@ -126,6 +127,25 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       inputSchema: {},
     },
     async () => capture((deps) => runList({ json: true, cwd }, deps)),
+  );
+
+  server.registerTool(
+    "show",
+    {
+      title: "Inspect one direction",
+      description:
+        "Everything Leglas knows about one direction: its full entry, the source file behind " +
+        "it, the variants based on it, the directions it is being compared against, and any " +
+        "change requests still pending on it. Call this when handed a direction's reference " +
+        "block.",
+      inputSchema: {
+        title: z
+          .string()
+          .min(1)
+          .describe("The direction's title as the config spells it, not a renamed display name."),
+      },
+    },
+    async ({ title }) => capture((deps) => runShow({ title, json: true, cwd }, deps)),
   );
 
   server.registerTool(
@@ -156,7 +176,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       title: "Brief an exploration",
       description:
         "What a set for a surface needs and how it registers here. Directions must genuinely " +
-        "disagree; with basedOn, shades of that direction must not. The designs themselves are " +
+        "disagree; with basedOn, variants of that direction must not. The designs themselves are " +
         "yours. Run before building a set.",
       inputSchema: {
         surface: z.string().min(1),
@@ -165,7 +185,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
           .string()
           .min(1)
           .optional()
-          .describe("An existing direction's title: ask for shades of it instead of new directions."),
+          .describe("An existing direction's title: ask for variants of it instead of new directions."),
       },
     },
     async ({ surface, count, basedOn }) =>

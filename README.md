@@ -42,7 +42,7 @@ and sessions that clean up after themselves.
   build against production, yesterday's direction against today's, or even 7 different worktrees.
 - `leglas init` teaches any coding agent the workflow, and
   `leglas explore` briefs an exploration. Five directions can be five
-  separate ideas, or five shades of the one you already like: you choose
+  separate ideas, or five variants of the one you already like: you choose
   the spread, your agent supplies the taste.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
@@ -85,9 +85,9 @@ edit the hero. The supporting commands:
 
 - `leglas explore hero --count 6` briefs the exploration: what the set
   is for, why it only works if the six genuinely disagree, and how each
-  direction registers. Unbriefed, six requests come back as six shades
+  direction registers. Unbriefed, six requests come back as six variants
   of one idea. With `--based-on "Aurora"` the goal flips: six deliberate
-  shades of a direction you already like, and drifting into a new
+  variants of a direction you already like, and drifting into a new
   direction is the failure. The designs themselves are the agent's;
   Leglas prescribes none.
 - `leglas new hero --from src/Hero.tsx` scaffolds a switcher under
@@ -103,13 +103,19 @@ edit the hero. The supporting commands:
   cannot be additive, so those directions build on their own git branch
   and register with `leglas add --branch`. Everything else stays in-app,
   where switching is instant.
+- `leglas show "Aurora" --json` answers for one direction: its entry, the
+  source file behind it, the variants based on it, what it is being compared
+  against, and anything still pending on it. Copying a direction from the
+  rail hands over a block that ends in this command, so an agent given the
+  block can go and get the rest.
 - `leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
   into real source and ends the exploration.
 
 Asking for a change works from the interface too. Type what you want
-changed into the tools popover and Leglas composes a prompt naming the
-direction and the file behind it, copies it to your clipboard, and queues
-it. Your agent drains the queue with `leglas requests --json` and clears
+changed into the field under the rail (or press `R`) and Leglas composes a
+prompt naming the direction and the file behind it, copies it to your
+clipboard, and queues it. The direction it means is the one highlighted
+directly above the field. Your agent drains the queue with `leglas requests --json` and clears
 it with `--clear`. Leglas runs no model of its own; your agent already
 knows your conventions and your taste.
 
@@ -165,7 +171,7 @@ export default {
 | `tags`           | no            | The first tag renders as a pill                                        |
 | `branch`         | no            | Preview a git branch instead of the running dev server                 |
 | `file`           | no            | An HTML file served by Leglas itself, instead of `url`                 |
-| `basedOn`        | no            | Title of the direction this is a shade of; the rail groups the family  |
+| `basedOn`        | no            | Title of the direction this is a variant of; the rail groups the family  |
 | `devServer`      | no            | Defaults to `http://localhost:3000`                                    |
 | `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                           |
 | `installCommand` | no            | Defaults to `npm install`                                              |
@@ -186,19 +192,19 @@ what you want for the last two directions in contention: press `C`, or
 hover a direction and press its compare button, and it becomes the right
 pane while the active direction holds the left.
 
-Arrows move between directions, `1` to `9` jump straight to one, `Cmd K`
-(`Ctrl K` elsewhere) searches and `B` collapses the rail. Press `?` for
-the whole keymap.
+Arrows move between directions, `1` to `9` jump straight to one, `R` asks
+for a change to the one you are on, `Cmd K` (`Ctrl K` elsewhere) searches
+and `B` collapses the rail. Press `?` for the whole keymap.
 
 A small tools widget floats over the stage and can be dragged to any
 corner, because a floating control has a habit of sitting exactly where
-you need to look. Its popover holds the viewport presets, the field for
-requesting changes, and a few preferences.
+you need to look. Its popover holds the viewport presets and a few
+preferences.
 
-Frameworks paint a dev badge over the corner of the running app. Leglas
-hides those by default (the popover turns them back on), and does it by
-styling inside the preview frame, never by altering what the proxy
-forwards.
+Frameworks paint a dev badge over the corner of the running app. It
+belongs to your app, so Leglas leaves it alone; when it lands on the part
+you are judging, the popover hides it, and does that by styling inside
+the preview frame, never by altering what the proxy forwards.
 
 ## Command line
 
@@ -210,6 +216,7 @@ leglas explore <surface>   Brief an agent's exploration of a surface
 leglas classify            Decide where a direction should live
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
+leglas show <title>        Everything Leglas knows about one direction
 leglas requests            Collect change requests made from the interface
 leglas keep <title>        Keep a winner and end the exploration
 
@@ -222,8 +229,8 @@ leglas keep <title>        Keep a winner and end the exploration
   --print              (new) Print the scaffold instead of writing it
   --from <path>        (new) Use an existing component as the baseline
   --count <n>          (explore) How many directions, default 3
-  --based-on <title>     (explore) Shades of an existing direction instead of new ones
-  --based-on <title>     (add) The direction this preview is a shade of; groups the family
+  --based-on <title>     (explore) Variants of an existing direction instead of new ones
+  --based-on <title>     (add) The direction this preview is a variant of; groups the family
   --change <path>      (classify) A file the direction creates or wires up
   --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title

@@ -17,6 +17,7 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "ArrowUp" })).toEqual({ kind: "move", delta: -1 });
     expect(resolveKey({ key: "c" })).toEqual({ kind: "split" });
     expect(resolveKey({ key: "b" })).toEqual({ kind: "rail" });
+    expect(resolveKey({ key: "r" })).toEqual({ kind: "request" });
     expect(resolveKey({ key: "k", metaKey: true })).toEqual({ kind: "search" });
     expect(resolveKey({ key: "?" })).toEqual({ kind: "help" });
   });
@@ -52,10 +53,11 @@ describe("resolveKey", () => {
   test("takes a letter binding whether or not shift is down", () => {
     expect(resolveKey({ key: "C" })).toEqual({ kind: "split" });
     expect(resolveKey({ key: "B" })).toEqual({ kind: "rail" });
+    expect(resolveKey({ key: "R" })).toEqual({ kind: "request" });
   });
 
   test("ignores everything while typing", () => {
-    for (const key of ["c", "b", "/", "?", "1", "ArrowDown"]) {
+    for (const key of ["c", "b", "r", "/", "?", "1", "ArrowDown"]) {
       expect(resolveKey({ key, typing: true })).toBeNull();
     }
   });

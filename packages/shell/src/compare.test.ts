@@ -55,9 +55,9 @@ describe("paneTitles", () => {
   });
 });
 
-describe("a shade's default comparison", () => {
+describe("a variant's default comparison", () => {
   test("prefers the direction it is based on over history", () => {
-    // The question a shade set asks is "how far is this from the original".
+    // The question a variant set asks is "how far is this from the original".
     expect(
       nextCompare({
         active: "Meridian Dusk",

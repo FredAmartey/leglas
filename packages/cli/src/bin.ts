@@ -9,6 +9,7 @@ import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
+import { runShow } from "./run-show.js";
 import { run } from "./run.js";
 
 const HELP = `leglas - compare design directions inside your own running app
@@ -21,6 +22,7 @@ Usage
   leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
+  leglas show <title>        Everything Leglas knows about one direction
   leglas requests            Show change requests made from the interface
   leglas keep <title> --to <path>  Keep a winner and end the exploration
 
@@ -39,7 +41,7 @@ Options for new
 
 Options for explore
   --count <n>          How many directions (default 3)
-  --based-on <title>     Shades of an existing direction instead of new ones
+  --based-on <title>     Variants of an existing direction instead of new ones
 
 Options for classify
   --change <path>      A file the direction creates or wires up (repeatable)
@@ -159,6 +161,14 @@ if (parsed.kind === "requests") {
 
 if (parsed.kind === "list") {
   const outcome = await runList({ json: parsed.json, cwd: process.cwd() }, previewDeps);
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "show") {
+  const outcome = await runShow(
+    { title: parsed.title, json: parsed.json, cwd: process.cwd() },
+    previewDeps,
+  );
   process.exit(outcome.exitCode);
 }
 

@@ -22,7 +22,7 @@ export type AddInput = {
   branch?: string | undefined;
   /** A project-relative HTML file for Leglas to serve itself. */
   file?: string | undefined;
-  /** The direction this preview is a shade of; the rail groups the family. */
+  /** The direction this preview is a variant of; the rail groups the family. */
   basedOn?: string | undefined;
 };
 

@@ -6,7 +6,7 @@ const basedOn = (pairs: [string, string][]) => new Map(pairs);
 
 describe("familyRows", () => {
   test("children follow their direction, wherever the flat order put them", () => {
-    // The exploration that motivated this: four directions, three shades of
+    // The exploration that motivated this: four directions, three variants of
     // one, registered in the order they were built.
     const rows = familyRows(
       ["Current", "Ledger", "Meridian", "Bulletin", "Meridian Dusk", "Meridian Sea"],
@@ -26,14 +26,14 @@ describe("familyRows", () => {
     ]);
   });
 
-  test("a shade whose direction is not in the list stands as a root", () => {
-    // Hiding a direction must not strand its shades.
+  test("a variant whose direction is not in the list stands as a root", () => {
+    // Hiding a direction must not strand its variants.
     const rows = familyRows(["Meridian Dusk"], basedOn([["Meridian Dusk", "Meridian"]]));
 
     expect(rows).toEqual([{ title: "Meridian Dusk", depth: 0 }]);
   });
 
-  test("a shade of a shade displays under the family root", () => {
+  test("a variant of a variant displays under the family root", () => {
     const rows = familyRows(
       ["Meridian", "Meridian Dusk", "Meridian Dusk Ember"],
       basedOn([
@@ -86,7 +86,7 @@ describe("collapseRows", () => {
     ]);
   });
 
-  test("search overrides collapse, so a matching shade can be revealed", () => {
+  test("search overrides collapse, so a matching variant can be revealed", () => {
     expect(collapseRows(ROWS, new Set(["Meridian"]), true)).toHaveLength(3);
   });
 

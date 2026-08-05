@@ -2,8 +2,8 @@
  * Which direction the second pane should show.
  *
  * Opening a comparison should not require a second choice. An explicit pin
- * always wins. For a shade, the direction it is based on beats history,
- * because the question a shade set asks is "how far is this from the
+ * always wins. For a variant, the direction it is based on beats history,
+ * because the question a variant set asks is "how far is this from the
  * original", and that comparison should be one keypress. Otherwise the
  * direction you were just looking at, which is almost always the one you
  * meant. A title that no longer exists is ignored rather than blanking the

@@ -46,7 +46,7 @@ When asked for design variations, alternatives, or "a few options":
 2. Run \`leglas explore <surface> --count <n>\` first, adding
    \`--based-on "<title>"\` when the user wants variations of a direction they
    already like. It prints what the set needs and how to register it. In
-   short: new directions must genuinely disagree with each other, shades of
+   short: new directions must genuinely disagree with each other, variants of
    one must not, and either way decide the whole set before building any of
    it. The designs themselves are yours.
 3. If the surface has no switcher yet, run

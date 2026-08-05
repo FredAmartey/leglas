@@ -54,16 +54,21 @@ describe("referenceText", () => {
     expect(text).not.toContain("Route:");
   });
 
-  test("carries the parent of a shade", () => {
-    expect(reference({ basedOn: "Cool" })).toContain("A shade of: Cool");
+  test("carries the parent of a variant", () => {
+    expect(reference({ basedOn: "Cool" })).toContain("A variant of: Cool");
   });
 
   test("omits the parent line for a root direction", () => {
-    expect(reference()).not.toContain("A shade of:");
+    expect(reference()).not.toContain("A variant of:");
   });
 
-  test("always ends with the way to see the whole comparison", () => {
-    expect(reference()).toMatch(/Everything being compared:\n {2}leglas list --json$/);
+  test("always ends with the way to get the rest, addressed by config title", () => {
+    expect(reference()).toMatch(/Inspect this direction in full:\n {2}leglas show "Warm" --json$/);
+  });
+
+  // The rail shows the renamed row, but only the config title reaches the CLI.
+  test("points at the config title even when the row was renamed", () => {
+    expect(reference({}, "Sunrise")).toContain('leglas show "Warm" --json');
   });
 
   test("leaks no absolute filesystem path", () => {

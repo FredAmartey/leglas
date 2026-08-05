@@ -12,6 +12,7 @@ import {
   Tip,
   Toasts,
 } from "./kit.js";
+import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
@@ -43,8 +44,11 @@ const FONTS = [
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
 
-/** The rail's share strip, which toasts stack on top of rather than over. */
-const RAIL_FOOTER_H = 44;
+/**
+ * The rail's foot — the change composer and the share strip under it — which
+ * toasts stack on top of rather than over.
+ */
+const RAIL_FOOTER_H = 86;
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC =
@@ -136,6 +140,7 @@ type Drag = {
 
 export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const requestRef = useRef<HTMLInputElement | null>(null);
   const splitRef = useRef<(() => void) | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Stable, so the window key listener attaches once rather than on every
@@ -166,9 +171,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // Expressing an intent used to mean leaving for a terminal. This keeps it
   // where the direction is being looked at; the user's own agent still does
   // the work, because it knows the codebase and Leglas does not.
+  //
+  // It sits under the rail rather than inside the tools popover, where it was
+  // the one thing among the preferences that acted on the work, two clicks
+  // deep, addressing a direction the panel never named. Under the list, the
+  // direction it means is the highlighted row directly above it.
   const [intent, setIntent] = useState("");
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -192,6 +201,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   useEffect(() => {
     dragRef.current = drag;
   }, [drag]);
+
+  /**
+   * Cmd K and R name a field in the rail; this puts the cursor in it. It runs
+   * as an effect rather than from the key handler because both keys open a
+   * collapsed rail on the way, and until React has committed that, the field
+   * is still inside an inert subtree, where focus is refused.
+   */
+  useEffect(() => {
+    if (!st.focusing) return;
+    const field = st.focusing.target === "search" ? searchRef.current : requestRef.current;
+    field?.focus();
+    field?.select();
+  }, [st.focusing]);
 
   useEffect(() => {
     if (!drag) return;
@@ -677,8 +699,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     const isDragged = dragging && drag?.title === title;
     const shift = dragging && !isDragged ? shiftFor(index) : 0;
     const meta = st.rowMeta.get(title);
-    const isShade = meta?.depth === 1;
-    const shadeCount = meta?.shades ?? 0;
+    const isVariant = meta?.depth === 1;
+    const variantCount = meta?.variants ?? 0;
     const folded = meta?.folded ?? false;
     // Renaming edits the name where it sits. Replacing the whole row with a
     // form meant every neighbour moved, the note vanished, and the row you
@@ -721,7 +743,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         <div
           aria-pressed={isActive}
           className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pr-3 text-left transition-colors active:cursor-grabbing ${
-            isShade ? "pl-11" : "pl-3"
+            isVariant ? "pl-11" : "pl-3"
           } ${isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""}`}
           onClick={() => {
             if (renamingThis) return;
@@ -754,11 +776,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         >
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
-              {shadeCount > 0 && (
-                <Tip label={folded ? `Show ${shadeCount} shade${shadeCount === 1 ? "" : "s"}` : "Fold the shades away"}>
+              {variantCount > 0 && (
+                <Tip label={folded ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}` : "Fold the variants away"}>
                   <button
                     aria-expanded={!folded}
-                    aria-label={`${folded ? "Show" : "Hide"} the shades of ${st.displayName(title)}`}
+                    aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
                     className="-ml-1 flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -777,7 +799,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     {folded ? (
-                      <span className="text-[10px] leading-none tabular-nums">{shadeCount}</span>
+                      <span className="text-[10px] leading-none tabular-nums">{variantCount}</span>
                     ) : null}
                   </button>
                 </Tip>
@@ -814,7 +836,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       third of the title line. */}
                   <span
                     className={`block w-fit min-w-[70%] max-w-full cursor-text select-text truncate -my-1 py-1 pr-2 ${
-                      shadeCount > 0 ? "" : "-ml-3 pl-3"
+                      variantCount > 0 ? "" : "-ml-3 pl-3"
                     }`}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
@@ -828,7 +850,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               )}
               {splitting && title === compare ? (
                 <span
-                  className={`shrink-0 rounded-md bg-white/[0.08] px-2 py-[3px] text-[11px] leading-none text-[#E8E8EA] transition-opacity duration-150 ${
+                  className={`shrink-0 rounded-md bg-white/[0.08] px-2 py-[3px] text-[10px] font-medium leading-none text-[#E8E8EA] transition-opacity duration-150 ${
                     dragging
                       ? ""
                       : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -841,7 +863,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
                 >
                   <span
-                    className={`shrink-0 rounded-md bg-amber-400/10 px-2 py-[3px] text-[11px] leading-none text-amber-300/90 transition-opacity duration-150 ${
+                    className={`shrink-0 rounded-md bg-amber-400/10 px-2 py-[3px] text-[10px] font-medium leading-none text-amber-300/90 transition-opacity duration-150 ${
                       dragging
                         ? ""
                         : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -852,7 +874,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </Tip>
               ) : checking(title) ? (
                 <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded-md bg-white/[0.04] pl-0.5 pr-2 text-[11px] leading-none text-[#84848C]/80 transition-opacity duration-150 ${
+                  className={`flex h-5 shrink-0 items-center gap-1 rounded-md bg-white/[0.04] pl-0.5 pr-2 text-[10px] font-medium leading-none text-[#84848C]/80 transition-opacity duration-150 ${
                     dragging
                       ? ""
                       : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -864,7 +886,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               ) : (
                 preview?.tags[0] && (
                   <span
-                    className={`shrink-0 rounded-md bg-[#A9BC7C]/10 px-2 py-[3px] text-[11px] leading-none text-[#A9BC7C] transition-opacity duration-150 ${
+                    className={`shrink-0 rounded-md bg-[#A9BC7C]/10 px-2 py-[3px] text-[10px] font-medium leading-none text-[#A9BC7C] transition-opacity duration-150 ${
                       dragging
                         ? ""
                         : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -1147,10 +1169,91 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             )}
           </div>
 
-          <div className="flex justify-end px-3 py-2">
+          {/* Enter both queues the request and copies the prompt, so it works
+              whether the agent drains the queue or the prompt gets pasted into
+              a chat by hand. The confirmation is a toast rather than the
+              placeholder it used to swap in, which vanished with the panel
+              that carried it. */}
+          <form
+            className="px-3 pt-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = intent.trim();
+              const title = st.active;
+              if (!value || !title || sending) return;
+              const name = st.displayName(title);
+              setSending(true);
+              void fetch("/leglas/api/request", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ title, intent: value }),
+              })
+                .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
+                .then(async (result) => {
+                  if (!result.ok || !result.prompt) throw new Error("refused");
+                  setIntent("");
+                  // Said before the clipboard is touched, because the queue is
+                  // the durable half and the clipboard is the half that can
+                  // hang: a browser sitting on a permission prompt never
+                  // settles either way, and a request that was accepted has to
+                  // say so regardless. The copy then supersedes this line,
+                  // since toasts of one kind replace rather than stack.
+                  st.notify({
+                    kind: "request",
+                    message: `Asked for a change to ${name}.`,
+                    tone: "success",
+                    ttl: TOAST_TTL.plain,
+                  });
+                  const outcome = await copyText(result.prompt);
+                  st.notify({
+                    kind: "request",
+                    // A blocked clipboard costs nothing here: the request is
+                    // already queued, and the command that drains it is the
+                    // path the prompt was written for anyway.
+                    message:
+                      outcome === "copied"
+                        ? `Asked for a change to ${name}. Prompt copied.`
+                        : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with leglas requests.`,
+                    tone: "success",
+                    ttl: TOAST_TTL.plain,
+                  });
+                })
+                .catch(() => {
+                  st.notify({
+                    kind: "request",
+                    message: `That request never reached Leglas. ${name} is unchanged.`,
+                    tone: "danger",
+                    ttl: TOAST_TTL.action,
+                  });
+                })
+                .finally(() => setSending(false));
+            }}
+          >
+            <input
+              aria-label={
+                st.active
+                  ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                  : "Ask your agent to change a direction"
+              }
+              className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2.5 py-2 text-xs text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={sending || !st.active}
+              onChange={(event) => setIntent(event.target.value)}
+              placeholder={
+                st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
+              }
+              ref={requestRef}
+              type="text"
+              value={intent}
+            />
+          </form>
+
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+              Enter queues it for <span className="font-medium">leglas requests</span>
+            </span>
             <Tip label="Copy a reference to the active direction">
               <button
-                className="rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
+                className="shrink-0 rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
                 onClick={() => st.copyReference(st.active)}
                 type="button"
               >
@@ -1415,48 +1518,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 {st.prefs.hideDevOverlays ? "on" : "off"}
               </span>
             </button>
-
-            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Change this direction
-            </span>
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const value = intent.trim();
-                if (!value) return;
-                setSending(true);
-                void fetch("/leglas/api/request", {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ title: st.active, intent: value }),
-                })
-                  .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
-                  .then((result) => {
-                    // Copied as well as queued, so it works whether the user's
-                    // agent polls or they would rather just paste it.
-                    if (result.prompt) void navigator.clipboard.writeText(result.prompt);
-                    setIntent("");
-                    setSent(result.ok);
-                    window.setTimeout(() => setSent(false), 2000);
-                  })
-                  .finally(() => setSending(false));
-              }}
-            >
-              <input
-                aria-label={`Ask your agent to change the ${st.displayName(st.active)} direction`}
-                className="min-w-0 flex-1 rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1.5 text-xs text-white placeholder:text-[#84848C] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
-                disabled={sending}
-                onChange={(event) => setIntent(event.target.value)}
-                placeholder={sent ? "Copied and queued" : "Make it warmer…"}
-                type="text"
-                value={intent}
-              />
-            </form>
-            <p className="px-1 pb-1 pt-1 text-[10px] leading-snug text-[#84848C]">
-              Enter copies a prompt for your agent and queues it for
-              <span className="font-medium"> leglas requests</span>.
-            </p>
 
             <button
               className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"

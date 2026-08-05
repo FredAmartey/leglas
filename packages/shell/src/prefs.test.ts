@@ -53,6 +53,13 @@ describe("loadPrefs", () => {
     expect(loadPrefs(stored({ viewport: 834 }), previews).viewport).toBe(834);
   });
 
+  test("leaves the app's own dev overlays alone until asked", () => {
+    // The badge belongs to the user's app. Hiding it unasked makes the
+    // preview quietly differ from what their dev server renders.
+    expect(loadPrefs(null, previews).hideDevOverlays).toBe(false);
+    expect(loadPrefs(stored({ hideDevOverlays: true }), previews).hideDevOverlays).toBe(true);
+  });
+
   test("survives a corrupt store rather than refusing to start", () => {
     expect(loadPrefs("{not json", previews).order).toEqual(["Original", "Wave", "Aurora"]);
   });
