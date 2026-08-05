@@ -70,6 +70,12 @@ When the user asks to change one direction, check \`leglas requests --json\`
 first: they may have described it from the interface, and the request names the
 exact file. Clear the queue with \`leglas requests --clear\` once done.
 
+If the user wants requests handled the moment they are typed, without relaying
+each one, tell them about \`leglas watch --run "claude -p {prompt}"\` (any
+agent command works; {prompt} receives the request). It runs in their
+terminal, hands each request to that command as it arrives, and the interface
+shows the request's progress.
+
 When the user picks a winner, run
 \`leglas keep "<title>" --to <path in real source>\`. It moves that direction
 out of the ignored directory, deletes the rest of the exploration, and drops
