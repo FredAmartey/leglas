@@ -86,7 +86,7 @@ function spawnAgent(command: string, args: string[], cwd: string): Promise<Spawn
  * stays the same shape as every other command.
  */
 export async function runWatch(
-  options: { run: string | undefined; port: number | undefined; cwd: string },
+  options: { run: string | undefined; port: number | undefined; cwd: string; signal?: AbortSignal },
   deps: WatchDeps,
 ): Promise<{ exitCode: number }> {
   const saved = options.run === undefined ? await readSavedTemplate(options.cwd) : null;
@@ -133,6 +133,8 @@ export async function runWatch(
   const failed = new Set<string>();
   let stopped = false;
   let busy = false;
+  /** The request being handled right now, so a stop can wait for its books. */
+  let inflight: Promise<void> | null = null;
 
   const handle = async (request: PendingRequest): Promise<void> => {
     deps.log("");
@@ -171,10 +173,14 @@ export async function runWatch(
     busy = true;
     try {
       const request = nextRequest(await readRequests(options.cwd), failed);
-      if (request !== null && !stopped) await handle(request);
+      if (request !== null && !stopped) {
+        inflight = handle(request);
+        await inflight;
+      }
     } catch (error) {
       deps.error(`  ! ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      inflight = null;
       busy = false;
     }
   };
@@ -188,13 +194,21 @@ export async function runWatch(
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
       // An agent still running shares this terminal's process group, so Ctrl-C
-      // reached it too; nothing here has to kill it. The last heartbeat is
+      // reached it too; nothing here has to kill it. But its bookkeeping must
+      // land before this promise settles: the caller exits the process on it,
+      // and a request whose agent succeeded would otherwise be stranded as
+      // picked-up with its removal still pending. The last heartbeat is
       // best-effort, and the window it opens closes on its own in six seconds.
-      void heartbeat(false).then(() => resolve({ exitCode: 0 }));
+      void Promise.resolve(inflight)
+        .catch(() => {})
+        .then(() => heartbeat(false))
+        .then(() => resolve({ exitCode: 0 }));
     };
 
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
+    // The signal is the programmatic Ctrl-C, and tests are its main caller.
+    options.signal?.addEventListener("abort", stop, { once: true });
     void tick();
   });
 }

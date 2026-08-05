@@ -145,6 +145,7 @@ describe("startServer", () => {
 
     expect(res.status).toBe(400);
   });
+
   test("reports the port and url it actually bound", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 
