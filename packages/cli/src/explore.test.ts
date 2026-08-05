@@ -57,6 +57,13 @@ describe("planExplore", () => {
     expect(planExplore("hero", 3).instructions).not.toContain("--based-on");
   });
 
+  test("asks for registration as each direction lands, not batched", () => {
+    const text = planExplore("hero", 3).instructions;
+
+    expect(text).toContain("the moment it renders");
+    expect(text).toContain("not the set at the end");
+  });
+
   test("both modes share the same file mechanics", () => {
     const spread = planExplore("hero", 3).instructions;
     const variants = planExplore("hero", 3, "Aurora").instructions;

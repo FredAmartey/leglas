@@ -46,6 +46,18 @@ describe("planInit", () => {
     expect(contents.toLowerCase()).toContain("never replace");
   });
 
+  test("choreographs the live loop: viewer first, register as each lands", () => {
+    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
+
+    expect(contents).toContain("Before building, make sure the interface is up");
+    expect(contents).toContain("Register each direction as it lands");
+    // The viewer beat must come before the build-and-register beat, or the
+    // user has nothing open while the rail fills in.
+    expect(contents.indexOf("make sure the interface is up")).toBeLessThan(
+      contents.indexOf("Build one direction at a time"),
+    );
+  });
+
   test("names the commands an agent needs", () => {
     const contents = write(plan(), "AGENTS.md")?.contents ?? "";
 
