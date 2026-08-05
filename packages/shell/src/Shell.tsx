@@ -12,6 +12,7 @@ import {
   Switch,
   Tip,
   Toasts,
+  Wordmark,
 } from "./kit.js";
 import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
@@ -1100,7 +1101,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           style={{ width: st.prefs.width }}
         >
           <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
-            <span className="min-w-0 truncate text-sm font-medium text-white">Directions</span>
+            {/* The product names itself here rather than in the list below it:
+                the search field and every command already say "directions". */}
+            <span className="flex min-w-0 items-center gap-2">
+              <Mark size={28} />
+              <Wordmark height={18} />
+            </span>
             <Tip
               label={
                 <>
@@ -1370,7 +1376,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           }`}
           inert={!st.prefs.collapsed}
         >
-          <Mark size={16} />
+          <Mark size={24} />
           <Tip
             label={
               <>
@@ -1704,7 +1710,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 ref={widgetButtonRef}
                 type="button"
               >
-                <Mark size={20} />
+                <Mark size={30} />
                 {!st.loaded[st.active] && (
                   <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-amber-400 motion-reduce:animate-none" />
                 )}

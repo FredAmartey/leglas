@@ -1,4 +1,10 @@
-<h1 align="center">Leglas</h1>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/logo-duo.svg" width="640" alt="The Leglas mark, in light and dark" />
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/wordmark.svg" width="190" alt="Leglas" />
+</p>
 
 <p align="center">Your app is the canvas.</p>
 
