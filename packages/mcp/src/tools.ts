@@ -67,7 +67,9 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       title: "Start the Leglas viewer",
       description:
         "Boot the Leglas server for this project and return the interface URL. " +
-        "Idempotent per session: calling it again returns the running viewer.",
+        "Idempotent per session: calling it again returns the running viewer. " +
+        "When building a set, call this first and give the user the URL before " +
+        "any direction exists: the rail updates live, so they watch the set fill in.",
       inputSchema: {
         port: z.number().int().min(0).max(65535).optional()
           .describe("Port for Leglas itself; defaults to 4100, next free if taken."),
@@ -98,6 +100,8 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       title: "Register a preview",
       description:
         "Register a design direction on this machine so it appears in the rail. " +
+        "The rail picks it up within seconds, so when building a set register " +
+        "each direction as it lands rather than the whole set at the end. " +
         "Use branch for a direction that lives on its own git branch.",
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),

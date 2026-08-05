@@ -55,7 +55,9 @@ export function planExplore(surface: string, count: number, basedOn: string | nu
   const mechanics =
     `Each one is its own file under .leglas/variants/${slug}/, listed in the ` +
     `DIRECTIONS map in that folder's switch file. If there is no switch file ` +
-    `yet, run \`leglas new ${slug}\` first. Register each as you decide it:\n\n` +
+    `yet, run \`leglas new ${slug}\` first. Register each one the moment it ` +
+    `renders, not the set at the end. The interface picks a registration up ` +
+    `within seconds, so whoever asked watches the set fill in:\n\n` +
     `${register}\n\n` +
     `The title and note are what the user judges from in the rail, so name ` +
     `each one for its idea rather than numbering it.`;
