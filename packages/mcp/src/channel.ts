@@ -69,12 +69,32 @@ export type Channel = { stop(): void };
  */
 export function startChannel(
   server: McpServer,
-  options: { cwd: string; pollMs?: number },
+  options: {
+    cwd: string;
+    pollMs?: number;
+    /** Tests gate this to force overlapping polls; production reads the file. */
+    read?: (cwd: string) => Promise<PendingRequest[]>;
+  },
 ): Channel {
+  const read = options.read ?? readRequests;
   const pushed = new Set<string>();
+  let busy = false;
 
   const poll = async (): Promise<void> => {
-    const fresh = unpushed(await readRequests(options.cwd), pushed);
+    // The interval does not wait for the previous run. Without this guard two
+    // overlapping polls read the same queue before either records a push, and
+    // the same request goes out twice.
+    if (busy) return;
+    busy = true;
+    try {
+      await push();
+    } finally {
+      busy = false;
+    }
+  };
+
+  const push = async (): Promise<void> => {
+    const fresh = unpushed(await read(options.cwd), pushed);
     for (const request of fresh) {
       pushed.add(request.id);
       try {

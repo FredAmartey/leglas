@@ -36,7 +36,11 @@ function writeQueue(cwd: string, requests: PendingRequest[]): void {
 }
 
 /** A connected pair with the client capturing channel notifications. */
-async function connect(cwd: string, pollMs: number): Promise<{ events: unknown[] }> {
+async function connect(
+  cwd: string,
+  pollMs: number,
+  read?: (cwd: string) => Promise<PendingRequest[]>,
+): Promise<{ events: unknown[] }> {
   const server = new McpServer(
     { name: "leglas-test", version: "0.0.0" },
     { capabilities: { experimental: CHANNEL_CAPABILITY } },
@@ -48,7 +52,7 @@ async function connect(cwd: string, pollMs: number): Promise<{ events: unknown[]
   };
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-  channels.push(startChannel(server, { cwd, pollMs }));
+  channels.push(startChannel(server, { cwd, pollMs, read }));
   return { events };
 }
 
@@ -100,6 +104,31 @@ describe("startChannel", () => {
     // Later polls see the same queue and push nothing new.
     await new Promise((tick) => setTimeout(tick, 80));
     expect(events).toHaveLength(1);
+  });
+
+  test("overlapping polls never double-emit a request", async () => {
+    // The read is gated so several interval ticks pile up on it, then all
+    // resolve with the same two-request backlog. An unguarded loop lets a
+    // second poll emit from the live queue while the first is still walking
+    // its stale snapshot, and the second request goes out twice.
+    const cwd = scratch();
+    const backlog = [request("a", "queued"), request("b", "queued")];
+    writeQueue(cwd, backlog);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const read = async () => {
+      await gate;
+      return backlog;
+    };
+
+    const { events } = await connect(cwd, 10, read);
+    await new Promise((tick) => setTimeout(tick, 60));
+    release?.();
+
+    await until(() => events.length >= 2);
+    await new Promise((tick) => setTimeout(tick, 60));
+    const ids = events.map((event) => (event as { meta: { request_id: string } }).meta.request_id);
+    expect(ids.sort()).toEqual(["a", "b"]);
   });
 
   test("a request queued later arrives as its own event", async () => {
