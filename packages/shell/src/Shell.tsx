@@ -41,6 +41,23 @@ const FONTS = [
   { key: "manrope", label: "Manrope", stack: "var(--font-manrope)" },
 ] as const;
 
+/**
+ * Tag pills colour themselves from their text: bright accents spaced around
+ * the wheel, all at the same saturation so no tag reads as more important
+ * than another. The same text lands on the same colour every session, so
+ * nobody configures a palette. Amber is left out; it means "duplicate" here.
+ */
+const TAG_TONES = ["#34D399", "#38BDF8", "#818CF8", "#C084FC", "#FB7185", "#FB923C"] as const;
+
+function tagTone(tag: string) {
+  let hash = 0;
+  for (const char of tag) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  const tone = TAG_TONES[Math.abs(hash) % TAG_TONES.length] ?? TAG_TONES[0];
+  // Text at full strength on a 13% wash of itself, so the pill glows a
+  // little against the dark rail instead of sitting flat on it.
+  return { backgroundColor: `${tone}22`, color: tone };
+}
+
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
 
@@ -850,7 +867,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               )}
               {splitting && title === compare ? (
                 <span
-                  className={`shrink-0 rounded-md bg-white/[0.08] px-2 py-[3px] text-[10px] font-medium leading-none text-[#E8E8EA] transition-opacity duration-150 ${
+                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] transition-opacity duration-150 ${
                     dragging
                       ? ""
                       : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -863,7 +880,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
                 >
                   <span
-                    className={`shrink-0 rounded-md bg-amber-400/10 px-2 py-[3px] text-[10px] font-medium leading-none text-amber-300/90 transition-opacity duration-150 ${
+                    className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 transition-opacity duration-150 ${
                       dragging
                         ? ""
                         : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -874,7 +891,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </Tip>
               ) : checking(title) ? (
                 <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded-md bg-white/[0.04] pl-0.5 pr-2 text-[10px] font-medium leading-none text-[#84848C]/80 transition-opacity duration-150 ${
+                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 transition-opacity duration-150 ${
                     dragging
                       ? ""
                       : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
@@ -886,11 +903,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               ) : (
                 preview?.tags[0] && (
                   <span
-                    className={`shrink-0 rounded-md bg-[#A9BC7C]/10 px-2 py-[3px] text-[10px] font-medium leading-none text-[#A9BC7C] transition-opacity duration-150 ${
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal transition-opacity duration-150 ${
                       dragging
                         ? ""
                         : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
                     }`}
+                    style={tagTone(preview.tags[0])}
                   >
                     {preview.tags[0]}
                   </span>
@@ -1499,6 +1517,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               Dev overlays
             </span>
             <button
+              aria-checked={st.prefs.hideDevOverlays}
               className={`${ROW_BUTTON} ${
                 st.prefs.hideDevOverlays ? "text-white" : "text-[#9CA3AF]"
               }`}
@@ -1511,11 +1530,25 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   applyOverlayPref(frame as HTMLIFrameElement, hide);
                 }
               }}
+              role="switch"
               type="button"
             >
               <span>Hide in previews</span>
-              <span className="text-[10px] text-[#84848C]">
-                {st.prefs.hideDevOverlays ? "on" : "off"}
+              {/* The track is darker than the row's hover surface, not the same
+                  #2E2E2E, so it stays visible under the pointer. */}
+              <span
+                aria-hidden="true"
+                className={`relative h-3.5 w-6 shrink-0 rounded-full transition-colors duration-150 motion-reduce:transition-none ${
+                  st.prefs.hideDevOverlays ? "bg-[#E6E8EC]" : "bg-[#17181B]"
+                }`}
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 size-2.5 rounded-full transition-transform duration-150 motion-reduce:transition-none ${
+                    st.prefs.hideDevOverlays
+                      ? "translate-x-2.5 bg-[#17181B]"
+                      : "bg-[#84848C]"
+                  }`}
+                />
               </span>
             </button>
 
