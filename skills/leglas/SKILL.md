@@ -31,13 +31,15 @@ this project: follow it, not this file.
 
 If it does not:
 
-1. Run `npx leglas init` from the project root. It writes the workflow
+1. Make sure the command exists: `npm install -g leglas` if it is not
+   already installed. Needs Node 24+.
+2. Run `leglas init` from the project root. It writes the workflow
    section into `AGENTS.md`, creates a starter `leglas.config.ts`, and
-   gitignores the working directory. Needs Node 24+.
-2. Read the section it wrote and follow it.
-3. If the interface is not already running, tell the user to run
-   `npx leglas` and give them `http://localhost:4100/leglas` now, not
-   when the set is done. The rail fills in as each direction registers.
+   gitignores the working directory.
+3. Read the section it wrote and follow it.
+4. If the interface is not already running, tell the user to run
+   `leglas` and give them `http://localhost:4100/leglas` now, not when
+   the set is done. The rail fills in as each direction registers.
 
 ## Orientation
 
