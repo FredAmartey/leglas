@@ -81,13 +81,24 @@ newer.
 
 ## Working with coding agents
 
-Run `leglas init` once. It writes a section into your project's
-`AGENTS.md`, creates a starter config, and gitignores Leglas's working
-directory. That section travels with the repo, so Claude Code, Cursor,
-Codex, or whatever you switch to next opens the project already knowing
-how to add design directions to it. Every command accepts `--json` and
-prints a single machine-readable envelope, so agents drive the same CLI
-you do.
+The fastest way in is the agent skill:
+
+```sh
+npx skills add FredAmartey/leglas
+```
+
+One install, and your agent recognises "give me a few directions for the
+pricing page" as a Leglas exploration in any project, including ones
+that have never seen Leglas. It sets the project up itself and gets to
+work.
+
+In a project, run `leglas init` once. It writes a section into your
+project's `AGENTS.md`, creates a starter config, and gitignores Leglas's
+working directory. That section travels with the repo, so Claude Code,
+Cursor, Codex, or whatever you switch to next opens the project already
+knowing how to add design directions to it. Every command accepts
+`--json` and prints a single machine-readable envelope, so agents drive
+the same CLI you do.
 
 The instructions center on one rule: add beside what exists, never
 rewrite it. Two directions that rewrite the same file cannot render from
