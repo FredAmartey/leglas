@@ -74,6 +74,12 @@ Leglas starts on port 4100, proxies your app, and opens
 `http://localhost:4100/leglas`. With no configuration you get a single
 preview of your app root. Add a config file to compare more than one thing.
 
+It works with whatever you're building in. Leglas never imports or
+executes your framework, so the target can be Next, Vite, Remix,
+SvelteKit, Astro, or a folder of static files.
+
+## Install
+
 `npx` is enough for a first look. To keep it around, install it:
 
 ```sh
@@ -82,11 +88,7 @@ npm install -g leglas
 
 Agents drive Leglas through plain `leglas` commands, so they need this
 too: the instructions `leglas init` writes assume the command exists.
-
-It works with whatever you're building in. Leglas never imports or
-executes your framework, so the target can be Next, Vite, Remix,
-SvelteKit, Astro, or a folder of static files. Requires Node 24 or
-newer.
+Requires Node 24 or newer.
 
 ## Working with coding agents
 
