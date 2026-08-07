@@ -82,8 +82,8 @@ SvelteKit, Astro, or a folder of static files.
 
 There is nothing you have to install: `npx leglas` fetches the CLI on
 first use and starts from npm's cache after that, and every instruction
-Leglas writes for agents uses the same form, so it works on machines
-that never opted in. Requires Node 24 or newer.
+Leglas writes for agents uses the same form, so a fresh clone works
+with no setup at all. Requires Node 24 or newer.
 
 Two optional upgrades:
 
