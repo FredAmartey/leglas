@@ -34,6 +34,6 @@ export function resolveOrExplain(
     error:
       `No direction called ${JSON.stringify(input)}. Renaming one in the rail only renames it ` +
       `here, and it still answers to its title in the config, which its reference block quotes. ` +
-      `leglas list shows every title.`,
+      `npx leglas list shows every title.`,
   };
 }

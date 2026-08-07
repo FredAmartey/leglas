@@ -63,7 +63,7 @@ describe("referenceText", () => {
   });
 
   test("always ends with the way to get the rest, addressed by config title", () => {
-    expect(reference()).toMatch(/Inspect this direction in full:\n {2}leglas show "Warm" --json$/);
+    expect(reference()).toMatch(/Inspect this direction in full:\n {2}npx leglas show "Warm" --json$/);
   });
 
   // The rail shows the renamed row, but only the config title reaches the CLI.

@@ -54,7 +54,7 @@ export function planKeep(options: {
   if (!winner) {
     return {
       ok: false,
-      error: `No direction called ${JSON.stringify(options.title)}. Run leglas list to see them.`,
+      error: `No direction called ${JSON.stringify(options.title)}. Run npx leglas list to see them.`,
     };
   }
 

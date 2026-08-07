@@ -94,7 +94,7 @@ export async function runWatch(
 
   if (raw === null) {
     deps.error(
-      'Watch needs an agent command the first time: leglas watch --run "claude -p {prompt}"',
+      'Watch needs an agent command the first time: npx leglas watch --run "claude -p {prompt}"',
     );
     return { exitCode: 1 };
   }

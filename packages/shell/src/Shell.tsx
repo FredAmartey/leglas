@@ -1295,7 +1295,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     message:
                       outcome === "copied"
                         ? `Asked for a change to ${name}. Prompt copied.`
-                        : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with leglas requests.`,
+                        : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
                     tone: "success",
                     ttl: TOAST_TTL.plain,
                   });
@@ -1334,7 +1334,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
               <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                {requestStatusLine(requests, st.active, attached) ?? <>Enter queues it for <span className="font-medium">leglas requests</span></>}
+                {requestStatusLine(requests, st.active, attached) ?? <>Enter queues it for <span className="font-medium">npx leglas requests</span></>}
               </span>
             ) : (
               <button

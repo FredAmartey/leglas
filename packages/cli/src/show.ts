@@ -73,7 +73,7 @@ export function planShow({ title, previews, requests }: ShowInput): ShowPlan {
   if (!found) {
     return {
       ok: false,
-      error: `No direction called ${JSON.stringify(title)}. Run leglas list to see them.`,
+      error: `No direction called ${JSON.stringify(title)}. Run npx leglas list to see them.`,
     };
   }
 

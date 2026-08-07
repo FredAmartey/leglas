@@ -69,13 +69,13 @@ function isExplorationFile(path: string): boolean {
 
 const CHECKOUT_STEPS = [
   "Build the direction on its own branch: git switch -c <branch>, commit it there, switch back.",
-  'Register it: leglas add --title "<title>" --url "/" --branch <branch>.',
+  'Register it: npx leglas add --title "<title>" --url "/" --branch <branch>.',
   "Make sure the config sets devCommand (with {port}), so Leglas can start the checkout.",
 ];
 
 const IN_APP_STEPS = [
   "Author it additively under .leglas/variants/<surface>/, beside the existing directions.",
-  'Register it: leglas add --title "<title>" --url "/?v-<surface>=<direction>".',
+  'Register it: npx leglas add --title "<title>" --url "/?v-<surface>=<direction>".',
 ];
 
 export function classifyDirection(input: { changes: readonly DeclaredChange[] }): Placement {

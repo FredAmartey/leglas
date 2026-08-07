@@ -6,7 +6,7 @@ export const WATCH_PATH = ".leglas/watch.json";
 /** The one thing the template must contain, and the only thing substituted. */
 export const PROMPT_TOKEN = "{prompt}";
 
-const EXAMPLE = `leglas watch --run "claude -p ${PROMPT_TOKEN}"`;
+const EXAMPLE = `npx leglas watch --run "claude -p ${PROMPT_TOKEN}"`;
 
 export type WatchTemplate = {
   command: string;

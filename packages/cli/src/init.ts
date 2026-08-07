@@ -38,48 +38,48 @@ When asked for design variations, alternatives, or "a few options":
    If a direction cannot be additive, because it must change dependencies,
    change build configuration, or rewrite an existing file's behaviour, ask
    where it should live before writing it:
-   \`leglas classify --change package.json --rewrite src/theme.css --json\`.
+   \`npx leglas classify --change package.json --rewrite src/theme.css --json\`.
    When the answer is \`checkout\`, build the direction on its own git branch
-   and register it with \`leglas add --title "…" --url "/" --branch <branch>\`
+   and register it with \`npx leglas add --title "…" --url "/" --branch <branch>\`
    (the config needs \`devCommand\` with \`{port}\`). Everything below is the
    ordinary, in-app path.
-2. Run \`leglas explore <surface> --count <n>\` first, adding
+2. Run \`npx leglas explore <surface> --count <n>\` first, adding
    \`--based-on "<title>"\` when the user wants variations of a direction they
    already like. It prints what the set needs and how to register it. In
    short: new directions must genuinely disagree with each other, variants of
    one must not, and either way decide the whole set before building any of
    it. The designs themselves are yours.
 3. If the surface has no switcher yet, run
-   \`leglas new <surface> --from <the component that renders it today>\`. It
+   \`npx leglas new <surface> --from <the component that renders it today>\`. It
    writes one under \`.leglas/variants/<surface>/\` and prints the single line
    to add where that surface renders. \`--from\` makes the baseline re-export
    the real component rather than copying it, so it stays live.
-4. Before building, make sure the interface is up. If \`leglas\` is not
-   already running, tell the user to run it, and hand them the URL now
-   rather than when the set is done: the rail picks up each registration
-   within seconds, so they get to watch the exploration fill in.
+4. Before building, make sure the interface is up. If Leglas is not
+   already running, tell the user to run \`npx leglas\`, and hand them the
+   URL now rather than when the set is done: the rail picks up each
+   registration within seconds, so they get to watch the exploration fill in.
 5. Build one direction at a time: its own file beside the others in
    \`.leglas/variants/<surface>/\`, listed in the \`DIRECTIONS\` map in that
    folder's \`switch\` file, then registered the moment it renders:
-   \`leglas add --title "Aurora" --url "/?v-<surface>=aurora" --note "One line on the idea."\`
+   \`npx leglas add --title "Aurora" --url "/?v-<surface>=aurora" --note "One line on the idea."\`
    Register each direction as it lands, never the whole set at the end. To
    the user watching the rail, a batch at the end is minutes of nothing and
    then everything at once.
 
-When the user asks to change one direction, check \`leglas requests --json\`
+When the user asks to change one direction, check \`npx leglas requests --json\`
 first: they may have described it from the interface, and the request names the
-exact file. Acknowledge them with \`leglas requests --clear\` once done: it
+exact file. Acknowledge them with \`npx leglas requests --clear\` once done: it
 drops what you collected and reports anything the user typed while you worked,
 which is yours to collect and do next.
 
 If the user wants requests handled the moment they are typed, without relaying
-each one, tell them about \`leglas watch --run "claude -p {prompt}"\` (any
+each one, tell them about \`npx leglas watch --run "claude -p {prompt}"\` (any
 agent command works; {prompt} receives the request). It runs in their
 terminal, hands each request to that command as it arrives, and the interface
 shows the request's progress.
 
 When the user picks a winner, run
-\`leglas keep "<title>" --to <path in real source>\`. It moves that direction
+\`npx leglas keep "<title>" --to <path in real source>\`. It moves that direction
 out of the ignored directory, deletes the rest of the exploration, and drops
 them from the rail. Then change their component to use the kept component
 instead of the switcher.
@@ -90,14 +90,14 @@ Useful to know:
   ships. Move a direction into real source only when it wins.
 - If the project has no running app yet, a direction can be a plain HTML
   file: write it under \`.leglas/pages/\` and register it with
-  \`leglas add --title "Aurora" --file .leglas/pages/aurora.html\`. Leglas
+  \`npx leglas add --title "Aurora" --file .leglas/pages/aurora.html\`. Leglas
   serves the file itself, so no dev server is needed. Sibling assets in the
   same directory resolve normally.
 - Titles identify previews and must be unique. The user may rename one in the
   rail, which renames it on their machine only; the commands answer to either
   name, so use whichever they said.
-- \`leglas list\` shows every direction, shared and local.
-- \`leglas show "<title>" --json\` answers for one of them: the file behind it,
+- \`npx leglas list\` shows every direction, shared and local.
+- \`npx leglas show "<title>" --json\` answers for one of them: the file behind it,
   the variants based on it, what it is being compared against, and anything
   they have asked for that is not done yet. Run it when handed a direction you
   did not register yourself.
@@ -108,7 +108,7 @@ ${AGENTS_MARKER_END}
 `;
 
 const STARTER_CONFIG = `// Previews are URLs of your own app. Add one per direction you want to
-// compare, then run \`leglas\`.
+// compare, then run \`npx leglas\`.
 export default {
   // Where your dev server is. Override at the command line with --user-port.
   devServer: "http://localhost:3000",

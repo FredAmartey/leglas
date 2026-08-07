@@ -102,7 +102,7 @@ export async function runNew(
   deps.log("Then register them so they appear in the interface:");
   deps.log("");
   for (const preview of plan.previews) {
-    deps.log(`  leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`);
+    deps.log(`  npx leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`);
   }
 
   return { exitCode: 0, written };

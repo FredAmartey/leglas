@@ -52,7 +52,7 @@ and sessions that clean up after themselves.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
   precise request for your agent, file path included. Leave
-  `leglas watch --run "claude -p {prompt}"` running in another terminal
+  `npx leglas watch --run "claude -p {prompt}"` running in another terminal
   and your agent picks each request up as you send it. In Claude Code,
   the Leglas MCP server can also push each request straight into your
   open session as a channel event (channels are a research preview:
@@ -80,15 +80,17 @@ SvelteKit, Astro, or a folder of static files.
 
 ## Install
 
-`npx` is enough for a first look. To keep it around, install it:
+There is nothing you have to install: `npx leglas` fetches the CLI on
+first use and starts from npm's cache after that, and every instruction
+Leglas writes for agents uses the same form, so it works on machines
+that never opted in. Requires Node 24 or newer.
 
-```sh
-npm install -g leglas
-```
+Two optional upgrades:
 
-Agents drive Leglas through plain `leglas` commands, so they need this
-too: the instructions `leglas init` writes assume the command exists.
-Requires Node 24 or newer.
+- `npm install -D leglas` pins the version in a project. Teammates and
+  CI get the same Leglas from their normal install, and `npx` resolves
+  the local copy from then on.
+- `npm install -g leglas` is for typing `leglas` without the prefix.
 
 ## Working with coding agents
 
@@ -103,7 +105,7 @@ pricing page" as a Leglas exploration in any project, including ones
 that have never seen Leglas. It sets the project up itself and gets to
 work.
 
-In a project, run `leglas init` once. It writes a section into your
+In a project, run `npx leglas init` once. It writes a section into your
 project's `AGENTS.md`, creates a starter config, and gitignores Leglas's
 working directory. That section travels with the repo, so Claude Code,
 Cursor, Codex, or whatever you switch to next opens the project already
@@ -116,39 +118,39 @@ rewrite it. Two directions that rewrite the same file cannot render from
 one server, and asking an agent to "make the hero calmer" tempts it to
 edit the hero. The supporting commands:
 
-- `leglas explore hero --count 6` briefs the exploration: what the set
+- `npx leglas explore hero --count 6` briefs the exploration: what the set
   is for, why it only works if the six genuinely disagree, and how each
   direction registers. Unbriefed, six requests come back as six variants
   of one idea. With `--based-on "Aurora"` the goal flips: six deliberate
   variants of a direction you already like, and drifting into a new
   direction is the failure. The designs themselves are the agent's;
   Leglas prescribes none.
-- `leglas new hero --from src/Hero.tsx` scaffolds a switcher under
+- `npx leglas new hero --from src/Hero.tsx` scaffolds a switcher under
   `.leglas/variants/hero/`. With `--from`, the baseline re-exports your
   real component, so you never compare against a stale copy. Leglas
   prints the one line to add in your component and does not edit it,
   because rewriting a file it does not understand is how a tool breaks a
   codebase. Scaffolded branch points return the fallback in production
   builds, so a committed one cannot expose an unreleased direction.
-- `leglas classify --change package.json --rewrite src/theme.css` answers
+- `npx leglas classify --change package.json --rewrite src/theme.css` answers
   where a direction should live before it is written. Changing
   dependencies, build configuration, or an existing file's behaviour
   cannot be additive, so those directions build on their own git branch
   and register with `leglas add --branch`. Everything else stays in-app,
   where switching is instant.
-- `leglas show "Aurora" --json` answers for one direction: its entry, the
+- `npx leglas show "Aurora" --json` answers for one direction: its entry, the
   source file behind it, the variants based on it, what it is being compared
   against, and anything still pending on it. Copying a direction from the
   rail hands over a block that ends in this command, so an agent given the
   block can go and get the rest.
-- `leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
+- `npx leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
   into real source and ends the exploration.
 
 Asking for a change works from the interface too. Type what you want
 changed into the field under the rail (or press `R`) and Leglas composes a
 prompt naming the direction and the file behind it, copies it to your
 clipboard, and queues it. The direction it means is the one highlighted
-directly above the field. Your agent drains the queue with `leglas requests --json` and clears
+directly above the field. Your agent drains the queue with `npx leglas requests --json` and clears
 it with `--clear`. Leglas runs no model of its own; your agent already
 knows your conventions and your taste.
 

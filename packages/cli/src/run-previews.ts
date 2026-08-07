@@ -53,7 +53,7 @@ export async function runAdd(
     const local = await readLocalPreviews(options.cwd);
     const titles = new Set([...shared, ...local.previews].map((preview) => preview.title));
     if (!titles.has(options.preview.basedOn)) {
-      const error = `--based-on names ${JSON.stringify(options.preview.basedOn)}, which is not a registered direction. leglas list shows what exists.`;
+      const error = `--based-on names ${JSON.stringify(options.preview.basedOn)}, which is not a registered direction. npx leglas list shows what exists.`;
       if (options.json) envelope(deps, false, { error });
       else deps.error(error);
       return { exitCode: 1 };
@@ -120,7 +120,7 @@ export async function runAdd(
     if (options.preview.branch === undefined && options.preview.file === undefined) {
       deps.log("Local to this machine. A running interface picks it up within seconds.");
     } else {
-      deps.log("Local to this machine. Restart Leglas to see it, or run leglas list.");
+      deps.log("Local to this machine. Restart Leglas to see it, or run npx leglas list.");
     }
   }
   return { exitCode: 0 };
@@ -162,7 +162,7 @@ export async function runList(
   }
 
   if (previews.length === 0) {
-    deps.log("No previews yet. Add one with leglas add, or list them in leglas.config.ts.");
+    deps.log("No previews yet. Add one with npx leglas add, or list them in leglas.config.ts.");
   } else {
     const width = Math.max(...previews.map((preview) => preview.title.length));
     for (const preview of previews) {
@@ -199,7 +199,7 @@ export async function runRequests(
       // it asked to finish, and there is already more waiting.
       if (pending > 0) {
         deps.log(
-          `${pending} arrived while you worked. Run leglas requests to collect ${pending === 1 ? "it" : "them"}.`,
+          `${pending} arrived while you worked. Run npx leglas requests to collect ${pending === 1 ? "it" : "them"}.`,
         );
       }
     }
@@ -223,6 +223,6 @@ export async function runRequests(
     if (request.target !== null) deps.log(`    ${request.target}`);
   }
   deps.log("");
-  deps.log("Run leglas requests --json to get the full prompts, then --clear when done.");
+  deps.log("Run npx leglas requests --json to get the full prompts, then --clear when done.");
   return { exitCode: 0 };
 }

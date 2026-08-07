@@ -65,6 +65,6 @@ export function referenceText({
   //
   // Quoted with the config title rather than the display name, because that is
   // what every command addresses and a renamed direction still answers to it.
-  lines.push("", "Inspect this direction in full:", `  leglas show ${JSON.stringify(title)} --json`);
+  lines.push("", "Inspect this direction in full:", `  npx leglas show ${JSON.stringify(title)} --json`);
   return lines.join("\n");
 }
