@@ -70,11 +70,16 @@ export type HostProjectOptions = {
   pluginRoot?: string | undefined;
 };
 
+/**
+ * Worded for every way the search comes up empty: a host with no roots, a host
+ * with an empty workspace, and a host that failed to answer. Naming only the
+ * first would describe the others wrongly.
+ */
 export const UNRESOLVED_PROJECT =
   "Leglas could not tell which project to work in. This agent host started the " +
-  "Leglas MCP server in the plugin's own directory and declares no workspace " +
-  "roots, so there is no project here to act on. Set LEGLAS_PROJECT_DIR to the " +
-  "project directory, or run the leglas CLI in the project instead.";
+  "Leglas MCP server in the plugin's own directory and named no workspace to " +
+  "work in, so there is no project here to act on. Set LEGLAS_PROJECT_DIR to " +
+  "the project directory, or run the leglas CLI in the project instead.";
 
 export function hostProject(host: RootsHost, options: HostProjectOptions): Project {
   let pending: Promise<Located> | null = null;

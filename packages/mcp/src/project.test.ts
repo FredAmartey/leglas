@@ -96,6 +96,21 @@ describe("hostProject", () => {
     expect(UNRESOLVED_PROJECT).toContain("LEGLAS_PROJECT_DIR");
   });
 
+  test("refuses too when the host fails to answer, and says so without guessing why", async () => {
+    // A host that cannot list its roots has named no workspace, which is the
+    // same dead end as declaring none. It is settled for the session: the
+    // answer here is an error someone can act on, not a wrong directory.
+    const pluginRoot = scratch("plugin");
+
+    const located = await hostProject(host([], { fails: true }), {
+      cwd: pluginRoot,
+      pluginRoot,
+    }).locate();
+
+    expect(located).toEqual({ ok: false, reason: UNRESOLVED_PROJECT });
+    expect(UNRESOLVED_PROJECT).not.toContain("declares no");
+  });
+
   test("a declared root rescues a working directory inside the plugin", async () => {
     const pluginRoot = scratch("plugin");
     const project = scratch("project");
