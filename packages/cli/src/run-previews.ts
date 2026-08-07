@@ -191,9 +191,18 @@ export async function runRequests(
   deps: PreviewDeps,
 ): Promise<PreviewResult> {
   if (options.clear) {
-    await clearRequests(options.cwd);
-    if (options.json) envelope(deps, true, { cleared: true });
-    else deps.log("Queue cleared.");
+    const { cleared, pending } = await clearRequests(options.cwd);
+    if (options.json) envelope(deps, true, { cleared, pending });
+    else {
+      deps.log(cleared === 1 ? "Cleared 1 request." : `Cleared ${cleared} requests.`);
+      // Said plainly, because this is the case the agent would otherwise miss:
+      // it asked to finish, and there is already more waiting.
+      if (pending > 0) {
+        deps.log(
+          `${pending} arrived while you worked. Run leglas requests to collect ${pending === 1 ? "it" : "them"}.`,
+        );
+      }
+    }
     return { exitCode: 0 };
   }
 

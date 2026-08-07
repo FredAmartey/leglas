@@ -68,7 +68,9 @@ When asked for design variations, alternatives, or "a few options":
 
 When the user asks to change one direction, check \`leglas requests --json\`
 first: they may have described it from the interface, and the request names the
-exact file. Clear the queue with \`leglas requests --clear\` once done.
+exact file. Acknowledge them with \`leglas requests --clear\` once done: it
+drops what you collected and reports anything the user typed while you worked,
+which is yours to collect and do next.
 
 If the user wants requests handled the moment they are typed, without relaying
 each one, tell them about \`leglas watch --run "claude -p {prompt}"\` (any

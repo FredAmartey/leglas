@@ -116,11 +116,35 @@ describe("request lifecycle", () => {
     expect(JSON.parse(readFileSync(queue, "utf8"))).toEqual({ requests: [input] });
   });
 
-  test("clear empties the queue", async () => {
+  test("clear drops the work that was collected", async () => {
     const root = cwd();
     await appendRequest(root, input);
-    await clearRequests(root);
+    await collectRequests(root);
+
+    expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 0 });
     expect(await readRequests(root)).toEqual([]);
+  });
+
+  test("clear keeps a request that arrived while the agent was working", async () => {
+    // The queue is a mailbox the user keeps typing into. An agent that clears
+    // everything it did not collect throws away an ask it never saw, and the
+    // user has no way of knowing: the toast said the request landed.
+    const root = cwd();
+    await appendRequest(root, input);
+    await collectRequests(root);
+    await appendRequest(root, { ...input, intent: "and darker" });
+
+    expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 1 });
+    const left = await readRequests(root);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toMatchObject({ intent: "and darker", status: "queued" });
+  });
+
+  test("clearing an empty queue leaves no trace on disk", async () => {
+    const root = cwd();
+
+    expect(await clearRequests(root)).toEqual({ cleared: 0, pending: 0 });
+    expect(existsSync(join(root, ".leglas"))).toBe(false);
   });
 
   test("marking one picked-up leaves the others queued", async () => {

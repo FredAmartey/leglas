@@ -163,6 +163,21 @@ export async function removeRequest(cwd: string, id: string): Promise<boolean> {
   return true;
 }
 
-export async function clearRequests(cwd: string): Promise<void> {
-  await writeQueue(cwd, []);
+/**
+ * Acknowledge the work that was collected, and report what is still waiting.
+ *
+ * Scoped to picked-up requests rather than the whole file, because the user
+ * keeps typing while the agent works: a request queued after the collection is
+ * one nobody has read yet, and emptying the file would throw it away silently,
+ * on the word of a toast that said it had landed. What survives here is what
+ * the next `requests` call hands over.
+ */
+export async function clearRequests(cwd: string): Promise<{ cleared: number; pending: number }> {
+  const requests = await readRequests(cwd);
+  const pending = requests.filter((request) => request.status !== "picked-up");
+  const cleared = requests.length - pending.length;
+  // Same reason collecting an empty queue writes nothing: acknowledging work
+  // that was never there must not materialise .leglas/ in a fresh project.
+  if (cleared > 0) await writeQueue(cwd, pending);
+  return { cleared, pending: pending.length };
 }

@@ -98,11 +98,18 @@ describe("runRequests", () => {
     expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
   });
 
-  test("clear still empties the queue", async () => {
+  test("clear drops collected work and says what is still waiting", async () => {
     const cwd = scratch();
     const { appendRequest, readRequests } = await import("@leglas/server");
-    await appendRequest(cwd, { title: "X", url: "/", intent: "warmer", target: null, prompt: "prompt" });
-    await runRequests({ json: false, clear: true, cwd }, collect().deps);
-    expect(await readRequests(cwd)).toEqual([]);
+    const request = { title: "X", url: "/", intent: "warmer", target: null, prompt: "prompt" };
+    await appendRequest(cwd, request);
+    await runRequests({ json: false, clear: false, cwd }, collect().deps);
+    await appendRequest(cwd, { ...request, intent: "and darker" });
+
+    const output = collect();
+    await runRequests({ json: true, clear: true, cwd }, output.deps);
+
+    expect(JSON.parse(output.lines[0] ?? "{}")).toMatchObject({ cleared: 1, pending: 1 });
+    expect((await readRequests(cwd))[0]).toMatchObject({ intent: "and darker" });
   });
 });
