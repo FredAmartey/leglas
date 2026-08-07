@@ -61,14 +61,14 @@ describe("planInit", () => {
   test("teaches the hands-free path so agents can offer it", () => {
     const contents = write(plan(), "AGENTS.md")?.contents ?? "";
 
-    expect(contents).toContain("leglas watch --run");
+    expect(contents).toContain("npx leglas watch --run");
     expect(contents).toContain("{prompt}");
   });
 
   test("names the commands an agent needs", () => {
     const contents = write(plan(), "AGENTS.md")?.contents ?? "";
 
-    for (const command of ["leglas new", "leglas add", "leglas list"]) {
+    for (const command of ["npx leglas new", "npx leglas add", "npx leglas list"]) {
       expect(contents).toContain(command);
     }
   });

@@ -7,9 +7,9 @@ describe("planExplore", () => {
     const plan = planExplore("hero", 4);
 
     expect(plan.instructions).toContain(".leglas/variants/hero/");
-    expect(plan.instructions).toContain("leglas add");
+    expect(plan.instructions).toContain("npx leglas add");
     expect(plan.instructions).toContain("/?v-hero=");
-    expect(plan.instructions).toContain("leglas new hero");
+    expect(plan.instructions).toContain("npx leglas new hero");
   });
 
   test("normalises the surface name the same way the scaffold does", () => {

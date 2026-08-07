@@ -102,7 +102,7 @@ describe("classifyDirection", () => {
     const inApp = classifyDirection({ changes: [change("src/app/page.tsx")] });
     const checkout = classifyDirection({ changes: [change("package.json")] });
 
-    expect(inApp.steps.join(" ")).toContain("leglas add");
+    expect(inApp.steps.join(" ")).toContain("npx leglas add");
     expect(checkout.steps.join(" ")).toContain("--branch");
   });
 });

@@ -68,7 +68,7 @@ describe("referenceText", () => {
 
   // The rail shows the renamed row, but only the config title reaches the CLI.
   test("points at the config title even when the row was renamed", () => {
-    expect(reference({}, "Sunrise")).toContain('leglas show "Warm" --json');
+    expect(reference({}, "Sunrise")).toContain('npx leglas show "Warm" --json');
   });
 
   test("leaks no absolute filesystem path", () => {
