@@ -175,6 +175,15 @@ The host's working directory names the project. The `start` tool boots
 the viewer and returns its URL, and anything it started stops when the
 session ends.
 
+### As an Agent Plugin
+
+The repository is also an [Agent Plugin](https://agent-plugins.org), the
+open standard for shipping Agent Skills and MCP server configuration in
+one format. Clients that implement it install the skill and the server
+together, instead of the two steps above. It is a layout rather than a
+build: `plugin.json` and `mcp.json` at the root, the skill in
+`skills/leglas/`, nothing generated.
+
 ## Configuration
 
 Create `leglas.config.ts` at the project root. `.js`, `.mjs`, and `.json`
