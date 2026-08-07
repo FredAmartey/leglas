@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "leglas",
+  "version": "0.2.0",
+  "description": "Compare design directions inside your own running app.",
+  "author": {
+    "name": "Fred Amartey",
+    "url": "https://github.com/FredAmartey"
+  },
+  "homepage": "https://github.com/FredAmartey/leglas",
+  "repository": "https://github.com/FredAmartey/leglas",
+  "license": "MIT",
+  "keywords": ["design", "preview", "compare", "variants", "dev-server"]
+}
