@@ -1,9 +1,10 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, relative } from "node:path";
 
 import type { LeglasConfig } from "./config.js";
+import { findConfigFile } from "./find-config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
@@ -136,6 +137,39 @@ function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: str
   return serveFrom(res, shellDir, isRoot ? "index.html" : relative);
 }
 
+type ConfigSnapshot = { path: string; mtimeMs: number } | null;
+
+function snapshotConfig(cwd: string): ConfigSnapshot {
+  const path = findConfigFile(cwd);
+  if (path === null) return null;
+  try {
+    return { path, mtimeMs: statSync(path).mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function configStalenessNotice(
+  cwd: string,
+  boot: ConfigSnapshot,
+  current: ConfigSnapshot,
+): string | null {
+  if (boot === null && current === null) return null;
+  if (boot === null && current !== null) {
+    const label = relative(cwd, current.path) || current.path;
+    return `${label} appeared after Leglas started. Restart leglas to pick it up.`;
+  }
+  if (boot !== null && current === null) {
+    const label = relative(cwd, boot.path) || boot.path;
+    return `${label} was removed after Leglas started. Restart leglas to run without it.`;
+  }
+  if (boot !== null && current !== null && (boot.path !== current.path || boot.mtimeMs !== current.mtimeMs)) {
+    const label = relative(cwd, current.path) || current.path;
+    return `${label} changed after Leglas started. Restart leglas to pick it up.`;
+  }
+  return null;
+}
+
 const PLACEHOLDER = `<!doctype html>
 <meta charset="utf-8">
 <title>Leglas</title>
@@ -195,6 +229,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
+  // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
+  const bootConfigSnapshot = snapshotConfig(cwd);
 
   /**
    * When watch last said it was listening. In memory and nowhere else: an
@@ -216,6 +252,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       // for the restart the CLI already tells the agent about. A local file
       // that fails to read or validate changes nothing: the boot list stands.
       const boot = config?.previews ?? [];
+      const errors = [...configErrors];
+      const notice = configStalenessNotice(cwd, bootConfigSnapshot, snapshotConfig(cwd));
+      if (notice !== null) errors.push(notice);
       return void readLocalPreviews(cwd)
         .then(({ previews: local }) => {
           const known = new Set(boot.map((preview) => preview.title));
@@ -227,7 +266,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             project,
             devServer: target,
             previews: [...boot, ...fresh],
-            errors: configErrors,
+            errors,
           });
         })
         .catch(() =>
@@ -235,7 +274,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             project,
             devServer: target,
             previews: boot,
-            errors: configErrors,
+            errors,
           }),
         );
     }
@@ -363,8 +402,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return res.end("Leglas: no such preview file.");
     }
 
+    if (path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
+      return sendJson(res, 404, { error: "No such Leglas API path." });
+    }
+
     if (path === LEGLAS_PREFIX || path.startsWith(`${LEGLAS_PREFIX}/`)) {
       if (shellDir !== null && serveShellFile(res, shellDir, path)) return;
+      if (shellDir !== null) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        return res.end("Leglas: no such path.");
+      }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
       return res.end(PLACEHOLDER);
     }

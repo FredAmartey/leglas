@@ -1,5 +1,5 @@
 import http from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -236,6 +236,63 @@ describe("startServer", () => {
     expect(body.previews).toEqual([]);
   });
 
+  test("does not report stale config when the boot config is untouched", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-config-stale-"));
+    writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+
+    expect(body.errors).toEqual([]);
+  });
+
+  test("reports when the boot config changes, alongside existing config errors", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-config-changed-"));
+    const configPath = join(cwd, "leglas.config.json");
+    writeFileSync(configPath, JSON.stringify({}));
+    const server = await start({
+      config: configFor(await startOrigin()),
+      configErrors: ["existing config error"],
+      port: 0,
+      cwd,
+    });
+    writeFileSync(configPath, JSON.stringify({ changed: true }));
+    utimesSync(configPath, new Date(2020, 0, 1), new Date(2020, 0, 2));
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+
+    expect(body.errors).toEqual([
+      "existing config error",
+      "leglas.config.json changed after Leglas started. Restart leglas to pick it up.",
+    ]);
+  });
+
+  test("reports when a config appears after boot", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-config-appeared-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+    writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+
+    expect(body.errors).toContain(
+      "leglas.config.json appeared after Leglas started. Restart leglas to pick it up.",
+    );
+  });
+
+  test("reports when the boot config is removed", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-config-removed-"));
+    const configPath = join(cwd, "leglas.config.json");
+    writeFileSync(configPath, JSON.stringify({}));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+    unlinkSync(configPath);
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+
+    expect(body.errors).toContain(
+      "leglas.config.json was removed after Leglas started. Restart leglas to run without it.",
+    );
+  });
+
   test("reports the dev server as reachable when it is up", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 
@@ -278,6 +335,29 @@ describe("startServer", () => {
     const res = await fetch(`${server.url}/leglas`);
 
     expect(await res.text()).toContain("shell");
+  });
+
+  test("returns a 404 for an unknown shell path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-shell-404-"));
+    writeFileSync(join(dir, "index.html"), "<title>shell</title>");
+    const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir: dir });
+
+    const res = await fetch(`${server.url}/leglas/nope.js`);
+
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain("no such path");
+  });
+
+  test.each([false, true])("returns a JSON 404 for an unknown API path (shell: %s)", async (withShell) => {
+    const shellDir = withShell ? mkdtempSync(join(tmpdir(), "leglas-api-404-shell-")) : null;
+    if (shellDir !== null) writeFileSync(join(shellDir, "index.html"), "<title>shell</title>");
+    const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir });
+
+    const res = await fetch(`${server.url}/leglas/api/state`);
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({ error: "No such Leglas API path." });
   });
 
   test("explains itself at /leglas when no shell has been built yet", async () => {

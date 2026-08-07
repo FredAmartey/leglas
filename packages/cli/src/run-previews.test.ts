@@ -69,6 +69,24 @@ describe("runAdd with --based-on", () => {
   });
 });
 
+describe("runAdd with --json", () => {
+  test("includes a restart note for file previews", async () => {
+    const output = collect();
+
+    await runAdd({ preview: preview({ file: ".leglas/pages/x.html", url: undefined }), json: true, cwd: scratch() }, output.deps);
+
+    expect(JSON.parse(output.lines[0] ?? "{}").note).toMatch(/Restart Leglas/);
+  });
+
+  test("includes a live-update note for url previews", async () => {
+    const output = collect();
+
+    await runAdd({ preview: preview({}), json: true, cwd: scratch() }, output.deps);
+
+    expect(JSON.parse(output.lines[0] ?? "{}").note).toMatch(/within seconds/);
+  });
+});
+
 describe("runRequests", () => {
   test("collects requests and includes id and status in the envelope", async () => {
     const cwd = scratch();

@@ -97,6 +97,10 @@ export async function runAdd(
       local: true,
       ...(options.preview.branch === undefined ? {} : { branch: options.preview.branch }),
       ...(options.preview.file === undefined ? {} : { file: options.preview.file }),
+      note:
+        options.preview.branch === undefined && options.preview.file === undefined
+          ? "A running interface picks this up within seconds."
+          : "Restart Leglas to see this preview: branch checkouts and file mounts are built when Leglas starts.",
       ...(needsDevCommand
         ? { warning: "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config." }
         : {}),
