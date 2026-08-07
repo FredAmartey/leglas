@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { readRequests, type PendingRequest } from "leglas";
 
+import type { Project } from "./project.js";
+
 /**
  * The push face, for hosts that treat an MCP server as a channel.
  *
@@ -70,7 +72,7 @@ export type Channel = { stop(): void };
 export function startChannel(
   server: McpServer,
   options: {
-    cwd: string;
+    project: Project;
     pollMs?: number;
     /** Tests gate this to force overlapping polls; production reads the file. */
     read?: (cwd: string) => Promise<PendingRequest[]>;
@@ -94,7 +96,16 @@ export function startChannel(
   };
 
   const push = async (): Promise<void> => {
-    const fresh = unpushed(await read(options.cwd), pushed);
+    // The first poll waits here for the host to initialize, which is what
+    // makes the queue this reads the project's rather than whatever directory
+    // the process happened to start in.
+    const located = await options.project.locate();
+    if (!located.ok) {
+      // Settled for the life of the process, so there is no queue coming.
+      clearInterval(timer);
+      return;
+    }
+    const fresh = unpushed(await read(located.directory), pushed);
     for (const request of fresh) {
       pushed.add(request.id);
       try {

@@ -5,11 +5,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { CHANNEL_CAPABILITY, CHANNEL_INSTRUCTIONS, startChannel } from "./channel.js";
+import { hostProject } from "./project.js";
 import { registerLeglasTools } from "./tools.js";
 
 /**
- * The stdio face. An agent host spawns this in the project directory, which
- * is the same contract as the CLI: the working directory names the project.
+ * The stdio face. A host that spawns this in the project directory gets the
+ * CLI's contract, where the working directory names the project; a host that
+ * spawns it somewhere else is asked where the project is. See project.ts.
  */
 
 function version(): string {
@@ -25,7 +27,12 @@ const server = new McpServer(
   // interface arrive in the open session as events.
   { capabilities: { experimental: CHANNEL_CAPABILITY }, instructions: CHANNEL_INSTRUCTIONS },
 );
-const tools = registerLeglasTools(server, { cwd: process.cwd() });
+const project = hostProject(server.server, {
+  cwd: process.cwd(),
+  override: process.env["LEGLAS_PROJECT_DIR"],
+  pluginRoot: process.env["LEGLAS_PLUGIN_ROOT"],
+});
+const tools = registerLeglasTools(server, { project });
 let channel: { stop(): void } | null = null;
 
 let stopping = false;
@@ -49,4 +56,4 @@ transport.onclose = () => {
 
 await server.connect(transport);
 // Only after connect: a notification with no transport throws.
-channel = startChannel(server, { cwd: process.cwd() });
+channel = startChannel(server, { project });

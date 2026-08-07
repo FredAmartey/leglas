@@ -4,7 +4,10 @@
     "leglas": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "leglas-mcp"]
+      "args": ["-y", "leglas-mcp"],
+      "env": {
+        "LEGLAS_PLUGIN_ROOT": "${PLUGIN_ROOT}"
+      }
     }
   }
 }
