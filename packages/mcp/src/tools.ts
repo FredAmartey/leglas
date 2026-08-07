@@ -15,6 +15,8 @@ import {
 } from "leglas";
 import { z } from "zod";
 
+import type { Project } from "./project.js";
+
 /**
  * Every CLI command already prints a single JSON envelope under --json, with a
  * stable shape and exit code. The MCP face holds no logic of its own: each
@@ -49,13 +51,33 @@ async function capture(
   return { content: [{ type: "text", text: lines.join("\n") }], isError: exitCode !== 0 };
 }
 
+/**
+ * Run a command in the project, or report that there is no project to run it
+ * in. Resolution is asked for on the first call and held after that, so the
+ * cost lands once and every tool acts on the same directory.
+ */
+async function inProject(
+  project: Project,
+  invoke: (cwd: string, deps: CaptureDeps) => Promise<{ exitCode: number }> | { exitCode: number },
+): Promise<CallToolResult> {
+  const located = await project.locate();
+  if (!located.ok) {
+    // The CLI's shape for a failure, so a host parses this like any other.
+    return {
+      content: [{ type: "text", text: JSON.stringify({ ok: false, error: located.reason }) }],
+      isError: true,
+    };
+  }
+  return capture((deps) => invoke(located.directory, deps));
+}
+
 export type LeglasTools = {
   /** Stop anything the tools started. Wired to the transport's close. */
   shutdown(): Promise<void>;
 };
 
-export function registerLeglasTools(server: McpServer, options: { cwd: string }): LeglasTools {
-  const cwd = options.cwd;
+export function registerLeglasTools(server: McpServer, options: { project: Project }): LeglasTools {
+  const project = options.project;
 
   // One viewer per MCP process. The handle is held so a host that dies or
   // disconnects never leaves a dev server running on a port nobody remembers.
@@ -83,7 +105,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
           ],
         };
       }
-      return capture(async (deps) => {
+      return inProject(project, async (cwd, deps) => {
         const result = await run(
           { port, userPort: undefined, configPath: undefined, open: false, json: true, cwd },
           { open: async () => {}, log: deps.log },
@@ -118,7 +140,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       },
     },
     async ({ title, url, note, tags, branch, file, basedOn }) =>
-      capture((deps) =>
+      inProject(project, (cwd, deps) =>
         runAdd({ preview: { title, url, note, tags, branch, file, basedOn }, json: true, cwd }, deps),
       ),
   );
@@ -130,7 +152,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       description: "Every preview, shared and local, with its URL and backing branch if any.",
       inputSchema: {},
     },
-    async () => capture((deps) => runList({ json: true, cwd }, deps)),
+    async () => inProject(project, (cwd, deps) => runList({ json: true, cwd }, deps)),
   );
 
   server.registerTool(
@@ -149,7 +171,8 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
           .describe("The direction's title as the config spells it, not a renamed display name."),
       },
     },
-    async ({ title }) => capture((deps) => runShow({ title, json: true, cwd }, deps)),
+    async ({ title }) =>
+      inProject(project, (cwd, deps) => runShow({ title, json: true, cwd }, deps)),
   );
 
   server.registerTool(
@@ -171,7 +194,8 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
           .min(1),
       },
     },
-    async ({ changes }) => capture((deps) => runClassify({ changes, json: true, cwd }, deps)),
+    async ({ changes }) =>
+      inProject(project, (cwd, deps) => runClassify({ changes, json: true, cwd }, deps)),
   );
 
   server.registerTool(
@@ -194,6 +218,7 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
     },
     async ({ surface, count, basedOn }) =>
       capture((deps) =>
+        // The brief is the same wherever it is read from; it touches no project.
         runExplore({ surface, count: count ?? 3, basedOn: basedOn ?? null, json: true }, deps),
       ),
   );
@@ -212,7 +237,9 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
       },
     },
     async ({ surface, from, print }) =>
-      capture((deps) => runNew({ surface, print: print ?? false, json: true, from, cwd }, deps)),
+      inProject(project, (cwd, deps) =>
+        runNew({ surface, print: print ?? false, json: true, from, cwd }, deps),
+      ),
   );
 
   server.registerTool(
@@ -227,7 +254,8 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
         to: z.string().min(1).describe("Path in real source where the winner should live."),
       },
     },
-    async ({ title, to }) => capture((deps) => runKeep({ title, to, json: true, cwd }, deps)),
+    async ({ title, to }) =>
+      inProject(project, (cwd, deps) => runKeep({ title, to, json: true, cwd }, deps)),
   );
 
   server.registerTool(
@@ -244,7 +272,10 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
         clear: z.boolean().optional(),
       },
     },
-    async ({ clear }) => capture((deps) => runRequests({ json: true, clear: clear ?? false, cwd }, deps)),
+    async ({ clear }) =>
+      inProject(project, (cwd, deps) =>
+        runRequests({ json: true, clear: clear ?? false, cwd }, deps),
+      ),
   );
 
   server.registerTool(
@@ -257,7 +288,8 @@ export function registerLeglasTools(server: McpServer, options: { cwd: string })
         force: z.boolean().optional().describe("Rewrite the AGENTS.md section if it exists."),
       },
     },
-    async ({ force }) => capture((deps) => runInit({ cwd, force: force ?? false, json: true }, deps)),
+    async ({ force }) =>
+      inProject(project, (cwd, deps) => runInit({ cwd, force: force ?? false, json: true }, deps)),
   );
 
   return {

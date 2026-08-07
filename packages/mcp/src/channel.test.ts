@@ -9,6 +9,7 @@ import type { PendingRequest } from "leglas";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { CHANNEL_CAPABILITY, channelEvent, startChannel, unpushed, type Channel } from "./channel.js";
+import { fixedProject } from "./project.js";
 
 const channels: Channel[] = [];
 
@@ -52,7 +53,7 @@ async function connect(
   };
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-  channels.push(startChannel(server, { cwd, pollMs, read }));
+  channels.push(startChannel(server, { project: fixedProject(cwd), pollMs, read }));
   return { events };
 }
 
@@ -129,6 +130,37 @@ describe("startChannel", () => {
     await new Promise((tick) => setTimeout(tick, 60));
     const ids = events.map((event) => (event as { meta: { request_id: string } }).meta.request_id);
     expect(ids.sort()).toEqual(["a", "b"]);
+  });
+
+  test("stays quiet when there is no project to poll", async () => {
+    // Nothing to read and nothing coming, so the queue is never touched.
+    let reads = 0;
+    const server = new McpServer(
+      { name: "leglas-test", version: "0.0.0" },
+      { capabilities: { experimental: CHANNEL_CAPABILITY } },
+    );
+    const client = new Client({ name: "test-host", version: "0.0.0" });
+    const events: unknown[] = [];
+    client.fallbackNotificationHandler = async (notification) => {
+      if (notification.method === "notifications/claude/channel") events.push(notification.params);
+    };
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    channels.push(
+      startChannel(server, {
+        project: { locate: async () => ({ ok: false, reason: "no project" }) },
+        pollMs: 10,
+        read: async () => {
+          reads += 1;
+          return [];
+        },
+      }),
+    );
+
+    await new Promise((tick) => setTimeout(tick, 80));
+
+    expect(reads).toBe(0);
+    expect(events).toHaveLength(0);
   });
 
   test("a request queued later arrives as its own event", async () => {

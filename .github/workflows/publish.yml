@@ -34,13 +34,16 @@ jobs:
 
       # A tag that disagrees with the version publishes the wrong thing, or
       # fails deep in the release with a confusing "already published".
+      # plugin.json is in here too. It ships nowhere, so nothing downstream
+      # would ever complain about it being stale, which is exactly why it
+      # drifts unless the release refuses to run without it.
       - name: Refuse a tag that does not match the version
         run: |
           tagged="${GITHUB_REF_NAME#v}"
-          for package in cli mcp; do
-            declared=$(node -p "require('./packages/$package/package.json').version")
+          for manifest in packages/cli/package.json packages/mcp/package.json plugin.json; do
+            declared=$(node -p "require('./$manifest').version")
             if [ "$tagged" != "$declared" ]; then
-              echo "Tag $GITHUB_REF_NAME does not match packages/$package at $declared." >&2
+              echo "Tag $GITHUB_REF_NAME does not match $manifest at $declared." >&2
               exit 1
             fi
           done

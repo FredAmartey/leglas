@@ -160,6 +160,9 @@ For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
 same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
 `classify`, `explore`, `scaffold`, `keep`, `requests`, and `init`. Each
 tool calls exactly what the CLI calls and returns the same envelope.
+`watch` is the one command with no tool behind it: it is a loop that
+holds a terminal open, and on a host that speaks channels the server
+already pushes each request into the session as it arrives.
 
 ```sh
 claude mcp add leglas -- npx -y leglas-mcp
@@ -171,9 +174,34 @@ Or in `.mcp.json`:
 { "mcpServers": { "leglas": { "command": "npx", "args": ["-y", "leglas-mcp"] } } }
 ```
 
-The host's working directory names the project. The `start` tool boots
-the viewer and returns its URL, and anything it started stops when the
-session ends.
+The host's working directory names the project, the same contract as the
+CLI. A host that starts the server somewhere else is asked where the
+project is, over MCP roots. The `start` tool boots the viewer and returns
+its URL, and anything it started stops when the session ends.
+
+### As an Agent Plugin
+
+The repository is also an [Agent Plugin](https://agent-plugins.org), the
+open standard for shipping Agent Skills and MCP server configuration in
+one format. Clients that implement it install the skill and the server
+together, instead of the two steps above. It is a layout rather than a
+build: `plugin.json` and `mcp.json` at the root, the skill in
+`skills/leglas/`, nothing generated.
+
+An Agent Plugins client starts a plugin's server in the plugin's own
+install directory rather than the project, so on that path the working
+directory names a copy of Leglas and nothing else. The server therefore
+takes the project from the workspace the host declares over MCP roots,
+and the working directory only when it sits inside one. If a host offers
+neither, `LEGLAS_PROJECT_DIR` names the project outright; without it the
+tools report that there is no project rather than writing into a plugin
+cache. `mcp.json` passes `${PLUGIN_ROOT}` for exactly that check, and
+nothing else.
+
+The plugin's version covers the skill and the configuration, not the
+server it launches: `npx` fetches the current `leglas-mcp` the same way
+every `npx leglas` in these instructions fetches the current CLI, which
+keeps both faces of Leglas on one version in a project they share.
 
 ## Configuration
 

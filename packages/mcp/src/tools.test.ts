@@ -1,12 +1,15 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test } from "vitest";
 
+import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
@@ -22,7 +25,7 @@ function scratch(): string {
 /** A linked in-process pair: the same wire protocol a host speaks, no stdio. */
 async function connect(cwd: string): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
-  cleanups.push(registerLeglasTools(server, { cwd }));
+  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd) }));
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -219,5 +222,72 @@ describe("the MCP face", () => {
 
     await cleanups[0]?.shutdown();
     await expect(fetch(`${url}/api/health`)).rejects.toThrow();
+  });
+});
+
+/**
+ * An Agent Plugins client starts a plugin's MCP server in the plugin's own
+ * install directory, so the working directory names a copy of Leglas rather
+ * than anyone's project. These go through a real client to prove the tools
+ * follow the host to the project instead.
+ */
+describe("a host that works somewhere other than the project", () => {
+  async function connectWithRoots(
+    cwd: string,
+    roots: string[],
+    pluginRoot?: string,
+  ): Promise<Client> {
+    const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
+    cleanups.push(
+      registerLeglasTools(server, {
+        project: hostProject(server.server, { cwd, ...(pluginRoot && { pluginRoot }) }),
+      }),
+    );
+    const client = new Client(
+      { name: "test-host", version: "0.0.0" },
+      { capabilities: { roots: {} } },
+    );
+    client.setRequestHandler(ListRootsRequestSchema, () => ({
+      roots: roots.map((root) => ({ uri: pathToFileURL(root).href, name: "project" })),
+    }));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    return client;
+  }
+
+  test("registers into the project the host declares, never the plugin directory", async () => {
+    const pluginRoot = scratch();
+    const project = scratch();
+    const client = await connectWithRoots(pluginRoot, [project], pluginRoot);
+
+    const { isError } = await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
+
+    expect(isError).toBe(false);
+    const written = JSON.parse(readFileSync(join(project, ".leglas/previews.json"), "utf8"));
+    expect(written.previews[0].title).toBe("Aurora");
+    expect(existsSync(join(pluginRoot, ".leglas"))).toBe(false);
+  });
+
+  test("init writes into the project, so AGENTS.md never lands in a plugin cache", async () => {
+    const pluginRoot = scratch();
+    const project = scratch();
+    const client = await connectWithRoots(pluginRoot, [project], pluginRoot);
+
+    await call(client, "init", {});
+
+    expect(existsSync(join(project, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(pluginRoot, "AGENTS.md"))).toBe(false);
+  });
+
+  test("says there is no project rather than acting on the plugin directory", async () => {
+    const pluginRoot = scratch();
+    const client = await connectWithRoots(pluginRoot, [], pluginRoot);
+
+    const { envelope, isError } = await call(client, "init", {});
+
+    expect(isError).toBe(true);
+    expect(envelope["ok"]).toBe(false);
+    expect(envelope["error"]).toBe(UNRESOLVED_PROJECT);
+    expect(existsSync(join(pluginRoot, "AGENTS.md"))).toBe(false);
   });
 });
