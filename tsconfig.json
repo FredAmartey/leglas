@@ -1,0 +1,14 @@
+{
+  // The packages each own a tsconfig and exclude their tests from it. This one
+  // exists for the tests that sit at the root, which belong to no package and
+  // would otherwise be checked by nothing at all: vitest erases types rather
+  // than reading them, so a mistake here would surface as a failing run, or
+  // not at all.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

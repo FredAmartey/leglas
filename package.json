@@ -6,11 +6,12 @@
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "ajv": "^8.20.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
