@@ -66,6 +66,26 @@ describe("the plugin manifests", () => {
   });
 });
 
+/**
+ * Enough YAML to read one scalar, which is all this needs. The value may be
+ * quoted, may carry a trailing comment, and the file may have been written on
+ * a machine with CRLF endings. All three are ordinary YAML, and a parse that
+ * trips on them rejects a SKILL.md that is perfectly correct, leaving whoever
+ * wrote it staring at a green file and a red test.
+ */
+function frontmatterField(source: string, field: string): string | null {
+  const block = /^---\r?\n(.*?)\r?\n---/s.exec(source);
+  if (block === null) return null;
+  const line = new RegExp(String.raw`^${field}:[ \t]*(.*)$`, "m").exec(block[1] ?? "");
+  if (line === null) return null;
+
+  const value = (line[1] ?? "").trim();
+  // Inside quotes a # is part of the value; outside them it opens a comment,
+  // and YAML wants whitespace before it.
+  const quoted = /^(["'])(.*)\1$/.exec(value);
+  return quoted !== null ? (quoted[2] ?? "") : value.replace(/\s+#.*$/, "").trim();
+}
+
 describe("the plugin's components", () => {
   /**
    * Skills are discovered by position (§7.1): a directory under skills/ with a
@@ -80,22 +100,39 @@ describe("the plugin's components", () => {
 
     expect(directories).not.toHaveLength(0);
     for (const directory of directories) {
-      const frontmatter = /^---\n(.*?)\n---/s.exec(read(`skills/${directory}/SKILL.md`));
-      expect(frontmatter, `skills/${directory}/SKILL.md has no frontmatter`).not.toBeNull();
-      expect(/^name:[ \t]*(.+)$/m.exec(frontmatter?.[1] ?? "")?.[1]?.trim()).toBe(directory);
+      const source = read(`skills/${directory}/SKILL.md`);
+      const where = `skills/${directory}/SKILL.md`;
+
+      expect(frontmatterField(source, "name"), `${where} names a different skill`).toBe(directory);
+      // The description is what an agent matches a request against before it
+      // has opened anything, so a skill without one is a skill nothing reaches.
+      expect(frontmatterField(source, "description") ?? "", `${where} has no description`).not.toBe(
+        "",
+      );
     }
   });
 
   /**
-   * The server entry is a string naming a package on npm, which makes it the
-   * one reference in the repository that renaming the package cannot break
-   * locally. It breaks for everyone who installs the plugin instead.
+   * The server entry names a package on npm, which makes it the one reference
+   * in the repository that renaming the package cannot break locally. It
+   * breaks for everyone who installs the plugin instead.
+   *
+   * Read across command and args together, because `npx -y leglas-mcp` and a
+   * bare `leglas-mcp` are both legal spellings of the same launch. Only stdio
+   * entries carry a package name at all; if this plugin ever served the server
+   * over HTTP instead, there would be nothing here to check and this should be
+   * reconsidered rather than quietly dropped.
    */
   test("mcp.json launches the package this repository publishes", () => {
-    const servers = readJson("mcp.json")["mcpServers"] as Record<string, { args?: string[] }>;
+    type Server = { type: string; command?: string; args?: string[] };
+    const servers = readJson("mcp.json")["mcpServers"] as Record<string, Server>;
     const published = readJson("packages/mcp/package.json")["name"];
 
-    expect(Object.values(servers).flatMap((server) => server.args ?? [])).toContain(published);
+    const launched = Object.values(servers)
+      .filter((server) => server.type === "stdio")
+      .flatMap((server) => [server.command ?? "", ...(server.args ?? [])]);
+
+    expect(launched).toContain(published);
   });
 
   /**
