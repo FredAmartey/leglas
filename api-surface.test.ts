@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { SNAPSHOT, publicSurface, topLevelDeclarations } from "./api-surface.js";
+import { SNAPSHOT, publicSurface, resolve, topLevelDeclarations } from "./api-surface.js";
 
 /**
  * The snapshot is the published promise. This is the half that notices when
@@ -85,5 +86,64 @@ describe("reading declarations", () => {
     ].join("\n");
 
     expect([...topLevelDeclarations(source).keys()]).toEqual(["first", "Second", "third"]);
+  });
+});
+
+/**
+ * Names are followed along the path they actually travel, rather than looked
+ * up in one index of everything seen on the way. A flat index keyed by name
+ * lets a module-local declaration reached earlier stand in for a public one of
+ * the same name reached later, and the snapshot would describe the wrong shape
+ * while looking complete: the release gate would then be comparing future
+ * builds against a type nobody exports.
+ */
+describe("resolving a name through re-exports", () => {
+  const dist = (files: Record<string, string>): string => {
+    const directory = mkdtempSync(join(tmpdir(), "leglas-surface-"));
+    for (const [name, contents] of Object.entries(files)) {
+      writeFileSync(join(directory, name), contents);
+    }
+    return directory;
+  };
+
+  test("a same-named declaration in another module cannot stand in", () => {
+    const directory = dist({
+      // Listed first, so anything walking breadth-first meets its Thing first.
+      "index.d.ts": [
+        'export { helper } from "./helpers.js";',
+        'export type { Thing } from "./public.js";',
+      ].join("\n"),
+      "helpers.d.ts": [
+        "export type Thing = {",
+        "    wrong: true;",
+        "};",
+        "export declare function helper(): Thing;",
+      ].join("\n"),
+      "public.d.ts": ["export type Thing = {", "    right: true;", "};"].join("\n"),
+    });
+
+    const found = resolve(directory, join(directory, "index.d.ts"), "Thing", new Set());
+
+    expect(found.kind).toBe("found");
+    expect(found.kind === "found" ? found.text : "").toContain("right: true;");
+  });
+
+  test("a chain that leaves the repository is reported, not guessed at", () => {
+    const directory = dist({
+      "index.d.ts": 'export { readRequests } from "@somewhere/else";',
+    });
+
+    const found = resolve(directory, join(directory, "index.d.ts"), "readRequests", new Set());
+    expect(found).toEqual({ kind: "external", from: "@somewhere/else" });
+  });
+
+  test("a name nothing on the chain declares is missing, not silently absent", () => {
+    const directory = dist({
+      "index.d.ts": 'export { Gone } from "./real.js";',
+      "real.d.ts": "export type Present = { yes: true };",
+    });
+
+    const found = resolve(directory, join(directory, "index.d.ts"), "Gone", new Set());
+    expect(found).toEqual({ kind: "missing" });
   });
 });

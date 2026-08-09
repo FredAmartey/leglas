@@ -64,7 +64,16 @@ jobs:
         run: |
           # One open issue at a time. A weekly job that opens a duplicate every
           # Monday until someone looks is a job that gets muted.
-          existing=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          #
+          # Search narrows, jq decides. `in:title` restricts which field is
+          # searched but still matches on words, so a different issue sharing
+          # most of this title would read as a duplicate and silence the only
+          # notice anyone gets that the standard moved. Staying quiet is the
+          # expensive direction here, so the title has to match exactly.
+          existing=$(
+            gh issue list --state open --search "$TITLE in:title" --json number,title |
+              jq -r --arg title "$TITLE" 'map(select(.title == $title)) | .[0].number // empty'
+          )
           if [ -n "$existing" ]; then
             echo "Already open as #$existing."
             exit 0

@@ -202,31 +202,58 @@ function moduleFile(root: string, from: string, specifier: string): string | nul
   return workspace === undefined ? null : join(root, workspace, "dist", "index.d.ts");
 }
 
-/**
- * Walk a declaration file and everything it re-exports from, collecting every
- * declaration seen. Entry files are pure re-export lists in both packages and
- * in `@leglas/server` behind them, so stopping at the first hop would describe
- * nothing at all.
- */
-function collect(
-  root: string,
-  file: string,
-  into: Map<string, string>,
-  seen: Set<string>,
-): void {
-  if (seen.has(file)) return;
-  seen.add(file);
+type Parsed = { declarations: Map<string, string>; reexports: Reexport[] };
+
+const parsedFiles = new Map<string, Parsed>();
+
+function parse(file: string): Parsed {
+  const already = parsedFiles.get(file);
+  if (already !== undefined) return already;
 
   const source = declarations(file);
-  for (const [name, text] of topLevelDeclarations(source)) {
-    if (!into.has(name)) into.set(name, text);
-  }
+  const result = { declarations: topLevelDeclarations(source), reexports: reexports(source) };
+  parsedFiles.set(file, result);
+  return result;
+}
+
+type Resolution =
+  | { kind: "found"; text: string }
+  /** The chain leaves this repository, so there is nothing further to read. */
+  | { kind: "external"; from: string }
+  | { kind: "missing" };
+
+/**
+ * Find one name by following the path it actually travels: the module the
+ * export names, then whatever that module re-exports it from, and so on.
+ *
+ * Deliberately not a flat index of every declaration seen along the way.
+ * Merging files into one map keyed by name alone lets a module-local helper
+ * reached earlier shadow a genuinely public declaration of the same name
+ * reached later, and the snapshot would then describe the wrong type while
+ * looking complete. There is no collision in this repository today, which is
+ * exactly why it is worth closing now: the failure is silent, and this file's
+ * whole job is noticing when something changes shape.
+ */
+export function resolve(root: string, file: string, name: string, seen: Set<string>): Resolution {
+  if (seen.has(file)) return { kind: "missing" };
+  seen.add(file);
+
+  const { declarations: own, reexports: onward } = parse(file);
+  const text = own.get(name);
+  if (text !== undefined) return { kind: "found", text };
 
   const directory = file.slice(0, file.lastIndexOf("/"));
-  for (const { from } of reexports(source)) {
+  for (const { names, from } of onward) {
+    if (!names.includes(name)) continue;
+
     const next = moduleFile(root, directory, from);
-    if (next !== null) collect(root, next, into, seen);
+    if (next === null) return { kind: "external", from };
+
+    const found = resolve(root, next, name, seen);
+    if (found.kind !== "missing") return found;
   }
+
+  return { kind: "missing" };
 }
 
 /**
@@ -243,29 +270,28 @@ export function publicSurface(root: string): string {
 
   for (const [packageName, packageDirectory] of ENTRIES) {
     const entryFile = join(root, packageDirectory, "dist", "index.d.ts");
-    const entryDirectory = join(root, packageDirectory, "dist");
-    const known = new Map<string, string>();
-    collect(root, entryFile, known, new Set());
 
-    const described = reexports(declarations(entryFile))
-      .flatMap(({ names, from }) =>
+    const described = parse(entryFile).reexports
+      .flatMap(({ names }) =>
         names.map((name) => {
-          const text = known.get(name);
-          if (text !== undefined) return { name, text };
+          const found = resolve(root, entryFile, name, new Set());
+
+          if (found.kind === "found") return { name, text: found.text };
+          if (found.kind === "external") {
+            return { name, text: `export ${name}; // from ${found.from}, not resolved` };
+          }
 
           /**
-           * Nowhere left to look. If the module was ours we read it, so the
+           * Every file on the way was ours and we read all of them, so the
            * name being absent means the reader failed rather than that the
-           * declaration lives somewhere off the map. Refusing here is the
-           * point: a silent gap in this file is a silent gap in the release
-           * gate, and it would read as an ordinary limitation forever.
+           * declaration lives somewhere off the map. Refusing is the point: a
+           * silent gap in this file is a silent gap in the release gate, and
+           * it would read as an ordinary limitation forever.
            */
-          if (moduleFile(root, entryDirectory, from) !== null) {
-            throw new Error(
-              `${from} declares no ${name}, but it was read. api-surface.ts failed to parse it.`,
-            );
-          }
-          return { name, text: `export ${name}; // from ${from}, not resolved` };
+          throw new Error(
+            `${packageName} exports ${name}, but no module on the chain declares it. ` +
+              "api-surface.ts failed to parse something.",
+          );
         }),
       )
       // By name, not by declaration text: sorting on the text would let a
