@@ -68,8 +68,23 @@ jobs:
 
           # A patch shares the major and the minor with the tag before it.
           # Anything else is already announcing a change, so it may move.
+          #
+          # Compare the version cores, with any prerelease suffix removed. A
+          # suffix otherwise takes the place of the patch number: trimming the
+          # last dotted part of 0.3.1-rc.1 leaves 0.3.1-rc, which matches no
+          # tag before or after it, so a real 0.3.1 following its own rc read
+          # as "not a patch" and skipped this check entirely. Cutting an rc is
+          # the careful thing to do and it silently switched the guard off for
+          # the release it preceded.
+          #
+          # Stripping is right rather than merely safe. A prerelease belongs to
+          # the line of the version it is a candidate for, so 0.4.0-rc.1 after
+          # 0.3.0 is a minor and may move the surface, while 0.3.1-rc.1 after
+          # 0.3.0 is a patch and may not.
           prior="${previous#v}"
-          if [ "${tagged%.*}" != "${prior%.*}" ]; then
+          tagged_core="${tagged%%-*}"
+          prior_core="${prior%%-*}"
+          if [ "${tagged_core%.*}" != "${prior_core%.*}" ]; then
             echo "$GITHUB_REF_NAME is not a patch of $previous; the surface may move freely."
             exit 0
           fi
