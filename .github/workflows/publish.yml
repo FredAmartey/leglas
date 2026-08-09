@@ -74,6 +74,16 @@ jobs:
             exit 0
           fi
 
+          # Tags older than the snapshot have nothing to compare against, and
+          # diffing would report the whole file as added: a wall of noise
+          # meaning "no idea". Say that instead, since the honest answer to an
+          # unverifiable patch claim is to stop rather than to guess.
+          if ! git cat-file -e "$previous:api-surface.txt" 2>/dev/null; then
+            echo "::error::$previous predates api-surface.txt, so a patch claim cannot be checked." >&2
+            echo "Release this as a minor." >&2
+            exit 1
+          fi
+
           if ! git diff --quiet "$previous" HEAD -- api-surface.txt; then
             echo "::error::$GITHUB_REF_NAME is a patch tag, but the public API surface changed since $previous." >&2
             git diff "$previous" HEAD -- api-surface.txt >&2

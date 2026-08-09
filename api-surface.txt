@@ -7,109 +7,6 @@
 
 export declare const AGENTS_MARKER_END = "<!-- leglas:end -->";
 export declare const AGENTS_MARKER_START = "<!-- leglas:start -->";
-export declare const PROMPT_TOKEN = "{prompt}";
-export declare const WATCH_PATH = ".leglas/watch.json";
-export declare function baselineFrom(surface: string, sourcePath: string, sourceContents: string): Baseline | null;
-export declare function commandFor(template: WatchTemplate, prompt: string): {
-    command: string;
-    args: string[];
-};
-export declare function detectFramework(packageJson: string | null): Framework;
-export declare function nextRequest(requests: readonly PendingRequest[], failed: ReadonlySet<string>): PendingRequest | null;
-export declare function parseArgs(argv: string[]): ParseResult;
-export declare function parseTemplate(raw: string): TemplateResult;
-export declare function planExplore(surface: string, count: number, basedOn?: string | null): ExplorePlan;
-export declare function planInit(options: {
-    agents: string | null;
-    config: string | null;
-    gitignore: string | null;
-    force?: boolean;
-}): InitPlan;
-export declare function planKeep(options: {
-    title: string;
-    previews: readonly Preview[];
-    to: string;
-}): KeepPlan;
-export declare function planNew(options: {
-    surface: string;
-    packageJson: string | null;
-    gitignore: string | null;
-    /** An existing component to use as the baseline, instead of a placeholder. */
-    from?: {
-        path: string;
-        contents: string;
-    } | undefined;
-}): NewPlan;
-export declare function planShow({ title, previews, requests }: ShowInput): ShowPlan;
-export declare function readRequests(cwd: string): Promise<PendingRequest[]>;
-export declare function run(options: RunOptions & {
-    cwd: string;
-}, deps: RunDeps): Promise<RunResult>;
-export declare function runAdd(options: {
-    preview: AddPreview;
-    json: boolean;
-    cwd: string;
-}, deps: PreviewDeps): Promise<PreviewResult>;
-export declare function runClassify(options: {
-    changes: ClassifyChange[];
-    json: boolean;
-    cwd: string;
-}, deps: PreviewDeps): Promise<PreviewResult>;
-export declare function runExplore(options: {
-    surface: string;
-    count: number;
-    basedOn: string | null;
-    json: boolean;
-}, deps: ExploreDeps): {
-    exitCode: number;
-};
-export declare function runInit(options: {
-    cwd: string;
-    force: boolean;
-    json: boolean;
-}, deps: InitDeps): Promise<{
-    exitCode: number;
-}>;
-export declare function runKeep(options: {
-    title: string;
-    to: string;
-    json: boolean;
-    cwd: string;
-}, deps: KeepDeps): Promise<{
-    exitCode: number;
-}>;
-export declare function runList(options: {
-    json: boolean;
-    cwd: string;
-}, deps: PreviewDeps): Promise<PreviewResult>;
-export declare function runNew(options: {
-    surface: string;
-    print: boolean;
-    json: boolean;
-    from?: string | undefined;
-    cwd: string;
-}, deps: NewDeps): Promise<NewResult>;
-export declare function runRequests(options: {
-    json: boolean;
-    clear: boolean;
-    cwd: string;
-}, deps: PreviewDeps): Promise<PreviewResult>;
-export declare function runShow(options: {
-    title: string;
-    json: boolean;
-    cwd: string;
-}, deps: ShowDeps): Promise<{
-    exitCode: number;
-}>;
-export declare function runWatch(options: {
-    run: string | undefined;
-    port: number | undefined;
-    cwd: string;
-    signal?: AbortSignal;
-}, deps: WatchDeps): Promise<{
-    exitCode: number;
-}>;
-export declare function surfaceSlug(surface: string): string;
 export type Framework = "next" | "react";
 export type NewDeps = {
     log(line: string): void;
@@ -128,6 +25,7 @@ export type NewResult = {
     exitCode: number;
     written: string[];
 };
+export declare const PROMPT_TOKEN = "{prompt}";
 export type ParseResult = {
     kind: "run";
     options: RunOptions;
@@ -252,6 +150,7 @@ export type TemplateResult = {
     ok: false;
     error: string;
 };
+export declare const WATCH_PATH = ".leglas/watch.json";
 export type WatchDeps = {
     log(line: string): void;
     error(line: string): void;
@@ -265,6 +164,107 @@ export type Write = {
     path: string;
     contents: string;
 };
+export declare function baselineFrom(surface: string, sourcePath: string, sourceContents: string): Baseline | null;
+export declare function commandFor(template: WatchTemplate, prompt: string): {
+    command: string;
+    args: string[];
+};
+export declare function detectFramework(packageJson: string | null): Framework;
+export declare function nextRequest(requests: readonly PendingRequest[], failed: ReadonlySet<string>): PendingRequest | null;
+export declare function parseArgs(argv: string[]): ParseResult;
+export declare function parseTemplate(raw: string): TemplateResult;
+export declare function planExplore(surface: string, count: number, basedOn?: string | null): ExplorePlan;
+export declare function planInit(options: {
+    agents: string | null;
+    config: string | null;
+    gitignore: string | null;
+    force?: boolean;
+}): InitPlan;
+export declare function planKeep(options: {
+    title: string;
+    previews: readonly Preview[];
+    to: string;
+}): KeepPlan;
+export declare function planNew(options: {
+    surface: string;
+    packageJson: string | null;
+    gitignore: string | null;
+    /** An existing component to use as the baseline, instead of a placeholder. */
+    from?: {
+        path: string;
+        contents: string;
+    } | undefined;
+}): NewPlan;
+export declare function planShow({ title, previews, requests }: ShowInput): ShowPlan;
+export declare function readRequests(cwd: string): Promise<PendingRequest[]>;
+export declare function run(options: RunOptions & {
+    cwd: string;
+}, deps: RunDeps): Promise<RunResult>;
+export declare function runAdd(options: {
+    preview: AddPreview;
+    json: boolean;
+    cwd: string;
+}, deps: PreviewDeps): Promise<PreviewResult>;
+export declare function runClassify(options: {
+    changes: ClassifyChange[];
+    json: boolean;
+    cwd: string;
+}, deps: PreviewDeps): Promise<PreviewResult>;
+export declare function runExplore(options: {
+    surface: string;
+    count: number;
+    basedOn: string | null;
+    json: boolean;
+}, deps: ExploreDeps): {
+    exitCode: number;
+};
+export declare function runInit(options: {
+    cwd: string;
+    force: boolean;
+    json: boolean;
+}, deps: InitDeps): Promise<{
+    exitCode: number;
+}>;
+export declare function runKeep(options: {
+    title: string;
+    to: string;
+    json: boolean;
+    cwd: string;
+}, deps: KeepDeps): Promise<{
+    exitCode: number;
+}>;
+export declare function runList(options: {
+    json: boolean;
+    cwd: string;
+}, deps: PreviewDeps): Promise<PreviewResult>;
+export declare function runNew(options: {
+    surface: string;
+    print: boolean;
+    json: boolean;
+    from?: string | undefined;
+    cwd: string;
+}, deps: NewDeps): Promise<NewResult>;
+export declare function runRequests(options: {
+    json: boolean;
+    clear: boolean;
+    cwd: string;
+}, deps: PreviewDeps): Promise<PreviewResult>;
+export declare function runShow(options: {
+    title: string;
+    json: boolean;
+    cwd: string;
+}, deps: ShowDeps): Promise<{
+    exitCode: number;
+}>;
+export declare function runWatch(options: {
+    run: string | undefined;
+    port: number | undefined;
+    cwd: string;
+    signal?: AbortSignal;
+}, deps: WatchDeps): Promise<{
+    exitCode: number;
+}>;
+export declare function surfaceSlug(surface: string): string;
 
 ## leglas-mcp
 
@@ -273,20 +273,6 @@ export declare const CHANNEL_CAPABILITY: {
 };
 export declare const CHANNEL_INSTRUCTIONS: string;
 export declare const CHANNEL_POLL_MS = 2000;
-export declare const UNRESOLVED_PROJECT: string;
-export declare function channelEvent(request: PendingRequest): ChannelEvent;
-export declare function fixedProject(directory: string): Project;
-export declare function hostProject(host: RootsHost, options: HostProjectOptions): Project;
-export declare function registerLeglasTools(server: McpServer, options: {
-    project: Project;
-}): LeglasTools;
-export declare function startChannel(server: McpServer, options: {
-    project: Project;
-    pollMs?: number;
-    /** Tests gate this to force overlapping polls; production reads the file. */
-    read?: (cwd: string) => Promise<PendingRequest[]>;
-}): Channel;
-export declare function unpushed(requests: readonly PendingRequest[], pushed: ReadonlySet<string>): PendingRequest[];
 export type Channel = {
     stop(): void;
 };
@@ -337,3 +323,17 @@ export type RootsHost = {
     }>;
     oninitialized?: (() => void) | undefined;
 };
+export declare const UNRESOLVED_PROJECT: string;
+export declare function channelEvent(request: PendingRequest): ChannelEvent;
+export declare function fixedProject(directory: string): Project;
+export declare function hostProject(host: RootsHost, options: HostProjectOptions): Project;
+export declare function registerLeglasTools(server: McpServer, options: {
+    project: Project;
+}): LeglasTools;
+export declare function startChannel(server: McpServer, options: {
+    project: Project;
+    pollMs?: number;
+    /** Tests gate this to force overlapping polls; production reads the file. */
+    read?: (cwd: string) => Promise<PendingRequest[]>;
+}): Channel;
+export declare function unpushed(requests: readonly PendingRequest[], pushed: ReadonlySet<string>): PendingRequest[];
