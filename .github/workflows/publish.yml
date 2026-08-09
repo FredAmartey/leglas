@@ -20,7 +20,11 @@ jobs:
     # OIDC works only on cloud-hosted runners; a self-hosted one cannot publish.
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: the surface check below diffs this tag against
+      # the previous one, and a shallow clone has neither to compare with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6 # version comes from packageManager
 
@@ -47,6 +51,61 @@ jobs:
               exit 1
             fi
           done
+
+      # A patch release promises that nothing an importer depends on has moved.
+      # Both packages ship types, so an exported signature is part of that
+      # promise, and #6 changed two of them without anything objecting. The
+      # snapshot is committed, so the question is answerable here with a diff
+      # rather than by building the old tag and comparing it.
+      - name: Refuse a patch tag when the public surface moved
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "No earlier tag to compare against."
+            exit 0
+          fi
+
+          # A patch shares the major and the minor with the tag before it.
+          # Anything else is already announcing a change, so it may move.
+          #
+          # Compare the version cores, with any prerelease suffix removed. A
+          # suffix otherwise takes the place of the patch number: trimming the
+          # last dotted part of 0.3.1-rc.1 leaves 0.3.1-rc, which matches no
+          # tag before or after it, so a real 0.3.1 following its own rc read
+          # as "not a patch" and skipped this check entirely. Cutting an rc is
+          # the careful thing to do and it silently switched the guard off for
+          # the release it preceded.
+          #
+          # Stripping is right rather than merely safe. A prerelease belongs to
+          # the line of the version it is a candidate for, so 0.4.0-rc.1 after
+          # 0.3.0 is a minor and may move the surface, while 0.3.1-rc.1 after
+          # 0.3.0 is a patch and may not.
+          prior="${previous#v}"
+          tagged_core="${tagged%%-*}"
+          prior_core="${prior%%-*}"
+          if [ "${tagged_core%.*}" != "${prior_core%.*}" ]; then
+            echo "$GITHUB_REF_NAME is not a patch of $previous; the surface may move freely."
+            exit 0
+          fi
+
+          # Tags older than the snapshot have nothing to compare against, and
+          # diffing would report the whole file as added: a wall of noise
+          # meaning "no idea". Say that instead, since the honest answer to an
+          # unverifiable patch claim is to stop rather than to guess.
+          if ! git cat-file -e "$previous:api-surface.txt" 2>/dev/null; then
+            echo "::error::$previous predates api-surface.txt, so a patch claim cannot be checked." >&2
+            echo "Release this as a minor." >&2
+            exit 1
+          fi
+
+          if ! git diff --quiet "$previous" HEAD -- api-surface.txt; then
+            echo "::error::$GITHUB_REF_NAME is a patch tag, but the public API surface changed since $previous." >&2
+            git diff "$previous" HEAD -- api-surface.txt >&2
+            echo "Release this as a minor instead, or revert the signature change." >&2
+            exit 1
+          fi
+          echo "Patch tag and the surface is unchanged since $previous."
 
       - run: pnpm build
       - run: pnpm typecheck

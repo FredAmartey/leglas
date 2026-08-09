@@ -1,0 +1,97 @@
+name: Schema drift
+
+# The schemas under schemas/agent-plugins-1.0.0/ are someone else's, vendored
+# so plugin.test.ts never reaches the network to validate the manifests. That
+# trade has one cost: a standard is free to correct a published version in
+# place, and a frozen copy would go on agreeing with itself while the real
+# contract moved underneath it. Nothing in the repository could notice.
+#
+# So this asks, on a schedule. Deliberately not part of CI: it depends on a
+# third party being reachable, and a check that fails because someone else's
+# host is down is a check people learn to ignore. It opens an issue instead,
+# which is the right speed for news that is never urgent and never ours to fix.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare the vendored schemas against the published ones
+        id: compare
+        env:
+          BASE: https://agent-plugins.org/schemas/1.0.0
+        run: |
+          drifted=""
+          for name in plugin mcp; do
+            vendored="schemas/agent-plugins-1.0.0/$name.schema.json"
+            live=$(mktemp)
+
+            if ! curl -fsSL --retry 3 --retry-delay 5 "$BASE/$name.schema.json" -o "$live"; then
+              echo "Could not fetch $name.schema.json; treating as unknown, not as drift."
+              continue
+            fi
+
+            # Compare parsed JSON, not bytes: reformatting upstream is not a
+            # change to the contract, and reporting it as one would train
+            # everyone to close this issue without reading it.
+            if ! diff -q <(jq -S . "$vendored") <(jq -S . "$live") >/dev/null; then
+              drifted="$drifted $name"
+              echo "### \`$name.schema.json\`" >> drift.md
+              echo '```diff' >> drift.md
+              diff -u <(jq -S . "$vendored") <(jq -S . "$live") | head -200 >> drift.md
+              echo '```' >> drift.md
+            fi
+          done
+
+          if [ -n "$drifted" ]; then
+            echo "drifted=$drifted" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open an issue when it has moved
+        if: steps.compare.outputs.drifted != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Vendored Agent Plugins schemas have drifted from the published 1.0.0"
+        run: |
+          # One open issue at a time. A weekly job that opens a duplicate every
+          # Monday until someone looks is a job that gets muted.
+          #
+          # Search narrows, jq decides. `in:title` restricts which field is
+          # searched but still matches on words, so a different issue sharing
+          # most of this title would read as a duplicate and silence the only
+          # notice anyone gets that the standard moved. Staying quiet is the
+          # expensive direction here, so the title has to match exactly.
+          existing=$(
+            gh issue list --state open --search "$TITLE in:title" --json number,title |
+              jq -r --arg title "$TITLE" 'map(select(.title == $title)) | .[0].number // empty'
+          )
+          if [ -n "$existing" ]; then
+            echo "Already open as #$existing."
+            exit 0
+          fi
+
+          {
+            echo "\`schemas/agent-plugins-1.0.0/\` no longer matches what"
+            echo "https://agent-plugins.org/schemas/1.0.0/ serves, for:${{ steps.compare.outputs.drifted }}"
+            echo
+            echo "The manifests are still validated against the vendored copies, so this"
+            echo "does not fail anything today. It means \`plugin.test.ts\` is checking an"
+            echo "older contract than clients will."
+            echo
+            echo "Re-vendor the changed file, run \`pnpm test\`, and read what the new"
+            echo "constraints say about \`plugin.json\` and \`mcp.json\` before assuming a"
+            echo "green run means agreement. See \`schemas/README.md\`."
+            echo
+            cat drift.md 2>/dev/null
+          } > body.md
+
+          gh issue create --title "$TITLE" --body-file body.md
