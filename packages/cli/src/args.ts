@@ -96,7 +96,7 @@ function parseNew(rest: string[]): ParseResult {
   if (surface === undefined) {
     return {
       kind: "error",
-      message: "leglas new needs a surface name, for example: leglas new hero",
+      message: "leglas new needs a surface name, for example: npx leglas new hero",
     };
   }
   return { kind: "new", surface, print, json, from };
