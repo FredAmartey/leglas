@@ -20,7 +20,11 @@ jobs:
     # OIDC works only on cloud-hosted runners; a self-hosted one cannot publish.
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: the surface check below diffs this tag against
+      # the previous one, and a shallow clone has neither to compare with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6 # version comes from packageManager
 
@@ -47,6 +51,36 @@ jobs:
               exit 1
             fi
           done
+
+      # A patch release promises that nothing an importer depends on has moved.
+      # Both packages ship types, so an exported signature is part of that
+      # promise, and #6 changed two of them without anything objecting. The
+      # snapshot is committed, so the question is answerable here with a diff
+      # rather than by building the old tag and comparing it.
+      - name: Refuse a patch tag when the public surface moved
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "No earlier tag to compare against."
+            exit 0
+          fi
+
+          # A patch shares the major and the minor with the tag before it.
+          # Anything else is already announcing a change, so it may move.
+          prior="${previous#v}"
+          if [ "${tagged%.*}" != "${prior%.*}" ]; then
+            echo "$GITHUB_REF_NAME is not a patch of $previous; the surface may move freely."
+            exit 0
+          fi
+
+          if ! git diff --quiet "$previous" HEAD -- api-surface.txt; then
+            echo "::error::$GITHUB_REF_NAME is a patch tag, but the public API surface changed since $previous." >&2
+            git diff "$previous" HEAD -- api-surface.txt >&2
+            echo "Release this as a minor instead, or revert the signature change." >&2
+            exit 1
+          fi
+          echo "Patch tag and the surface is unchanged since $previous."
 
       - run: pnpm build
       - run: pnpm typecheck

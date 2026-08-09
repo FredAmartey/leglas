@@ -1,6 +1,6 @@
 {
   "name": "leglas-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stdio MCP server exposing Leglas to agent hosts that cannot run a shell.",
   "type": "module",
   "bin": {
