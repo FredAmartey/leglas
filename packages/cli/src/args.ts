@@ -200,7 +200,7 @@ function parseClassify(rest: string[]): ParseResult {
       kind: "error",
       message:
         "leglas classify needs what the direction will touch, for example: " +
-        "leglas classify --change package.json --rewrite src/theme.css",
+        "npx leglas classify --change package.json --rewrite src/theme.css",
     };
   }
   return { kind: "classify", changes, json };
@@ -291,7 +291,8 @@ export function parseArgs(argv: string[]): ParseResult {
     if (title === undefined) {
       return {
         kind: "error",
-        message: 'leglas keep needs a direction title, for example: leglas keep "Aurora" --to src/components/hero.tsx',
+        message:
+          'leglas keep needs a direction title, for example: npx leglas keep "Aurora" --to src/components/hero.tsx',
       };
     }
     if (to === undefined) {
@@ -341,7 +342,7 @@ export function parseArgs(argv: string[]): ParseResult {
     if (surface === undefined) {
       return {
         kind: "error",
-        message: "leglas explore needs a surface name, for example: leglas explore hero --count 6",
+        message: "leglas explore needs a surface name, for example: npx leglas explore hero --count 6",
       };
     }
     return { kind: "explore", surface, count, basedOn, json };
@@ -385,7 +386,7 @@ export function parseArgs(argv: string[]): ParseResult {
     if (title === undefined) {
       return {
         kind: "error",
-        message: 'leglas show needs a direction title, for example: leglas show "Aurora" --json',
+        message: 'leglas show needs a direction title, for example: npx leglas show "Aurora" --json',
       };
     }
     return { kind: "show", title, json };
