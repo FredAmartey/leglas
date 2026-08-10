@@ -387,17 +387,31 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const mounted = [...new Set([...st.panes, ...visible])];
 
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const stageWatch = useRef<ResizeObserver | null>(null);
   const [stage, setStage] = useState({ height: 0, width: 0 });
 
-  useEffect(() => {
-    const element = stageRef.current;
-    if (element === null) return;
+  /**
+   * Attached as a callback ref rather than measured from an effect. An effect
+   * that observes `stageRef.current` once runs before the stage exists on any
+   * render that gates it, and an observer that never attached reports a stage
+   * of zero forever, which reads downstream as "nothing to scale".
+   */
+  const attachStage = useCallback((node: HTMLDivElement | null) => {
+    stageRef.current = node;
+    stageWatch.current?.disconnect();
+    if (node === null) return;
+    // Measured once here as well as observed. A ResizeObserver does not report
+    // until the compositor produces a frame, so waiting for it alone leaves the
+    // first render believing the stage is nothing and drawing the split
+    // unscaled until something else moves.
+    const first = node.getBoundingClientRect();
+    setStage({ height: first.height, width: first.width });
     const observer = new ResizeObserver(([entry]) => {
       const box = entry?.contentRect;
       if (box) setStage({ height: box.height, width: box.width });
     });
-    observer.observe(element);
-    return () => observer.disconnect();
+    observer.observe(node);
+    stageWatch.current = observer;
   }, []);
 
   // Identical for every pane, so it is worked out once. The reasoning lives
@@ -1452,7 +1466,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
       <div
         className={`relative min-w-0 flex-1 ${splitting ? "flex" : "overflow-auto"}`}
-        ref={stageRef}
+        ref={attachStage}
       >
         {mounted.map((title) => (
           <div

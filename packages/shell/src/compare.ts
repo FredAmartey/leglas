@@ -93,6 +93,13 @@ export function paneGeometry(state: {
   const designWidth = viewport ?? Math.round(stageWidth);
   const room = paneWidth - (viewport !== null ? gutter : 0);
 
+  // A framed preset is inset by the same gutter top and bottom, so its height
+  // alone is the stage less that gutter, not the whole stage. Scaling it from
+  // the full height would draw it 48px taller than the unsplit view and put a
+  // `vh` layout somewhere it never sits, which is the exact class of lie this
+  // function exists to remove.
+  const designHeight = stageHeight - (viewport !== null ? gutter : 0);
+
   const fits = scaleSplit && panes > 1 && stageWidth > 0 && designWidth > 0;
   // Never scale up. A design asked for 1440 does not get better at 1600, and a
   // single pane is already showing the design at its own size.
@@ -100,10 +107,10 @@ export function paneGeometry(state: {
   const scaling = scale < UNSCALED;
 
   return {
-    boxHeight: scaling ? stageHeight * scale : stageHeight,
-    boxWidth: scaling ? designWidth * scale : stageWidth,
+    boxHeight: designHeight * scale,
+    boxWidth: designWidth * scale,
     designWidth,
-    frameHeight: stageHeight,
+    frameHeight: designHeight,
     scale,
     scaling,
   };

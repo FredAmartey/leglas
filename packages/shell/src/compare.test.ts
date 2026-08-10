@@ -155,3 +155,23 @@ describe("how one side of a split is drawn", () => {
     expect(Number.isFinite(geometry.frameHeight)).toBe(true);
   });
 });
+
+describe("a framed preset inside a split", () => {
+  const stage = { gutter: 48, panes: 2, scaleSplit: true, stageHeight: 950, stageWidth: 1358 };
+
+  test("is scaled from the height it has unsplit, not the whole stage", () => {
+    const geometry = paneGeometry({ ...stage, viewport: 1440 });
+    // Unsplit a preset sits inset by the gutter, so its own height is the
+    // stage less that gutter. Scaling from 950 would draw it 48px taller and
+    // move every vh in the design.
+    expect(geometry.frameHeight).toBe(902);
+    expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1440 / 902, 3);
+  });
+
+  test("box size stays the on-screen size even when nothing is scaled", () => {
+    const geometry = paneGeometry({ ...stage, viewport: 390 });
+    expect(geometry.scaling).toBe(false);
+    expect(geometry.boxWidth).toBe(390);
+    expect(geometry.boxHeight).toBe(902);
+  });
+});
