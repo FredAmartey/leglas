@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { nextCompare, paneTitles } from "./compare.js";
+import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 
 describe("nextCompare", () => {
   test("opens against whatever you were just looking at", () => {
@@ -91,5 +91,67 @@ describe("a variant's default comparison", () => {
         rows: ["Meridian Dusk", "Bulletin"],
       }),
     ).toBe("Bulletin");
+  });
+});
+
+describe("how one side of a split is drawn", () => {
+  const stage = { gutter: 48, scaleSplit: true, stageHeight: 950, stageWidth: 1358, viewport: null };
+
+  test("a single pane is left alone", () => {
+    const geometry = paneGeometry({ ...stage, panes: 1 });
+    expect(geometry.scaling).toBe(false);
+    expect(geometry.scale).toBe(1);
+    expect(geometry.designWidth).toBe(1358);
+  });
+
+  test("a split keeps the width it had alone and scales to fit", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2 });
+    // The design is still drawn at the stage's full width: this is the whole
+    // point, since that is the width its breakpoints were written for.
+    expect(geometry.designWidth).toBe(1358);
+    expect(geometry.scale).toBeCloseTo(0.5, 2);
+    expect(geometry.scaling).toBe(true);
+    // The scaled frame lands inside one pane.
+    expect(geometry.boxWidth).toBeCloseTo((1358 - 1) / 2, 0);
+  });
+
+  test("the frame keeps the stage's proportions, so nothing stretches", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2 });
+    // Same window shape as looking at it alone, only smaller. Filling the pane
+    // instead would draw a viewport-height hero in a window twice as tall.
+    expect(geometry.frameHeight).toBe(950);
+    expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1358 / 950, 2);
+  });
+
+  test("turning it off gives the pane back to the app, which is the old behaviour", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2, scaleSplit: false });
+    expect(geometry.scaling).toBe(false);
+    expect(geometry.scale).toBe(1);
+  });
+
+  test("a viewport preset is what gets scaled, so presets survive a split", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2, viewport: 1440 });
+    expect(geometry.designWidth).toBe(1440);
+    // 1440 has to fit a ~678px pane minus its gutter.
+    expect(geometry.scale).toBeCloseTo((678.5 - 48) / 1440, 2);
+  });
+
+  test("a preset narrower than the pane is never scaled up", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2, viewport: 390 });
+    expect(geometry.scale).toBe(1);
+    expect(geometry.scaling).toBe(false);
+  });
+
+  test("a stage not measured yet does not divide by zero", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2, stageHeight: 0, stageWidth: 0 });
+    expect(Number.isFinite(geometry.scale)).toBe(true);
+    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
+    expect(geometry.scaling).toBe(false);
+  });
+
+  test("a pane dragged to nothing still yields a usable scale", () => {
+    const geometry = paneGeometry({ ...stage, panes: 2, stageWidth: 40, viewport: 1440 });
+    expect(geometry.scale).toBeGreaterThan(0);
+    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
   });
 });

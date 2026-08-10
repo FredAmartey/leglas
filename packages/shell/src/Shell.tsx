@@ -18,7 +18,7 @@ import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
 import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
-import { nextCompare, paneTitles } from "./compare.js";
+import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
 import { scanQueue } from "./scan.js";
@@ -344,6 +344,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
+  /** The `p-6` breathing room a framed preset sits in, both sides. */
+  const FRAME_GUTTER = 48;
   const dragging = drag?.started ?? false;
   // Dragging the widget counts as busy too: a preview that keeps taking the
   // pointer lights up its own hover states under a drag that is not for it.
@@ -385,6 +387,37 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const mounted = [...new Set([...st.panes, ...visible])];
 
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stage, setStage] = useState({ height: 0, width: 0 });
+
+  useEffect(() => {
+    const element = stageRef.current;
+    if (element === null) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry?.contentRect;
+      if (box) setStage({ height: box.height, width: box.width });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // Identical for every pane, so it is worked out once. The reasoning lives
+  // with the function.
+  const {
+    boxHeight,
+    boxWidth,
+    designWidth,
+    frameHeight,
+    scale: paneScale,
+    scaling,
+  } = paneGeometry({
+    gutter: FRAME_GUTTER,
+    panes: visible.length,
+    scaleSplit: st.prefs.scaleSplit,
+    stageHeight: stage.height,
+    stageWidth: stage.width,
+    viewport: st.prefs.viewport,
+  });
+
   const widgetAnchor = widgetDrag
     ? (() => {
         const { x, y } = dragAnchor(widgetDrag);
@@ -1429,7 +1462,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 : splitting
                   ? `relative min-w-0 flex-1 overflow-auto ${
                       title === compare ? "border-l border-[#232328]" : ""
-                    } ${framed ? "flex min-h-full justify-center p-6" : ""}`
+                    } ${
+                      scaling
+                        ? "flex flex-col items-center justify-center gap-2.5"
+                        : framed
+                          ? "flex min-h-full justify-center p-6"
+                          : ""
+                    }`
                   : framed
                     ? "flex min-h-full justify-center p-6"
                     : "absolute inset-0"
@@ -1440,20 +1479,66 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             {splitting && (
               // Two panes need naming; one does not, because the rail already
               // shows which is active.
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+              // Scaled, the name belongs to its artboard and sits on top of
+              // it; floating at the top of the pane leaves it stranded above
+              // the space the letterboxing opens up.
+              <div
+                className={
+                  scaling
+                    ? "pointer-events-none z-10 flex justify-center"
+                    : "pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3"
+                }
+              >
                 <span className="rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur">
                   {st.displayName(title)}
+                  {/* Say the scale rather than let it be guessed from the type
+                      looking small. The width is the useful half: it is what
+                      the design is actually being drawn at. */}
+                  {scaling && (
+                    <span className="ml-1.5 font-normal text-[#8E8E96]">
+                      {designWidth}px · {Math.round(paneScale * 100)}%
+                    </span>
+                  )}
                 </span>
               </div>
             )}
             <div
               className={
-                framed
-                  ? `relative h-[calc(100dvh-48px)] shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.10)] transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
-                  : "relative size-full"
+                scaling
+                  ? // Its own artboard, so the room around it reads as canvas
+                    // rather than as a pane that failed to fill.
+                    "relative shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+                  : framed
+                    ? `relative h-[calc(100dvh-48px)] shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.10)] transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
+                    : "relative size-full"
               }
-              style={framed ? { width: st.prefs.viewport ?? undefined } : undefined}
+              style={
+                scaling
+                  ? { height: boxHeight, width: boxWidth }
+                  : framed
+                    ? { width: st.prefs.viewport ?? undefined }
+                    : undefined
+              }
             >
+              {/*
+                The frame keeps its own dimensions and is scaled as a whole, so
+                the app inside measures the width it was designed for. Media
+                queries answer against that width, not against the pane, which
+                is the entire point. Overlays stay outside this box: an error
+                worth reading is not worth reading at half size.
+              */}
+              <div
+                className={scaling ? "origin-top-left" : "size-full"}
+                style={
+                  scaling
+                    ? {
+                        height: frameHeight,
+                        transform: `scale(${paneScale})`,
+                        width: designWidth,
+                      }
+                    : undefined
+                }
+              >
               <iframe
                 className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
                 key={reloadTick[title] ?? 0}
@@ -1495,6 +1580,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 src={st.urlFor(title)}
                 title={`Preview: ${st.displayName(title)}`}
               />
+              </div>
               {errored[title] ? (
                 <ErrorOverlay
                   onReload={() => reloadPane(title)}
@@ -1601,6 +1687,25 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </button>
               ))}
             </div>
+
+            {/* Only meaningful while two things are on the stage, so it appears
+                when it applies rather than sitting there greyed out. */}
+            {splitting && (
+              <button
+                aria-checked={st.prefs.scaleSplit}
+                className={`${ROW_BUTTON} mt-1 ${
+                  st.prefs.scaleSplit ? "text-white" : "text-[#9CA3AF]"
+                }`}
+                onClick={() =>
+                  st.setPrefs((current) => ({ ...current, scaleSplit: !current.scaleSplit }))
+                }
+                role="switch"
+                type="button"
+              >
+                <span>Scale each side to fit</span>
+                <Switch on={st.prefs.scaleSplit} />
+              </button>
+            )}
 
             <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
               Dev overlays

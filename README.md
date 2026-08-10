@@ -275,6 +275,15 @@ what you want for the last two directions in contention: press `C`, or
 hover a direction and press its compare button, and it becomes the right
 pane while the active direction holds the left.
 
+A split does not hand each side half the room. An app given half the room
+crosses its own breakpoints and draws a different design, so you would be
+choosing between two narrow renderings of directions meant for the wide
+one. Instead each side is drawn at the width it had on its own and scaled
+to fit, keeping the same proportions, so nothing reflows and flipping and
+splitting agree about what the design is. Each pane says the width it is
+drawn at and the scale it is shown at. If you want the narrow rendering,
+that is what the tools popover's "Scale each side to fit" switch is for.
+
 Arrows move between directions, `1` to `9` jump straight to one, `R` asks
 for a change to the one you are on, `Cmd K` (`Ctrl K` elsewhere) searches
 and `B` collapses the rail. Press `?` for the whole keymap.
