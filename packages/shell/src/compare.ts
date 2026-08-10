@@ -90,7 +90,11 @@ export function paneGeometry(state: {
 
   // One pixel of divider sits between each pair of panes.
   const paneWidth = panes > 1 ? (stageWidth - (panes - 1)) / panes : stageWidth;
-  const designWidth = viewport ?? Math.round(stageWidth);
+  // Not rounded. The unsplit view draws at whatever fractional width the stage
+  // measures, so rounding here could put a breakpoint on the other side of the
+  // split than it is on its own: a hair's difference, and a hair is still the
+  // disagreement this function exists to remove.
+  const designWidth = viewport ?? stageWidth;
   const room = paneWidth - (viewport !== null ? gutter : 0);
 
   // A framed preset is inset by the same gutter top and bottom, so its height

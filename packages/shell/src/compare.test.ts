@@ -175,3 +175,20 @@ describe("a framed preset inside a split", () => {
     expect(geometry.boxHeight).toBe(902);
   });
 });
+
+describe("sub-pixel stage widths", () => {
+  test("the design width is not rounded, so a breakpoint cannot land differently", () => {
+    // A stage measures fractionally and the unsplit view draws at that exact
+    // width. Rounding to 1359 here would put a 1358.5px breakpoint on the
+    // other side of a split than it is on its own.
+    const geometry = paneGeometry({
+      gutter: 48,
+      panes: 2,
+      scaleSplit: true,
+      stageHeight: 950,
+      stageWidth: 1358.6,
+      viewport: null,
+    });
+    expect(geometry.designWidth).toBe(1358.6);
+  });
+});

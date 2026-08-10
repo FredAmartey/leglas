@@ -1510,7 +1510,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       the design is actually being drawn at. */}
                   {scaling && (
                     <span className="ml-1.5 font-normal text-[#8E8E96]">
-                      {designWidth}px · {Math.round(paneScale * 100)}%
+                      {Math.round(designWidth)}px · {Math.round(paneScale * 100)}%
                     </span>
                   )}
                 </span>
