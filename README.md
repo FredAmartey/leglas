@@ -15,10 +15,10 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/aurora-before.png" width="900" alt="The Leglas interface: a rail of design directions on the left, the selected direction running as the real app on the right, and a field beneath the rail for asking to change it" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-split.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name" />
 </p>
 
-<p align="center"><i>Directions in the rail, the selected one running as your actual app.</i></p>
+<p align="center"><i>Two directions for the same page, running side by side as the actual app.</i></p>
 
 Code is becoming the source of truth. Features go from prompt to
 working code in minutes, and mockups/design files eventually lag behind the product and drift out of sync. The
@@ -164,21 +164,15 @@ The line under the field is the whole status: whether anything is
 listening, what you have queued, and when it has been picked up.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/request-idle.png" width="330" alt="The change field reading: Enter queues it for leglas requests" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/request-queued.png" width="330" alt="The change field reading: Asked for a change to Aurora. Prompt copied. One change queued for your agent" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/request-pickedup.png" width="330" alt="The change field reading: Your agent is on it" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-idle.png" width="290" alt="The change field reading: Enter queues it for npx leglas requests" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-queued.png" width="290" alt="The change field reading: one change queued for your agent" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-pickedup.png" width="290" alt="The change field reading: Your agent is on it" />
 </p>
 
-<p align="center"><i>Nothing running yet, then a request queued, then an agent that has taken it.</i></p>
+<p align="center"><i>Nothing waiting, then a request queued, then an agent that has taken it.</i></p>
 
-With `npx leglas watch` in another terminal, the same field says your
-agent is listening, and the preview changes under you as it works.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/aurora-after.png" width="900" alt="The same direction after the agent applied the change: the gradient it renders is now warm where it was cold, and the status line reads that the agent is listening" />
-</p>
-
-<p align="center"><i>The same direction, after asking for a warmer top. No reload, no rebuild from a picture.</i></p>
+With `npx leglas watch` in another terminal the same line says your agent
+is listening, and the direction changes under you as it works.
 
 ### MCP server
 
