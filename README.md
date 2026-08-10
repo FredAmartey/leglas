@@ -15,10 +15,10 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-split.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them side by side as the real app, each drawn at its full width and labelled with that width and the scale it is shown at" />
 </p>
 
-<p align="center"><i>Two directions for the same page, running side by side as the actual app.</i></p>
+<p align="center"><i>Two directions for the same page, each still drawn at the width it has on its own.</i></p>
 
 Code is becoming the source of truth. Features go from prompt to
 working code in minutes, and mockups/design files eventually lag behind the product and drift out of sync. The
