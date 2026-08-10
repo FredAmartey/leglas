@@ -15,10 +15,10 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them side by side as the real app, each drawn at its full width and labelled with that width and the scale it is shown at" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/rail-single.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and the selected one running as the real app filling the rest of the window" />
 </p>
 
-<p align="center"><i>Two directions for the same page, each still drawn at the width it has on its own.</i></p>
+<p align="center"><i>Every direction in the rail, the selected one running as your actual app. Arrow keys flip between them.</i></p>
 
 Code is becoming the source of truth. Features go from prompt to
 working code in minutes, and mockups/design files eventually lag behind the product and drift out of sync. The
@@ -44,6 +44,12 @@ dev server in your project: one config file to delete when you're done
 and sessions that clean up after themselves.
 
 ## What you can do with Leglas
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name." />
+</p>
+
+<p align="center"><i>Two directions for the same page, running side by side as the actual app.</i></p>
 
 - Pick any two variations for side-by-side comparison when it gets hard to choose.
 - Name each direction, drag to reorder and organise your variants, set aside the ones that
