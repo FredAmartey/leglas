@@ -35,6 +35,15 @@ export type Prefs = {
    */
   showDevOverlays: boolean;
   /**
+   * Draw each side of a split at the width the stage has on its own and scale
+   * it down to fit, rather than handing it half the room and letting it
+   * reflow. On by default, because the alternative silently changes the design
+   * being judged: at half width a layout crosses its own breakpoints, and the
+   * comparison becomes two narrow renderings of directions meant for the wide
+   * one. Turning it off is for deliberately inspecting that narrow state.
+   */
+  scaleSplit: boolean;
+  /**
    * Show the tools widget over the stage. Turning it off leaves the stage to
    * the previews alone; T reopens the tools, so the switch is never a trap.
    */
@@ -51,6 +60,7 @@ export const DEFAULT_PREFS: Prefs = {
   hidden: [],
   order: [],
   renames: {},
+  scaleSplit: true,
   showDevOverlays: true,
   showWidget: true,
   viewport: null,
@@ -98,6 +108,8 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
       renames: Object.fromEntries(
         Object.entries(parsed.renames ?? {}).filter(([title]) => titles.includes(title)),
       ),
+      scaleSplit:
+        typeof saved.scaleSplit === "boolean" ? saved.scaleSplit : DEFAULT_PREFS.scaleSplit,
       showDevOverlays:
         typeof saved.showDevOverlays === "boolean"
           ? saved.showDevOverlays
