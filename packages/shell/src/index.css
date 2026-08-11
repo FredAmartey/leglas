@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 /* Satoshi is the default interface face and ships with the tool. Outfit,
-   Manrope, and Spline Sans Mono arrive as versioned dependencies (imported
-   in main.tsx) rather than hand-downloaded files. */
+   Geist, and Spline Sans Mono arrive as versioned dependencies (imported
+   in main.tsx) rather than hand-downloaded files.
+
+   Every face here is one this package may redistribute. A licensed face can
+   only be named, never bundled, and a named face nobody has installed is an
+   option that silently does nothing. */
 @font-face {
   font-family: "Satoshi";
   font-style: normal;
@@ -21,7 +25,7 @@
 :root {
   --font-satoshi: "Satoshi", ui-sans-serif, system-ui, sans-serif;
   --font-outfit: "Outfit Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-manrope: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-geist: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Spline Sans Mono", ui-monospace, monospace;
 }
 
