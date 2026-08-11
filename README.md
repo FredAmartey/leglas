@@ -67,7 +67,7 @@ and sessions that clean up after themselves.
   offers the agent CLIs already on your machine (Claude Code, Codex,
   Cursor) before you send anything; pick one and every request just
   runs, with live progress under the field while the direction changes
-  in front of you. The field always says who Enter sends to, and
+  in front of you. The field always shows who runs your changes, and
   switching takes one click. Your agent, your subscription, no keys.
   Prefer a terminal? `npx leglas watch` is the same loop with the
   agent's own output scrolling by. In Claude Code, the Leglas MCP

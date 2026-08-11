@@ -24,7 +24,7 @@ you send it.
   Cursor, or a command of your own. Pick one and Leglas spawns it per
   request, one at a time in queue order, with live progress in the
   composer: which file it is editing, a cancel for a run you regret, a
-  retry for one that failed. The footer always says who Enter sends to,
+  retry for one that failed. The field always shows who runs your changes,
   and switching takes one click. Your agent, your subscription, no keys
   and no login. (`leglas`)
 - **`leglas watch` needs no `--run` once an agent is picked.** The

@@ -1507,22 +1507,35 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 .finally(() => setSending(false));
             }}
           >
-            <input
-              aria-label={
-                st.active
-                  ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                  : "Ask your agent to change a direction"
-              }
-              className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2.5 py-2 text-xs text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={sending || !st.active}
-              onChange={(event) => setIntent(event.target.value)}
-              placeholder={
-                st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
-              }
-              ref={requestRef}
-              type="text"
-              value={intent}
-            />
+            <div className="relative">
+              <input
+                aria-label={
+                  st.active
+                    ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                    : "Ask your agent to change a direction"
+                }
+                className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-2 pl-2.5 pr-9 text-xs text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={sending || !st.active}
+                onChange={(event) => setIntent(event.target.value)}
+                placeholder={
+                  st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
+                }
+                ref={requestRef}
+                type="text"
+                value={intent}
+              />
+              {/* The search field's chip, inverted: it appears once Enter
+                  would actually do something, so the field teaches its own
+                  submit without a button. */}
+              <kbd
+                aria-hidden="true"
+                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[10px] leading-none text-[#84848C] transition-opacity duration-150 motion-reduce:transition-none ${
+                  intent.trim() !== "" && st.active && !sending ? "opacity-100" : "opacity-0"
+                }`}
+              >
+                ↵
+              </kbd>
+            </div>
           </form>
 
           <div className="relative flex items-center justify-between gap-2 px-3 py-2">
@@ -1595,7 +1608,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 >
                   {requestDecision.kind === "ready" ? (
                     <>
-                      Enter sends it to{" "}
+                      Runs with{" "}
                       <span className="font-medium text-[#9CA3AF]">{requestDecision.name}</span>
                     </>
                   ) : (
@@ -1650,7 +1663,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             )}
             {/* Named for what lands on the clipboard rather than for the
                 gesture: "Share" said nothing about how it differs from the
-                copy button on every row, which is now the plain link. */}
+                copy button on every row, which is now the plain link. Quiet on
+                purpose: with the runner built in, this is the manual fallback
+                of the same workflow, and the field is the star of this slot. */}
             <Tip
               label={
                 <>
@@ -1661,7 +1676,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             >
               <button
                 aria-label={`Copy a reference to the ${st.displayName(st.active)} direction`}
-                className="shrink-0 rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
+                className={`-my-1 shrink-0 rounded py-1 text-[10px] leading-snug transition-colors ${
+                  st.copied?.kind === "reference" && st.copied.title === st.active
+                    ? "text-emerald-300"
+                    : "text-[#84848C] hover:text-[#D1D5DB]"
+                }`}
                 onClick={() => st.copyReference(st.active)}
                 type="button"
               >
