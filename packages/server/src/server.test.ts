@@ -84,7 +84,7 @@ describe("startServer", () => {
     "172.16.0.1",
     "172.31.255.254",
     "[::1]",
-  ])("allows a same-origin browser mutation through the LAN host %s", async (hostname) => {
+  ])("allows the machine's own browser under the LAN host %s", async (hostname) => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
     const host = `${hostname}:${server.port}`;
 
@@ -691,7 +691,10 @@ describe("mutation trust", () => {
     expect(isTrustedMutation(request({ host: "fred.local:4100" }, "192.168.1.44"))).toBe(false);
   });
 
-  test("a teammate's browser stays trusted from across the LAN", () => {
+  test("a forged Origin does not make a network peer a browser", () => {
+    // Origin is browser-enforced, which means a raw client writes whatever it
+    // wants there. Matching headers from a non-loopback socket prove nothing,
+    // so the socket decides and the headers only ever narrow further.
     expect(
       isTrustedMutation(
         request(
@@ -699,10 +702,18 @@ describe("mutation trust", () => {
           "192.168.1.44",
         ),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isTrustedMutation(
         request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "192.168.1.44"),
+      ),
+    ).toBe(false);
+  });
+
+  test("the machine's own browser passes with a LAN hostname in the bar", () => {
+    expect(
+      isTrustedMutation(
+        request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "127.0.0.1"),
       ),
     ).toBe(true);
   });

@@ -34,9 +34,12 @@ you send it.
 
 ### Changed
 
-- Browser POSTs to `/leglas/api/` are refused from other origins.
-  Loopback, `.local` and private-network hosts stay allowed, so a
-  direction link shared on your LAN keeps working. (`leglas`)
+- Writing to `/leglas/api/` now happens only from the machine running
+  Leglas: every POST needs a loopback socket, and the browser's Origin
+  must match its Host on top of that. An API that decides what executes
+  on your computer cannot take instructions from the network. Shared
+  links keep working for what they promised, opening and viewing live
+  directions. (`leglas`)
 
 ## 0.3.0 (2026-08-09)
 

@@ -98,19 +98,19 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
 }
 
 /**
- * Browser mutations must come from this server's own interface.
+ * Mutations happen from the machine itself, full stop.
  *
- * Two kinds of client are legitimate here, and each gets its own proof. A
- * browser attaches Origin to POSTs, so a browser is trusted when its Origin
- * matches the Host it is talking to; teammates opening Leglas over the LAN
- * are covered because loopback, .local and private IPv4 Hosts are all
- * accepted, while a public DNS name is refused, which is what defeats a
- * rebinding name that happens to resolve here. A client without Origin is a
- * CLI, and the only CLI Leglas ships talks to localhost, so an origin-less
- * request is trusted only when the socket itself is loopback. Before the
- * embedded runner this line hardly mattered: queueing text was the worst a
- * stranger could do. Now the API decides what runs on this machine, and an
- * origin-less curl from across the network must not get a vote.
+ * The API now decides what runs on this computer, so who may write to it is
+ * decided by the one signal a network peer cannot forge: the socket. Every
+ * POST requires a loopback peer. Headers prove nothing about a raw client;
+ * Origin in particular is only enforced by browsers, so a curl across the
+ * LAN can claim any Origin it likes. The Origin check below is therefore
+ * not authentication: it defends the local browser against cross-site and
+ * DNS-rebinding pages, which is the one job Origin can actually do. When it
+ * is present it must match the Host, and the Host must be one this server
+ * would plausibly be reached by from its own machine. Teammates on the LAN
+ * keep what the share story promises, opening and viewing live directions;
+ * changing what runs stays with the person at the keyboard.
  */
 function isAllowedMutationHost(hostname: string): boolean {
   const bare = hostname.startsWith("[") && hostname.endsWith("]")
@@ -139,6 +139,7 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 }
 
 export function isTrustedMutation(req: http.IncomingMessage): boolean {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
   if (typeof req.headers.host !== "string") return false;
 
   let host: URL;
@@ -150,7 +151,7 @@ export function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (!isAllowedMutationHost(host.hostname)) return false;
 
   const rawOrigin = req.headers.origin;
-  if (rawOrigin === undefined) return isLoopbackAddress(req.socket.remoteAddress);
+  if (rawOrigin === undefined) return true;
   try {
     const origin = new URL(rawOrigin);
     return origin.protocol === "http:" && origin.host === host.host;
