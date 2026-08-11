@@ -42,70 +42,71 @@ function decide({
   return requestStatusLine(requests, agent, choice, available, dismissed);
 }
 
-describe("requestStatusLine picker", () => {
-  test.each(["queued", "picked-up", "failed"] as const)(
-    "offers detected agents while a %s request is outstanding",
-    (status) => {
-      expect(
-        decide({
-          requests: [request("request-1", status)],
-          available: [option("codex", false), option("claude")],
-        }),
-      ).toEqual({ kind: "picker" });
-    },
-  );
-
-  test("does not offer a picker after an agent has been chosen", () => {
+describe("requestStatusLine resting states", () => {
+  test("offers detected agents before a request exists", () => {
     expect(
       decide({
-        requests: [request("request-1", "queued")],
-        choice: "claude",
-        available: [option("claude")],
+        available: [option("codex", false), option("claude")],
       }),
-    ).toEqual({
-      kind: "status",
-      text: "1 change queued for your agent",
-      cancellable: false,
-      failedId: null,
-    });
+    ).toEqual({ kind: "picker" });
   });
 
-  test("does not offer a picker when no detected agent is available", () => {
+  test.each([
+    { available: [] as AgentOption[] },
+    { available: [option("claude", false)] },
+  ])("returns the hint when no agent is detected: $available", ({ available }) => {
+    expect(decide({ available })).toEqual({ kind: "hint" });
+  });
+
+  test("returns the hint after the picker has been dismissed", () => {
     expect(
       decide({
-        requests: [request("request-1", "queued")],
-        available: [option("claude", false)],
-      }),
-    ).toEqual({
-      kind: "status",
-      text: "1 change queued for your agent",
-      cancellable: false,
-      failedId: null,
-    });
-  });
-
-  test("waits for an outstanding request before offering the picker", () => {
-    expect(decide({ available: [option("claude")] })).toEqual({ kind: "hint" });
-  });
-
-  test("does not offer a picker after it has been dismissed", () => {
-    expect(
-      decide({
-        requests: [request("request-1", "queued")],
         available: [option("claude")],
         dismissed: true,
       }),
-    ).toEqual({
-      kind: "status",
-      text: "1 change queued for your agent",
-      cancellable: false,
-      failedId: null,
-    });
+    ).toEqual({ kind: "hint" });
+  });
+
+  test("shows the chosen agent as ready by display name", () => {
+    expect(
+      decide({
+        choice: "claude",
+        available: [option("codex"), option("claude")],
+      }),
+    ).toEqual({ kind: "ready", name: "Claude" });
+  });
+
+  test("gives an existing custom choice a display name", () => {
+    expect(
+      decide({
+        choice: "custom",
+        available: [option("claude")],
+      }),
+    ).toEqual({ kind: "ready", name: "Custom" });
+  });
+
+  test("only applies dismissal while no agent is chosen", () => {
+    expect(
+      decide({
+        choice: "claude",
+        available: [option("claude")],
+        dismissed: true,
+      }),
+    ).toEqual({ kind: "ready", name: "Claude" });
+  });
+
+  test("falls back to the hint when the chosen agent is no longer detected", () => {
+    expect(
+      decide({
+        choice: "claude",
+        available: [option("claude", false)],
+      }),
+    ).toEqual({ kind: "hint" });
   });
 });
 
 describe("requestStatusLine status priority", () => {
-  test("shows running activity ahead of every queued state", () => {
+  test("shows running activity ahead of every lower-priority state", () => {
     expect(
       decide({
         requests: [
@@ -120,7 +121,7 @@ describe("requestStatusLine status priority", () => {
           name: "Claude",
           activity: "editing src/Hero.tsx",
         },
-        choice: "claude",
+        available: [option("claude")],
       }),
     ).toEqual({
       kind: "status",
@@ -135,12 +136,41 @@ describe("requestStatusLine status priority", () => {
       decide({
         requests: [request("running", "running")],
         agent: { ...idleAgent, running: true, name: "Claude" },
-        choice: "claude",
+        available: [option("claude")],
       }),
     ).toEqual({
       kind: "status",
       text: "Claude is on it",
       cancellable: true,
+      failedId: null,
+    });
+  });
+
+  test("treats a running request as active before the agent poll catches up", () => {
+    expect(
+      decide({
+        requests: [request("running", "running")],
+        available: [option("claude")],
+      }),
+    ).toEqual({
+      kind: "status",
+      text: "Your agent is on it",
+      cancellable: true,
+      failedId: null,
+    });
+  });
+
+  test("uses singular copy for one queued request", () => {
+    expect(
+      decide({
+        requests: [request("queued", "queued")],
+        choice: "claude",
+        available: [option("claude")],
+      }),
+    ).toEqual({
+      kind: "status",
+      text: "1 change queued for your agent",
+      cancellable: false,
       failedId: null,
     });
   });
@@ -155,6 +185,7 @@ describe("requestStatusLine status priority", () => {
           request("queued-2", "queued"),
         ],
         agent: { ...idleAgent, attached: true },
+        available: [option("claude")],
       }),
     ).toEqual({
       kind: "status",
@@ -169,6 +200,7 @@ describe("requestStatusLine status priority", () => {
       decide({
         requests: [request("failed", "failed"), request("picked-up", "picked-up")],
         agent: { ...idleAgent, attached: true },
+        available: [option("claude")],
       }),
     ).toEqual({
       kind: "status",
@@ -182,6 +214,7 @@ describe("requestStatusLine status priority", () => {
     expect(
       decide({
         requests: [request("older", "failed"), request("newer", "failed")],
+        available: [option("claude")],
       }),
     ).toEqual({
       kind: "status",
@@ -191,16 +224,17 @@ describe("requestStatusLine status priority", () => {
     });
   });
 
-  test("shows an attached agent listening while idle", () => {
-    expect(decide({ agent: { ...idleAgent, attached: true } })).toEqual({
+  test("shows an attached agent listening ahead of the picker", () => {
+    expect(
+      decide({
+        agent: { ...idleAgent, attached: true },
+        available: [option("claude")],
+      }),
+    ).toEqual({
       kind: "status",
       text: "Your agent is listening",
       cancellable: false,
       failedId: null,
     });
-  });
-
-  test("returns the standing hint when no live state supersedes it", () => {
-    expect(decide()).toEqual({ kind: "hint" });
   });
 });

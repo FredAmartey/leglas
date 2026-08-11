@@ -227,6 +227,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [intent, setIntent] = useState("");
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
+  const [switchingAgent, setSwitchingAgent] = useState(false);
   const [requestAction, setRequestAction] = useState<"cancel" | "retry" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -596,11 +597,20 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     shownRequestDecision.current = { key: decisionKey, value: computedRequestDecision };
   }
   const requestDecision = shownRequestDecision.current.value;
+  useEffect(() => {
+    if (requestDecision.kind !== "ready") setSwitchingAgent(false);
+  }, [requestDecision.kind]);
+  const showAgentChoices =
+    requestDecision.kind === "picker" ||
+    (requestDecision.kind === "ready" && switchingAgent);
   const pickAgent = (agent: string) => {
     if (pickingAgent !== null) return;
     setPickingAgent(agent);
     void chooseAgent(agent)
-      .then(() => refreshAgents())
+      .then(() => {
+        refreshAgents();
+        setSwitchingAgent(false);
+      })
       .catch(() => {
         st.notify({
           kind: "agent-choice",
@@ -1490,35 +1500,52 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             {/* While the tools are switched off the composer hint gives its
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
-              requestDecision.kind === "picker" ? (
+              showAgentChoices ? (
                 <div className="min-w-0 flex-1 text-[10px] leading-[10px] text-[#84848C]">
-                  <span className="block truncate">Run these with:</span>
+                  <span className="block truncate">Run changes with:</span>
                   {/* The agent names are the only actions in this slot, so they
                       get the pill treatment and the dismissal stays plain text:
                       same size, two different invitations. */}
                   <div className="flex h-4 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
                     {agentState.agents
                       .filter((agent) => agent.available)
-                      .map((agent) => (
-                        <button
-                          className="shrink-0 rounded border border-[#3A3A40] px-1.5 text-[10px] leading-[14px] text-[#D1D5DB] transition-colors hover:border-[#D1D5DB]/60 hover:text-white disabled:cursor-wait disabled:opacity-40"
-                          disabled={pickingAgent !== null}
-                          key={agent.id}
-                          onClick={() => pickAgent(agent.id)}
-                          type="button"
-                        >
-                          {agent.name}
-                        </button>
-                      ))}
-                    <button
-                      className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                      onClick={() =>
-                        st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }))
-                      }
-                      type="button"
-                    >
-                      I&apos;ll run my own
-                    </button>
+                      .map((agent) => {
+                        const active =
+                          requestDecision.kind === "ready" && agent.id === agentState.choice;
+                        return (
+                          <button
+                            aria-pressed={requestDecision.kind === "ready" ? active : undefined}
+                            className="shrink-0 rounded border border-[#3A3A40] px-1.5 text-[10px] leading-[14px] text-[#D1D5DB] transition-colors hover:border-[#D1D5DB]/60 hover:text-white aria-pressed:border-[#D1D5DB]/60 aria-pressed:text-white disabled:cursor-wait disabled:opacity-40"
+                            disabled={pickingAgent !== null}
+                            key={agent.id}
+                            onClick={() =>
+                              active ? setSwitchingAgent(false) : pickAgent(agent.id)
+                            }
+                            type="button"
+                          >
+                            {agent.name}
+                          </button>
+                        );
+                      })}
+                    {requestDecision.kind === "ready" ? (
+                      <button
+                        className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                        onClick={() => setSwitchingAgent(false)}
+                        type="button"
+                      >
+                        keep {requestDecision.name}
+                      </button>
+                    ) : (
+                      <button
+                        className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                        onClick={() =>
+                          st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }))
+                        }
+                        type="button"
+                      >
+                        I&apos;ll run my own
+                      </button>
+                    )}
                   </div>
                   <span
                     className="block truncate text-[#84848C]"
@@ -1526,6 +1553,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   >
                     Runs here with write access, like in your terminal.
                   </span>
+                </div>
+              ) : requestDecision.kind === "ready" ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                    Enter sends it to {requestDecision.name}
+                  </span>
+                  <button
+                    className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                    onClick={() => setSwitchingAgent(true)}
+                    type="button"
+                  >
+                    switch
+                  </button>
                 </div>
               ) : requestDecision.kind === "status" ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1">

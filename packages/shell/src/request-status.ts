@@ -19,6 +19,7 @@ export type AgentOption = {
 
 export type RequestStatusDecision =
   | { kind: "picker" }
+  | { kind: "ready"; name: string }
   | { kind: "status"; text: string; cancellable: boolean; failedId: string | null }
   | { kind: "hint" };
 
@@ -36,15 +37,6 @@ export function requestStatusLine(
   available: readonly AgentOption[],
   dismissed: boolean,
 ): RequestStatusDecision {
-  if (
-    choice === null &&
-    available.some((option) => option.available) &&
-    requests.length > 0 &&
-    !dismissed
-  ) {
-    return { kind: "picker" };
-  }
-
   if (agent.running || requests.some((request) => request.status === "running")) {
     const name = agent.name ?? "Your agent";
     return {
@@ -93,5 +85,15 @@ export function requestStatusLine(
     };
   }
 
-  return { kind: "hint" };
+  if (!available.some((option) => option.available)) return { kind: "hint" };
+
+  if (choice !== null) {
+    const selected = available.find((option) => option.id === choice);
+    return {
+      kind: "ready",
+      name: selected?.name ?? (choice === "custom" ? "Custom" : choice),
+    };
+  }
+
+  return dismissed ? { kind: "hint" } : { kind: "picker" };
 }

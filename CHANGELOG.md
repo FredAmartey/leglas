@@ -19,12 +19,14 @@ you send it.
 
 ### Added
 
-- **The server runs your agent.** The first request offers the agent
-  CLIs found on your machine: Claude Code, Codex, Cursor, or a command
-  of your own. Pick one and Leglas spawns it per request, one at a time
-  in queue order, with live progress in the composer: which file it is
-  editing, a cancel for a run you regret, a retry for one that failed.
-  Your agent, your subscription, no keys and no login. (`leglas`)
+- **The server runs your agent.** The composer offers the agent CLIs
+  found on your machine before you send anything: Claude Code, Codex,
+  Cursor, or a command of your own. Pick one and Leglas spawns it per
+  request, one at a time in queue order, with live progress in the
+  composer: which file it is editing, a cancel for a run you regret, a
+  retry for one that failed. The footer always says who Enter sends to,
+  and switching takes one click. Your agent, your subscription, no keys
+  and no login. (`leglas`)
 - **`leglas watch` needs no `--run` once an agent is picked.** The
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a
