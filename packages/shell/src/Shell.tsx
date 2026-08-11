@@ -227,10 +227,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [intent, setIntent] = useState("");
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
-  const [switchingAgent, setSwitchingAgent] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [requestAction, setRequestAction] = useState<"cancel" | "retry" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const agentMenuRef = useRef<HTMLDivElement | null>(null);
+  const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // One white/6% panel behind the hovered row that eases between rows. The
   // active row carries its own persistent surface, so this is hover-only.
@@ -598,18 +600,45 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   }
   const requestDecision = shownRequestDecision.current.value;
   useEffect(() => {
-    if (requestDecision.kind !== "ready") setSwitchingAgent(false);
+    // A run taking the slot means the chooser has nothing to offer right now.
+    if (requestDecision.kind !== "ready" && requestDecision.kind !== "picker") {
+      setAgentMenuOpen(false);
+    }
   }, [requestDecision.kind]);
-  const showAgentChoices =
-    requestDecision.kind === "picker" ||
-    (requestDecision.kind === "ready" && switchingAgent);
+  // Same dismissal contract as the tools popover: Escape, clicking away, or
+  // the window losing focus all put the menu back without ceremony.
+  useEffect(() => {
+    if (!agentMenuOpen) return;
+    agentMenuRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAgentMenuOpen(false);
+        agentTriggerRef.current?.focus();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!agentMenuRef.current?.contains(target) && !agentTriggerRef.current?.contains(target)) {
+        setAgentMenuOpen(false);
+      }
+    };
+    const onWindowBlur = () => setAgentMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [agentMenuOpen]);
   const pickAgent = (agent: string) => {
     if (pickingAgent !== null) return;
     setPickingAgent(agent);
     void chooseAgent(agent)
       .then(() => {
         refreshAgents();
-        setSwitchingAgent(false);
+        setAgentMenuOpen(false);
       })
       .catch(() => {
         st.notify({
@@ -1496,77 +1525,83 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             />
           </form>
 
-          <div className="flex h-11 items-center justify-between gap-2 px-3 py-1">
+          <div className="relative flex items-center justify-between gap-2 px-3 py-2">
+            {/* The chooser floats above the composer in the tools panel's own
+                dress, so the footer keeps its single quiet line. Deciding who
+                runs your changes deserves a surface, not a squeeze. */}
+            {(requestDecision.kind === "picker" || requestDecision.kind === "ready") && (
+              <div
+                aria-hidden={!agentMenuOpen}
+                aria-label="Who runs your changes"
+                className={`absolute bottom-full left-3 z-10 mb-1.5 w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                  agentMenuOpen
+                    ? "translate-y-0 scale-100 opacity-100"
+                    : "pointer-events-none translate-y-1 scale-95 opacity-0"
+                }`}
+                inert={!agentMenuOpen}
+                ref={agentMenuRef}
+                role="dialog"
+                tabIndex={-1}
+              >
+                <span className="block px-1 pb-1 pt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+                  Runs your changes
+                </span>
+                {agentState.agents
+                  .filter((agent) => agent.available)
+                  .map((agent) => {
+                    const active =
+                      requestDecision.kind === "ready" && agent.id === agentState.choice;
+                    return (
+                      <button
+                        className={ROW_BUTTON}
+                        disabled={pickingAgent !== null}
+                        key={agent.id}
+                        onClick={() => (active ? setAgentMenuOpen(false) : pickAgent(agent.id))}
+                        type="button"
+                      >
+                        <span>{agent.name}</span>
+                        {active && <span aria-label="current choice">✓</span>}
+                      </button>
+                    );
+                  })}
+                {requestDecision.kind === "picker" && (
+                  <button
+                    className={`${ROW_BUTTON} text-[#84848C]`}
+                    onClick={() => {
+                      st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }));
+                      setAgentMenuOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <span>I&apos;ll run my own</span>
+                  </button>
+                )}
+                <p className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
+                  Runs in this project with write access, like in your terminal.
+                </p>
+              </div>
+            )}
             {/* While the tools are switched off the composer hint gives its
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
-              showAgentChoices ? (
-                <div className="min-w-0 flex-1 text-[10px] leading-[10px] text-[#84848C]">
-                  <span className="block truncate">Run changes with:</span>
-                  {/* The agent names are the only actions in this slot, so they
-                      get the pill treatment and the dismissal stays plain text:
-                      same size, two different invitations. */}
-                  <div className="flex h-4 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
-                    {agentState.agents
-                      .filter((agent) => agent.available)
-                      .map((agent) => {
-                        const active =
-                          requestDecision.kind === "ready" && agent.id === agentState.choice;
-                        return (
-                          <button
-                            aria-pressed={requestDecision.kind === "ready" ? active : undefined}
-                            className="shrink-0 rounded border border-[#3A3A40] px-1.5 text-[10px] leading-[14px] text-[#D1D5DB] transition-colors hover:border-[#D1D5DB]/60 hover:text-white aria-pressed:border-[#D1D5DB]/60 aria-pressed:text-white disabled:cursor-wait disabled:opacity-40"
-                            disabled={pickingAgent !== null}
-                            key={agent.id}
-                            onClick={() =>
-                              active ? setSwitchingAgent(false) : pickAgent(agent.id)
-                            }
-                            type="button"
-                          >
-                            {agent.name}
-                          </button>
-                        );
-                      })}
-                    {requestDecision.kind === "ready" ? (
-                      <button
-                        className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                        onClick={() => setSwitchingAgent(false)}
-                        type="button"
-                      >
-                        keep {requestDecision.name}
-                      </button>
-                    ) : (
-                      <button
-                        className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                        onClick={() =>
-                          st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }))
-                        }
-                        type="button"
-                      >
-                        I&apos;ll run my own
-                      </button>
-                    )}
-                  </div>
-                  <span
-                    className="block truncate text-[#84848C]"
-                    title="Runs here with write access, like in your terminal."
-                  >
-                    Runs here with write access, like in your terminal.
-                  </span>
-                </div>
-              ) : requestDecision.kind === "ready" ? (
-                <div className="flex min-w-0 flex-1 items-center gap-1">
-                  <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                    Enter sends it to {requestDecision.name}
-                  </span>
-                  <button
-                    className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                    onClick={() => setSwitchingAgent(true)}
-                    type="button"
-                  >
-                    switch
-                  </button>
-                </div>
+              requestDecision.kind === "picker" || requestDecision.kind === "ready" ? (
+                <button
+                  aria-expanded={agentMenuOpen}
+                  aria-haspopup="dialog"
+                  className="-my-1 min-w-0 truncate rounded py-1 text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                  onClick={() => setAgentMenuOpen((open) => !open)}
+                  ref={agentTriggerRef}
+                  type="button"
+                >
+                  {requestDecision.kind === "ready" ? (
+                    <>
+                      Enter sends it to{" "}
+                      <span className="font-medium text-[#9CA3AF]">{requestDecision.name}</span>
+                    </>
+                  ) : (
+                    <>Choose who runs your changes</>
+                  )}
+                </button>
               ) : requestDecision.kind === "status" ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   {requestDecision.failedId !== null ? (
