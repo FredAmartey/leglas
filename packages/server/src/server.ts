@@ -100,12 +100,17 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
 /**
  * Browser mutations must come from this server's own interface.
  *
- * A request without Origin is a CLI or another non-browser client and is safe
- * to keep supporting. Browsers attach Origin to POSTs, including safelisted
- * form and text requests, so rejecting a mismatch closes the cross-site path.
- * Teammates can open Leglas directly over the LAN, so loopback, .local and
- * private IPv4 Hosts are legitimate. Public DNS names stay refused, which is
- * the part of this check that prevents a rebinding name from reaching the API.
+ * Two kinds of client are legitimate here, and each gets its own proof. A
+ * browser attaches Origin to POSTs, so a browser is trusted when its Origin
+ * matches the Host it is talking to; teammates opening Leglas over the LAN
+ * are covered because loopback, .local and private IPv4 Hosts are all
+ * accepted, while a public DNS name is refused, which is what defeats a
+ * rebinding name that happens to resolve here. A client without Origin is a
+ * CLI, and the only CLI Leglas ships talks to localhost, so an origin-less
+ * request is trusted only when the socket itself is loopback. Before the
+ * embedded runner this line hardly mattered: queueing text was the worst a
+ * stranger could do. Now the API decides what runs on this machine, and an
+ * origin-less curl from across the network must not get a vote.
  */
 function isAllowedMutationHost(hostname: string): boolean {
   const bare = hostname.startsWith("[") && hostname.endsWith("]")
@@ -123,7 +128,17 @@ function isAllowedMutationHost(hostname: string): boolean {
   );
 }
 
-function isTrustedMutation(req: http.IncomingMessage): boolean {
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (address === undefined) return false;
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "::ffff:127.0.0.1" ||
+    address.startsWith("127.")
+  );
+}
+
+export function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (typeof req.headers.host !== "string") return false;
 
   let host: URL;
@@ -135,7 +150,7 @@ function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (!isAllowedMutationHost(host.hostname)) return false;
 
   const rawOrigin = req.headers.origin;
-  if (rawOrigin === undefined) return true;
+  if (rawOrigin === undefined) return isLoopbackAddress(req.socket.remoteAddress);
   try {
     const origin = new URL(rawOrigin);
     return origin.protocol === "http:" && origin.host === host.host;
@@ -405,6 +420,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/agent` && req.method === "POST") {
+      // Only the machine's owner decides what executes on it. A teammate on
+      // the LAN can look, queue and rename through the interface, but the
+      // executor: that choice stays with the person whose computer runs it,
+      // so this one route demands the request come from the machine itself.
+      if (!isLoopbackAddress(req.socket.remoteAddress)) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "The agent choice can only be made from the machine running Leglas.",
+        });
+      }
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Agent choice must be JSON." });
       }

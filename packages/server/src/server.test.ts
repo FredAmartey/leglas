@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { saveAgentChoice } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
 import { appendRequest, readRequests } from "./requests.js";
-import { startServer, type RunningServer } from "./server.js";
+import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 
 const running: RunningServer[] = [];
 const origins: http.Server[] = [];
@@ -675,5 +675,57 @@ describe("startServer", () => {
     // from its server, so close() hangs forever unless sockets are tracked.
     await expect(server.close()).resolves.toBeUndefined();
     running.length = 0;
+  });
+});
+
+describe("mutation trust", () => {
+  const request = (headers: Record<string, string>, peer: string | undefined) =>
+    ({ headers, socket: { remoteAddress: peer } }) as unknown as http.IncomingMessage;
+
+  test("an origin-less request is trusted only from the machine itself", () => {
+    expect(isTrustedMutation(request({ host: "localhost:4100" }, "127.0.0.1"))).toBe(true);
+    expect(isTrustedMutation(request({ host: "localhost:4100" }, "::ffff:127.0.0.1"))).toBe(true);
+    // The finding this closes: a curl from across the LAN sends no Origin,
+    // and before the runner existed the worst it could do was queue text.
+    expect(isTrustedMutation(request({ host: "192.168.1.20:4100" }, "192.168.1.44"))).toBe(false);
+    expect(isTrustedMutation(request({ host: "fred.local:4100" }, "192.168.1.44"))).toBe(false);
+  });
+
+  test("a teammate's browser stays trusted from across the LAN", () => {
+    expect(
+      isTrustedMutation(
+        request(
+          { host: "192.168.1.20:4100", origin: "http://192.168.1.20:4100" },
+          "192.168.1.44",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isTrustedMutation(
+        request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "192.168.1.44"),
+      ),
+    ).toBe(true);
+  });
+
+  test("cross-origin and public hosts stay refused regardless of peer", () => {
+    expect(
+      isTrustedMutation(
+        request({ host: "localhost:4100", origin: "http://evil.example.com" }, "127.0.0.1"),
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedMutation(
+        request({ host: "evil.example.com", origin: "http://evil.example.com" }, "127.0.0.1"),
+      ),
+    ).toBe(false);
+  });
+
+  test("loopback recognition covers the shapes Node reports", () => {
+    expect(isLoopbackAddress("127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("127.0.0.53")).toBe(true);
+    expect(isLoopbackAddress("::1")).toBe(true);
+    expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("192.168.1.44")).toBe(false);
+    expect(isLoopbackAddress(undefined)).toBe(false);
   });
 });
