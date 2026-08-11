@@ -5,6 +5,7 @@ import {
   ErrorOverlay,
   ICON_BUTTON,
   Mark,
+  BrandMark,
   P,
   PIcon,
   RenameForm,
@@ -1618,7 +1619,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                         onClick={() => (active ? setAgentMenuOpen(false) : pickAgent(agent.id))}
                         type="button"
                       >
-                        <span>{agent.name}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <BrandMark id={agent.id} />
+                          <span className="truncate">{agent.name}</span>
+                        </span>
                         {active && <span aria-label="current choice">✓</span>}
                       </button>
                     );
@@ -1655,6 +1659,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   ref={agentTriggerRef}
                   type="button"
                 >
+                  {requestDecision.kind === "ready" && agentState.choice !== null && (
+                    <BrandMark id={agentState.choice} size={12} />
+                  )}
                   <span className="truncate">
                     {requestDecision.kind === "ready" ? requestDecision.name : "Choose an agent"}
                   </span>
