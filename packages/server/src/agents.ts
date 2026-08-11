@@ -4,6 +4,8 @@ import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
 import { WATCH_PATH } from "./agent-command.js";
 
+// `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
+// a human-watched terminal. Keep the pair in step when an agent's CLI changes.
 export const KNOWN_AGENTS = {
   claude: {
     name: "Claude",
@@ -17,16 +19,24 @@ export const KNOWN_AGENTS = {
       "--permission-mode",
       "acceptEdits",
     ],
+    terminalArgs: (prompt: string): string[] => [
+      "-p",
+      prompt,
+      "--permission-mode",
+      "acceptEdits",
+    ],
   },
   codex: {
     name: "Codex",
     binary: "codex",
     args: (prompt: string): string[] => ["exec", "--json", "-s", "workspace-write", prompt],
+    terminalArgs: (prompt: string): string[] => ["exec", "-s", "workspace-write", prompt],
   },
   cursor: {
     name: "Cursor",
     binary: "cursor-agent",
     args: (prompt: string): string[] => ["-p", prompt, "--output-format", "stream-json"],
+    terminalArgs: (prompt: string): string[] => ["-p", prompt],
   },
 } as const;
 

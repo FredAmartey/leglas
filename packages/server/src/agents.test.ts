@@ -36,6 +36,25 @@ describe("KNOWN_AGENTS", () => {
       "stream-json",
     ]);
   });
+
+  test("builds readable terminal argv for each vendor", () => {
+    expect(KNOWN_AGENTS.claude.terminalArgs("make it warmer")).toEqual([
+      "-p",
+      "make it warmer",
+      "--permission-mode",
+      "acceptEdits",
+    ]);
+    expect(KNOWN_AGENTS.codex.terminalArgs("make it warmer")).toEqual([
+      "exec",
+      "-s",
+      "workspace-write",
+      "make it warmer",
+    ]);
+    expect(KNOWN_AGENTS.cursor.terminalArgs("make it warmer")).toEqual([
+      "-p",
+      "make it warmer",
+    ]);
+  });
 });
 
 test("detectAgents probes the adapter binaries through the injected lookup", async () => {

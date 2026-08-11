@@ -63,12 +63,16 @@ and sessions that clean up after themselves.
   the spread, your agent supplies the taste.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
-  precise request for your agent, file path included. Leave
-  `npx leglas watch --run "claude -p {prompt}"` running in another terminal
-  and your agent picks each request up as you send it. In Claude Code,
-  the Leglas MCP server can also push each request straight into your
-  open session as a channel event (channels are a research preview:
-  start Claude Code with `--dangerously-load-development-channels
+  precise request for your agent, file path included. The first time
+  you ask, Leglas offers the agent CLIs already on your machine
+  (Claude Code, Codex, Cursor); pick one and every request from then
+  on just runs, with live progress under the field while the direction
+  changes in front of you. Your agent, your subscription, no keys.
+  Prefer a terminal? `npx leglas watch` is the same loop with the
+  agent's own output scrolling by. In Claude Code, the Leglas MCP
+  server can also push each request straight into your open session as
+  a channel event (channels are a research preview: start Claude Code
+  with `--dangerously-load-development-channels
   server:<your leglas server name>`).
 - Keep the winner with one command. Leglas moves it into your source
   tree and clears the exploration away.
@@ -177,8 +181,11 @@ listening, what you have queued, and when it has been picked up.
 
 <p align="center"><i>Nothing waiting, then a request queued, then an agent that has taken it.</i></p>
 
-With `npx leglas watch` in another terminal the same line says your agent
-is listening, and the direction changes under you as it works.
+Pick an agent once and the same line shows it working: which file it is
+editing, a cancel if you change your mind, a retry when a run goes
+wrong. `npx leglas watch` in another terminal is the same loop with the
+agent's own output in view, and it needs no flag once an agent has been
+picked in the interface.
 
 ### MCP server
 

@@ -11,6 +11,31 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+The interface runs your agent itself. Asking for a change no longer
+needs a second terminal: pick an agent once and every request runs as
+you send it.
+
+### Added
+
+- **The server runs your agent.** The first request offers the agent
+  CLIs found on your machine: Claude Code, Codex, Cursor, or a command
+  of your own. Pick one and Leglas spawns it per request, one at a time
+  in queue order, with live progress in the composer: which file it is
+  editing, a cancel for a run you regret, a retry for one that failed.
+  Your agent, your subscription, no keys and no login. (`leglas`)
+- **`leglas watch` needs no `--run` once an agent is picked.** The
+  choice is shared through `.leglas/watch.json`, and an external watcher
+  always wins over the embedded runner, so the two never race for a
+  request. (`leglas`)
+
+### Changed
+
+- Browser POSTs to `/leglas/api/` are refused from other origins.
+  Loopback, `.local` and private-network hosts stay allowed, so a
+  direction link shared on your LAN keeps working. (`leglas`)
+
 ## 0.3.0 (2026-08-09)
 
 Leglas becomes installable as one thing. The skill teaches an agent the

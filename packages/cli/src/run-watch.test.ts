@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -22,6 +22,11 @@ function deps() {
   return { lines, log: (line: string) => lines.push(line), error: (line: string) => lines.push(line) };
 }
 
+function writeWatchConfig(root: string, config: Record<string, unknown>): void {
+  mkdirSync(join(root, ".leglas"), { recursive: true });
+  writeFileSync(join(root, ".leglas/watch.json"), `${JSON.stringify(config, null, 2)}\n`);
+}
+
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + 5000;
   while (!(await condition())) {
@@ -30,13 +35,89 @@ const until = async (condition: () => Promise<boolean> | boolean): Promise<void>
   }
 };
 
+async function startAndStop(root: string, run?: string): Promise<string[]> {
+  const controller = new AbortController();
+  const d = deps();
+  let outcome: Awaited<ReturnType<typeof runWatch>> | null = null;
+  const running = runWatch(
+    { run, port: undefined, cwd: root, signal: controller.signal },
+    d,
+  ).then((result) => {
+    outcome = result;
+    return result;
+  });
+
+  await until(() => outcome !== null || d.lines.some((line) => line.startsWith("Watching ")));
+  expect(outcome).toBeNull();
+  controller.abort();
+  expect((await running).exitCode).toBe(0);
+  return d.lines;
+}
+
 describe("runWatch", () => {
   test("refuses to start with no template anywhere", async () => {
     const d = deps();
     const outcome = await runWatch({ run: undefined, port: undefined, cwd: cwd() }, d);
 
     expect(outcome.exitCode).toBe(1);
+    expect(d.lines.join("\n")).toContain("pick an agent in the interface");
     expect(d.lines.join("\n")).toContain("--run");
+  });
+
+  test("a --run flag beats both the saved template and agent choice", async () => {
+    const root = cwd();
+    writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
+
+    const lines = await startAndStop(root, "flag-agent {prompt}");
+
+    expect(lines).toContain("Watching for change requests. Each one runs: flag-agent {prompt}");
+    expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
+  });
+
+  test("a saved template beats the saved agent choice", async () => {
+    const root = cwd();
+    writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
+
+    const lines = await startAndStop(root);
+
+    expect(lines).toContain("Watching for change requests. Each one runs: saved-agent {prompt}");
+    expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
+  });
+
+  test.each([
+    ["claude", "Claude", "claude -p {prompt} --permission-mode acceptEdits"],
+    ["codex", "Codex", "codex exec -s workspace-write {prompt}"],
+    ["cursor", "Cursor", "cursor-agent -p {prompt}"],
+  ])("synthesizes the terminal template for %s", async (agent, name, command) => {
+    const root = cwd();
+    writeWatchConfig(root, { agent });
+
+    const lines = await startAndStop(root);
+
+    expect(lines).toContain(`Using ${name}, chosen in the interface.`);
+    expect(lines).toContain(`Watching for change requests. Each one runs: ${command}`);
+  });
+
+  test("does not write a synthesized command back to the shared config", async () => {
+    const root = cwd();
+    const config = { agent: "codex", future: { enabled: true } };
+    writeWatchConfig(root, config);
+
+    await startAndStop(root);
+
+    expect(JSON.parse(readFileSync(join(root, ".leglas/watch.json"), "utf8"))).toEqual(config);
+  });
+
+  test("remembering a --run template preserves the saved agent choice", async () => {
+    const root = cwd();
+    writeWatchConfig(root, { agent: "claude" });
+
+    await startAndStop(root, "flag-agent {prompt}");
+
+    expect(JSON.parse(readFileSync(join(root, ".leglas/watch.json"), "utf8"))).toEqual({
+      agent: "claude",
+      run: "flag-agent {prompt}",
+    });
   });
 
   test("stopping mid-run waits for the request's bookkeeping", async () => {
