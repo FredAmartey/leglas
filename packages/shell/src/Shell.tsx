@@ -41,7 +41,7 @@ import { requestStatusLine, type RequestStatus } from "./request-status.js";
 const FONTS = [
   { key: "satoshi", label: "Satoshi", stack: "var(--font-satoshi)" },
   { key: "outfit", label: "Outfit", stack: "var(--font-outfit)" },
-  { key: "manrope", label: "Manrope", stack: "var(--font-manrope)" },
+  { key: "geist", label: "Geist", stack: "var(--font-geist)" },
 ] as const;
 
 /**
@@ -339,8 +339,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     };
   }, [widgetOpen]);
 
+  // Kept on one line. A label that wraps inside a fixed-height row centres its
+  // two lines and overflows, which looks like damage rather than a long label,
+  // and how close any of them sit to wrapping depends on the interface face
+  // the user picked.
   const ROW_BUTTON =
-    "flex h-7 w-full items-center justify-between gap-2 rounded px-2 text-xs hover:bg-[#2E2E2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+    "flex h-7 w-full items-center justify-between gap-2 whitespace-nowrap rounded px-2 text-xs hover:bg-[#2E2E2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
@@ -1768,7 +1772,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               role="switch"
               type="button"
             >
-              <span>Show Leglas dev tool overlay</span>
+              <span>Show Leglas overlay</span>
               <Switch on={st.prefs.showWidget} />
             </button>
 
