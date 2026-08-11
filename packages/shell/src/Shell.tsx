@@ -77,10 +77,10 @@ function tagTone(tag: string) {
 const LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * The rail's foot — the change composer and the share strip under it — which
+ * The rail's foot, the change composer and the agent selector under it, which
  * toasts stack on top of rather than over.
  */
-const RAIL_FOOTER_H = 86;
+const RAIL_FOOTER_H = 96;
 
 const IDLE_AGENT: AgentStatus = {
   attached: false,
@@ -1224,8 +1224,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </Tip>
           )}
           {/* The reflex copy: someone says "show me" and this goes into the
-              message. The reference, which says what the direction is, is the
-              deliberate one and lives under the rail. */}
+              message. The reference is the deliberate one, and it lives here
+              too now: both copies are of this direction, so both belong on
+              its row rather than one of them squatting under the composer. */}
           <Tip
             label={
               st.copied?.kind === "link" && st.copied.title === title
@@ -1243,6 +1244,31 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 <span className="text-[10px] text-emerald-300">✓</span>
               ) : (
                 <PIcon d={P.link} />
+              )}
+            </button>
+          </Tip>
+          <Tip
+            label={
+              st.copied?.kind === "reference" && st.copied.title === title ? (
+                "Copied"
+              ) : (
+                <>
+                  <span className="block">Copy a detailed reference.</span>
+                  <span className="block">For a teammate or an agent.</span>
+                </>
+              )
+            }
+          >
+            <button
+              aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
+              className={ICON_BUTTON}
+              onClick={() => st.copyReference(title)}
+              type="button"
+            >
+              {st.copied?.kind === "reference" && st.copied.title === title ? (
+                <span className="text-[10px] text-emerald-300">✓</span>
+              ) : (
+                <PIcon d={P.copy} size={12} />
               )}
             </button>
           </Tip>
@@ -1524,17 +1550,37 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 type="text"
                 value={intent}
               />
-              {/* The search field's chip, inverted: it appears once Enter
-                  would actually do something, so the field teaches its own
-                  submit without a button. */}
-              <kbd
-                aria-hidden="true"
-                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[10px] leading-none text-[#84848C] transition-opacity duration-150 motion-reduce:transition-none ${
-                  intent.trim() !== "" && st.active && !sending ? "opacity-100" : "opacity-0"
+              {/* A real send button, because Enter alone is an invisible
+                  contract. Dim and inert until there is something to send;
+                  the field's one moment of light once there is. */}
+              <button
+                aria-label={
+                  st.active
+                    ? `Send the change to ${st.displayName(st.active)}`
+                    : "Send the change"
+                }
+                className={`absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
+                  intent.trim() !== "" && st.active && !sending
+                    ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
+                    : "pointer-events-none text-[#84848C]/60"
                 }`}
+                disabled={intent.trim() === "" || !st.active || sending}
+                type="submit"
               >
-                ↵
-              </kbd>
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  height="13"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.75"
+                  viewBox="0 0 16 16"
+                  width="13"
+                >
+                  <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+                </svg>
+              </button>
             </div>
           </form>
 
@@ -1598,22 +1644,36 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
               requestDecision.kind === "picker" || requestDecision.kind === "ready" ? (
+                /* Dressed as the select it is: a border, a name, a chevron.
+                   The last version was a bare line of text, and nothing about
+                   a bare line of text says it can be clicked. */
                 <button
                   aria-expanded={agentMenuOpen}
                   aria-haspopup="dialog"
-                  className="-my-1 min-w-0 truncate rounded py-1 text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                  className="flex min-w-0 items-center gap-1.5 rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 text-[11px] leading-none text-[#D1D5DB] transition-colors hover:border-[#3A3A40] hover:bg-[#2E2E2E]/60 hover:text-white"
                   onClick={() => setAgentMenuOpen((open) => !open)}
                   ref={agentTriggerRef}
                   type="button"
                 >
-                  {requestDecision.kind === "ready" ? (
-                    <>
-                      Runs with{" "}
-                      <span className="font-medium text-[#9CA3AF]">{requestDecision.name}</span>
-                    </>
-                  ) : (
-                    <>Choose who runs your changes</>
-                  )}
+                  <span className="truncate">
+                    {requestDecision.kind === "ready" ? requestDecision.name : "Choose an agent"}
+                  </span>
+                  <svg
+                    aria-hidden="true"
+                    className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                      agentMenuOpen ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    height="12"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.75"
+                    viewBox="0 0 16 16"
+                    width="12"
+                  >
+                    <path d="M4 6.5 8 10.5l4-4" />
+                  </svg>
                 </button>
               ) : requestDecision.kind === "status" ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -1661,34 +1721,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
               </button>
             )}
-            {/* Named for what lands on the clipboard rather than for the
-                gesture: "Share" said nothing about how it differs from the
-                copy button on every row, which is now the plain link. Quiet on
-                purpose: with the runner built in, this is the manual fallback
-                of the same workflow, and the field is the star of this slot. */}
-            <Tip
-              label={
-                <>
-                  <span className="block">Copy a detailed reference.</span>
-                  <span className="block">For a teammate or an agent.</span>
-                </>
-              }
-            >
-              <button
-                aria-label={`Copy a reference to the ${st.displayName(st.active)} direction`}
-                className={`-my-1 shrink-0 rounded py-1 text-[10px] leading-snug transition-colors ${
-                  st.copied?.kind === "reference" && st.copied.title === st.active
-                    ? "text-emerald-300"
-                    : "text-[#84848C] hover:text-[#D1D5DB]"
-                }`}
-                onClick={() => st.copyReference(st.active)}
-                type="button"
-              >
-                {st.copied?.kind === "reference" && st.copied.title === st.active
-                  ? "Copied"
-                  : "Copy reference"}
-              </button>
-            </Tip>
           </div>
         </div>
 
