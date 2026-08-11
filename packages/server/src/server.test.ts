@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { saveAgentChoice } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
+import { appendRequest } from "./requests.js";
 import { startServer, type RunningServer } from "./server.js";
 
 const running: RunningServer[] = [];
@@ -23,6 +25,7 @@ afterEach(async () => {
         }),
     ),
   );
+  vi.restoreAllMocks();
 });
 
 /** Stand-in dev server. Answers anything with a marker so proxying is visible. */
@@ -75,8 +78,149 @@ describe("startServer", () => {
     };
 
     expect(body.requests).toEqual([]);
-    expect(body.agent).toEqual({ attached: false });
+    expect(body.agent).toEqual({
+      attached: false,
+      running: false,
+      name: null,
+      activity: null,
+    });
     expect(existsSync(join(cwd, ".leglas"))).toBe(false);
+  });
+
+  test("reports available agents and round-trips the saved choice", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-api-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const initial = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+      agents: { id: string; name: string; available: boolean }[];
+      choice: string | null;
+      customRun: string | null;
+    };
+    expect(initial.agents).toEqual([
+      { id: "claude", name: "Claude", available: expect.any(Boolean) },
+      { id: "codex", name: "Codex", available: expect.any(Boolean) },
+      { id: "cursor", name: "Cursor", available: expect.any(Boolean) },
+    ]);
+    expect(initial.choice).toBeNull();
+    expect(initial.customRun).toBeNull();
+
+    const customRun = "my-agent -p {prompt}";
+    const saved = await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "custom", run: customRun }),
+    });
+    expect(saved.status).toBe(200);
+
+    const custom = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
+    expect(custom).toMatchObject({ choice: "custom", customRun });
+
+    await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "codex" }),
+    });
+    const known = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
+    expect(known).toMatchObject({ choice: "codex", customRun });
+  });
+
+  test.each([
+    { agent: "unknown" },
+    { agent: "custom" },
+    { agent: "custom", run: "node" },
+    { agent: "codex", run: 42 },
+  ])("refuses an invalid agent choice: %j", async (choice) => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const response = await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(choice),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
+  });
+
+  test("refuses cross-origin agent configuration before it reaches disk", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-origin-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://example.invalid",
+      },
+      body: JSON.stringify({ agent: "custom", run: "sh -c 'exit 0' {prompt}" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(existsSync(join(cwd, ".leglas/watch.json"))).toBe(false);
+  });
+
+  test("refuses a safelisted content type for agent configuration", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-content-type-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ agent: "custom", run: "sh -c 'exit 0' {prompt}" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(existsSync(join(cwd, ".leglas/watch.json"))).toBe(false);
+  });
+
+  test("reports a running request and cancels it through the polled API", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-api-"));
+    await saveAgentChoice(cwd, {
+      agent: "custom",
+      run: 'node -e "setInterval(() => {}, 1000)" {prompt}',
+    });
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/",
+      intent: "warmer",
+      target: null,
+      prompt: "make it warmer",
+    });
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+    type RequestsBody = {
+      requests: { status: string }[];
+      agent: { attached: boolean; running: boolean; name: string | null; activity: string | null };
+    };
+
+    let body: RequestsBody | null = null;
+    const deadline = Date.now() + 3000;
+    while (body?.agent.running !== true) {
+      if (Date.now() > deadline) throw new Error("embedded runner did not start");
+      body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+      if (!body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(body.requests[0]?.status).toBe("running");
+    expect(body.agent).toEqual({
+      attached: false,
+      running: true,
+      name: "Custom",
+      activity: null,
+    });
+
+    const cancelled = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
+    expect(await cancelled.json()).toEqual({ ok: true, cancelled: true });
+
+    while (body.agent.running) {
+      if (Date.now() > deadline) throw new Error("embedded runner did not cancel");
+      body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+      if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(body.requests[0]?.status).toBe("picked-up");
+
+    const idle = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
+    expect(await idle.json()).toEqual({ ok: true, cancelled: false });
   });
 
   test("an agent counts as attached while its heartbeat is fresh, and not once it stops", async () => {

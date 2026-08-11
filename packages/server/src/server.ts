@@ -3,12 +3,21 @@ import http from "node:http";
 import net from "node:net";
 import { extname, join, normalize, relative } from "node:path";
 
+import { parseTemplate } from "./agent-command.js";
+import {
+  KNOWN_AGENTS,
+  detectAgents,
+  readAgentChoice,
+  saveAgentChoice,
+  type KnownAgentId,
+} from "./agents.js";
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
 import { appendRequest, composeRequest, readRequests } from "./requests.js";
+import { startRunner, type RunningAgent } from "./runner.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -82,6 +91,47 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
     "cache-control": "no-store",
   });
   res.end(payload);
+}
+
+function isKnownAgent(value: unknown): value is KnownAgentId {
+  return typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value);
+}
+
+/**
+ * Browser mutations must come from this loopback server's own interface.
+ *
+ * A request without Origin is a CLI or another non-browser client and is safe
+ * to keep supporting. Browsers attach Origin to POSTs, including safelisted
+ * form and text requests, so rejecting a mismatch closes the cross-site path.
+ * The Host check also refuses DNS rebinding names that happen to resolve here.
+ */
+function isTrustedMutation(req: http.IncomingMessage): boolean {
+  if (typeof req.headers.host !== "string") return false;
+
+  let host: URL;
+  try {
+    host = new URL(`http://${req.headers.host}`);
+  } catch {
+    return false;
+  }
+  if (host.hostname !== "localhost" && host.hostname !== "127.0.0.1") return false;
+
+  const rawOrigin = req.headers.origin;
+  if (rawOrigin === undefined) return true;
+  try {
+    const origin = new URL(rawOrigin);
+    return origin.protocol === "http:" && origin.host === host.host;
+  } catch {
+    return false;
+  }
+}
+
+function hasJsonBody(req: http.IncomingMessage): boolean {
+  const contentType = req.headers["content-type"];
+  return (
+    typeof contentType === "string" &&
+    contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json"
+  );
 }
 
 /**
@@ -239,10 +289,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * longer there.
    */
   let lastSeen: number | null = null;
+  const externallyAttached = () =>
+    lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
+  let runner: RunningAgent | null = null;
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
+
+    if (
+      req.method === "POST" &&
+      path.startsWith(`${LEGLAS_PREFIX}/api/`) &&
+      !isTrustedMutation(req)
+    ) {
+      return sendJson(res, 403, { ok: false, error: "Cross-origin API mutations are refused." });
+    }
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
       // Local previews are re-read on every request, so a direction an agent
@@ -315,6 +376,56 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
+    if (path === `${LEGLAS_PREFIX}/api/agents` && req.method === "GET") {
+      return void Promise.all([detectAgents(), readAgentChoice(cwd)]).then(([agents, choice]) =>
+        sendJson(res, 200, {
+          agents,
+          choice: choice.agent,
+          customRun: choice.run,
+        }),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/agent` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Agent choice must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { agent?: unknown; run?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { agent?: unknown; run?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+
+        if (!isKnownAgent(parsed.agent) && parsed.agent !== "custom") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a known agent." });
+        }
+        if (parsed.run !== undefined && typeof parsed.run !== "string") {
+          return sendJson(res, 400, { ok: false, error: "The custom run command must be a string." });
+        }
+
+        if (parsed.agent === "custom") {
+          if (typeof parsed.run !== "string") {
+            return sendJson(res, 400, { ok: false, error: "A custom agent needs a run command." });
+          }
+          const template = parseTemplate(parsed.run);
+          if (!template.ok) return sendJson(res, 400, { ok: false, error: template.error });
+          return void saveAgentChoice(cwd, { agent: "custom", run: parsed.run }).then(
+            () => sendJson(res, 200, { ok: true }),
+            () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
+          );
+        }
+
+        return void saveAgentChoice(cwd, { agent: parsed.agent }).then(
+          () => sendJson(res, 200, { ok: true }),
+          () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
+        );
+      });
+    }
+
     // Watch says it is alive here, and only here. The heartbeat carries no
     // identity: two watchers on one project is a mistake the user makes in
     // their own terminals, and the interface has one thing to say either way.
@@ -341,12 +452,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/requests` && req.method === "GET") {
       // The queue is read fresh just like config: an agent can collect or clear
       // requests while the interface is open, and the next poll tells the truth.
+      const snapshot = runner?.snapshot() ?? {
+        running: false,
+        requestId: null,
+        agent: null,
+        activity: null,
+      };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, status }) => ({ id, title, intent, status })),
-          agent: { attached: lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS },
+          requests: requests.map(({ id, title, intent, status }) => ({
+            id,
+            title,
+            intent,
+            status: snapshot.running && snapshot.requestId === id ? "running" : status,
+          })),
+          agent: {
+            attached: externallyAttached(),
+            running: snapshot.running,
+            name: snapshot.running ? snapshot.agent : null,
+            activity: snapshot.running ? snapshot.activity : null,
+          },
         }),
       );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/requests/cancel` && req.method === "POST") {
+      return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
     }
 
     // The rail holds the renames; this puts them where the commands can read
@@ -435,16 +566,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
+  runner = startRunner({ cwd, externallyAttached });
+
+  let closePromise: Promise<void> | null = null;
 
   return {
     port,
     url: `http://localhost:${port}`,
-    close: () =>
-      new Promise((done) => {
-        for (const socket of sockets) socket.destroy();
-        sockets.clear();
-        server.closeAllConnections();
-        server.close(() => done());
-      }),
+    close: () => {
+      if (closePromise !== null) return closePromise;
+      closePromise = runner.stop().then(
+        () =>
+          new Promise<void>((done) => {
+            for (const socket of sockets) socket.destroy();
+            sockets.clear();
+            server.closeAllConnections();
+            server.close(() => done());
+          }),
+      );
+      return closePromise;
+    },
   };
 }

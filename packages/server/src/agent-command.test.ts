@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import type { PendingRequest } from "@leglas/server";
-
-import { commandFor, nextRequest, parseTemplate } from "./watch.js";
+import type { PendingRequest } from "./requests.js";
+import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 
 function template(raw: string) {
   const parsed = parseTemplate(raw);
@@ -96,8 +95,6 @@ describe("commandFor", () => {
   });
 
   test("carries a stub script through unchanged, which is how the loop is smoke tested", () => {
-    // The shape a manual check uses: a script that appends and exits 0, spawned
-    // with its own flags intact and the prompt as the final single argument.
     const { command, args } = commandFor(
       template('node ./stub.js --out "run log.txt" {prompt}'),
       "make it warmer",
