@@ -1493,12 +1493,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               requestDecision.kind === "picker" ? (
                 <div className="min-w-0 flex-1 text-[10px] leading-[10px] text-[#84848C]">
                   <span className="block truncate">Run these with:</span>
-                  <div className="flex h-4 min-w-0 items-center gap-0.5 overflow-hidden whitespace-nowrap">
+                  {/* The agent names are the only actions in this slot, so they
+                      get the pill treatment and the dismissal stays plain text:
+                      same size, two different invitations. */}
+                  <div className="flex h-4 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
                     {agentState.agents
                       .filter((agent) => agent.available)
                       .map((agent) => (
                         <button
-                          className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
+                          className="shrink-0 rounded border border-[#3A3A40] px-1.5 text-[10px] leading-[14px] text-[#D1D5DB] transition-colors hover:border-[#D1D5DB]/60 hover:text-white disabled:cursor-wait disabled:opacity-40"
                           disabled={pickingAgent !== null}
                           key={agent.id}
                           onClick={() => pickAgent(agent.id)}
@@ -1508,7 +1511,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                         </button>
                       ))}
                     <button
-                      className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] opacity-75 transition-colors hover:text-[#D1D5DB] hover:opacity-100"
+                      className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB]"
                       onClick={() =>
                         st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }))
                       }
@@ -1519,9 +1522,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   </div>
                   <span
                     className="block truncate text-[#84848C]"
-                    title="Runs in this project with write access, like in your terminal."
+                    title="Runs here with write access, like in your terminal."
                   >
-                    Runs in this project with write access, like in your terminal.
+                    Runs here with write access, like in your terminal.
                   </span>
                 </div>
               ) : requestDecision.kind === "status" ? (

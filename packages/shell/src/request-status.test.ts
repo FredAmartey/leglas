@@ -124,7 +124,7 @@ describe("requestStatusLine status priority", () => {
       }),
     ).toEqual({
       kind: "status",
-      text: "Claude is on it — editing src/Hero.tsx",
+      text: "Claude is on it: editing src/Hero.tsx",
       cancellable: true,
       failedId: null,
     });
@@ -185,7 +185,7 @@ describe("requestStatusLine status priority", () => {
       }),
     ).toEqual({
       kind: "status",
-      text: "That change failed — try again?",
+      text: "That change failed. Try again?",
       cancellable: false,
       failedId: "newer",
     });

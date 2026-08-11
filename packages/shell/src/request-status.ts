@@ -49,7 +49,7 @@ export function requestStatusLine(
     const name = agent.name ?? "Your agent";
     return {
       kind: "status",
-      text: agent.activity ? `${name} is on it — ${agent.activity}` : `${name} is on it`,
+      text: agent.activity ? `${name} is on it: ${agent.activity}` : `${name} is on it`,
       cancellable: true,
       failedId: null,
     };
@@ -78,7 +78,7 @@ export function requestStatusLine(
   if (failed !== undefined) {
     return {
       kind: "status",
-      text: "That change failed — try again?",
+      text: "That change failed. Try again?",
       cancellable: false,
       failedId: failed.id,
     };
