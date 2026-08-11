@@ -16,7 +16,7 @@ import { findConfigFile } from "./find-config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
-import { appendRequest, composeRequest, readRequests } from "./requests.js";
+import { appendRequest, composeRequest, readRequests, removeRequest } from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -98,13 +98,31 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
 }
 
 /**
- * Browser mutations must come from this loopback server's own interface.
+ * Browser mutations must come from this server's own interface.
  *
  * A request without Origin is a CLI or another non-browser client and is safe
  * to keep supporting. Browsers attach Origin to POSTs, including safelisted
  * form and text requests, so rejecting a mismatch closes the cross-site path.
- * The Host check also refuses DNS rebinding names that happen to resolve here.
+ * Teammates can open Leglas directly over the LAN, so loopback, .local and
+ * private IPv4 Hosts are legitimate. Public DNS names stay refused, which is
+ * the part of this check that prevents a rebinding name from reaching the API.
  */
+function isAllowedMutationHost(hostname: string): boolean {
+  const bare = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+  if (bare === "localhost" || bare === "127.0.0.1" || bare === "::1") return true;
+  if (bare.endsWith(".local")) return true;
+  if (!net.isIPv4(bare)) return false;
+
+  const [first, second] = bare.split(".").map(Number);
+  return (
+    first === 10 ||
+    (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
 function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (typeof req.headers.host !== "string") return false;
 
@@ -114,7 +132,7 @@ function isTrustedMutation(req: http.IncomingMessage): boolean {
   } catch {
     return false;
   }
-  if (host.hostname !== "localhost" && host.hostname !== "127.0.0.1") return false;
+  if (!isAllowedMutationHost(host.hostname)) return false;
 
   const rawOrigin = req.headers.origin;
   if (rawOrigin === undefined) return true;
@@ -457,6 +475,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         requestId: null,
         agent: null,
         activity: null,
+        failedIds: [],
       };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
@@ -464,7 +483,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             id,
             title,
             intent,
-            status: snapshot.running && snapshot.requestId === id ? "running" : status,
+            status:
+              snapshot.running && snapshot.requestId === id
+                ? "running"
+                : snapshot.failedIds.includes(id)
+                  ? "failed"
+                  : status,
           })),
           agent: {
             attached: externallyAttached(),
@@ -478,6 +502,51 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (path === `${LEGLAS_PREFIX}/api/requests/cancel` && req.method === "POST") {
       return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/requests/retry` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Retry must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
+        }
+
+        const request = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+        if (request === undefined) {
+          return sendJson(res, 404, { ok: false, error: "No such request." });
+        }
+        if (!(runner?.snapshot().failedIds.includes(request.id) ?? false)) {
+          return sendJson(res, 400, { ok: false, error: "Only a failed request can be retried." });
+        }
+
+        try {
+          if (!(await removeRequest(cwd, request.id))) {
+            return sendJson(res, 404, { ok: false, error: "No such request." });
+          }
+          await appendRequest(cwd, {
+            title: request.title,
+            url: request.url,
+            intent: request.intent,
+            target: request.target,
+            prompt: request.prompt,
+          });
+          // appendRequest assigns a fresh id, which is naturally outside the
+          // runner's process-local failed set and needs no retry exception.
+          return sendJson(res, 200, { ok: true });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The request could not be retried." });
+        }
+      });
     }
 
     // The rail holds the renames; this puts them where the commands can read

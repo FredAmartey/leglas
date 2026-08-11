@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
-import { appendRequest } from "./requests.js";
+import { appendRequest, readRequests } from "./requests.js";
 import { startServer, type RunningServer } from "./server.js";
 
 const running: RunningServer[] = [];
@@ -50,7 +50,66 @@ async function start(options: Parameters<typeof startServer>[0]): Promise<Runnin
   return server;
 }
 
+function postWatchAs(server: RunningServer, host: string, origin = `http://${host}`): Promise<number> {
+  const payload = JSON.stringify({ watching: true });
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: server.port,
+        path: "/leglas/api/watch",
+        method: "POST",
+        headers: {
+          host,
+          origin,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+        },
+      },
+      (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      },
+    );
+    request.once("error", reject);
+    request.end(payload);
+  });
+}
+
 describe("startServer", () => {
+  test.each([
+    "studio.local",
+    "192.168.40.12",
+    "10.20.30.40",
+    "172.16.0.1",
+    "172.31.255.254",
+    "[::1]",
+  ])("allows a same-origin browser mutation through the LAN host %s", async (hostname) => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+    const host = `${hostname}:${server.port}`;
+
+    expect(await postWatchAs(server, host)).toBe(200);
+  });
+
+  test("refuses a public hostname even when Origin matches it", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+    const host = `preview.example.com:${server.port}`;
+
+    expect(await postWatchAs(server, host)).toBe(403);
+  });
+
+  test("still refuses a mismatched Origin on an allowed LAN hostname", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    expect(
+      await postWatchAs(
+        server,
+        `studio.local:${server.port}`,
+        `http://192.168.40.12:${server.port}`,
+      ),
+    ).toBe(403);
+  });
+
   test("POST then GET exposes queued request state without collecting it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
     const server = await start({ config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]), port: 0, cwd });
@@ -189,7 +248,7 @@ describe("startServer", () => {
     });
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     type RequestsBody = {
-      requests: { status: string }[];
+      requests: { id: string; status: string }[];
       agent: { attached: boolean; running: boolean; name: string | null; activity: string | null };
     };
 
@@ -217,10 +276,92 @@ describe("startServer", () => {
       body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    expect(body.requests[0]?.status).toBe("picked-up");
+    expect(body.requests[0]?.status).toBe("failed");
 
     const idle = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
     expect(await idle.json()).toEqual({ ok: true, cancelled: false });
+  });
+
+  test("replaces a failed request with a fresh queued copy", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-api-"));
+    await saveAgentChoice(cwd, {
+      agent: "custom",
+      run: 'node -e "process.exit(7)" {prompt}',
+    });
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/?v-hero=aurora",
+      intent: "warmer",
+      target: ".leglas/variants/hero/aurora.tsx",
+      prompt: "make it warmer",
+    });
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    let failed: { id: string; status: string } | undefined;
+    const deadline = Date.now() + 3000;
+    while (failed?.status !== "failed") {
+      if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
+      const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+        requests: { id: string; status: string }[];
+      };
+      failed = payload.requests[0];
+      if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: failed.id }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const [retried] = await readRequests(cwd);
+    expect(retried).toMatchObject({
+      status: "queued",
+      title: "Aurora",
+      url: "/?v-hero=aurora",
+      intent: "warmer",
+      target: ".leglas/variants/hero/aurora.tsx",
+      prompt: "make it warmer",
+    });
+    expect(retried?.id).not.toBe(failed.id);
+  });
+
+  test("refuses to retry a request that has not failed", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-pending-"));
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/",
+      intent: "warmer",
+      target: null,
+      prompt: "make it warmer",
+    });
+    const [queued] = await readRequests(cwd);
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: queued?.id }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
+  });
+
+  test("returns 404 when retry names no request", async () => {
+    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
+    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "missing" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
   });
 
   test("an agent counts as attached while its heartbeat is fresh, and not once it stops", async () => {

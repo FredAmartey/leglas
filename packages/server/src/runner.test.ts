@@ -129,6 +129,9 @@ describe("startRunner", () => {
     spawned.children[0]?.close(1);
     await until(() => !runner.snapshot().running);
     expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
+    expect(runner.snapshot().failedIds).toEqual([
+      (await readRequests(cwd))[0]?.id,
+    ]);
     clock.tick();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);

@@ -18,7 +18,10 @@ export type RunnerState = {
   requestId: string | null;
   agent: string | null;
   activity: string | null;
+  failedIds: readonly string[];
 };
+
+type ActiveRunnerState = Omit<RunnerState, "failedIds">;
 
 export type RunnerChild = {
   stdout: NodeJS.ReadableStream;
@@ -120,7 +123,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
 
-  let state: RunnerState = {
+  let state: ActiveRunnerState = {
     running: false,
     requestId: null,
     agent: null,
@@ -287,7 +290,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
   return {
     stop,
-    snapshot: () => ({ ...state }),
+    snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
   };
 }

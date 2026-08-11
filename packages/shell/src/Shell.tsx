@@ -27,7 +27,19 @@ import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
-import { requestStatusLine, type RequestStatus } from "./request-status.js";
+import {
+  requestStatusLine,
+  type AgentStatus,
+  type RequestStatus,
+  type RequestStatusDecision,
+} from "./request-status.js";
+import {
+  cancelAgentRun,
+  chooseAgent,
+  readAgents,
+  retryFailedRequest,
+  type AgentsPayload,
+} from "./agent-api.js";
 
 /**
  * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
@@ -69,6 +81,19 @@ const LOAD_TIMEOUT_MS = 15_000;
  * toasts stack on top of rather than over.
  */
 const RAIL_FOOTER_H = 86;
+
+const IDLE_AGENT: AgentStatus = {
+  attached: false,
+  running: false,
+  name: null,
+  activity: null,
+};
+
+const EMPTY_AGENTS: AgentsPayload = {
+  agents: [],
+  choice: null,
+  customRun: null,
+};
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC =
@@ -201,6 +226,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // direction it means is the highlighted row directly above it.
   const [intent, setIntent] = useState("");
   const [sending, setSending] = useState(false);
+  const [pickingAgent, setPickingAgent] = useState<string | null>(null);
+  const [requestAction, setRequestAction] = useState<"cancel" | "retry" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -501,11 +528,26 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * untrue.
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
-  const [requests, setRequests] = useState<RequestStatus[]>([]);
-  // Whether leglas watch is running somewhere. It rides the same poll because
-  // it answers the same question the queue does: is anyone going to act on
-  // what I just typed.
-  const [attached, setAttached] = useState(false);
+  const [requestSnapshot, setRequestSnapshot] = useState<{
+    requests: RequestStatus[];
+    agent: AgentStatus;
+  }>({ requests: [], agent: IDLE_AGENT });
+  const [agentState, setAgentState] = useState<AgentsPayload>(EMPTY_AGENTS);
+  const [agentsTick, refreshAgents] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    let cancelled = false;
+    void readAgents()
+      .then((payload) => {
+        if (cancelled) return;
+        setAgentState((current) =>
+          JSON.stringify(current) === JSON.stringify(payload) ? current : payload,
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentsTick]);
   // Bumped after a submit so the hint updates without waiting out the
   // interval; the effect restarting is the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
@@ -518,23 +560,87 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       fetch("/leglas/api/requests")
         .then(
           (response) =>
-            response.json() as Promise<{ requests: RequestStatus[]; agent?: { attached: boolean } }>,
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
         )
         .then((payload) => {
           if (cancelled) return;
-          setRequests((current) =>
-            JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
+          const next = {
+            requests: payload.requests,
+            agent: payload.agent ?? IDLE_AGENT,
+          };
+          setRequestSnapshot((current) =>
+            JSON.stringify(current) === JSON.stringify(next) ? current : next,
           );
-          setAttached(payload.agent?.attached === true);
         })
         .catch(() => {});
-    const timer = window.setInterval(() => void poll(), 3000);
+    const timer = window.setInterval(() => void poll(), 2000);
     void poll();
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [requestsTick]);
+  const computedRequestDecision = requestStatusLine(
+    requestSnapshot.requests,
+    requestSnapshot.agent,
+    agentState.choice,
+    agentState.agents,
+    st.prefs.agentPickerDismissed,
+  );
+  const decisionKey = JSON.stringify(computedRequestDecision);
+  const shownRequestDecision = useRef<{
+    key: string;
+    value: RequestStatusDecision;
+  }>({ key: decisionKey, value: computedRequestDecision });
+  if (shownRequestDecision.current.key !== decisionKey) {
+    shownRequestDecision.current = { key: decisionKey, value: computedRequestDecision };
+  }
+  const requestDecision = shownRequestDecision.current.value;
+  const pickAgent = (agent: string) => {
+    if (pickingAgent !== null) return;
+    setPickingAgent(agent);
+    void chooseAgent(agent)
+      .then(() => refreshAgents())
+      .catch(() => {
+        st.notify({
+          kind: "agent-choice",
+          message: "That agent could not be selected. No run started.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setPickingAgent(null));
+  };
+  const cancelRequest = () => {
+    if (requestAction !== null) return;
+    setRequestAction("cancel");
+    void cancelAgentRun()
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-cancel",
+          message: "Leglas could not stop that run.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
+  const retryRequest = (id: string) => {
+    if (requestAction !== null) return;
+    setRequestAction("retry");
+    void retryFailedRequest(id)
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-retry",
+          message: "That change could not be retried.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
   const loadedRef = useRef(st.loaded);
   loadedRef.current = st.loaded;
 
@@ -1380,13 +1486,81 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             />
           </form>
 
-          <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="flex h-11 items-center justify-between gap-2 px-3 py-1">
             {/* While the tools are switched off the composer hint gives its
                 slot to the way back, so the toast is not the only sign. */}
             {st.prefs.showWidget ? (
-              <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                {requestStatusLine(requests, st.active, attached) ?? <>Enter queues it for <span className="font-medium">npx leglas requests</span></>}
-              </span>
+              requestDecision.kind === "picker" ? (
+                <div className="min-w-0 flex-1 text-[10px] leading-[10px] text-[#84848C]">
+                  <span className="block truncate">Run these with:</span>
+                  <div className="flex h-4 min-w-0 items-center gap-0.5 overflow-hidden whitespace-nowrap">
+                    {agentState.agents
+                      .filter((agent) => agent.available)
+                      .map((agent) => (
+                        <button
+                          className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
+                          disabled={pickingAgent !== null}
+                          key={agent.id}
+                          onClick={() => pickAgent(agent.id)}
+                          type="button"
+                        >
+                          {agent.name}
+                        </button>
+                      ))}
+                    <button
+                      className="shrink-0 rounded px-0.5 py-0.5 text-[10px] leading-3 text-[#84848C] opacity-75 transition-colors hover:text-[#D1D5DB] hover:opacity-100"
+                      onClick={() =>
+                        st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }))
+                      }
+                      type="button"
+                    >
+                      I&apos;ll run my own
+                    </button>
+                  </div>
+                  <span
+                    className="block truncate text-[#84848C]"
+                    title="Runs in this project with write access, like in your terminal."
+                  >
+                    Runs in this project with write access, like in your terminal.
+                  </span>
+                </div>
+              ) : requestDecision.kind === "status" ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  {requestDecision.failedId !== null ? (
+                    <button
+                      className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
+                      disabled={requestAction !== null}
+                      onClick={() => retryRequest(requestDecision.failedId as string)}
+                      type="button"
+                    >
+                      {requestDecision.text}
+                    </button>
+                  ) : (
+                    <span
+                      className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[10px] leading-snug text-[#84848C] [direction:rtl]"
+                      title={requestDecision.text}
+                    >
+                      <bdi dir="ltr">{requestDecision.text}</bdi>
+                    </span>
+                  )}
+                  {requestDecision.cancellable ? (
+                    <button
+                      aria-label="Stop this run"
+                      className="shrink-0 rounded px-0.5 text-[13px] leading-none text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
+                      disabled={requestAction !== null}
+                      onClick={cancelRequest}
+                      title="Stop this run"
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                  Enter queues it for <span className="font-medium">npx leglas requests</span>
+                </span>
+              )
             ) : (
               <button
                 className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
