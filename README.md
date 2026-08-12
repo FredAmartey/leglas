@@ -69,7 +69,9 @@ and sessions that clean up after themselves.
   Codex, Cursor) are one click away next to the send button, each asked
   for its login status so a signed-out CLI says so before a run instead
   of failing one. Not on that list? Type the command that runs your
-  agent once, in the same menu, and Leglas hands it each request. Each run
+  agent once, in the same menu, and Leglas hands it each request; or
+  connect an agent Leglas can't spawn (an IDE panel, an MCP host) with
+  the copy-paste MCP wiring behind "Connect another agent". Each run
   reports in a card above the field: who is working, what file they
   are touching, how long it has been, a stop button while it runs and
   retry when it fails. Your agent, your subscription, no keys.

@@ -15,6 +15,7 @@ import {
 } from "leglas";
 import { z } from "zod";
 
+import { createEngagement, type Engagement } from "./engagement.js";
 import type { Project } from "./project.js";
 
 /**
@@ -76,12 +77,19 @@ export type LeglasTools = {
   shutdown(): Promise<void>;
 };
 
-export function registerLeglasTools(server: McpServer, options: { project: Project }): LeglasTools {
+export function registerLeglasTools(
+  server: McpServer,
+  options: { project: Project; engagement?: Engagement },
+): LeglasTools {
   const project = options.project;
 
   // One viewer per MCP process. The handle is held so a host that dies or
   // disconnects never leaves a dev server running on a port nobody remembers.
   let viewer: RunResult | null = null;
+
+  // Working the queue over MCP counts as attachment, exactly like watch: the
+  // embedded runner must not race a host's agent for the same tree.
+  const engagement = options.engagement ?? createEngagement();
 
   server.registerTool(
     "start",
@@ -272,10 +280,15 @@ export function registerLeglasTools(server: McpServer, options: { project: Proje
         clear: z.boolean().optional(),
       },
     },
-    async ({ clear }) =>
-      inProject(project, (cwd, deps) =>
+    async ({ clear }) => {
+      // Touched on every call, empty queue included: an agent that just asked
+      // is an agent about to act, and the beat lapses on its own once the
+      // asking stops.
+      engagement.touch();
+      return inProject(project, (cwd, deps) =>
         runRequests({ json: true, clear: clear ?? false, cwd }, deps),
-      ),
+      );
+    },
   );
 
   server.registerTool(
@@ -296,6 +309,7 @@ export function registerLeglasTools(server: McpServer, options: { project: Proje
     shutdown: async () => {
       const running = viewer;
       viewer = null;
+      await engagement.stop().catch(() => {});
       await running?.stop().catch(() => {});
     },
   };

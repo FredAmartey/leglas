@@ -86,6 +86,19 @@ const LOAD_TIMEOUT_MS = 15_000;
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
 
+/**
+ * What "connect another agent" hands out. The MCP server is the entry point
+ * for agents Leglas cannot spawn: IDE panels and chat hosts get the tools,
+ * and working the queue through them parks the embedded runner the same way
+ * a terminal watcher does.
+ */
+const CONNECT_CLAUDE = "claude mcp add leglas -- npx leglas-mcp";
+const CONNECT_MCP_JSON = `{
+  "mcpServers": {
+    "leglas": { "command": "npx", "args": ["leglas-mcp"] }
+  }
+}`;
+
 const IDLE_AGENT: AgentStatus = {
   attached: false,
   running: false,
@@ -245,6 +258,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // Non-null while the menu is showing the custom-command editor; holds the
   // draft template. Any CLI with a {prompt} slot is a valid agent here.
   const [customDraft, setCustomDraft] = useState<string | null>(null);
+  // The menu's third face: how to hand an agent we cannot spawn (an IDE
+  // panel, an MCP host) the Leglas tools instead.
+  const [connectOpen, setConnectOpen] = useState(false);
   const [requestAction, setRequestAction] = useState<"cancel" | "retry" | "dismiss" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -646,7 +662,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   }, [chip.kind]);
   // The editor never outlives the menu that opened it.
   useEffect(() => {
-    if (!agentMenuOpen) setCustomDraft(null);
+    if (!agentMenuOpen) {
+      setCustomDraft(null);
+      setConnectOpen(false);
+    }
   }, [agentMenuOpen]);
   // Same dismissal contract as the tools popover: Escape, clicking away, or
   // the window losing focus all put the menu back without ceremony.
@@ -725,6 +744,19 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         });
       })
       .finally(() => setRequestAction(null));
+  };
+  const copyConnect = (label: string, snippet: string) => {
+    void copyText(snippet).then((outcome) => {
+      st.notify({
+        kind: "agent-connect",
+        message:
+          outcome === "copied"
+            ? `${label} copied.`
+            : "Your browser blocked the clipboard. The README carries the same snippet.",
+        tone: outcome === "copied" ? "success" : "danger",
+        ttl: TOAST_TTL.plain,
+      });
+    });
   };
   const dismissRequest = (id: string) => {
     if (requestAction !== null) return;
@@ -1870,6 +1902,47 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             </button>
                           </div>
                         </div>
+                      ) : connectOpen ? (
+                        /* For the agent Leglas cannot spawn: an IDE panel, a
+                           chat host. One paste gives it the Leglas tools over
+                           MCP, and working the queue through them parks the
+                           embedded runner exactly like a terminal watcher. */
+                        <div className="w-64 p-1">
+                          <p className="px-1 pb-1 text-[10px] leading-snug text-[#84848C]">
+                            Give your agent the Leglas tools. Copy the one your
+                            agent understands:
+                          </p>
+                          <button
+                            className={ROW_BUTTON}
+                            onClick={() => copyConnect("The Claude Code command", CONNECT_CLAUDE)}
+                            type="button"
+                          >
+                            <span className="truncate">Claude Code command</span>
+                            <PIcon d={P.copy} size={12} />
+                          </button>
+                          <button
+                            className={ROW_BUTTON}
+                            onClick={() => copyConnect("The mcp.json entry", CONNECT_MCP_JSON)}
+                            type="button"
+                          >
+                            <span className="truncate">mcp.json for everything else</span>
+                            <PIcon d={P.copy} size={12} />
+                          </button>
+                          <p className="px-1 pt-1 text-[9px] leading-snug text-[#84848C]/80">
+                            Then ask it to handle your Leglas change requests.
+                            While it works, the built-in runner stays out of
+                            its way.
+                          </p>
+                          <div className="flex items-center justify-between pt-1.5">
+                            <button
+                              className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                              onClick={() => setConnectOpen(false)}
+                              type="button"
+                            >
+                              Back
+                            </button>
+                          </div>
+                        </div>
                       ) : (
                         <>
                           {agentState.agents
@@ -1926,6 +1999,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             {chip.kind === "chosen" && chip.id === "custom" && (
                               <span aria-label="current choice">✓</span>
                             )}
+                          </button>
+                          <button
+                            className={`${ROW_BUTTON} text-[#84848C]`}
+                            onClick={() => setConnectOpen(true)}
+                            type="button"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <PIcon d={P.link} size={14} />
+                              <span className="truncate">Connect another agent…</span>
+                            </span>
                           </button>
                           {agentState.choice === null && (
                             <button
