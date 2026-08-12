@@ -501,6 +501,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         requestId: null,
         agent: null,
         activity: null,
+        startedAt: null,
         failedIds: [],
       };
       return void readRequests(cwd).then((requests) =>
@@ -521,6 +522,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             running: snapshot.running,
             name: snapshot.running ? snapshot.agent : null,
             activity: snapshot.running ? snapshot.activity : null,
+            startedAt: snapshot.running ? snapshot.startedAt : null,
           },
         }),
       );
@@ -571,6 +573,40 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 200, { ok: true });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The request could not be retried." });
+        }
+      });
+    }
+
+    // Letting go of a failed request. The runner will never touch it again
+    // anyway, so removal only makes the queue file agree with that, but it is
+    // held to failed ids so a live or waiting request cannot be swept away.
+    if (path === `${LEGLAS_PREFIX}/api/requests/dismiss` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
+        }
+        if (!(runner?.snapshot().failedIds.includes(parsed.id) ?? false)) {
+          return sendJson(res, 400, { ok: false, error: "Only a failed request can be dismissed." });
+        }
+
+        try {
+          if (!(await removeRequest(cwd, parsed.id))) {
+            return sendJson(res, 404, { ok: false, error: "No such request." });
+          }
+          return sendJson(res, 200, { ok: true });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The request could not be dismissed." });
         }
       });
     }

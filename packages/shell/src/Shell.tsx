@@ -29,14 +29,16 @@ import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
 import {
-  requestStatusLine,
+  composerAgent,
+  formatElapsed,
+  requestCard,
   type AgentStatus,
   type RequestStatus,
-  type RequestStatusDecision,
 } from "./request-status.js";
 import {
   cancelAgentRun,
   chooseAgent,
+  dismissFailedRequest,
   readAgents,
   retryFailedRequest,
   type AgentsPayload,
@@ -78,16 +80,18 @@ function tagTone(tag: string) {
 const LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * The rail's foot, the change composer and the agent selector under it, which
- * toasts stack on top of rather than over.
+ * The rail's foot before it is first measured. The real height moves with the
+ * status card above the composer, so toasts read it from a ResizeObserver and
+ * this only covers the frame before that observer reports.
  */
-const RAIL_FOOTER_H = 96;
+const RAIL_FOOTER_FALLBACK_H = 96;
 
 const IDLE_AGENT: AgentStatus = {
   attached: false,
   running: false,
   name: null,
   activity: null,
+  startedAt: null,
 };
 
 const EMPTY_AGENTS: AgentsPayload = {
@@ -229,11 +233,25 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
-  const [requestAction, setRequestAction] = useState<"cancel" | "retry" | null>(null);
+  const [requestAction, setRequestAction] = useState<"cancel" | "retry" | "dismiss" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const agentMenuRef = useRef<HTMLDivElement | null>(null);
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Toasts stack on top of the rail's foot, whose height now moves with the
+  // status card, so they follow a measurement instead of a constant.
+  const railFooterRef = useRef<HTMLDivElement | null>(null);
+  const [railFooterH, setRailFooterH] = useState(RAIL_FOOTER_FALLBACK_H);
+  useEffect(() => {
+    const node = railFooterRef.current;
+    if (node === null || typeof ResizeObserver === "undefined") return;
+    const measure = () => setRailFooterH(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   // One white/6% panel behind the hovered row that eases between rows. The
   // active row carries its own persistent surface, so this is hover-only.
@@ -584,28 +602,28 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       window.clearInterval(timer);
     };
   }, [requestsTick]);
-  const computedRequestDecision = requestStatusLine(
+  // Two independent readings of one snapshot: the chip says who Enter sends
+  // to, the card says what is happening right now. They used to fight over a
+  // single footer slot, which is how a running request could hide the chooser.
+  const chip = composerAgent(agentState.choice, agentState.agents, st.prefs.agentPickerDismissed);
+  const card = requestCard(
     requestSnapshot.requests,
     requestSnapshot.agent,
-    agentState.choice,
-    agentState.agents,
-    st.prefs.agentPickerDismissed,
+    chip.kind === "chosen" || requestSnapshot.agent.attached,
   );
-  const decisionKey = JSON.stringify(computedRequestDecision);
-  const shownRequestDecision = useRef<{
-    key: string;
-    value: RequestStatusDecision;
-  }>({ key: decisionKey, value: computedRequestDecision });
-  if (shownRequestDecision.current.key !== decisionKey) {
-    shownRequestDecision.current = { key: decisionKey, value: computedRequestDecision };
-  }
-  const requestDecision = shownRequestDecision.current.value;
+  // The elapsed counter ticks locally between polls; the anchor comes from
+  // the server so a reload half-way through a run does not restart it.
+  const runStartedAt = card?.kind === "running" ? card.startedAt : null;
+  const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
-    // A run taking the slot means the chooser has nothing to offer right now.
-    if (requestDecision.kind !== "ready" && requestDecision.kind !== "picker") {
-      setAgentMenuOpen(false);
-    }
-  }, [requestDecision.kind]);
+    if (runStartedAt === null) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runStartedAt]);
+  useEffect(() => {
+    if (chip.kind === "none") setAgentMenuOpen(false);
+  }, [chip.kind]);
   // Same dismissal contract as the tools popover: Escape, clicking away, or
   // the window losing focus all put the menu back without ceremony.
   useEffect(() => {
@@ -675,6 +693,21 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         st.notify({
           kind: "agent-retry",
           message: "That change could not be retried.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
+  const dismissRequest = (id: string) => {
+    if (requestAction !== null) return;
+    setRequestAction("dismiss");
+    void dismissFailedRequest(id)
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-dismiss",
+          message: "That change could not be dismissed.",
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
@@ -1473,13 +1506,173 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             )}
           </div>
 
+          {/* The rail's foot as one measured block, because the card above the
+              composer gives it a height that moves and the toasts stack on
+              whatever that height turns out to be. */}
+          <div ref={railFooterRef}>
+            {/* One card, one event: the run in flight, the queue waiting, or
+                the failure asking what to do about it. It lives above the
+                composer the way a reply lives above the thing being typed,
+                and it never takes the chooser or the field hostage. */}
+            {card !== null && (
+              <div
+                className="mx-3 mt-2 rounded-lg border border-[#232328] bg-[#1E1E22] px-2.5 py-2 shadow-lg"
+                role="status"
+              >
+                <div className="flex items-center gap-2">
+                  {card.kind === "failed" ? (
+                    <svg
+                      aria-hidden="true"
+                      className="shrink-0 text-amber-400/90"
+                      fill="none"
+                      height="14"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.5"
+                      viewBox="0 0 16 16"
+                      width="14"
+                    >
+                      <path d="M8 2.6 14.6 13.4H1.4Z" />
+                      <path d="M8 6.8v2.7" />
+                      <path d="M8 11.6h.01" />
+                    </svg>
+                  ) : card.kind === "queued" ? (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-3.5 shrink-0 items-center justify-center"
+                    >
+                      <span className="size-1.5 animate-pulse rounded-full bg-[#84848C] motion-reduce:animate-none" />
+                    </span>
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-white/15 border-t-white/70 motion-reduce:animate-none"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-medium leading-tight text-[#D1D5DB]">
+                      {card.kind === "running"
+                        ? `${card.name} is on it`
+                        : card.kind === "queued"
+                          ? card.count === 1
+                            ? "Change queued"
+                            : `${card.count} changes queued`
+                          : card.kind === "picked-up"
+                            ? "Your agent is on it"
+                            : "That change failed"}
+                    </p>
+                    {(card.kind === "running" && (card.activity ?? card.title) !== null && (
+                      <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                        {card.activity ?? card.title}
+                      </p>
+                    )) ||
+                      (card.kind === "queued" && (
+                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                          {card.attended
+                            ? "your agent picks it up next"
+                            : chip.kind === "manual"
+                              ? "waiting for your own agent"
+                              : "pick who runs your changes"}
+                        </p>
+                      )) ||
+                      (card.kind === "failed" && (
+                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                          {card.title}
+                        </p>
+                      ))}
+                  </div>
+                  {card.kind === "running" && runStartedAt !== null && (
+                    <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
+                      {formatElapsed(clock - runStartedAt)}
+                    </span>
+                  )}
+                  {card.kind === "running" && (
+                    <Tip label="Stop this run">
+                      <button
+                        aria-label="Stop this run"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                        disabled={requestAction !== null}
+                        onClick={cancelRequest}
+                        type="button"
+                      >
+                        {requestAction === "cancel" ? (
+                          <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                        ) : (
+                          <span className="block size-2 rounded-[2px] bg-current" />
+                        )}
+                      </button>
+                    </Tip>
+                  )}
+                  {card.kind === "failed" && (
+                    <span className="flex shrink-0 items-center">
+                      <Tip label="Try it again">
+                        <button
+                          aria-label="Retry this change"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                          disabled={requestAction !== null}
+                          onClick={() => retryRequest(card.id)}
+                          type="button"
+                        >
+                          {requestAction === "retry" ? (
+                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                          ) : (
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              height="13"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.75"
+                              viewBox="0 0 16 16"
+                              width="13"
+                            >
+                              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+                              <path d="M13.7 1.8v2.7H11" />
+                            </svg>
+                          )}
+                        </button>
+                      </Tip>
+                      <Tip label="Let it go">
+                        <button
+                          aria-label="Dismiss this failed change"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                          disabled={requestAction !== null}
+                          onClick={() => dismissRequest(card.id)}
+                          type="button"
+                        >
+                          {requestAction === "dismiss" ? (
+                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                          ) : (
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              height="13"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.75"
+                              viewBox="0 0 16 16"
+                              width="13"
+                            >
+                              <path d="m4 4 8 8M12 4l-8 8" />
+                            </svg>
+                          )}
+                        </button>
+                      </Tip>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           {/* Enter both queues the request and copies the prompt, so it works
               whether the agent drains the queue or the prompt gets pasted into
               a chat by hand. The confirmation is a toast rather than the
               placeholder it used to swap in, which vanished with the panel
               that carried it. */}
           <form
-            className="px-3 pt-2"
+            className="relative px-3 pb-2.5 pt-2"
             onSubmit={(event) => {
               event.preventDefault();
               const value = intent.trim();
@@ -1493,103 +1686,54 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 body: JSON.stringify({ title, intent: value }),
               })
                 .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
-                .then(async (result) => {
+                .then((result) => {
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
+                  // The send is over once the queue has the request; the
+                  // clipboard is a bonus that must not hold the field. A
+                  // browser sitting on a permission prompt never settles its
+                  // write either way, and waiting on it here once left the
+                  // composer disabled for good.
+                  setSending(false);
                   bumpRequests();
-                  // Said before the clipboard is touched, because the queue is
-                  // the durable half and the clipboard is the half that can
-                  // hang: a browser sitting on a permission prompt never
-                  // settles either way, and a request that was accepted has to
-                  // say so regardless. The copy then supersedes this line,
-                  // since toasts of one kind replace rather than stack.
                   st.notify({
                     kind: "request",
                     message: `Asked for a change to ${name}.`,
                     tone: "success",
                     ttl: TOAST_TTL.plain,
                   });
-                  const outcome = await copyText(result.prompt);
-                  st.notify({
-                    kind: "request",
-                    // A blocked clipboard costs nothing here: the request is
-                    // already queued, and the command that drains it is the
-                    // path the prompt was written for anyway.
-                    message:
-                      outcome === "copied"
-                        ? `Asked for a change to ${name}. Prompt copied.`
-                        : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
-                    tone: "success",
-                    ttl: TOAST_TTL.plain,
+                  // The copy then supersedes that line whenever it settles,
+                  // since toasts of one kind replace rather than stack.
+                  void copyText(result.prompt).then((outcome) => {
+                    st.notify({
+                      kind: "request",
+                      // A blocked clipboard costs nothing here: the request is
+                      // already queued, and the command that drains it is the
+                      // path the prompt was written for anyway.
+                      message:
+                        outcome === "copied"
+                          ? `Asked for a change to ${name}. Prompt copied.`
+                          : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
+                      tone: "success",
+                      ttl: TOAST_TTL.plain,
+                    });
                   });
                 })
                 .catch(() => {
+                  setSending(false);
                   st.notify({
                     kind: "request",
                     message: `That request never reached Leglas. ${name} is unchanged.`,
                     tone: "danger",
                     ttl: TOAST_TTL.action,
                   });
-                })
-                .finally(() => setSending(false));
+                });
             }}
           >
-            <div className="relative">
-              <input
-                aria-label={
-                  st.active
-                    ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                    : "Ask your agent to change a direction"
-                }
-                className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-2 pl-2.5 pr-9 text-xs text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={sending || !st.active}
-                onChange={(event) => setIntent(event.target.value)}
-                placeholder={
-                  st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
-                }
-                ref={requestRef}
-                type="text"
-                value={intent}
-              />
-              {/* A real send button, because Enter alone is an invisible
-                  contract. Dim and inert until there is something to send;
-                  the field's one moment of light once there is. */}
-              <button
-                aria-label={
-                  st.active
-                    ? `Send the change to ${st.displayName(st.active)}`
-                    : "Send the change"
-                }
-                className={`absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
-                  intent.trim() !== "" && st.active && !sending
-                    ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
-                    : "pointer-events-none text-[#84848C]/60"
-                }`}
-                disabled={intent.trim() === "" || !st.active || sending}
-                type="submit"
-              >
-                <svg
-                  aria-hidden="true"
-                  fill="none"
-                  height="13"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="1.75"
-                  viewBox="0 0 16 16"
-                  width="13"
-                >
-                  <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-                </svg>
-              </button>
-            </div>
-          </form>
-
-          <div className="relative flex items-center justify-between gap-2 px-3 py-2">
-            {/* The chooser floats above the composer in the tools panel's own
-                dress, so the footer keeps its single quiet line. Deciding who
-                runs your changes deserves a surface, not a squeeze. */}
-            {(requestDecision.kind === "picker" || requestDecision.kind === "ready") && (
+            {/* The chooser floats above the whole composer in the tools
+                panel's own dress. Deciding who runs your changes deserves a
+                surface, not a squeeze. */}
+            {chip.kind !== "none" && (
               <div
                 aria-hidden={!agentMenuOpen}
                 aria-label="Who runs your changes"
@@ -1609,8 +1753,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 {agentState.agents
                   .filter((agent) => agent.available)
                   .map((agent) => {
-                    const active =
-                      requestDecision.kind === "ready" && agent.id === agentState.choice;
+                    const active = chip.kind === "chosen" && agent.id === chip.id;
                     return (
                       <button
                         className={ROW_BUTTON}
@@ -1623,11 +1766,18 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                           <BrandMark id={agent.id} />
                           <span className="truncate">{agent.name}</span>
                         </span>
-                        {active && <span aria-label="current choice">✓</span>}
+                        {pickingAgent === agent.id ? (
+                          <span
+                            aria-label="selecting"
+                            className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                          />
+                        ) : (
+                          active && <span aria-label="current choice">✓</span>
+                        )}
                       </button>
                     );
                   })}
-                {requestDecision.kind === "picker" && (
+                {agentState.choice === null && (
                   <button
                     className={`${ROW_BUTTON} text-[#84848C]`}
                     onClick={() => {
@@ -1637,6 +1787,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     type="button"
                   >
                     <span>I&apos;ll run my own</span>
+                    {chip.kind === "manual" && <span aria-label="current choice">✓</span>}
                   </button>
                 )}
                 <p className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
@@ -1644,90 +1795,126 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 </p>
               </div>
             )}
-            {/* While the tools are switched off the composer hint gives its
-                slot to the way back, so the toast is not the only sign. */}
-            {st.prefs.showWidget ? (
-              requestDecision.kind === "picker" || requestDecision.kind === "ready" ? (
-                /* Dressed as the select it is: a border, a name, a chevron.
-                   The last version was a bare line of text, and nothing about
-                   a bare line of text says it can be clicked. */
-                <button
-                  aria-expanded={agentMenuOpen}
-                  aria-haspopup="dialog"
-                  className="flex min-w-0 items-center gap-1.5 rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 text-[11px] leading-none text-[#D1D5DB] transition-colors hover:border-[#3A3A40] hover:bg-[#2E2E2E]/60 hover:text-white"
-                  onClick={() => setAgentMenuOpen((open) => !open)}
-                  ref={agentTriggerRef}
-                  type="button"
-                >
-                  {requestDecision.kind === "ready" && agentState.choice !== null && (
-                    <BrandMark id={agentState.choice} size={12} />
-                  )}
-                  <span className="truncate">
-                    {requestDecision.kind === "ready" ? requestDecision.name : "Choose an agent"}
+            {/* One surface, like every composer people already know: what to
+                change on top, who runs it and the send below, inside the same
+                border. The field takes the focus ring for the whole object. */}
+            <div className="rounded-md border border-[#232328] bg-[#2E2E2E]/40 transition-colors focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40">
+              <input
+                aria-label={
+                  st.active
+                    ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                    : "Ask your agent to change a direction"
+                }
+                className="w-full bg-transparent px-2.5 pb-1 pt-2 text-xs text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={sending || !st.active}
+                onChange={(event) => setIntent(event.target.value)}
+                placeholder={
+                  st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
+                }
+                ref={requestRef}
+                type="text"
+                value={intent}
+              />
+              <div className="flex items-center justify-between gap-1.5 p-1">
+                {chip.kind === "none" ? (
+                  <span className="min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
+                    Enter queues it for <span className="font-medium">npx leglas requests</span>
                   </span>
-                  <svg
-                    aria-hidden="true"
-                    className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
-                      agentMenuOpen ? "rotate-180" : ""
-                    }`}
-                    fill="none"
-                    height="12"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.75"
-                    viewBox="0 0 16 16"
-                    width="12"
+                ) : (
+                  /* Dressed as the select it is: a mark, a name, a chevron. */
+                  <button
+                    aria-expanded={agentMenuOpen}
+                    aria-haspopup="dialog"
+                    className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
+                    onClick={() => setAgentMenuOpen((open) => !open)}
+                    ref={agentTriggerRef}
+                    type="button"
                   >
-                    <path d="M4 6.5 8 10.5l4-4" />
-                  </svg>
-                </button>
-              ) : requestDecision.kind === "status" ? (
-                <div className="flex min-w-0 flex-1 items-center gap-1">
-                  {requestDecision.failedId !== null ? (
-                    <button
-                      className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
-                      disabled={requestAction !== null}
-                      onClick={() => retryRequest(requestDecision.failedId as string)}
-                      type="button"
-                    >
-                      {requestDecision.text}
-                    </button>
-                  ) : (
-                    <span
-                      className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[10px] leading-snug text-[#84848C] [direction:rtl]"
-                      title={requestDecision.text}
-                    >
-                      <bdi dir="ltr">{requestDecision.text}</bdi>
+                    {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
+                    <span className="truncate">
+                      {chip.kind === "chosen"
+                        ? chip.name
+                        : chip.kind === "manual"
+                          ? "I'll run my own"
+                          : "Choose an agent"}
                     </span>
-                  )}
-                  {requestDecision.cancellable ? (
-                    <button
-                      aria-label="Stop this run"
-                      className="shrink-0 rounded px-0.5 text-[13px] leading-none text-[#84848C] transition-colors hover:text-[#D1D5DB] disabled:cursor-wait disabled:opacity-40"
-                      disabled={requestAction !== null}
-                      onClick={cancelRequest}
-                      title="Stop this run"
-                      type="button"
+                    <svg
+                      aria-hidden="true"
+                      className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                        agentMenuOpen ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      height="12"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.75"
+                      viewBox="0 0 16 16"
+                      width="12"
                     >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                  Enter queues it for <span className="font-medium">npx leglas requests</span>
-                </span>
-              )
-            ) : (
+                      <path d="M4 6.5 8 10.5l4-4" />
+                    </svg>
+                  </button>
+                )}
+                {/* A real send button, because Enter alone is an invisible
+                    contract. Dim and inert until there is something to send;
+                    the field's one moment of light once there is. */}
+                <button
+                  aria-label={
+                    st.active
+                      ? `Send the change to ${st.displayName(st.active)}`
+                      : "Send the change"
+                  }
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
+                    intent.trim() !== "" && st.active && !sending
+                      ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
+                      : "pointer-events-none text-[#84848C]/60"
+                  }`}
+                  disabled={intent.trim() === "" || !st.active || sending}
+                  type="submit"
+                >
+                  {sending ? (
+                    <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                  ) : (
+                    <svg
+                      aria-hidden="true"
+                      fill="none"
+                      height="13"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.75"
+                      viewBox="0 0 16 16"
+                      width="13"
+                    >
+                      <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* One quiet line under the composer, and only when it has a job:
+              the way back to the hidden tools, or word that a terminal
+              watcher is holding the queue. */}
+          {!st.prefs.showWidget ? (
+            <div className="px-3 pb-2">
               <button
-                className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                className="min-w-0 max-w-full truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
                 onClick={() => setWidgetOpen(true)}
                 type="button"
               >
                 Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
               </button>
-            )}
+            </div>
+          ) : requestSnapshot.agent.attached && card === null ? (
+            <div className="px-3 pb-2">
+              <p className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                Your agent is listening
+              </p>
+            </div>
+          ) : null}
           </div>
         </div>
 
@@ -2156,7 +2343,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       {/* Above the rail's own footer when there is a rail, and just clear of
           the collapsed strip when there is not. */}
       <Toasts
-        bottom={st.prefs.collapsed ? 12 : RAIL_FOOTER_H + 8}
+        bottom={st.prefs.collapsed ? 12 : railFooterH + 8}
         left={st.prefs.collapsed ? 60 : 12}
         onDismiss={st.dismissToast}
         toasts={st.toasts}

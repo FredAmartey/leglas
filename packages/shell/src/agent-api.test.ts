@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   cancelAgentRun,
   chooseAgent,
+  dismissFailedRequest,
   readAgents,
   retryFailedRequest,
   type AgentFetcher,
@@ -74,6 +75,23 @@ describe("embedded agent API", () => {
     expect(recorded.calls).toEqual([
       {
         input: "/leglas/api/requests/retry",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "request-7" }),
+        },
+      },
+    ]);
+  });
+
+  test("posts the failed id when dismissing", async () => {
+    const recorded = recorder();
+
+    await dismissFailedRequest("request-7", recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/dismiss",
         init: {
           method: "POST",
           headers: { "content-type": "application/json" },

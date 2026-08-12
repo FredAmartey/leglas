@@ -142,6 +142,7 @@ describe("startServer", () => {
       running: false,
       name: null,
       activity: null,
+      startedAt: null,
     });
     expect(existsSync(join(cwd, ".leglas"))).toBe(false);
   });
@@ -266,6 +267,7 @@ describe("startServer", () => {
       running: true,
       name: "Custom",
       activity: null,
+      startedAt: expect.any(Number),
     });
 
     const cancelled = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
@@ -362,6 +364,67 @@ describe("startServer", () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
+  });
+
+  test("dismisses a failed request out of the queue", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-dismiss-api-"));
+    await saveAgentChoice(cwd, {
+      agent: "custom",
+      run: 'node -e "process.exit(7)" {prompt}',
+    });
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/",
+      intent: "warmer",
+      target: null,
+      prompt: "make it warmer",
+    });
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    let failed: { id: string; status: string } | undefined;
+    const deadline = Date.now() + 3000;
+    while (failed?.status !== "failed") {
+      if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
+      const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+        requests: { id: string; status: string }[];
+      };
+      failed = payload.requests[0];
+      if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const response = await fetch(`${server.url}/leglas/api/requests/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: failed.id }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(await readRequests(cwd)).toEqual([]);
+  });
+
+  test("refuses to dismiss a request that has not failed", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-dismiss-pending-"));
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/",
+      intent: "warmer",
+      target: null,
+      prompt: "make it warmer",
+    });
+    const [queued] = await readRequests(cwd);
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/requests/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: queued?.id }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
+    expect(await readRequests(cwd)).toHaveLength(1);
   });
 
   test("an agent counts as attached while its heartbeat is fresh, and not once it stops", async () => {

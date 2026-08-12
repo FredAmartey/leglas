@@ -49,3 +49,10 @@ export function retryFailedRequest(
 ): Promise<void> {
   return post("/leglas/api/requests/retry", { id }, fetcher);
 }
+
+export function dismissFailedRequest(
+  id: string,
+  fetcher: AgentFetcher = browserFetch,
+): Promise<void> {
+  return post("/leglas/api/requests/dismiss", { id }, fetcher);
+}

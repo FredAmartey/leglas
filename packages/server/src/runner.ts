@@ -18,6 +18,7 @@ export type RunnerState = {
   requestId: string | null;
   agent: string | null;
   activity: string | null;
+  startedAt: number | null;
   failedIds: readonly string[];
 };
 
@@ -128,6 +129,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     requestId: null,
     agent: null,
     activity: null,
+    startedAt: null,
   };
   let stopped = false;
   let ticking: Promise<void> | null = null;
@@ -135,7 +137,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   let active: { child: RunnerChild; requestId: string; cancelled: boolean } | null = null;
 
   const idle = () => {
-    state = { running: false, requestId: null, agent: null, activity: null };
+    state = { running: false, requestId: null, agent: null, activity: null, startedAt: null };
   };
 
   const rememberLine = (lines: string[], line: string) => {
@@ -215,11 +217,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         failed.add(request.id);
         return;
       }
+      // Wall-clock rather than injected time: the value only feeds the elapsed
+      // counter in the shell, which reads it against its own Date.now anyway.
       state = {
         running: true,
         requestId: request.id,
         agent: resolved.name,
         activity: null,
+        startedAt: Date.now(),
       };
       const outcome = await runChild(request, resolved, lines);
 

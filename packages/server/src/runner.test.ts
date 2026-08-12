@@ -179,9 +179,11 @@ describe("startRunner", () => {
     });
 
     await until(() => runner.snapshot().running && spawned.children.length === 1);
+    expect(runner.snapshot().startedAt).toEqual(expect.any(Number));
     expect(runner.cancel()).toBe(true);
     expect(spawned.children[0]?.child.kill).toHaveBeenCalledWith("SIGTERM");
     await until(() => !runner.snapshot().running);
+    expect(runner.snapshot().startedAt).toBeNull();
     expect(runner.cancel()).toBe(false);
     expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
 

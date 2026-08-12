@@ -9,6 +9,7 @@ export type AgentStatus = {
   running: boolean;
   name: string | null;
   activity: string | null;
+  startedAt: number | null;
 };
 
 export type AgentOption = {
@@ -17,83 +18,89 @@ export type AgentOption = {
   available: boolean;
 };
 
-export type RequestStatusDecision =
-  | { kind: "picker" }
-  | { kind: "ready"; name: string }
-  | { kind: "status"; text: string; cancellable: boolean; failedId: string | null }
-  | { kind: "hint" };
-
 /**
- * Decide the whole composer footer from one polled snapshot.
+ * What the chip in the composer says: who Enter sends to.
  *
- * The states compete for one fixed slot, so their priority belongs here rather
- * than in conditional markup. That also keeps a picked-up request from hiding
- * a queued one and keeps an idle heartbeat from hiding either.
+ * This used to share one slot with the run status, which meant a running
+ * request hid the chooser and switching agents mid-queue was impossible. The
+ * chip is now permanent composer furniture, so its state depends only on the
+ * choice, never on the queue.
  */
-export function requestStatusLine(
-  requests: readonly RequestStatus[],
-  agent: AgentStatus,
+export type ComposerAgent =
+  | { kind: "chosen"; id: string; name: string }
+  | { kind: "manual" }
+  | { kind: "choose" }
+  | { kind: "none" };
+
+export function composerAgent(
   choice: string | null,
   available: readonly AgentOption[],
   dismissed: boolean,
-): RequestStatusDecision {
-  if (agent.running || requests.some((request) => request.status === "running")) {
-    const name = agent.name ?? "Your agent";
+): ComposerAgent {
+  if (choice === "custom") return { kind: "chosen", id: "custom", name: "Custom" };
+
+  const selected = choice === null ? undefined : available.find((option) => option.id === choice);
+  // A chosen binary that has left the PATH cannot run anything, so the chip
+  // must not keep wearing its name.
+  if (selected?.available) return { kind: "chosen", id: selected.id, name: selected.name };
+
+  if (!available.some((option) => option.available)) return { kind: "none" };
+  return dismissed ? { kind: "manual" } : { kind: "choose" };
+}
+
+/**
+ * The card above the composer: what is happening to requests right now.
+ *
+ * One card, highest event wins. A failure keeps until the queue is busy with
+ * something newer, then resurfaces once things calm down, which mirrors how
+ * the queue itself treats failed requests: parked, never blocking.
+ */
+export type RequestCard =
+  | {
+      kind: "running";
+      name: string;
+      activity: string | null;
+      startedAt: number | null;
+      title: string | null;
+    }
+  | { kind: "queued"; count: number; attended: boolean }
+  | { kind: "picked-up" }
+  | { kind: "failed"; id: string; title: string };
+
+/**
+ * Seconds under a minute, then whole minutes with seconds. Runs are minutes
+ * long at most, so hours would be dressing the format up for a case the
+ * cancel button exists to prevent.
+ */
+export function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+export function requestCard(
+  requests: readonly RequestStatus[],
+  agent: AgentStatus,
+  attended: boolean,
+): RequestCard | null {
+  const running = requests.find((request) => request.status === "running");
+  if (agent.running || running !== undefined) {
     return {
-      kind: "status",
-      text: agent.activity ? `${name} is on it: ${agent.activity}` : `${name} is on it`,
-      cancellable: true,
-      failedId: null,
+      kind: "running",
+      name: agent.name ?? "Your agent",
+      activity: agent.activity,
+      startedAt: agent.startedAt,
+      title: running?.title ?? null,
     };
   }
 
   const queued = requests.filter((request) => request.status === "queued").length;
-  if (queued > 0) {
-    return {
-      kind: "status",
-      text: `${queued} change${queued === 1 ? "" : "s"} queued for your agent`,
-      cancellable: false,
-      failedId: null,
-    };
-  }
+  if (queued > 0) return { kind: "queued", count: queued, attended };
 
-  if (requests.some((request) => request.status === "picked-up")) {
-    return {
-      kind: "status",
-      text: "Your agent is on it",
-      cancellable: false,
-      failedId: null,
-    };
-  }
+  if (requests.some((request) => request.status === "picked-up")) return { kind: "picked-up" };
 
   const failed = requests.findLast((request) => request.status === "failed");
-  if (failed !== undefined) {
-    return {
-      kind: "status",
-      text: "That change failed. Try again?",
-      cancellable: false,
-      failedId: failed.id,
-    };
-  }
+  if (failed !== undefined) return { kind: "failed", id: failed.id, title: failed.title };
 
-  if (agent.attached) {
-    return {
-      kind: "status",
-      text: "Your agent is listening",
-      cancellable: false,
-      failedId: null,
-    };
-  }
-
-  if (!available.some((option) => option.available)) return { kind: "hint" };
-
-  if (choice !== null) {
-    const selected = available.find((option) => option.id === choice);
-    return {
-      kind: "ready",
-      name: selected?.name ?? (choice === "custom" ? "Custom" : choice),
-    };
-  }
-
-  return dismissed ? { kind: "hint" } : { kind: "picker" };
+  return null;
 }

@@ -64,11 +64,12 @@ and sessions that clean up after themselves.
 - Ask for changes without leaving the comparison: describe what you
   want on the direction you're looking at, and Leglas turns it into a
   precise request for your agent, file path included. The composer
-  offers the agent CLIs already on your machine (Claude Code, Codex,
-  Cursor) before you send anything; pick one and every request just
-  runs, with live progress under the field while the direction changes
-  in front of you. The field always shows who runs your changes, and
-  switching takes one click. Your agent, your subscription, no keys.
+  carries its own agent picker, the way every chat you already use
+  carries a model picker: the CLIs found on your machine (Claude Code,
+  Codex, Cursor) are one click away next to the send button. Each run
+  reports in a card above the field: who is working, what file they
+  are touching, how long it has been, a stop button while it runs and
+  retry when it fails. Your agent, your subscription, no keys.
   Prefer a terminal? `npx leglas watch` is the same loop with the
   agent's own output scrolling by. In Claude Code, the Leglas MCP
   server can also push each request straight into your open session as
