@@ -829,10 +829,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // takes. The badge leaves the flow rather than just fading, so the name
     // gets every pixel the buttons don't use instead of the badge's width
     // being stranded invisibly behind them. A dragged row keeps its badge:
-    // it is being moved, not acted on, and its buttons stay away.
-    const badgeAside = dragging
-      ? ""
-      : "group-hover:hidden group-has-[button:focus-visible]:hidden";
+    // it is being moved, not acted on, and its buttons stay away. So does a
+    // row being renamed, where the badge is the field's right-hand wall —
+    // taking it out from under the pointer would resize the field mid-word.
+    const badgeAside =
+      dragging || renamingThis
+        ? ""
+        : "group-hover:hidden group-has-[button:focus-visible]:hidden";
 
     return (
       <li
