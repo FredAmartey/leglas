@@ -32,10 +32,13 @@ you send it.
   a signed-out agent is marked in the menu before a run fails instead
   of after. The answer is cached and refreshed behind the scenes; no
   request waits on it twice. (`leglas`)
-- **Any command is an agent.** The picker's "Custom command" entry takes
-  any CLI with a `{prompt}` slot: aider, goose, a script of your own.
-  The chip wears the command's name, and the run loop treats it exactly
-  like the built-in three. (`leglas`)
+- **Any command is an agent.** The picker's "Add your own" entry takes
+  the command you already run: aider, goose, a script of your own. Your
+  request is handed to it as its last argument, so there is no syntax
+  to learn; `{prompt}` still places it elsewhere for the command that
+  needs that, in the menu and in `leglas watch --run` alike. The chip
+  wears the command's own name, and the run loop treats it exactly like
+  the built-in three. (`leglas`)
 - **`leglas watch` needs no `--run` once an agent is picked.** The
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a

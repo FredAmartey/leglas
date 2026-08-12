@@ -64,11 +64,13 @@ export function tokenize(
 /**
  * Validate an agent command before anything is spawned or remembered.
  *
- * Every refusal is one line naming the fix, because this is the first thing a
- * user types and the failure is always the same shape: the placeholder is
- * missing, or it is glued to something else. Substituting a placeholder that
- * is part of a larger token would build an argument the agent never asked for,
- * so that case is refused rather than guessed at.
+ * The placeholder is optional: a command without one gets the request
+ * appended as its last argument, which is where nearly every agent CLI takes
+ * its prompt anyway. That keeps the common case to "type the command you
+ * run" with no syntax to learn; ${PROMPT_TOKEN} remains for the command
+ * whose prompt goes somewhere else. A placeholder glued to another word is
+ * still refused rather than passed through as literal text, because that is
+ * always a typo for substitution.
  */
 export function parseTemplate(raw: string): TemplateResult {
   const tokenized = tokenize(raw);
@@ -80,13 +82,13 @@ export function parseTemplate(raw: string): TemplateResult {
     return { ok: false, error: `Watch needs an agent command, for example: ${EXAMPLE}` };
   }
 
-  const placeholders = tokens.filter((token) => token === PROMPT_TOKEN).length;
-  if (placeholders === 0) {
+  if (tokens.some((token) => token !== PROMPT_TOKEN && token.includes(PROMPT_TOKEN))) {
     return {
       ok: false,
-      error: `The agent command needs ${PROMPT_TOKEN} as a word of its own, for example: ${EXAMPLE}`,
+      error: `${PROMPT_TOKEN} must stand as a word of its own, for example: ${EXAMPLE}`,
     };
   }
+  const placeholders = tokens.filter((token) => token === PROMPT_TOKEN).length;
   if (placeholders > 1) {
     return {
       ok: false,
@@ -105,13 +107,17 @@ export function parseTemplate(raw: string): TemplateResult {
 
 /**
  * The argv for one request. The prompt is a single entry however many words,
- * lines or quotes it contains, which is the whole reason the template names a
- * placeholder instead of being pasted together as a string.
+ * lines or quotes it contains, which is the whole reason nothing here is
+ * pasted together as a string. With no placeholder it goes last, the seat
+ * almost every agent CLI keeps for it.
  */
 export function commandFor(
   template: WatchTemplate,
   prompt: string,
 ): { command: string; args: string[] } {
+  if (!template.args.includes(PROMPT_TOKEN)) {
+    return { command: template.command, args: [...template.args, prompt] };
+  }
   return {
     command: template.command,
     args: template.args.map((argument) => (argument === PROMPT_TOKEN ? prompt : argument)),

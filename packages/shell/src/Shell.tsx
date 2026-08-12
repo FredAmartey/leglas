@@ -1817,8 +1817,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             className="block px-1 pb-1 text-[10px] leading-snug text-[#84848C]"
                             htmlFor="leglas-custom-run"
                           >
-                            Your own command. <span className="font-mono">{"{prompt}"}</span>{" "}
-                            becomes the request.
+                            The command that runs your agent.
                           </label>
                           <input
                             className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 font-mono text-[11px] text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
@@ -1827,13 +1826,21 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             onKeyDown={(event) => {
                               if (event.key !== "Enter") return;
                               event.preventDefault();
-                              if (customDraft.includes("{prompt}") && pickingAgent === null) {
+                              if (customDraft.trim() !== "" && pickingAgent === null) {
                                 pickAgent("custom", customDraft.trim());
                               }
                             }}
-                            placeholder="npx my-agent {prompt}"
+                            placeholder="npx my-agent"
                             value={customDraft}
                           />
+                          {/* No syntax to learn: the request rides along at
+                              the end on its own. The placeholder is only for
+                              the command that wants it somewhere else. */}
+                          <p className="px-1 pt-1 text-[9px] leading-snug text-[#84848C]/80">
+                            Your request is added at the end. Put{" "}
+                            <span className="font-mono">{"{prompt}"}</span> where it should go
+                            instead, if needed.
+                          </p>
                           <div className="flex items-center justify-between pt-1.5">
                             <button
                               className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
@@ -1844,7 +1851,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             </button>
                             <button
                               className="rounded px-1.5 py-0.5 text-[11px] text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={!customDraft.includes("{prompt}") || pickingAgent !== null}
+                              disabled={customDraft.trim() === "" || pickingAgent !== null}
                               onClick={() => pickAgent("custom", customDraft.trim())}
                               type="button"
                             >
@@ -1902,7 +1909,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                               <span className="truncate">
                                 {chip.kind === "chosen" && chip.id === "custom"
                                   ? chip.name
-                                  : "Custom command…"}
+                                  : "Add your own…"}
                               </span>
                             </span>
                             {chip.kind === "chosen" && chip.id === "custom" && (

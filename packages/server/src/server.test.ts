@@ -203,7 +203,7 @@ describe("startServer", () => {
   test.each([
     { agent: "unknown" },
     { agent: "custom" },
-    { agent: "custom", run: "node" },
+    { agent: "custom", run: "node --file={prompt}" },
     { agent: "codex", run: 42 },
   ])("refuses an invalid agent choice: %j", async (choice) => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
