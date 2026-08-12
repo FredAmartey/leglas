@@ -100,6 +100,35 @@ function shownPath(value: unknown, cwd: string): string | null {
   return relative(cwd, value) || ".";
 }
 
+/**
+ * The command itself, cleaned for a status line: the shell wrapper agents
+ * put around everything says nothing, and the first 48 characters of what
+ * remains say everything ("npm test", "grep -r Hero src"). "running a
+ * command" was the label before, and it managed to be true of every command
+ * while describing none of them.
+ */
+function shownCommand(value: unknown): string | null {
+  let command = Array.isArray(value)
+    ? value.filter((part) => typeof part === "string").join(" ")
+    : typeof value === "string"
+      ? value
+      : "";
+  command = command.trim();
+
+  const wrapped = /^(?:bash|sh|zsh)\s+-l?c\s+([\s\S]*)$/.exec(command);
+  if (wrapped?.[1] !== undefined) {
+    command = wrapped[1].trim();
+    const quote = command[0];
+    if ((quote === "'" || quote === '"') && command.endsWith(quote) && command.length > 1) {
+      command = command.slice(1, -1);
+    }
+  }
+
+  command = (command.split("\n")[0] ?? "").replace(/\s+/g, " ").trim();
+  if (command === "") return null;
+  return command.length > 48 ? `${command.slice(0, 47)}…` : command;
+}
+
 function claudeActivity(event: Record<string, unknown>, cwd: string): string | null {
   if (event.type !== "assistant") return null;
   const message = record(event.message);
@@ -118,7 +147,10 @@ function claudeActivity(event: Record<string, unknown>, cwd: string): string | n
       const path = shownPath(input?.file_path ?? input?.path, cwd);
       return path === null ? "using Read" : `reading ${path}`;
     }
-    if (block.name === "Bash") return "running a command";
+    if (block.name === "Bash") {
+      const command = shownCommand(input?.command);
+      return command === null ? "running a command" : `running ${command}`;
+    }
     if (block.name === "Grep" || block.name === "Glob") return "searching the project";
     return `using ${block.name}`;
   }
@@ -130,7 +162,10 @@ function codexActivity(event: Record<string, unknown>, cwd: string): string | nu
   const item = record(event.item);
   if (item === null) return null;
 
-  if (item.type === "command_execution") return "running a command";
+  if (item.type === "command_execution") {
+    const command = shownCommand(item.command);
+    return command === null ? "running a command" : `running ${command}`;
+  }
   if (item.type !== "file_change") return null;
 
   const first = Array.isArray(item.changes) ? record(item.changes[0]) : null;

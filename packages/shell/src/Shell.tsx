@@ -1767,20 +1767,20 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 rows={1}
                 value={intent}
               />
-              <div className="flex items-center justify-between gap-1.5 p-1">
+              <div className="flex items-center justify-end gap-1.5 p-1">
                 {chip.kind === "none" ? (
-                  <span className="min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
+                  <span className="mr-auto min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
                     Enter queues it for <span className="font-medium">npx leglas requests</span>
                   </span>
                 ) : (
-                  /* An inline select: the menu hangs off the chip itself,
-                     sized to its options, the way a model picker behaves in
-                     every composer people already know. */
+                  /* An inline select beside the send it configures: the menu
+                     hangs off the chip itself, sized to its options, the way
+                     a model picker behaves in every composer people know. */
                   <div className="relative flex min-w-0 items-center">
                     <div
                       aria-hidden={!agentMenuOpen}
                       aria-label="Who runs your changes"
-                      className={`absolute bottom-full left-0 z-10 mb-1.5 w-max min-w-36 rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                      className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-36 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
                         agentMenuOpen
                           ? "translate-y-0 scale-100 opacity-100"
                           : "pointer-events-none translate-y-1 scale-95 opacity-0"

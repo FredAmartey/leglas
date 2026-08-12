@@ -104,13 +104,46 @@ describe("activityFrom", () => {
     expect(activityFrom("codex", line)).toBe("editing src/Hero.tsx");
   });
 
-  test("labels Codex command items without depending on their command text", () => {
+  test("shows the command a Codex item is running, unwrapped from its shell", () => {
     const line = JSON.stringify({
       type: "item.started",
-      item: { id: "item_1", type: "command_execution", command: "pwd", status: "in_progress" },
+      item: {
+        id: "item_1",
+        type: "command_execution",
+        command: "bash -lc 'npm test'",
+        status: "in_progress",
+      },
     });
 
-    expect(activityFrom("codex", line)).toBe("running a command");
+    expect(activityFrom("codex", line)).toBe("running npm test");
+  });
+
+  test("shows the command Claude's Bash tool is running", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", name: "Bash", input: { command: "grep -r Hero src" } },
+        ],
+      },
+    });
+
+    expect(activityFrom("claude", line)).toBe("running grep -r Hero src");
+  });
+
+  test.each([
+    [["bash", "-lc", "pnpm build"], "running pnpm build"],
+    ["  git  status\nsecond line ignored", "running git status"],
+    [`sh -c "${"x".repeat(60)}"`, `running ${"x".repeat(47)}…`],
+    [42, "running a command"],
+    ["", "running a command"],
+  ])("cleans command text for the status line: %j", (command, expected) => {
+    const line = JSON.stringify({
+      type: "item.started",
+      item: { id: "item_1", type: "command_execution", command, status: "in_progress" },
+    });
+
+    expect(activityFrom("codex", line)).toBe(expected);
   });
 
   test.each(["not json", "{}", JSON.stringify({ type: "result" })])(
