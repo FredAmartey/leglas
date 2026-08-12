@@ -119,6 +119,7 @@ describe("requestCard", () => {
       ),
     ).toEqual({
       kind: "running",
+      id: "running",
       name: "Claude",
       activity: "editing src/Hero.tsx",
       startedAt: 1700000000000,
@@ -129,6 +130,7 @@ describe("requestCard", () => {
   test("treats a running request as active before the agent poll catches up", () => {
     expect(requestCard([request("running", "running")], idleAgent, true)).toEqual({
       kind: "running",
+      id: "running",
       name: "Your agent",
       activity: null,
       startedAt: null,

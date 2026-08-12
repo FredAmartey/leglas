@@ -565,7 +565,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/requests/cancel` && req.method === "POST") {
-      return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
+      // The id names which run the click meant. Without one the active run is
+      // stopped, which keeps old callers working; with one, a run that ended
+      // between the click and its arrival is left alone instead of the stop
+      // landing on whatever started next.
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (parsed.id !== undefined && typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "The request id must be a string." });
+        }
+        return sendJson(res, 200, { ok: true, cancelled: runner?.cancel(parsed.id) ?? false });
+      });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/requests/retry` && req.method === "POST") {

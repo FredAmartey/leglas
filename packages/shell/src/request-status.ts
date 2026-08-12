@@ -67,6 +67,10 @@ export function composerAgent(
 export type RequestCard =
   | {
       kind: "running";
+      /** Which request the stop button means; null while only the agent poll
+       * knows about the run, in which case a stop falls back to "the active
+       * one". */
+      id: string | null;
       name: string;
       activity: string | null;
       startedAt: number | null;
@@ -96,6 +100,7 @@ export function requestCard(
   if (agent.running || running !== undefined) {
     return {
       kind: "running",
+      id: running?.id ?? null,
       name: agent.name ?? "Your agent",
       activity: agent.activity,
       startedAt: agent.startedAt,

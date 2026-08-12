@@ -43,8 +43,11 @@ export function chooseAgent(
   return post("/leglas/api/agent", run === undefined ? { agent } : { agent, run }, fetcher);
 }
 
-export function cancelAgentRun(fetcher: AgentFetcher = browserFetch): Promise<void> {
-  return post("/leglas/api/requests/cancel", null, fetcher);
+export function cancelAgentRun(
+  id?: string | null,
+  fetcher: AgentFetcher = browserFetch,
+): Promise<void> {
+  return post("/leglas/api/requests/cancel", id == null ? null : { id }, fetcher);
 }
 
 export function retryFailedRequest(

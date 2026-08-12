@@ -696,10 +696,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       })
       .finally(() => setPickingAgent(null));
   };
-  const cancelRequest = () => {
+  const cancelRequest = (id: string | null) => {
     if (requestAction !== null) return;
     setRequestAction("cancel");
-    void cancelAgentRun()
+    void cancelAgentRun(id)
       .then(() => bumpRequests())
       .catch(() => {
         st.notify({
@@ -1620,7 +1620,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                         aria-label="Stop this run"
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
                         disabled={requestAction !== null}
-                        onClick={cancelRequest}
+                        onClick={() => cancelRequest(card.id)}
                         type="button"
                       >
                         {requestAction === "cancel" ? (

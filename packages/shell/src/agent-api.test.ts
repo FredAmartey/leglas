@@ -65,10 +65,27 @@ describe("embedded agent API", () => {
     ]);
   });
 
+  test("names the request being stopped when it knows one", async () => {
+    const recorded = recorder();
+
+    await cancelAgentRun("request-3", recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/cancel",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "request-3" }),
+        },
+      },
+    ]);
+  });
+
   test("wires cancellation to the running-request endpoint", async () => {
     const recorded = recorder({ ok: true, cancelled: true });
 
-    await cancelAgentRun(recorded.fetcher);
+    await cancelAgentRun(null, recorded.fetcher);
 
     expect(recorded.calls).toEqual([
       {

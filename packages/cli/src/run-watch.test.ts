@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { appendRequest, readRequests } from "@leglas/server";
 
@@ -55,6 +55,39 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
 }
 
 describe("runWatch", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("the first pickup waits for the server to learn a watcher exists", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+
+    // The stub plays a slow server: while the first heartbeat is still in
+    // flight, the queue must not have been touched. The unawaited version of
+    // this beat let watch pick the request up inside exactly this window,
+    // while the embedded runner could still believe it was alone.
+    let statusDuringFirstBeat: string | null = null;
+    vi.stubGlobal("fetch", async () => {
+      if (statusDuringFirstBeat === null) {
+        await new Promise((settle) => setTimeout(settle, 60));
+        statusDuringFirstBeat = (await readRequests(root))[0]?.status ?? "gone";
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    const controller = new AbortController();
+    const running = runWatch(
+      { run: 'node -e "process.exit(0)" {prompt}', port: undefined, cwd: root, signal: controller.signal },
+      deps(),
+    );
+    await until(async () => (await readRequests(root)).length === 0);
+    controller.abort();
+    await running;
+
+    expect(statusDuringFirstBeat).toBe("queued");
+  });
+
   test("refuses to start with no template anywhere", async () => {
     const d = deps();
     const outcome = await runWatch({ run: undefined, port: undefined, cwd: cwd() }, d);

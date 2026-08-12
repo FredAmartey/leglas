@@ -286,7 +286,19 @@ describe("startServer", () => {
       startedAt: expect.any(Number),
     });
 
-    const cancelled = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
+    // Naming a request that is not the running one is a refusal, not a stop.
+    const mismatched = await fetch(`${server.url}/leglas/api/requests/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "not-this-one" }),
+    });
+    expect(await mismatched.json()).toEqual({ ok: true, cancelled: false });
+
+    const cancelled = await fetch(`${server.url}/leglas/api/requests/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: body.requests[0]?.id }),
+    });
     expect(await cancelled.json()).toEqual({ ok: true, cancelled: true });
 
     while (body.agent.running) {

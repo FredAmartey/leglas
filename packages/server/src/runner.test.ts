@@ -180,8 +180,13 @@ describe("startRunner", () => {
 
     await until(() => runner.snapshot().running && spawned.children.length === 1);
     expect(runner.snapshot().startedAt).toEqual(expect.any(Number));
-    expect(runner.cancel()).toBe(true);
+    // A stop naming a request that is not the active one is a no-op, so a
+    // click aimed at a finished run cannot land on its successor.
+    expect(runner.cancel("some-other-request")).toBe(false);
+    expect(runner.snapshot().running).toBe(true);
+    expect(runner.cancel(runner.snapshot().requestId ?? undefined)).toBe(true);
     expect(spawned.children[0]?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(runner.cancel()).toBe(false);
     await until(() => !runner.snapshot().running);
     expect(runner.snapshot().startedAt).toBeNull();
     expect(runner.cancel()).toBe(false);

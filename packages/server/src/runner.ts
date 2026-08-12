@@ -52,7 +52,7 @@ export type RunnerOptions = {
 export type RunningAgent = {
   stop(): Promise<void>;
   snapshot(): RunnerState;
-  cancel(): boolean;
+  cancel(id?: string): boolean;
 };
 
 type ResolvedCommand = {
@@ -270,8 +270,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const timer = setEvery(schedule, POLL_MS);
   schedule();
 
-  const cancel = (): boolean => {
+  const cancel = (id?: string): boolean => {
     if (active === null || active.cancelled) return false;
+    // A stop aimed at a specific request must not land on its successor: in
+    // the gap between one run ending and the next starting, the card the user
+    // clicked may describe a run that no longer exists. Refusing the mismatch
+    // makes that click a no-op instead of a misfire.
+    if (id !== undefined && active.requestId !== id) return false;
     active.cancelled = true;
     failed.add(active.requestId);
     try {

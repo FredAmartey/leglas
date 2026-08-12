@@ -155,6 +155,7 @@ export async function runWatch(
   const failed = new Set<string>();
   let stopped = false;
   let busy = false;
+  let announced = false;
   /** The request being handled right now, so a stop can wait for its books. */
   let inflight: Promise<void> | null = null;
 
@@ -188,7 +189,18 @@ export async function runWatch(
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
-    void heartbeat(true);
+    // The first beat is awaited: the embedded runner backs off the moment the
+    // server registers a watcher, so the queue must not be read before that
+    // registration has had its chance. Otherwise both executors can pass the
+    // same picked-up check in the handoff window and spawn twice for one
+    // request. Later beats are freshness, not exclusion, and stay
+    // fire-and-forget; a missing server costs one timeout once.
+    if (announced) {
+      void heartbeat(true);
+    } else {
+      await heartbeat(true);
+      announced = true;
+    }
     // One agent at a time, in queue order. Two of them editing one tree would
     // produce a conflict the user has to untangle by hand.
     if (busy) return;
