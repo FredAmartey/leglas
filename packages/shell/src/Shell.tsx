@@ -190,7 +190,7 @@ type Drag = {
 
 export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const requestRef = useRef<HTMLInputElement | null>(null);
+  const requestRef = useRef<HTMLTextAreaElement | null>(null);
   const splitRef = useRef<(() => void) | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Stable, so the window key listener attaches once rather than on every
@@ -230,6 +230,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // deep, addressing a direction the panel never named. Under the list, the
   // direction it means is the highlighted row directly above it.
   const [intent, setIntent] = useState("");
+  // The field is a textarea that wears one row until the words need more,
+  // then grows line by line to a cap. Measured from scrollHeight because
+  // wrapping depends on the rail width and the face the user picked.
+  useEffect(() => {
+    const field = requestRef.current;
+    if (field === null) return;
+    field.style.height = "0px";
+    field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
+  }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -1730,89 +1739,32 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 });
             }}
           >
-            {/* The chooser floats above the whole composer in the tools
-                panel's own dress. Deciding who runs your changes deserves a
-                surface, not a squeeze. */}
-            {chip.kind !== "none" && (
-              <div
-                aria-hidden={!agentMenuOpen}
-                aria-label="Who runs your changes"
-                className={`absolute bottom-full left-3 z-10 mb-1.5 w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-                  agentMenuOpen
-                    ? "translate-y-0 scale-100 opacity-100"
-                    : "pointer-events-none translate-y-1 scale-95 opacity-0"
-                }`}
-                inert={!agentMenuOpen}
-                ref={agentMenuRef}
-                role="dialog"
-                tabIndex={-1}
-              >
-                <span className="block px-1 pb-1 pt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-                  Runs your changes
-                </span>
-                {agentState.agents
-                  .filter((agent) => agent.available)
-                  .map((agent) => {
-                    const active = chip.kind === "chosen" && agent.id === chip.id;
-                    return (
-                      <button
-                        className={ROW_BUTTON}
-                        disabled={pickingAgent !== null}
-                        key={agent.id}
-                        onClick={() => (active ? setAgentMenuOpen(false) : pickAgent(agent.id))}
-                        type="button"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <BrandMark id={agent.id} />
-                          <span className="truncate">{agent.name}</span>
-                        </span>
-                        {pickingAgent === agent.id ? (
-                          <span
-                            aria-label="selecting"
-                            className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                          />
-                        ) : (
-                          active && <span aria-label="current choice">✓</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                {agentState.choice === null && (
-                  <button
-                    className={`${ROW_BUTTON} text-[#84848C]`}
-                    onClick={() => {
-                      st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }));
-                      setAgentMenuOpen(false);
-                    }}
-                    type="button"
-                  >
-                    <span>I&apos;ll run my own</span>
-                    {chip.kind === "manual" && <span aria-label="current choice">✓</span>}
-                  </button>
-                )}
-                <p className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
-                  Runs in this project with write access, like in your terminal.
-                </p>
-              </div>
-            )}
             {/* One surface, like every composer people already know: what to
                 change on top, who runs it and the send below, inside the same
                 border. The field takes the focus ring for the whole object. */}
             <div className="rounded-md border border-[#232328] bg-[#2E2E2E]/40 transition-colors focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40">
-              <input
+              {/* Enter sends and Shift+Enter breaks the line, the contract
+                  every chat composer has already taught. */}
+              <textarea
                 aria-label={
                   st.active
                     ? `Ask your agent to change the ${st.displayName(st.active)} direction`
                     : "Ask your agent to change a direction"
                 }
-                className="w-full bg-transparent px-2.5 pb-1 pt-2 text-xs text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={sending || !st.active}
                 onChange={(event) => setIntent(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
                 placeholder={
                   st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
                 }
                 ref={requestRef}
-                type="text"
+                rows={1}
                 value={intent}
               />
               <div className="flex items-center justify-between gap-1.5 p-1">
@@ -1821,40 +1773,107 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     Enter queues it for <span className="font-medium">npx leglas requests</span>
                   </span>
                 ) : (
-                  /* Dressed as the select it is: a mark, a name, a chevron. */
-                  <button
-                    aria-expanded={agentMenuOpen}
-                    aria-haspopup="dialog"
-                    className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                    onClick={() => setAgentMenuOpen((open) => !open)}
-                    ref={agentTriggerRef}
-                    type="button"
-                  >
-                    {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
-                    <span className="truncate">
-                      {chip.kind === "chosen"
-                        ? chip.name
-                        : chip.kind === "manual"
-                          ? "I'll run my own"
-                          : "Choose an agent"}
-                    </span>
-                    <svg
-                      aria-hidden="true"
-                      className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
-                        agentMenuOpen ? "rotate-180" : ""
+                  /* An inline select: the menu hangs off the chip itself,
+                     sized to its options, the way a model picker behaves in
+                     every composer people already know. */
+                  <div className="relative flex min-w-0 items-center">
+                    <div
+                      aria-hidden={!agentMenuOpen}
+                      aria-label="Who runs your changes"
+                      className={`absolute bottom-full left-0 z-10 mb-1.5 w-max min-w-36 rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                        agentMenuOpen
+                          ? "translate-y-0 scale-100 opacity-100"
+                          : "pointer-events-none translate-y-1 scale-95 opacity-0"
                       }`}
-                      fill="none"
-                      height="12"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.75"
-                      viewBox="0 0 16 16"
-                      width="12"
+                      inert={!agentMenuOpen}
+                      ref={agentMenuRef}
+                      role="dialog"
+                      tabIndex={-1}
                     >
-                      <path d="M4 6.5 8 10.5l4-4" />
-                    </svg>
-                  </button>
+                      {agentState.agents
+                        .filter((agent) => agent.available)
+                        .map((agent) => {
+                          const active = chip.kind === "chosen" && agent.id === chip.id;
+                          return (
+                            <button
+                              className={ROW_BUTTON}
+                              disabled={pickingAgent !== null}
+                              key={agent.id}
+                              onClick={() =>
+                                active ? setAgentMenuOpen(false) : pickAgent(agent.id)
+                              }
+                              type="button"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <BrandMark id={agent.id} />
+                                <span className="truncate">{agent.name}</span>
+                              </span>
+                              {pickingAgent === agent.id ? (
+                                <span
+                                  aria-label="selecting"
+                                  className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                                />
+                              ) : (
+                                active && <span aria-label="current choice">✓</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      {agentState.choice === null && (
+                        <button
+                          className={`${ROW_BUTTON} text-[#84848C]`}
+                          onClick={() => {
+                            st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }));
+                            setAgentMenuOpen(false);
+                          }}
+                          type="button"
+                        >
+                          <span>I&apos;ll run my own</span>
+                          {chip.kind === "manual" && <span aria-label="current choice">✓</span>}
+                        </button>
+                      )}
+                      {/* The consent sentence belongs to the first choice
+                          only; once one is made, this is just a select. */}
+                      {agentState.choice === null && (
+                        <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
+                          Runs in this project with write access, like in your terminal.
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      aria-expanded={agentMenuOpen}
+                      aria-haspopup="dialog"
+                      className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
+                      onClick={() => setAgentMenuOpen((open) => !open)}
+                      ref={agentTriggerRef}
+                      type="button"
+                    >
+                      {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
+                      <span className="truncate">
+                        {chip.kind === "chosen"
+                          ? chip.name
+                          : chip.kind === "manual"
+                            ? "I'll run my own"
+                            : "Choose an agent"}
+                      </span>
+                      <svg
+                        aria-hidden="true"
+                        className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                          agentMenuOpen ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        height="12"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.75"
+                        viewBox="0 0 16 16"
+                        width="12"
+                      >
+                        <path d="M4 6.5 8 10.5l4-4" />
+                      </svg>
+                    </button>
+                  </div>
                 )}
                 {/* A real send button, because Enter alone is an invisible
                     contract. Dim and inert until there is something to send;
