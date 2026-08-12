@@ -66,7 +66,10 @@ and sessions that clean up after themselves.
   precise request for your agent, file path included. The composer
   carries its own agent picker, the way every chat you already use
   carries a model picker: the CLIs found on your machine (Claude Code,
-  Codex, Cursor) are one click away next to the send button. Each run
+  Codex, Cursor) are one click away next to the send button, each asked
+  for its login status so a signed-out CLI says so before a run instead
+  of failing one. Not on that list? Any command with a {prompt} slot is
+  an agent: type it once in the same menu. Each run
   reports in a card above the field: who is working, what file they
   are touching, how long it has been, a stop button while it runs and
   retry when it fails. Your agent, your subscription, no keys.

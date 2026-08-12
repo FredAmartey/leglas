@@ -149,17 +149,31 @@ describe("startServer", () => {
 
   test("reports available agents and round-trips the saved choice", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-api-"));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+    // Injected so the test never spawns real vendor CLIs to ask about logins.
+    let probes = 0;
+    const server = await start({
+      config: configFor(await startOrigin()),
+      port: 0,
+      cwd,
+      detect: async () => {
+        probes += 1;
+        return [
+          { id: "claude", name: "Claude", available: true, auth: "ok" },
+          { id: "codex", name: "Codex", available: true, auth: "signed-out" },
+          { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
+        ];
+      },
+    });
 
     const initial = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
-      agents: { id: string; name: string; available: boolean }[];
+      agents: { id: string; name: string; available: boolean; auth: string }[];
       choice: string | null;
       customRun: string | null;
     };
     expect(initial.agents).toEqual([
-      { id: "claude", name: "Claude", available: expect.any(Boolean) },
-      { id: "codex", name: "Codex", available: expect.any(Boolean) },
-      { id: "cursor", name: "Cursor", available: expect.any(Boolean) },
+      { id: "claude", name: "Claude", available: true, auth: "ok" },
+      { id: "codex", name: "Codex", available: true, auth: "signed-out" },
+      { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
     ]);
     expect(initial.choice).toBeNull();
     expect(initial.customRun).toBeNull();
@@ -182,6 +196,8 @@ describe("startServer", () => {
     });
     const known = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
     expect(known).toMatchObject({ choice: "codex", customRun });
+    // Three reads, one probe: the login answer is served from the cache.
+    expect(probes).toBe(1);
   });
 
   test.each([

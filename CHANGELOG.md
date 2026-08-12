@@ -27,6 +27,15 @@ you send it.
   above the field: who is working, which file they are touching, a
   ticking clock, a stop button while it runs, retry and dismiss when it
   fails. Your agent, your subscription, no keys and no login. (`leglas`)
+- **The picker knows who is signed in.** Each detected CLI is asked for
+  its own login status (`claude auth status`, `codex login status`), so
+  a signed-out agent is marked in the menu before a run fails instead
+  of after. The answer is cached and refreshed behind the scenes; no
+  request waits on it twice. (`leglas`)
+- **Any command is an agent.** The picker's "Custom command" entry takes
+  any CLI with a `{prompt}` slot: aider, goose, a script of your own.
+  The chip wears the command's name, and the run loop treats it exactly
+  like the built-in three. (`leglas`)
 - **`leglas watch` needs no `--run` once an agent is picked.** The
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a

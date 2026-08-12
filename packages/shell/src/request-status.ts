@@ -16,6 +16,8 @@ export type AgentOption = {
   id: string;
   name: string;
   available: boolean;
+  /** The CLI's own answer about its login; unknown never blocks anything. */
+  auth: "ok" | "signed-out" | "unknown";
 };
 
 /**
@@ -36,8 +38,15 @@ export function composerAgent(
   choice: string | null,
   available: readonly AgentOption[],
   dismissed: boolean,
+  customRun: string | null = null,
 ): ComposerAgent {
-  if (choice === "custom") return { kind: "chosen", id: "custom", name: "Custom" };
+  if (choice === "custom") {
+    // The chip wears the command's own name: "aider" says more than
+    // "Custom" ever will, and the command's first word is its name.
+    const word = customRun?.trim().split(/\s+/)[0] ?? "";
+    const name = word === "" ? "Custom" : (word.split("/").pop() ?? "Custom");
+    return { kind: "chosen", id: "custom", name };
+  }
 
   const selected = choice === null ? undefined : available.find((option) => option.id === choice);
   // A chosen binary that has left the PATH cannot run anything, so the chip

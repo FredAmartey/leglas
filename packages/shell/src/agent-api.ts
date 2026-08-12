@@ -35,8 +35,12 @@ async function post(
   if (result.ok !== true) throw new Error("Leglas refused the agent request.");
 }
 
-export function chooseAgent(agent: string, fetcher: AgentFetcher = browserFetch): Promise<void> {
-  return post("/leglas/api/agent", { agent }, fetcher);
+export function chooseAgent(
+  agent: string,
+  run?: string,
+  fetcher: AgentFetcher = browserFetch,
+): Promise<void> {
+  return post("/leglas/api/agent", run === undefined ? { agent } : { agent, run }, fetcher);
 }
 
 export function cancelAgentRun(fetcher: AgentFetcher = browserFetch): Promise<void> {

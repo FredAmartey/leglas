@@ -37,10 +37,21 @@ describe("embedded agent API", () => {
     expect(recorded.calls).toEqual([{ input: "/leglas/api/agents" }]);
   });
 
-  test("posts the picked adapter as JSON", async () => {
+  test("posts the picked adapter as JSON, with the template when custom", async () => {
     const recorded = recorder();
 
-    await chooseAgent("claude", recorded.fetcher);
+    await chooseAgent("custom", "aider --yes {prompt}", recorded.fetcher);
+    expect(recorded.calls[0]).toEqual({
+      input: "/leglas/api/agent",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: "custom", run: "aider --yes {prompt}" }),
+      },
+    });
+    recorded.calls.length = 0;
+
+    await chooseAgent("claude", undefined, recorded.fetcher);
 
     expect(recorded.calls).toEqual([
       {
@@ -104,7 +115,7 @@ describe("embedded agent API", () => {
   test("rejects a refused mutation so the caller can show a toast", async () => {
     const recorded = recorder({ ok: false, error: "refused" }, 400);
 
-    await expect(chooseAgent("claude", recorded.fetcher)).rejects.toThrow(
+    await expect(chooseAgent("claude", undefined, recorded.fetcher)).rejects.toThrow(
       "Leglas refused the agent request.",
     );
   });

@@ -27,6 +27,7 @@ const option = (id: string, available = true): AgentOption => ({
   id,
   name: id === "claude" ? "Claude" : "Codex",
   available,
+  auth: "ok",
 });
 
 describe("composerAgent", () => {
@@ -53,6 +54,24 @@ describe("composerAgent", () => {
 
   test("gives an existing custom choice a display name", () => {
     expect(composerAgent("custom", [option("claude")], false)).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "Custom",
+    });
+  });
+
+  test("names a custom choice after its own command", () => {
+    expect(composerAgent("custom", [], false, "aider --yes {prompt}")).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "aider",
+    });
+    expect(composerAgent("custom", [], false, "/usr/local/bin/goose run {prompt}")).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "goose",
+    });
+    expect(composerAgent("custom", [], false, "   ")).toEqual({
       kind: "chosen",
       id: "custom",
       name: "Custom",

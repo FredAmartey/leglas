@@ -57,19 +57,51 @@ describe("KNOWN_AGENTS", () => {
   });
 });
 
-test("detectAgents probes the adapter binaries through the injected lookup", async () => {
+test("detectAgents probes binaries and logins through the injected hooks", async () => {
   const lookedUp: string[] = [];
-  const agents = await detectAgents(async (binary) => {
-    lookedUp.push(binary);
-    return binary !== "cursor-agent";
-  });
+  const probed: string[] = [];
+  const agents = await detectAgents(
+    async (binary) => {
+      lookedUp.push(binary);
+      return binary !== "cursor-agent";
+    },
+    async (binary, args) => {
+      probed.push(`${binary} ${args.join(" ")}`);
+      if (binary === "claude") return { code: 0, stdout: '{"loggedIn": true}' };
+      return { code: 1, stdout: "Not logged in" };
+    },
+  );
 
   expect(lookedUp).toEqual(["claude", "codex", "cursor-agent"]);
+  // No probe for the missing binary: there is nothing to ask.
+  expect(probed).toEqual(["claude auth status", "codex login status"]);
   expect(agents).toEqual([
-    { id: "claude", name: "Claude", available: true },
-    { id: "codex", name: "Codex", available: true },
-    { id: "cursor", name: "Cursor", available: false },
+    { id: "claude", name: "Claude", available: true, auth: "ok" },
+    { id: "codex", name: "Codex", available: true, auth: "signed-out" },
+    { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
   ]);
+});
+
+test("an unreadable or failed probe reads as unknown, never as signed out", async () => {
+  const agents = await detectAgents(
+    async () => true,
+    async (binary) =>
+      binary === "claude" ? { code: 0, stdout: "not json at all" } : null,
+  );
+
+  expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
+});
+
+test("each vendor's verdict reads its own CLI honestly", () => {
+  expect(KNOWN_AGENTS.claude.authVerdict({ code: 0, stdout: '{"loggedIn": false}' })).toBe(
+    "signed-out",
+  );
+  expect(KNOWN_AGENTS.codex.authVerdict({ code: 0, stdout: "Logged in using ChatGPT" })).toBe("ok");
+  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "Logged in as fred" })).toBe("ok");
+  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "Please sign in" })).toBe("signed-out");
+  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "cursor-agent 1.2.3" })).toBe(
+    "unknown",
+  );
 });
 
 describe("activityFrom", () => {

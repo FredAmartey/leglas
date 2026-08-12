@@ -1,11 +1,25 @@
+import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
 import { WATCH_PATH } from "./agent-command.js";
 
+/**
+ * Whether a CLI's saved login will actually carry a run. "ok" and
+ * "signed-out" are the CLI's own answer; "unknown" is everything else: no
+ * status command reached, output we don't understand, a probe that timed
+ * out. Unknown never blocks anything, because a wrong "signed out" would
+ * box a user out of an agent that works.
+ */
+export type AgentAuth = "ok" | "signed-out" | "unknown";
+
+type ProbeResult = { code: number; stdout: string };
+
 // `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
 // a human-watched terminal. Keep the pair in step when an agent's CLI changes.
+// `authArgs` asks the CLI whether its login is live, and `authVerdict` reads
+// the answer; both are per-vendor because no two CLIs agree on the surface.
 export const KNOWN_AGENTS = {
   claude: {
     name: "Claude",
@@ -25,24 +39,55 @@ export const KNOWN_AGENTS = {
       "--permission-mode",
       "acceptEdits",
     ],
+    authArgs: ["auth", "status"],
+    // `claude auth status` prints JSON with a loggedIn boolean. Only that
+    // field decides; any other shape stays unknown.
+    authVerdict: (result: ProbeResult): AgentAuth => {
+      try {
+        const parsed = record(JSON.parse(result.stdout));
+        if (parsed?.loggedIn === true) return "ok";
+        if (parsed?.loggedIn === false) return "signed-out";
+      } catch {
+        // Older CLIs may not know the subcommand or may print prose.
+      }
+      return "unknown";
+    },
   },
   codex: {
     name: "Codex",
     binary: "codex",
     args: (prompt: string): string[] => ["exec", "--json", "-s", "workspace-write", prompt],
     terminalArgs: (prompt: string): string[] => ["exec", "-s", "workspace-write", prompt],
+    authArgs: ["login", "status"],
+    // `codex login status` exits 0 when logged in and nonzero when not.
+    authVerdict: (result: ProbeResult): AgentAuth =>
+      result.code === 0 ? "ok" : "signed-out",
   },
   cursor: {
     name: "Cursor",
     binary: "cursor-agent",
     args: (prompt: string): string[] => ["-p", prompt, "--output-format", "stream-json"],
     terminalArgs: (prompt: string): string[] => ["-p", prompt],
+    authArgs: ["status"],
+    // UNVERIFIED: cursor-agent was not available on the build machine. The
+    // reading is deliberately loose, and anything ambiguous stays unknown.
+    authVerdict: (result: ProbeResult): AgentAuth => {
+      if (/logged in|signed in/i.test(result.stdout)) return "ok";
+      if (result.code !== 0 || /not logged in|log in|sign in/i.test(result.stdout))
+        return "signed-out";
+      return "unknown";
+    },
   },
 } as const;
 
 export type KnownAgentId = keyof typeof KNOWN_AGENTS;
 export type AgentChoice = KnownAgentId | "custom";
-export type DetectedAgent = { id: KnownAgentId; name: string; available: boolean };
+export type DetectedAgent = {
+  id: KnownAgentId;
+  name: string;
+  available: boolean;
+  auth: AgentAuth;
+};
 
 export type SavedAgentChoice = {
   agent: AgentChoice | null;
@@ -55,6 +100,43 @@ export type AgentChoiceInput = {
 };
 
 type BinaryLookup = (binary: string) => Promise<boolean>;
+
+export type AuthProbe = (
+  binary: string,
+  args: readonly string[],
+) => Promise<ProbeResult | null>;
+
+const PROBE_TIMEOUT_MS = 3000;
+
+/**
+ * One status command, capped stdout, hard deadline. A CLI that hangs on its
+ * own status question must never hold the agents endpoint hostage; it just
+ * reads as unknown.
+ */
+function execProbe(binary: string, args: readonly string[]): Promise<ProbeResult | null> {
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(binary, [...args], { shell: false, stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      return resolve(null);
+    }
+
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (stdout.length < 4096) stdout += chunk.toString();
+    });
+    const deadline = setTimeout(() => child.kill("SIGKILL"), PROBE_TIMEOUT_MS);
+    child.once("error", () => {
+      clearTimeout(deadline);
+      resolve(null);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(deadline);
+      resolve(signal !== null ? null : { code: code ?? 0, stdout });
+    });
+  });
+}
 
 async function pathLookup(binary: string): Promise<boolean> {
   const entries = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== "");
@@ -76,15 +158,29 @@ async function pathLookup(binary: string): Promise<boolean> {
   return false;
 }
 
-/** Report every built-in adapter and whether its binary can be executed. */
-export async function detectAgents(lookup: BinaryLookup = pathLookup): Promise<DetectedAgent[]> {
+/**
+ * Report every built-in adapter: whether its binary can be executed, and
+ * whether its login is live. Probes run in parallel, so the wall-clock cost
+ * is the slowest vendor's status command, about a second, and the caller is
+ * expected to cache the answer rather than pay it per request.
+ */
+export async function detectAgents(
+  lookup: BinaryLookup = pathLookup,
+  probe: AuthProbe = execProbe,
+): Promise<DetectedAgent[]> {
   const entries = Object.entries(KNOWN_AGENTS) as [KnownAgentId, (typeof KNOWN_AGENTS)[KnownAgentId]][];
   return Promise.all(
-    entries.map(async ([id, adapter]) => ({
-      id,
-      name: adapter.name,
-      available: await lookup(adapter.binary).catch(() => false),
-    })),
+    entries.map(async ([id, adapter]) => {
+      const available = await lookup(adapter.binary).catch(() => false);
+      if (!available) return { id, name: adapter.name, available, auth: "unknown" as const };
+      const result = await probe(adapter.binary, adapter.authArgs).catch(() => null);
+      return {
+        id,
+        name: adapter.name,
+        available,
+        auth: result === null ? ("unknown" as const) : adapter.authVerdict(result),
+      };
+    }),
   );
 }
 

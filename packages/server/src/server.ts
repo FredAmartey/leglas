@@ -9,6 +9,7 @@ import {
   detectAgents,
   readAgentChoice,
   saveAgentChoice,
+  type DetectedAgent,
   type KnownAgentId,
 } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
@@ -76,6 +77,11 @@ export type ServerOptions = {
    * directory is mounted, so a page's sibling assets resolve too.
    */
   fileMounts?: ReadonlyMap<string, string>;
+  /**
+   * Agent detection, injectable so tests need not spawn real vendor CLIs:
+   * the default probes each installed CLI's login status.
+   */
+  detect?: () => Promise<DetectedAgent[]>;
 };
 
 export type RunningServer = {
@@ -310,6 +316,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     project = "",
     cwd = process.cwd(),
     fileMounts = new Map<string, string>(),
+    detect = () => detectAgents(),
   } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
@@ -326,6 +333,35 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const externallyAttached = () =>
     lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
   let runner: RunningAgent | null = null;
+
+  /**
+   * Agent detection asks every vendor CLI for its login status, which costs
+   * about a second, so only the first request ever waits for it. After that
+   * the endpoint answers from here instantly and refreshes behind the
+   * response once the answer is old, so signing in shows up on the next look
+   * without any request paying the probe.
+   */
+  let agentsCache: { at: number; agents: DetectedAgent[] } | null = null;
+  let agentsInflight: Promise<DetectedAgent[]> | null = null;
+  const AGENTS_FRESH_MS = 30_000;
+  const probeAgents = (): Promise<DetectedAgent[]> => {
+    agentsInflight ??= detect()
+      .then((agents) => {
+        agentsCache = { at: Date.now(), agents };
+        return agents;
+      })
+      .finally(() => {
+        agentsInflight = null;
+      });
+    return agentsInflight;
+  };
+  const currentAgents = (): Promise<DetectedAgent[]> => {
+    if (agentsCache === null) return probeAgents();
+    if (Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
+      void probeAgents().catch(() => {});
+    }
+    return Promise.resolve(agentsCache.agents);
+  };
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
@@ -411,7 +447,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/agents` && req.method === "GET") {
-      return void Promise.all([detectAgents(), readAgentChoice(cwd)]).then(([agents, choice]) =>
+      return void Promise.all([currentAgents(), readAgentChoice(cwd)]).then(([agents, choice]) =>
         sendJson(res, 200, {
           agents,
           choice: choice.agent,

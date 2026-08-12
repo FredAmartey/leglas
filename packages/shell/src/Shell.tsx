@@ -242,6 +242,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  // Non-null while the menu is showing the custom-command editor; holds the
+  // draft template. Any CLI with a {prompt} slot is a valid agent here.
+  const [customDraft, setCustomDraft] = useState<string | null>(null);
   const [requestAction, setRequestAction] = useState<"cancel" | "retry" | "dismiss" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -614,7 +617,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // Two independent readings of one snapshot: the chip says who Enter sends
   // to, the card says what is happening right now. They used to fight over a
   // single footer slot, which is how a running request could hide the chooser.
-  const chip = composerAgent(agentState.choice, agentState.agents, st.prefs.agentPickerDismissed);
+  const chip = composerAgent(
+    agentState.choice,
+    agentState.agents,
+    st.prefs.agentPickerDismissed,
+    agentState.customRun,
+  );
+  const chosenSignedOut =
+    chip.kind === "chosen" &&
+    agentState.agents.some((agent) => agent.id === chip.id && agent.auth === "signed-out");
   const card = requestCard(
     requestSnapshot.requests,
     requestSnapshot.agent,
@@ -633,6 +644,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   useEffect(() => {
     if (chip.kind === "none") setAgentMenuOpen(false);
   }, [chip.kind]);
+  // The editor never outlives the menu that opened it.
+  useEffect(() => {
+    if (!agentMenuOpen) setCustomDraft(null);
+  }, [agentMenuOpen]);
   // Same dismissal contract as the tools popover: Escape, clicking away, or
   // the window losing focus all put the menu back without ceremony.
   useEffect(() => {
@@ -660,10 +675,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [agentMenuOpen]);
-  const pickAgent = (agent: string) => {
+  const pickAgent = (agent: string, run?: string) => {
     if (pickingAgent !== null) return;
     setPickingAgent(agent);
-    void chooseAgent(agent)
+    void chooseAgent(agent, run)
       .then(() => {
         refreshAgents();
         setAgentMenuOpen(false);
@@ -671,7 +686,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       .catch(() => {
         st.notify({
           kind: "agent-choice",
-          message: "That agent could not be selected. No run started.",
+          message:
+            agent === "custom"
+              ? "That command could not be saved. Nothing changed."
+              : "That agent could not be selected. No run started.",
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
@@ -1790,61 +1808,145 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       role="dialog"
                       tabIndex={-1}
                     >
-                      {agentState.agents
-                        .filter((agent) => agent.available)
-                        .map((agent) => {
-                          const active = chip.kind === "chosen" && agent.id === chip.id;
-                          return (
-                            <button
-                              className={ROW_BUTTON}
-                              disabled={pickingAgent !== null}
-                              key={agent.id}
-                              onClick={() =>
-                                active ? setAgentMenuOpen(false) : pickAgent(agent.id)
+                      {customDraft !== null ? (
+                        /* Any CLI is an agent: a command with a {prompt} slot
+                           is the whole contract, so nobody is boxed into the
+                           three names we happen to know. */
+                        <div className="w-60 p-1">
+                          <label
+                            className="block px-1 pb-1 text-[10px] leading-snug text-[#84848C]"
+                            htmlFor="leglas-custom-run"
+                          >
+                            Your own command. <span className="font-mono">{"{prompt}"}</span>{" "}
+                            becomes the request.
+                          </label>
+                          <input
+                            className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 font-mono text-[11px] text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
+                            id="leglas-custom-run"
+                            onChange={(event) => setCustomDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              if (customDraft.includes("{prompt}") && pickingAgent === null) {
+                                pickAgent("custom", customDraft.trim());
                               }
+                            }}
+                            placeholder="npx my-agent {prompt}"
+                            value={customDraft}
+                          />
+                          <div className="flex items-center justify-between pt-1.5">
+                            <button
+                              className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                              onClick={() => setCustomDraft(null)}
                               type="button"
                             >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <BrandMark id={agent.id} />
-                                <span className="truncate">{agent.name}</span>
+                              Back
+                            </button>
+                            <button
+                              className="rounded px-1.5 py-0.5 text-[11px] text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={!customDraft.includes("{prompt}") || pickingAgent !== null}
+                              onClick={() => pickAgent("custom", customDraft.trim())}
+                              type="button"
+                            >
+                              {pickingAgent === "custom" ? "Saving…" : "Save"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {agentState.agents
+                            .filter((agent) => agent.available)
+                            .map((agent) => {
+                              const active = chip.kind === "chosen" && agent.id === chip.id;
+                              return (
+                                <button
+                                  className={ROW_BUTTON}
+                                  disabled={pickingAgent !== null}
+                                  key={agent.id}
+                                  onClick={() =>
+                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
+                                  }
+                                  type="button"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <BrandMark id={agent.id} />
+                                    <span className="truncate">{agent.name}</span>
+                                  </span>
+                                  {pickingAgent === agent.id ? (
+                                    <span
+                                      aria-label="selecting"
+                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                                    />
+                                  ) : agent.auth === "signed-out" ? (
+                                    /* Caught before the run instead of after
+                                       it: the CLI itself says its login is
+                                       gone, and hiding the row would only
+                                       hide the fix. */
+                                    <span className="text-[10px] text-amber-400/80">
+                                      signed out
+                                    </span>
+                                  ) : (
+                                    active && <span aria-label="current choice">✓</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          <button
+                            className={`${ROW_BUTTON} ${chip.kind === "chosen" && chip.id === "custom" ? "" : "text-[#84848C]"}`}
+                            disabled={pickingAgent !== null}
+                            onClick={() => setCustomDraft(agentState.customRun ?? "")}
+                            type="button"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <BrandMark id="custom" />
+                              <span className="truncate">
+                                {chip.kind === "chosen" && chip.id === "custom"
+                                  ? chip.name
+                                  : "Custom command…"}
                               </span>
-                              {pickingAgent === agent.id ? (
-                                <span
-                                  aria-label="selecting"
-                                  className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                                />
-                              ) : (
-                                active && <span aria-label="current choice">✓</span>
+                            </span>
+                            {chip.kind === "chosen" && chip.id === "custom" && (
+                              <span aria-label="current choice">✓</span>
+                            )}
+                          </button>
+                          {agentState.choice === null && (
+                            <button
+                              className={`${ROW_BUTTON} text-[#84848C]`}
+                              onClick={() => {
+                                st.setPrefs((prefs) => ({
+                                  ...prefs,
+                                  agentPickerDismissed: true,
+                                }));
+                                setAgentMenuOpen(false);
+                              }}
+                              type="button"
+                            >
+                              <span>I&apos;ll run my own</span>
+                              {chip.kind === "manual" && (
+                                <span aria-label="current choice">✓</span>
                               )}
                             </button>
-                          );
-                        })}
-                      {agentState.choice === null && (
-                        <button
-                          className={`${ROW_BUTTON} text-[#84848C]`}
-                          onClick={() => {
-                            st.setPrefs((prefs) => ({ ...prefs, agentPickerDismissed: true }));
-                            setAgentMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <span>I&apos;ll run my own</span>
-                          {chip.kind === "manual" && <span aria-label="current choice">✓</span>}
-                        </button>
-                      )}
-                      {/* The consent sentence belongs to the first choice
-                          only; once one is made, this is just a select. */}
-                      {agentState.choice === null && (
-                        <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
-                          Runs in this project with write access, like in your terminal.
-                        </p>
+                          )}
+                          {/* The consent sentence belongs to the first choice
+                              only; once one is made, this is just a select. */}
+                          {agentState.choice === null && (
+                            <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
+                              Runs in this project with write access, like in your terminal.
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                     <button
                       aria-expanded={agentMenuOpen}
                       aria-haspopup="dialog"
                       className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                      onClick={() => setAgentMenuOpen((open) => !open)}
+                      onClick={() => {
+                        // Opening re-asks the CLIs about their logins, so a
+                        // sign-in that happened after boot shows up here.
+                        if (!agentMenuOpen) refreshAgents();
+                        setAgentMenuOpen((open) => !open);
+                      }}
                       ref={agentTriggerRef}
                       type="button"
                     >
@@ -1856,6 +1958,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                             ? "I'll run my own"
                             : "Choose an agent"}
                       </span>
+                      {chosenSignedOut && (
+                        <span
+                          className="size-1.5 shrink-0 rounded-full bg-amber-400"
+                          title="This CLI is signed out. Sign in in your terminal."
+                        >
+                          <span className="sr-only">signed out</span>
+                        </span>
+                      )}
                       <svg
                         aria-hidden="true"
                         className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${

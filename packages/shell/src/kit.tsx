@@ -563,5 +563,24 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
       </svg>
     );
   }
+  if (id === "custom") {
+    // No vendor to borrow a mark from: a terminal prompt in the text's own
+    // colour says "your command" without pretending to be a brand.
+    return (
+      <svg
+        aria-hidden="true"
+        fill="none"
+        height={size}
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        width={size}
+      >
+        <path d="m5 6 6 6-6 6M13 18h6" />
+      </svg>
+    );
+  }
   return null;
 }
