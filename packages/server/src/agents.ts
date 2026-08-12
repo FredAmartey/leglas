@@ -211,7 +211,7 @@ function shownCommand(value: unknown): string | null {
       : "";
   command = command.trim();
 
-  const wrapped = /^(?:bash|sh|zsh)\s+-l?c\s+([\s\S]*)$/.exec(command);
+  const wrapped = /^(?:\S*\/)?(?:bash|sh|zsh)\s+-l?c\s+([\s\S]*)$/.exec(command);
   if (wrapped?.[1] !== undefined) {
     command = wrapped[1].trim();
     const quote = command[0];

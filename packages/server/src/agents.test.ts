@@ -165,6 +165,7 @@ describe("activityFrom", () => {
 
   test.each([
     [["bash", "-lc", "pnpm build"], "running pnpm build"],
+    ['/bin/zsh -lc "pwd && rg --files"', "running pwd && rg --files"],
     ["  git  status\nsecond line ignored", "running git status"],
     [`sh -c "${"x".repeat(60)}"`, `running ${"x".repeat(47)}…`],
     [42, "running a command"],
