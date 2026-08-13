@@ -1160,6 +1160,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             openAlone(title);
           }}
           onKeyDown={(event) => {
+            // Only when the card itself holds the focus. The rename field sits
+            // inside it, and Enter and Space are the two keys it needs most:
+            // taking them from the whole subtree meant Enter never committed a
+            // rename, because the preventDefault here cancelled the form's own
+            // submission, and a space never reached the name being typed.
+            if (event.target !== event.currentTarget) return;
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               st.setActive(title);
