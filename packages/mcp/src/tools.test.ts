@@ -31,7 +31,7 @@ async function connect(
   // A silent engagement, so no test beats a real port; the recording variant
   // proves the wiring where a test asks for it.
   const engagement = {
-    touch: () => {
+    touch: async () => {
       if (options.touches) options.touches.count += 1;
     },
     stop: async () => {},

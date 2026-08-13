@@ -45,8 +45,14 @@ function defaultPost(watching: boolean): Promise<void> {
 }
 
 export type Engagement = {
-  /** Note queue activity: starts the beat, or extends it. */
-  touch(): void;
+  /**
+   * Note queue activity: starts the beat, or extends it. The returned
+   * promise settles once the server has had its chance to register the
+   * engagement; the caller awaits it before reading the queue, because the
+   * embedded runner backs off only after that registration lands. Watch
+   * closes the same handoff race the same way with its first heartbeat.
+   */
+  touch(): Promise<void>;
   /** End the engagement and say so, as far as one best-effort post goes. */
   stop(): Promise<void>;
 };
@@ -80,9 +86,10 @@ export function createEngagement(deps: EngagementDeps = {}): Engagement {
   return {
     touch() {
       lastTouch = now();
-      if (timer !== null) return;
+      // Mid-cycle the server already knows: nothing to wait for.
+      if (timer !== null) return Promise.resolve();
       timer = setEvery(beat, BEAT_MS);
-      void post(true);
+      return post(true).catch(() => {});
     },
     async stop() {
       const wasBeating = timer !== null;

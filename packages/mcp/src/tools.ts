@@ -283,8 +283,9 @@ export function registerLeglasTools(
     async ({ clear }) => {
       // Touched on every call, empty queue included: an agent that just asked
       // is an agent about to act, and the beat lapses on its own once the
-      // asking stops.
-      engagement.touch();
+      // asking stops. Awaited before the queue is read so the runner has
+      // backed off by the time this session could collect anything.
+      await engagement.touch();
       return inProject(project, (cwd, deps) =>
         runRequests({ json: true, clear: clear ?? false, cwd }, deps),
       );
