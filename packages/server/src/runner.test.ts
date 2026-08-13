@@ -163,6 +163,47 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test("a nudge starts a queued request without waiting for the poll", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-nudge-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    // The boot tick finds an empty queue and goes idle. The request arrives
+    // after it, and the timer never fires in this test: only the nudge can
+    // start the run.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await appendRequest(cwd, input("Now"));
+    expect(spawned.calls).toHaveLength(0);
+    runner.nudge();
+    await until(() => spawned.calls.length === 1);
+    expect(spawned.calls[0]?.[1][1]).toBe("prompt for Now");
+
+    // While a run is live a nudge is swallowed whole: the tick in flight
+    // already owns the queue, so nothing can overlap it.
+    await appendRequest(cwd, input("Later"));
+    runner.nudge();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spawned.calls).toHaveLength(1);
+
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+    await runner.stop();
+
+    // Stopped means stopped: a late nudge must not restart anything, even
+    // with work still queued.
+    runner.nudge();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spawned.calls).toHaveLength(1);
+  });
+
   test("cancels the active child with SIGTERM and treats the request as failed", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cancel-"));

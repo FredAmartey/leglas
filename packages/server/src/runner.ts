@@ -53,6 +53,8 @@ export type RunningAgent = {
   stop(): Promise<void>;
   snapshot(): RunnerState;
   cancel(id?: string): boolean;
+  /** Look at the queue now instead of on the next poll. */
+  nudge(): void;
 };
 
 type ResolvedCommand = {
@@ -302,5 +304,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stop,
     snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
+    // schedule already refuses to overlap a tick in flight, so a nudge during
+    // a run costs nothing and a nudge between runs starts the next one now.
+    nudge: schedule,
   };
 }
