@@ -824,6 +824,18 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // were aiming at stopped looking like itself. The field carries the
     // title's own metrics instead, so nothing below it shifts by a pixel.
     const renamingThis = st.renaming === title;
+    // The end of the title line is contested: at rest it holds the badge, and
+    // under the pointer the buttons, which want more room than the badge
+    // takes. The badge leaves the flow rather than just fading, so the name
+    // gets every pixel the buttons don't use instead of the badge's width
+    // being stranded invisibly behind them. A dragged row keeps its badge:
+    // it is being moved, not acted on, and its buttons stay away. So does a
+    // row being renamed, where the badge is the field's right-hand wall —
+    // taking it out from under the pointer would resize the field mid-word.
+    const badgeAside =
+      dragging || renamingThis
+        ? ""
+        : "group-hover:hidden group-has-[button:focus-visible]:hidden";
 
     return (
       <li
@@ -892,7 +904,22 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           tabIndex={0}
         >
           <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2">
+            {/* The buttons float over the row rather than sitting in it, so
+                the title line has to give up the strip they land on or a long
+                name runs underneath them. Four 24px buttons and the gaps
+                between them, 8px in from the edge, less the 12px the row
+                already pads: 98px, or 72px on the active row, which has no
+                compare button. Only while they are up — at rest the name gets
+                the whole line back. */}
+            <span
+              className={`flex items-center gap-2 ${
+                dragging || renamingThis
+                  ? ""
+                  : isActive
+                    ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
+                    : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
+              }`}
+            >
               {variantCount > 0 && (
                 <Tip label={folded ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}` : "Fold the variants away"}>
                   <button
@@ -967,11 +994,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               )}
               {splitting && title === compare ? (
                 <span
-                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] transition-opacity duration-150 ${
-                    dragging
-                      ? ""
-                      : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
-                  }`}
+                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${badgeAside}`}
                 >
                   Comparing
                 </span>
@@ -980,22 +1003,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
                 >
                   <span
-                    className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 transition-opacity duration-150 ${
-                      dragging
-                        ? ""
-                        : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
-                    }`}
+                    className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
                   >
                     Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
                   </span>
                 </Tip>
               ) : checking(title) ? (
                 <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 transition-opacity duration-150 ${
-                    dragging
-                      ? ""
-                      : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
-                  }`}
+                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
                 >
                   <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
                   Cooking
@@ -1003,11 +1018,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               ) : (
                 preview?.tags[0] && (
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal transition-opacity duration-150 ${
-                      dragging
-                        ? ""
-                        : "group-hover:opacity-0 group-has-[button:focus-visible]:opacity-0"
-                    }`}
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${badgeAside}`}
                     style={tagTone(preview.tags[0])}
                   >
                     {preview.tags[0]}
