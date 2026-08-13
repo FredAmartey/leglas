@@ -163,6 +163,145 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test("a finished run's session carries into the next request, cold after the cap", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-session-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("First"));
+    await appendRequest(cwd, input("Second"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.children.length === 1);
+    expect(spawned.calls[0]?.[1]).toEqual([
+      "exec",
+      "--json",
+      "-s",
+      "workspace-write",
+      "prompt for First",
+    ]);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
+    );
+    spawned.children[0]?.close(0);
+
+    await until(async () => (await readRequests(cwd)).length === 1);
+    clock.tick();
+    await until(() => spawned.children.length === 2);
+    // The second request continues the first one's conversation.
+    expect(spawned.calls[1]?.[1]).toEqual([
+      "exec",
+      "resume",
+      "th_1",
+      "--json",
+      "prompt for Second",
+    ]);
+    spawned.children[1]?.child.stdout.write(
+      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
+    );
+    spawned.children[1]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+  });
+
+  test("a failed resume that never edited retries cold, invisibly to the request", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-retry-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("Seed"));
+    await appendRequest(cwd, input("Fragile"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.children.length === 1);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+    clock.tick();
+
+    // The resume dies instantly, the way a vendor-expired session does.
+    await until(() => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1][1]).toBe("resume");
+    spawned.children[1]?.close(1);
+
+    // Same request, fresh process, no session: the user never saw a failure.
+    await until(() => spawned.children.length === 3);
+    expect(spawned.calls[2]?.[1]).toEqual([
+      "exec",
+      "--json",
+      "-s",
+      "workspace-write",
+      "prompt for Fragile",
+    ]);
+    spawned.children[2]?.child.stdout.write(
+      `${JSON.stringify({ type: "thread.started", thread_id: "th_2" })}\n`,
+    );
+    spawned.children[2]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    expect(runner.snapshot().failedIds).toEqual([]);
+    await runner.stop();
+  });
+
+  test("a resume that edited and then failed is a real failure and ends the session", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-poisoned-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("Seed"));
+    await appendRequest(cwd, input("Broken"));
+    await appendRequest(cwd, input("After"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.children.length === 1);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 2);
+    clock.tick();
+
+    // The resumed run edits a file, then dies. Rerunning could stack a second
+    // half-edit on the first, so this must surface as a failure.
+    await until(() => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1][1]).toBe("resume");
+    spawned.children[1]?.child.stdout.write(
+      `${JSON.stringify({ type: "item.started", item: { type: "file_change", changes: [{ path: "x.html" }] } })}\n`,
+    );
+    spawned.children[1]?.close(1);
+    await until(() => runner.snapshot().failedIds.length === 1);
+    expect(spawned.children).toHaveLength(2);
+
+    // The conversation is over: the next request starts cold.
+    clock.tick();
+    await until(() => spawned.children.length === 3);
+    expect(spawned.calls[2]?.[1][0]).toBe("exec");
+    expect(spawned.calls[2]?.[1][1]).toBe("--json");
+    spawned.children[2]?.close(0);
+    await runner.stop();
+  });
+
   test("a nudge starts a queued request without waiting for the poll", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-nudge-"));
     await saveAgentChoice(cwd, { agent: "claude" });

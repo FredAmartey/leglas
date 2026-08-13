@@ -20,6 +20,9 @@ type ProbeResult = { code: number; stdout: string };
 // a human-watched terminal. Keep the pair in step when an agent's CLI changes.
 // `authArgs` asks the CLI whether its login is live, and `authVerdict` reads
 // the answer; both are per-vendor because no two CLIs agree on the surface.
+// `resumeArgs` and `sessionFrom` exist where the vendor can continue a saved
+// session: a resumed turn skips the repo survey the first turn already paid
+// for, measured at 25-40% of a run's wall-clock.
 export const KNOWN_AGENTS = {
   claude: {
     name: "Claude",
@@ -39,6 +42,20 @@ export const KNOWN_AGENTS = {
       "--permission-mode",
       "acceptEdits",
     ],
+    resumeArgs: (sessionId: string, prompt: string): string[] => [
+      "-p",
+      "--resume",
+      sessionId,
+      prompt,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      "acceptEdits",
+    ],
+    // Every stream-json event names its session.
+    sessionFrom: (event: Record<string, unknown>): string | null =>
+      typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
     authArgs: ["auth", "status"],
     // `claude auth status` prints JSON with a loggedIn boolean. Only that
     // field decides; any other shape stays unknown.
@@ -58,6 +75,19 @@ export const KNOWN_AGENTS = {
     binary: "codex",
     args: (prompt: string): string[] => ["exec", "--json", "-s", "workspace-write", prompt],
     terminalArgs: (prompt: string): string[] => ["exec", "-s", "workspace-write", prompt],
+    // No sandbox flag here: `codex exec resume` refuses it and inherits the
+    // session's own sandbox, which the first turn set to workspace-write.
+    resumeArgs: (sessionId: string, prompt: string): string[] => [
+      "exec",
+      "resume",
+      sessionId,
+      "--json",
+      prompt,
+    ],
+    sessionFrom: (event: Record<string, unknown>): string | null =>
+      event.type === "thread.started" && typeof event.thread_id === "string"
+        ? event.thread_id
+        : null,
     authArgs: ["login", "status"],
     // `codex login status` exits 0 when logged in and nonzero when not.
     authVerdict: (result: ProbeResult): AgentAuth =>
@@ -289,6 +319,23 @@ export function activityFrom(
   // available during this slice. Its documented shape matches Claude's.
   if (agent === "cursor") return claudeActivity(event, cwd);
   return null;
+}
+
+/**
+ * The session id one JSONL line names, so a later request can resume the
+ * conversation instead of paying the survey again. Only vendors whose CLIs
+ * expose a resume surface report one; everyone else stays null and cold.
+ */
+export function sessionFrom(agent: AgentChoice, line: string): string | null {
+  if (agent !== "claude" && agent !== "codex") return null;
+  let event: Record<string, unknown> | null;
+  try {
+    event = record(JSON.parse(line));
+  } catch {
+    return null;
+  }
+  if (event === null) return null;
+  return KNOWN_AGENTS[agent].sessionFrom(event);
 }
 
 function isAgentChoice(value: unknown): value is AgentChoice {

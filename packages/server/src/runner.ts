@@ -5,6 +5,7 @@ import {
   KNOWN_AGENTS,
   activityFrom,
   readAgentChoice,
+  sessionFrom,
   type AgentChoice,
   type SavedAgentChoice,
 } from "./agents.js";
@@ -62,28 +63,52 @@ type ResolvedCommand = {
   name: string;
   command: string;
   args: string[];
+  /** True when the argv continues a saved session instead of starting cold. */
+  resumed: boolean;
 };
 
 type ChildOutcome =
   | { ok: true; code: number }
   | { ok: false; error: string };
 
-function resolveCommand(choice: SavedAgentChoice, prompt: string): ResolvedCommand | null {
+/**
+ * How many requests may share one vendor session before the next one starts
+ * fresh. Every resumed turn carries the whole conversation back to the
+ * model, so an unbounded session quietly makes each request dearer than the
+ * last; eight keeps the discount while capping the freight.
+ */
+const SESSION_TURNS_CAP = 8;
+
+function resolveCommand(
+  choice: SavedAgentChoice,
+  prompt: string,
+  sessionId: string | null = null,
+): ResolvedCommand | null {
   if (choice.agent === null) return null;
 
   if (choice.agent === "custom") {
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
     if (!parsed.ok) return null;
-    return { agent: "custom", name: "Custom", ...commandFor(parsed.template, prompt) };
+    return { agent: "custom", name: "Custom", ...commandFor(parsed.template, prompt), resumed: false };
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
+  if (sessionId !== null && "resumeArgs" in adapter) {
+    return {
+      agent: choice.agent,
+      name: adapter.name,
+      command: adapter.binary,
+      args: adapter.resumeArgs(sessionId, prompt),
+      resumed: true,
+    };
+  }
   return {
     agent: choice.agent,
     name: adapter.name,
     command: adapter.binary,
     args: adapter.args(prompt),
+    resumed: false,
   };
 }
 
@@ -138,6 +163,15 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   let stopPromise: Promise<void> | null = null;
   let active: { child: RunnerChild; requestId: string; cancelled: boolean } | null = null;
 
+  /**
+   * The vendor session each agent may continue, per this server process.
+   * In memory on purpose: a session that outlives the process would come
+   * back stale after days, and the vendor may have cleaned it up anyway.
+   * Dropped on any failure or cancel so a wedged conversation cannot taint
+   * the requests after it.
+   */
+  const sessions = new Map<AgentChoice, { id: string; turns: number }>();
+
   const idle = () => {
     state = { running: false, requestId: null, agent: null, activity: null, startedAt: null };
   };
@@ -156,6 +190,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
+    observed: { sessionId: string | null; edited: boolean },
   ): Promise<ChildOutcome> => {
     let child: RunnerChild;
     try {
@@ -176,8 +211,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
     const stdoutFlush = lineReader(child.stdout, (line) => {
       rememberLine(lines, line);
+      const sessionId = sessionFrom(resolved.agent, line);
+      if (sessionId !== null) observed.sessionId = sessionId;
       const activity = activityFrom(resolved.agent, line, options.cwd);
-      if (activity !== null && active === current) state = { ...state, activity };
+      if (activity !== null) {
+        if (activity.startsWith("editing")) observed.edited = true;
+        if (active === current) state = { ...state, activity };
+      }
     });
     const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
 
@@ -203,7 +243,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   const handle = async (request: PendingRequest, choice: SavedAgentChoice): Promise<void> => {
-    const resolved = resolveCommand(choice, request.prompt);
+    const session =
+      choice.agent !== null ? (sessions.get(choice.agent) ?? null) : null;
+    const continuable = session !== null && session.turns < SESSION_TURNS_CAP;
+    let resolved = resolveCommand(choice, request.prompt, continuable ? session.id : null);
     if (resolved === null) return;
 
     const lines: string[] = [];
@@ -228,13 +271,47 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         activity: null,
         startedAt: Date.now(),
       };
-      const outcome = await runChild(request, resolved, lines);
+      const observed = { sessionId: null as string | null, edited: false };
+      let outcome = await runChild(request, resolved, lines, observed);
+
+      // A resume that died without touching a file is a session problem, not
+      // a request problem: the vendor may simply have cleaned the session up.
+      // One cold retry keeps that invisible to the user. A resume that edited
+      // and then failed is treated as any failure, because rerunning it could
+      // stack half-applied changes; a stop stays stopped, whatever it hit.
+      const cancelled = !outcome.ok && outcome.error === "cancelled";
+      if (
+        !(outcome.ok && outcome.code === 0) &&
+        resolved.resumed &&
+        !observed.edited &&
+        !cancelled &&
+        !stopped
+      ) {
+        sessions.delete(resolved.agent);
+        const cold = resolveCommand(choice, request.prompt);
+        if (cold !== null) {
+          resolved = cold;
+          observed.sessionId = null;
+          outcome = await runChild(request, resolved, lines, observed);
+        }
+      }
 
       if (outcome.ok && outcome.code === 0) {
+        if (observed.sessionId !== null) {
+          const previous = sessions.get(resolved.agent);
+          sessions.set(resolved.agent, {
+            id: observed.sessionId,
+            turns:
+              resolved.resumed && previous?.id === observed.sessionId
+                ? previous.turns + 1
+                : 1,
+          });
+        }
         await removeRequest(options.cwd, request.id);
         return;
       }
 
+      sessions.delete(resolved.agent);
       failed.add(request.id);
       reportFailure(
         request,

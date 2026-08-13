@@ -43,6 +43,13 @@ you send it.
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a
   request. (`leglas`)
+- **Consecutive requests share the agent's session.** The first request
+  pays for reading the project; the ones after it resume the same
+  conversation (`codex exec resume`, `claude --resume`) and skip
+  straight to the change, measured 25 to 40 percent faster. A session
+  ends on any failure, stop, or after eight turns, and a resume the
+  vendor no longer remembers falls back to a fresh start on its own,
+  so nothing new can break a request. (`leglas`)
 - **Connect the agents Leglas cannot spawn.** The picker's "Connect
   another agent" entry hands out the MCP wiring for IDE panels and chat
   hosts: the Claude Code command or an `mcp.json` entry, one copy each.

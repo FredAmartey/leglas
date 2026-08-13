@@ -9,6 +9,7 @@ import {
   detectAgents,
   readAgentChoice,
   saveAgentChoice,
+  sessionFrom,
 } from "./agents.js";
 
 describe("KNOWN_AGENTS", () => {
@@ -90,6 +91,44 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   );
 
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
+});
+
+test("resume argv continues the session, and codex carries no sandbox flag", () => {
+  expect(KNOWN_AGENTS.claude.resumeArgs("sid-1", "make it warmer")).toEqual([
+    "-p",
+    "--resume",
+    "sid-1",
+    "make it warmer",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    "acceptEdits",
+  ]);
+  // `codex exec resume` refuses -s and inherits the session's sandbox.
+  expect(KNOWN_AGENTS.codex.resumeArgs("sid-2", "make it warmer")).toEqual([
+    "exec",
+    "resume",
+    "sid-2",
+    "--json",
+    "make it warmer",
+  ]);
+});
+
+test("sessionFrom reads each vendor's own id and nothing else", () => {
+  expect(
+    sessionFrom("claude", JSON.stringify({ type: "system", subtype: "init", session_id: "abc" })),
+  ).toBe("abc");
+  expect(
+    sessionFrom("codex", JSON.stringify({ type: "thread.started", thread_id: "th_1" })),
+  ).toBe("th_1");
+  // Codex ids ride only on thread.started; other events must not be read.
+  expect(
+    sessionFrom("codex", JSON.stringify({ type: "item.started", thread_id: "th_2" })),
+  ).toBeNull();
+  expect(sessionFrom("claude", "not json")).toBeNull();
+  expect(sessionFrom("custom", JSON.stringify({ session_id: "abc" }))).toBeNull();
+  expect(sessionFrom("cursor", JSON.stringify({ session_id: "abc" }))).toBeNull();
 });
 
 test("each vendor's verdict reads its own CLI honestly", () => {
