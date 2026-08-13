@@ -18,7 +18,7 @@ import {
 import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
-import { INITIAL_HEALTH, nextHealthState, type HealthState } from "./health.js";
+import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
@@ -578,6 +578,17 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * untrue.
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
+  // Which panes actually render through that server, and whether any do. In a
+  // workspace of file and branch previews nothing on screen depends on it, so
+  // "localhost:3000 is down" is not news about anything the user is looking
+  // at, and the outage UI has no business appearing.
+  //
+  // A fresh Set every render, and deliberately absent from the deps of the
+  // effects that read it: listed, it would fire them on every render. Each
+  // effect runs with the closure of the render that triggered it, so the set
+  // is current whenever it is actually read.
+  const appPanes = new Set(previews.filter(needsDevServer).map((preview) => preview.title));
+  const needsApp = appPanes.size > 0;
   const [requestSnapshot, setRequestSnapshot] = useState<{
     requests: RequestStatus[];
     agent: AgentStatus;
@@ -797,14 +808,22 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   }, []);
 
   // Once it answers again, reload what broke rather than making the user click
-  // through every pane.
+  // through every pane. Only the panes that went down with it: a file preview
+  // kept rendering through the outage, and flashing it back to a skeleton
+  // would claim it broke when it did not.
   useEffect(() => {
     if (!health.reachable || !health.wasDown) return;
-    setErrored({});
+    setErrored((current) => {
+      const next = { ...current };
+      for (const title of Object.keys(next)) {
+        if (appPanes.has(title)) next[title] = false;
+      }
+      return next;
+    });
     setReloadTick((current) => {
       const next = { ...current };
       for (const title of Object.keys(loadedRef.current)) {
-        next[title] = (next[title] ?? 0) + 1;
+        if (appPanes.has(title)) next[title] = (next[title] ?? 0) + 1;
       }
       return next;
     });
@@ -926,10 +945,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * keeps the cost to a single extra app instance, briefly, per direction.
    *
    * The frame is parked off-viewport rather than display:none, because a
-   * hidden document lays out nothing and reads as empty. It only runs while
-   * the dev server answers: scanning a down server would record N failures.
+   * hidden document lays out nothing and reads as empty. Proxied previews
+   * queue only while the dev server answers — scanning a down server would
+   * record N failures — but a preview Leglas serves itself never went down,
+   * so those scan regardless.
    */
-  const scanning = health.reachable ? (scanQueue(previews, signatures, mounted)[0] ?? null) : null;
+  const scannable = health.reachable
+    ? previews
+    : previews.filter((preview) => !needsDevServer(preview));
+  const scanning = scanQueue(scannable, signatures, mounted)[0] ?? null;
 
   /**
    * Whether a row's duplicate verdict is still being earned. Verdicts are
@@ -939,7 +963,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * keeps a tag that appears late from reading as a glitch.
    */
   const checking = (title: string) =>
-    health.reachable && !(title in signatures) && st.urlFor(title).startsWith("/");
+    (health.reachable || !appPanes.has(title)) &&
+    !(title in signatures) &&
+    st.urlFor(title).startsWith("/");
 
   // A hung navigation would stall the walk, so a scan that produces nothing
   // within the pane timeout records the null verdict and the queue moves on.
@@ -975,8 +1001,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
   useEffect(() => {
     if (st.loaded[st.active] || errored[st.active]) return;
-    // A known-down dev server needs no waiting: the answer is already in.
-    const wait = health.reachable ? LOAD_TIMEOUT_MS : 0;
+    // A known-down dev server needs no waiting — the answer is already in —
+    // but only for panes that render through it. A file preview still loads
+    // on its own clock while the app is down.
+    const wait = health.reachable || !appPanes.has(st.active) ? LOAD_TIMEOUT_MS : 0;
     const timer = setTimeout(
       () => setErrored((current) => ({ ...current, [st.active]: true })),
       wait,
@@ -1485,7 +1513,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </div>
           </div>
 
-          {!health.reachable && (
+          {needsApp && !health.reachable && (
             <div className="mx-3 mb-1 mt-1 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2.5 py-2">
               <p className="text-xs font-medium text-amber-300/90">Dev server not responding</p>
               <p className="mt-0.5 text-[11px] leading-snug text-[#9CA3AF]">
@@ -2330,7 +2358,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 <ErrorOverlay
                   onReload={() => reloadPane(title)}
                   reason={
-                    health.reachable
+                    health.reachable || !appPanes.has(title)
                       ? `${st.urlFor(title)} didn’t respond.`
                       : "Your dev server stopped. This returns on its own once it is back."
                   }
@@ -2340,8 +2368,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               )}
               {/* A pane that loaded before the server died keeps showing that
                   render. Saying so is the difference between a stale preview
-                  and a lie. */}
-              {!health.reachable && st.loaded[title] && (
+                  and a lie — but only for panes the server rendered. A file
+                  preview is served by Leglas and is as current as ever. */}
+              {!health.reachable && st.loaded[title] && appPanes.has(title) && (
                 <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
                   <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">
                     Stale — dev server stopped

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { nextHealthState, type HealthState } from "./health.js";
+import { needsDevServer, nextHealthState, type HealthState } from "./health.js";
+import type { Preview } from "./types.js";
 
 const up: HealthState = { reachable: true, wasDown: false };
 const down: HealthState = { reachable: false, wasDown: true };
@@ -34,5 +35,34 @@ describe("nextHealthState", () => {
   test("treats the first successful check as ordinary, not a recovery", () => {
     // Starting optimistic means a normal boot never flashes a reload.
     expect(nextHealthState({ reachable: true, wasDown: false }, true).wasDown).toBe(false);
+  });
+});
+
+describe("needsDevServer", () => {
+  const preview = (extra: Partial<Preview>): Preview => ({
+    title: "Direction",
+    url: "/",
+    tags: [],
+    ...extra,
+  });
+
+  test("a route on the running app depends on it", () => {
+    expect(needsDevServer(preview({ url: "/pricing" }))).toBe(true);
+  });
+
+  test("a file preview is served by Leglas, not the app", () => {
+    expect(
+      needsDevServer(preview({ url: "/leglas/files/warm/index.html", file: "warm/index.html" })),
+    ).toBe(false);
+  });
+
+  test("a branch preview runs its own checkout", () => {
+    expect(
+      needsDevServer(preview({ url: "http://localhost:4101/", branch: "warm" })),
+    ).toBe(false);
+  });
+
+  test("an absolute url answers for itself", () => {
+    expect(needsDevServer(preview({ url: "https://example.com/" }))).toBe(false);
   });
 });
