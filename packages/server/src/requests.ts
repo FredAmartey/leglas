@@ -57,9 +57,22 @@ export function composeRequest(preview: Preview, intent: string): ComposedReques
       ? `The direction is titled "${preview.title}" and renders at ${preview.url}. Find what produces it.`
       : `It lives at ${target}.`;
 
+  // Agents give an unscoped prompt the full treatment: survey the project,
+  // make the edit, then verify with test runs and searches. For a design
+  // tweak the verification is the run; the live preview shows the result the
+  // moment the file is saved. Saying so is the single biggest speed lever
+  // this side of the vendor: the edit itself takes seconds.
+  const pace =
+    target === null
+      ? `Once found, make the change and finish. `
+      : `Make the change in that file and finish. `;
+
   const prompt =
     `In this project, change only the "${preview.title}" design direction. ${where}\n\n` +
     `What to change: ${cleaned}\n\n` +
+    `${pace}This is a scoped design change: no test run, no build, and no ` +
+    `survey of the rest of the project is needed. The result is checked ` +
+    `visually in a live preview, not by tooling.\n\n` +
     `Leave every other direction exactly as it is; they are alternatives being ` +
     `compared side by side, so changing a sibling destroys the comparison. The ` +
     `direction is already registered, so nothing needs re-registering. Keep the ` +

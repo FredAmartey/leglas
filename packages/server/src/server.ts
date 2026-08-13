@@ -439,7 +439,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           intent: parsed.intent.trim(),
           ...composed,
         })
-          .then(() => sendJson(res, 200, { ok: true, ...composed }))
+          .then(() => {
+            // The runner polls every two seconds, but the queue just grew in
+            // this very process: no reason to make the user watch that gap.
+            runner?.nudge();
+            sendJson(res, 200, { ok: true, ...composed });
+          })
           // The prompt is still useful even if the queue could not be written,
           // so the copy path keeps working when the disk does not.
           .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
@@ -626,6 +631,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.
+          runner?.nudge();
           return sendJson(res, 200, { ok: true });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The request could not be retried." });
