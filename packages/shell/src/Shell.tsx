@@ -505,6 +505,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // workspace of file and branch previews nothing on screen depends on it, so
   // "localhost:3000 is down" is not news about anything the user is looking
   // at, and the outage UI has no business appearing.
+  //
+  // A fresh Set every render, and deliberately absent from the deps of the
+  // effects that read it: listed, it would fire them on every render. Each
+  // effect runs with the closure of the render that triggered it, so the set
+  // is current whenever it is actually read.
   const appPanes = new Set(previews.filter(needsDevServer).map((preview) => preview.title));
   const needsApp = appPanes.size > 0;
   const [requests, setRequests] = useState<RequestStatus[]>([]);
