@@ -43,6 +43,12 @@ you send it.
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a
   request. (`leglas`)
+- **Connect the agents Leglas cannot spawn.** The picker's "Connect
+  another agent" entry hands out the MCP wiring for IDE panels and chat
+  hosts: the Claude Code command or an `mcp.json` entry, one copy each.
+  An agent working the queue over MCP now counts as attached, so the
+  embedded runner stays out of its way while it works and takes back
+  over once it goes quiet. (`leglas`, `leglas-mcp`)
 
 ### Changed
 
