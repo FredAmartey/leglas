@@ -210,6 +210,39 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test("the ninth request starts cold: eight turns is one session's whole life", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cap-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    for (let turn = 1; turn <= 10; turn += 1) await appendRequest(cwd, input(`Turn ${turn}`));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    for (let turn = 1; turn <= 10; turn += 1) {
+      await until(() => spawned.children.length === turn);
+      const argv = spawned.calls[turn - 1]?.[1] ?? [];
+      // Turn 1 opens the session, 2 through 8 ride it, 9 hits the cap and
+      // opens a fresh one, 10 rides that. The cap is the whole point: an
+      // unbounded session makes every request dearer than the last.
+      const shouldResume = turn !== 1 && turn !== 9;
+      expect([turn, argv[1]]).toEqual([turn, shouldResume ? "resume" : "--json"]);
+      const thread = turn <= 8 ? "th_1" : "th_2";
+      spawned.children[turn - 1]?.child.stdout.write(
+        `${JSON.stringify({ type: "thread.started", thread_id: thread })}\n`,
+      );
+      spawned.children[turn - 1]?.close(0);
+      await until(async () => (await readRequests(cwd)).length === 10 - turn);
+      clock.tick();
+    }
+    await runner.stop();
+  });
+
   test("a failed resume that never edited retries cold, invisibly to the request", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-retry-"));

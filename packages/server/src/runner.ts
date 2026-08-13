@@ -278,13 +278,18 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // a request problem: the vendor may simply have cleaned the session up.
       // One cold retry keeps that invisible to the user. A resume that edited
       // and then failed is treated as any failure, because rerunning it could
-      // stack half-applied changes; a stop stays stopped, whatever it hit.
+      // stack half-applied changes. The edited flag leans on activityFrom
+      // labelling every edit attempt; a vendor event stripped of its path
+      // data would slip past it, which is accepted, documented coupling.
       const cancelled = !outcome.ok && outcome.error === "cancelled";
       if (
         !(outcome.ok && outcome.code === 0) &&
         resolved.resumed &&
         !observed.edited &&
         !cancelled &&
+        // Not redundant with the line above: a stop that lands between the
+        // first child settling and the retry starting finds no child to
+        // cancel, so nothing says "cancelled". Stopped still means stopped.
         !stopped
       ) {
         sessions.delete(resolved.agent);
@@ -292,6 +297,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (cold !== null) {
           resolved = cold;
           observed.sessionId = null;
+          // The failed attempt's last activity must not caption the fresh one.
+          state = { ...state, activity: null };
           outcome = await runChild(request, resolved, lines, observed);
         }
       }
