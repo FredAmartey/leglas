@@ -65,6 +65,17 @@ describe("loadPrefs", () => {
     expect(loadPrefs(stored({ showWidget: false }), previews).showWidget).toBe(false);
   });
 
+  test("remembers when the embedded-agent picker was dismissed", () => {
+    expect(loadPrefs(null, previews).agentPickerDismissed).toBe(false);
+    expect(loadPrefs(stored({ agentPickerDismissed: true }), previews).agentPickerDismissed).toBe(
+      true,
+    );
+    expect(
+      loadPrefs(stored({ agentPickerDismissed: "yes" as unknown as boolean }), previews)
+        .agentPickerDismissed,
+    ).toBe(false);
+  });
+
   test("survives a corrupt store rather than refusing to start", () => {
     expect(loadPrefs("{not json", previews).order).toEqual(["Original", "Wave", "Aurora"]);
   });

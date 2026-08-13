@@ -4,8 +4,11 @@ import { dirname, join } from "node:path";
 
 import {
   DEFAULT_PORT,
+  KNOWN_AGENTS,
   LEGLAS_PREFIX,
+  PROMPT_TOKEN,
   markPickedUp,
+  readAgentChoice,
   readRequests,
   removeRequest,
   type PendingRequest,
@@ -27,22 +30,23 @@ const HEARTBEAT_TIMEOUT_MS = 1000;
 
 type SpawnOutcome = { ok: true; code: number } | { ok: false; error: string };
 
-async function readSavedTemplate(cwd: string): Promise<string | null> {
-  try {
-    const raw = await readFile(join(cwd, WATCH_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { run?: unknown };
-    return typeof parsed.run === "string" && parsed.run !== "" ? parsed.run : null;
-  } catch {
-    // Never watched here before, or the file is unreadable. Both mean the same
-    // thing to the caller: there is no remembered command.
-    return null;
-  }
-}
-
 async function saveTemplate(cwd: string, run: string): Promise<void> {
   const path = join(cwd, WATCH_PATH);
+  // The file also carries the interface's agent choice. Writing only the
+  // template here would silently erase that choice and switch the embedded
+  // runner off, so the template joins the file instead of becoming it.
+  let config: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      config = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Never watched here before; an empty config is the whole story.
+  }
+  config.run = run;
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ run }, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 /**
@@ -89,27 +93,42 @@ export async function runWatch(
   options: { run: string | undefined; port: number | undefined; cwd: string; signal?: AbortSignal },
   deps: WatchDeps,
 ): Promise<{ exitCode: number }> {
-  const saved = options.run === undefined ? await readSavedTemplate(options.cwd) : null;
-  const raw = options.run ?? saved;
+  const saved =
+    options.run === undefined
+      ? await readAgentChoice(options.cwd)
+      : { agent: null, run: null };
+  const raw = options.run ?? saved.run;
+  let template: WatchTemplate;
+  let shownCommand: string;
+  let synthesizedAgent: string | null = null;
 
-  if (raw === null) {
+  if (raw !== null) {
+    const parsed = parseTemplate(raw);
+    if (!parsed.ok) {
+      deps.error(parsed.error);
+      return { exitCode: 1 };
+    }
+    template = parsed.template;
+    shownCommand = raw;
+  } else if (saved.agent !== null && saved.agent !== "custom") {
+    const adapter = KNOWN_AGENTS[saved.agent];
+    template = {
+      command: adapter.binary,
+      args: adapter.terminalArgs(PROMPT_TOKEN),
+    };
+    shownCommand = [template.command, ...template.args].join(" ");
+    synthesizedAgent = adapter.name;
+  } else {
     deps.error(
-      'Watch needs an agent command the first time: npx leglas watch --run "claude -p {prompt}"',
+      'Watch needs an agent command the first time: pick an agent in the interface, or pass --run "claude -p {prompt}".',
     );
     return { exitCode: 1 };
   }
 
-  const parsed = parseTemplate(raw);
-  if (!parsed.ok) {
-    deps.error(parsed.error);
-    return { exitCode: 1 };
-  }
-  const template: WatchTemplate = parsed.template;
-
-  // Remembered as soon as it is known good, so the next run needs no flag. A
-  // command that cannot be written down still watches: this is a convenience,
-  // not the feature.
-  if (options.run !== undefined) await saveTemplate(options.cwd, raw).catch(() => {});
+  // An explicit template is remembered as soon as it is known good. A
+  // synthesized command stays derived from the saved agent choice so the two
+  // representations cannot drift apart.
+  if (options.run !== undefined) await saveTemplate(options.cwd, options.run).catch(() => {});
 
   const base = `http://localhost:${options.port ?? DEFAULT_PORT}`;
   const heartbeat = async (watching: boolean): Promise<void> => {
@@ -127,12 +146,16 @@ export async function runWatch(
     }
   };
 
-  deps.log(`Watching for change requests. Each one runs: ${raw}`);
+  if (synthesizedAgent !== null) {
+    deps.log(`Using ${synthesizedAgent}, chosen in the interface.`);
+  }
+  deps.log(`Watching for change requests. Each one runs: ${shownCommand}`);
   deps.log("Stop with Ctrl-C.");
 
   const failed = new Set<string>();
   let stopped = false;
   let busy = false;
+  let announced = false;
   /** The request being handled right now, so a stop can wait for its books. */
   let inflight: Promise<void> | null = null;
 
@@ -166,7 +189,18 @@ export async function runWatch(
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
-    void heartbeat(true);
+    // The first beat is awaited: the embedded runner backs off the moment the
+    // server registers a watcher, so the queue must not be read before that
+    // registration has had its chance. Otherwise both executors can pass the
+    // same picked-up check in the handoff window and spawn twice for one
+    // request. Later beats are freshness, not exclusion, and stay
+    // fire-and-forget; a missing server costs one timeout once.
+    if (announced) {
+      void heartbeat(true);
+    } else {
+      await heartbeat(true);
+      announced = true;
+    }
     // One agent at a time, in queue order. Two of them editing one tree would
     // produce a conflict the user has to untangle by hand.
     if (busy) return;

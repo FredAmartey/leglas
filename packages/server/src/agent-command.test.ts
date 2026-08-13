@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import type { PendingRequest } from "@leglas/server";
-
-import { commandFor, nextRequest, parseTemplate } from "./watch.js";
+import type { PendingRequest } from "./requests.js";
+import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 
 function template(raw: string) {
   const parsed = parseTemplate(raw);
@@ -32,14 +31,21 @@ describe("parseTemplate", () => {
     expect(template("claude -p {prompt}")).toEqual({ command: "claude", args: ["-p", "{prompt}"] });
   });
 
-  test("refuses a command with no placeholder, naming the fix", () => {
-    const error = refusal("claude -p");
-    expect(error).toContain("{prompt}");
-    expect(error.split("\n")).toHaveLength(1);
+  test("accepts a command with no placeholder; the prompt rides along at the end", () => {
+    expect(template("aider --message")).toEqual({ command: "aider", args: ["--message"] });
+    expect(
+      commandFor({ command: "aider", args: ["--message"] }, "make it warmer"),
+    ).toEqual({ command: "aider", args: ["--message", "make it warmer"] });
+    expect(commandFor({ command: "my-agent", args: [] }, "make it warmer")).toEqual({
+      command: "my-agent",
+      args: ["make it warmer"],
+    });
   });
 
-  test("refuses a placeholder glued to another word, which would build a flag nobody asked for", () => {
-    expect(refusal("claude --message={prompt}")).toContain("{prompt}");
+  test("refuses a placeholder glued to another word, which is always a typo for substitution", () => {
+    const error = refusal("claude --message={prompt}");
+    expect(error).toContain("{prompt}");
+    expect(error.split("\n")).toHaveLength(1);
   });
 
   test("refuses a second placeholder rather than filling both", () => {
@@ -96,8 +102,6 @@ describe("commandFor", () => {
   });
 
   test("carries a stub script through unchanged, which is how the loop is smoke tested", () => {
-    // The shape a manual check uses: a script that appends and exits 0, spawned
-    // with its own flags intact and the prompt as the final single argument.
     const { command, args } = commandFor(
       template('node ./stub.js --out "run log.txt" {prompt}'),
       "make it warmer",

@@ -5,6 +5,7 @@ import {
   ErrorOverlay,
   ICON_BUTTON,
   Mark,
+  BrandMark,
   P,
   PIcon,
   RenameForm,
@@ -27,7 +28,21 @@ import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import type { Preview } from "./types.js";
-import { requestStatusLine, type RequestStatus } from "./request-status.js";
+import {
+  composerAgent,
+  formatElapsed,
+  requestCard,
+  type AgentStatus,
+  type RequestStatus,
+} from "./request-status.js";
+import {
+  cancelAgentRun,
+  chooseAgent,
+  dismissFailedRequest,
+  readAgents,
+  retryFailedRequest,
+  type AgentsPayload,
+} from "./agent-api.js";
 
 /**
  * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
@@ -65,10 +80,25 @@ function tagTone(tag: string) {
 const LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * The rail's foot — the change composer and the share strip under it — which
- * toasts stack on top of rather than over.
+ * The rail's foot before it is first measured. The real height moves with the
+ * status card above the composer, so toasts read it from a ResizeObserver and
+ * this only covers the frame before that observer reports.
  */
-const RAIL_FOOTER_H = 86;
+const RAIL_FOOTER_FALLBACK_H = 96;
+
+const IDLE_AGENT: AgentStatus = {
+  attached: false,
+  running: false,
+  name: null,
+  activity: null,
+  startedAt: null,
+};
+
+const EMPTY_AGENTS: AgentsPayload = {
+  agents: [],
+  choice: null,
+  customRun: null,
+};
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC =
@@ -160,7 +190,7 @@ type Drag = {
 
 export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const requestRef = useRef<HTMLInputElement | null>(null);
+  const requestRef = useRef<HTMLTextAreaElement | null>(null);
   const splitRef = useRef<(() => void) | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Stable, so the window key listener attaches once rather than on every
@@ -200,9 +230,40 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // deep, addressing a direction the panel never named. Under the list, the
   // direction it means is the highlighted row directly above it.
   const [intent, setIntent] = useState("");
+  // The field is a textarea that wears one row until the words need more,
+  // then grows line by line to a cap. Measured from scrollHeight because
+  // wrapping depends on the rail width and the face the user picked.
+  useEffect(() => {
+    const field = requestRef.current;
+    if (field === null) return;
+    field.style.height = "0px";
+    field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
+  }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
+  const [pickingAgent, setPickingAgent] = useState<string | null>(null);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  // Non-null while the menu is showing the custom-command editor; holds the
+  // draft template. Any CLI with a {prompt} slot is a valid agent here.
+  const [customDraft, setCustomDraft] = useState<string | null>(null);
+  const [requestAction, setRequestAction] = useState<"cancel" | "retry" | "dismiss" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const agentMenuRef = useRef<HTMLDivElement | null>(null);
+  const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Toasts stack on top of the rail's foot, whose height now moves with the
+  // status card, so they follow a measurement instead of a constant.
+  const railFooterRef = useRef<HTMLDivElement | null>(null);
+  const [railFooterH, setRailFooterH] = useState(RAIL_FOOTER_FALLBACK_H);
+  useEffect(() => {
+    const node = railFooterRef.current;
+    if (node === null || typeof ResizeObserver === "undefined") return;
+    const measure = () => setRailFooterH(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   // One white/6% panel behind the hovered row that eases between rows. The
   // active row carries its own persistent surface, so this is hover-only.
@@ -501,11 +562,26 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * untrue.
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
-  const [requests, setRequests] = useState<RequestStatus[]>([]);
-  // Whether leglas watch is running somewhere. It rides the same poll because
-  // it answers the same question the queue does: is anyone going to act on
-  // what I just typed.
-  const [attached, setAttached] = useState(false);
+  const [requestSnapshot, setRequestSnapshot] = useState<{
+    requests: RequestStatus[];
+    agent: AgentStatus;
+  }>({ requests: [], agent: IDLE_AGENT });
+  const [agentState, setAgentState] = useState<AgentsPayload>(EMPTY_AGENTS);
+  const [agentsTick, refreshAgents] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    let cancelled = false;
+    void readAgents()
+      .then((payload) => {
+        if (cancelled) return;
+        setAgentState((current) =>
+          JSON.stringify(current) === JSON.stringify(payload) ? current : payload,
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentsTick]);
   // Bumped after a submit so the hint updates without waiting out the
   // interval; the effect restarting is the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
@@ -518,23 +594,153 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       fetch("/leglas/api/requests")
         .then(
           (response) =>
-            response.json() as Promise<{ requests: RequestStatus[]; agent?: { attached: boolean } }>,
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
         )
         .then((payload) => {
           if (cancelled) return;
-          setRequests((current) =>
-            JSON.stringify(current) === JSON.stringify(payload.requests) ? current : payload.requests,
+          const next = {
+            requests: payload.requests,
+            agent: payload.agent ?? IDLE_AGENT,
+          };
+          setRequestSnapshot((current) =>
+            JSON.stringify(current) === JSON.stringify(next) ? current : next,
           );
-          setAttached(payload.agent?.attached === true);
         })
         .catch(() => {});
-    const timer = window.setInterval(() => void poll(), 3000);
+    const timer = window.setInterval(() => void poll(), 2000);
     void poll();
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [requestsTick]);
+  // Two independent readings of one snapshot: the chip says who Enter sends
+  // to, the card says what is happening right now. They used to fight over a
+  // single footer slot, which is how a running request could hide the chooser.
+  const chip = composerAgent(
+    agentState.choice,
+    agentState.agents,
+    st.prefs.agentPickerDismissed,
+    agentState.customRun,
+  );
+  const chosenSignedOut =
+    chip.kind === "chosen" &&
+    agentState.agents.some((agent) => agent.id === chip.id && agent.auth === "signed-out");
+  const card = requestCard(
+    requestSnapshot.requests,
+    requestSnapshot.agent,
+    chip.kind === "chosen" || requestSnapshot.agent.attached,
+  );
+  // The elapsed counter ticks locally between polls; the anchor comes from
+  // the server so a reload half-way through a run does not restart it.
+  const runStartedAt = card?.kind === "running" ? card.startedAt : null;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (runStartedAt === null) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runStartedAt]);
+  useEffect(() => {
+    if (chip.kind === "none") setAgentMenuOpen(false);
+  }, [chip.kind]);
+  // The editor never outlives the menu that opened it.
+  useEffect(() => {
+    if (!agentMenuOpen) setCustomDraft(null);
+  }, [agentMenuOpen]);
+  // Same dismissal contract as the tools popover: Escape, clicking away, or
+  // the window losing focus all put the menu back without ceremony.
+  useEffect(() => {
+    if (!agentMenuOpen) return;
+    agentMenuRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAgentMenuOpen(false);
+        agentTriggerRef.current?.focus();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!agentMenuRef.current?.contains(target) && !agentTriggerRef.current?.contains(target)) {
+        setAgentMenuOpen(false);
+      }
+    };
+    const onWindowBlur = () => setAgentMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [agentMenuOpen]);
+  const pickAgent = (agent: string, run?: string) => {
+    if (pickingAgent !== null) return;
+    setPickingAgent(agent);
+    void chooseAgent(agent, run)
+      .then(() => {
+        refreshAgents();
+        setAgentMenuOpen(false);
+      })
+      .catch(() => {
+        st.notify({
+          kind: "agent-choice",
+          message:
+            agent === "custom"
+              ? "That command could not be saved. Nothing changed."
+              : "That agent could not be selected. No run started.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setPickingAgent(null));
+  };
+  const cancelRequest = (id: string | null) => {
+    if (requestAction !== null) return;
+    setRequestAction("cancel");
+    void cancelAgentRun(id)
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-cancel",
+          message: "Leglas could not stop that run.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
+  const retryRequest = (id: string) => {
+    if (requestAction !== null) return;
+    setRequestAction("retry");
+    void retryFailedRequest(id)
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-retry",
+          message: "That change could not be retried.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
+  const dismissRequest = (id: string) => {
+    if (requestAction !== null) return;
+    setRequestAction("dismiss");
+    void dismissFailedRequest(id)
+      .then(() => bumpRequests())
+      .catch(() => {
+        st.notify({
+          kind: "agent-dismiss",
+          message: "That change could not be dismissed.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setRequestAction(null));
+  };
   const loadedRef = useRef(st.loaded);
   loadedRef.current = st.loaded;
 
@@ -1090,8 +1296,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </Tip>
           )}
           {/* The reflex copy: someone says "show me" and this goes into the
-              message. The reference, which says what the direction is, is the
-              deliberate one and lives under the rail. */}
+              message. The reference is the deliberate one, and it lives here
+              too now: both copies are of this direction, so both belong on
+              its row rather than one of them squatting under the composer. */}
           <Tip
             label={
               st.copied?.kind === "link" && st.copied.title === title
@@ -1109,6 +1316,31 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 <span className="text-[10px] text-emerald-300">✓</span>
               ) : (
                 <PIcon d={P.link} />
+              )}
+            </button>
+          </Tip>
+          <Tip
+            label={
+              st.copied?.kind === "reference" && st.copied.title === title ? (
+                "Copied"
+              ) : (
+                <>
+                  <span className="block">Copy a detailed reference.</span>
+                  <span className="block">For a teammate or an agent.</span>
+                </>
+              )
+            }
+          >
+            <button
+              aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
+              className={ICON_BUTTON}
+              onClick={() => st.copyReference(title)}
+              type="button"
+            >
+              {st.copied?.kind === "reference" && st.copied.title === title ? (
+                <span className="text-[10px] text-emerald-300">✓</span>
+              ) : (
+                <PIcon d={P.copy} size={12} />
               )}
             </button>
           </Tip>
@@ -1312,13 +1544,173 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             )}
           </div>
 
+          {/* The rail's foot as one measured block, because the card above the
+              composer gives it a height that moves and the toasts stack on
+              whatever that height turns out to be. */}
+          <div ref={railFooterRef}>
+            {/* One card, one event: the run in flight, the queue waiting, or
+                the failure asking what to do about it. It lives above the
+                composer the way a reply lives above the thing being typed,
+                and it never takes the chooser or the field hostage. */}
+            {card !== null && (
+              <div
+                className="mx-3 mt-2 rounded-lg border border-[#232328] bg-[#1E1E22] px-2.5 py-2 shadow-lg"
+                role="status"
+              >
+                <div className="flex items-center gap-2">
+                  {card.kind === "failed" ? (
+                    <svg
+                      aria-hidden="true"
+                      className="shrink-0 text-amber-400/90"
+                      fill="none"
+                      height="14"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.5"
+                      viewBox="0 0 16 16"
+                      width="14"
+                    >
+                      <path d="M8 2.6 14.6 13.4H1.4Z" />
+                      <path d="M8 6.8v2.7" />
+                      <path d="M8 11.6h.01" />
+                    </svg>
+                  ) : card.kind === "queued" ? (
+                    <span
+                      aria-hidden="true"
+                      className="flex size-3.5 shrink-0 items-center justify-center"
+                    >
+                      <span className="size-1.5 animate-pulse rounded-full bg-[#84848C] motion-reduce:animate-none" />
+                    </span>
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-white/15 border-t-white/70 motion-reduce:animate-none"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-medium leading-tight text-[#D1D5DB]">
+                      {card.kind === "running"
+                        ? `${card.name} is on it`
+                        : card.kind === "queued"
+                          ? card.count === 1
+                            ? "Change queued"
+                            : `${card.count} changes queued`
+                          : card.kind === "picked-up"
+                            ? "Your agent is on it"
+                            : "That change failed"}
+                    </p>
+                    {(card.kind === "running" && (card.activity ?? card.title) !== null && (
+                      <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                        {card.activity ?? card.title}
+                      </p>
+                    )) ||
+                      (card.kind === "queued" && (
+                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                          {card.attended
+                            ? "your agent picks it up next"
+                            : chip.kind === "manual"
+                              ? "waiting for your own agent"
+                              : "pick who runs your changes"}
+                        </p>
+                      )) ||
+                      (card.kind === "failed" && (
+                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+                          {card.title}
+                        </p>
+                      ))}
+                  </div>
+                  {card.kind === "running" && runStartedAt !== null && (
+                    <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
+                      {formatElapsed(clock - runStartedAt)}
+                    </span>
+                  )}
+                  {card.kind === "running" && (
+                    <Tip label="Stop this run">
+                      <button
+                        aria-label="Stop this run"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                        disabled={requestAction !== null}
+                        onClick={() => cancelRequest(card.id)}
+                        type="button"
+                      >
+                        {requestAction === "cancel" ? (
+                          <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                        ) : (
+                          <span className="block size-2 rounded-[2px] bg-current" />
+                        )}
+                      </button>
+                    </Tip>
+                  )}
+                  {card.kind === "failed" && (
+                    <span className="flex shrink-0 items-center">
+                      <Tip label="Try it again">
+                        <button
+                          aria-label="Retry this change"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                          disabled={requestAction !== null}
+                          onClick={() => retryRequest(card.id)}
+                          type="button"
+                        >
+                          {requestAction === "retry" ? (
+                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                          ) : (
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              height="13"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.75"
+                              viewBox="0 0 16 16"
+                              width="13"
+                            >
+                              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+                              <path d="M13.7 1.8v2.7H11" />
+                            </svg>
+                          )}
+                        </button>
+                      </Tip>
+                      <Tip label="Let it go">
+                        <button
+                          aria-label="Dismiss this failed change"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
+                          disabled={requestAction !== null}
+                          onClick={() => dismissRequest(card.id)}
+                          type="button"
+                        >
+                          {requestAction === "dismiss" ? (
+                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                          ) : (
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              height="13"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.75"
+                              viewBox="0 0 16 16"
+                              width="13"
+                            >
+                              <path d="m4 4 8 8M12 4l-8 8" />
+                            </svg>
+                          )}
+                        </button>
+                      </Tip>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           {/* Enter both queues the request and copies the prompt, so it works
               whether the agent drains the queue or the prompt gets pasted into
               a chat by hand. The confirmation is a toast rather than the
               placeholder it used to swap in, which vanished with the panel
               that carried it. */}
           <form
-            className="px-3 pt-2"
+            className="relative px-3 pb-2.5 pt-2"
             onSubmit={(event) => {
               event.preventDefault();
               const value = intent.trim();
@@ -1332,103 +1724,344 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 body: JSON.stringify({ title, intent: value }),
               })
                 .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
-                .then(async (result) => {
+                .then((result) => {
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
+                  // The send is over once the queue has the request; the
+                  // clipboard is a bonus that must not hold the field. A
+                  // browser sitting on a permission prompt never settles its
+                  // write either way, and waiting on it here once left the
+                  // composer disabled for good.
+                  setSending(false);
                   bumpRequests();
-                  // Said before the clipboard is touched, because the queue is
-                  // the durable half and the clipboard is the half that can
-                  // hang: a browser sitting on a permission prompt never
-                  // settles either way, and a request that was accepted has to
-                  // say so regardless. The copy then supersedes this line,
-                  // since toasts of one kind replace rather than stack.
                   st.notify({
                     kind: "request",
                     message: `Asked for a change to ${name}.`,
                     tone: "success",
                     ttl: TOAST_TTL.plain,
                   });
-                  const outcome = await copyText(result.prompt);
-                  st.notify({
-                    kind: "request",
-                    // A blocked clipboard costs nothing here: the request is
-                    // already queued, and the command that drains it is the
-                    // path the prompt was written for anyway.
-                    message:
-                      outcome === "copied"
-                        ? `Asked for a change to ${name}. Prompt copied.`
-                        : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
-                    tone: "success",
-                    ttl: TOAST_TTL.plain,
+                  // The copy then supersedes that line whenever it settles,
+                  // since toasts of one kind replace rather than stack.
+                  void copyText(result.prompt).then((outcome) => {
+                    st.notify({
+                      kind: "request",
+                      // A blocked clipboard costs nothing here: the request is
+                      // already queued, and the command that drains it is the
+                      // path the prompt was written for anyway.
+                      message:
+                        outcome === "copied"
+                          ? `Asked for a change to ${name}. Prompt copied.`
+                          : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
+                      tone: "success",
+                      ttl: TOAST_TTL.plain,
+                    });
                   });
                 })
                 .catch(() => {
+                  setSending(false);
                   st.notify({
                     kind: "request",
                     message: `That request never reached Leglas. ${name} is unchanged.`,
                     tone: "danger",
                     ttl: TOAST_TTL.action,
                   });
-                })
-                .finally(() => setSending(false));
+                });
             }}
           >
-            <input
-              aria-label={
-                st.active
-                  ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                  : "Ask your agent to change a direction"
-              }
-              className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 px-2.5 py-2 text-xs text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={sending || !st.active}
-              onChange={(event) => setIntent(event.target.value)}
-              placeholder={
-                st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
-              }
-              ref={requestRef}
-              type="text"
-              value={intent}
-            />
+            {/* One surface, like every composer people already know: what to
+                change on top, who runs it and the send below, inside the same
+                border. The field takes the focus ring for the whole object. */}
+            <div className="rounded-md border border-[#232328] bg-[#2E2E2E]/40 transition-colors focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40">
+              {/* Enter sends and Shift+Enter breaks the line, the contract
+                  every chat composer has already taught. */}
+              <textarea
+                aria-label={
+                  st.active
+                    ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                    : "Ask your agent to change a direction"
+                }
+                className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={sending || !st.active}
+                onChange={(event) => setIntent(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder={
+                  st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
+                }
+                ref={requestRef}
+                rows={1}
+                value={intent}
+              />
+              <div className="flex items-center justify-end gap-1.5 p-1">
+                {chip.kind === "none" ? (
+                  <span className="mr-auto min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
+                    Enter queues it for <span className="font-medium">npx leglas requests</span>
+                  </span>
+                ) : (
+                  /* An inline select beside the send it configures: the menu
+                     hangs off the chip itself, sized to its options, the way
+                     a model picker behaves in every composer people know. */
+                  <div className="relative flex min-w-0 items-center">
+                    <div
+                      aria-hidden={!agentMenuOpen}
+                      aria-label="Who runs your changes"
+                      className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-36 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                        agentMenuOpen
+                          ? "translate-y-0 scale-100 opacity-100"
+                          : "pointer-events-none translate-y-1 scale-95 opacity-0"
+                      }`}
+                      inert={!agentMenuOpen}
+                      ref={agentMenuRef}
+                      role="dialog"
+                      tabIndex={-1}
+                    >
+                      {customDraft !== null ? (
+                        /* Any CLI is an agent: a command with a {prompt} slot
+                           is the whole contract, so nobody is boxed into the
+                           three names we happen to know. */
+                        <div className="w-60 p-1">
+                          <label
+                            className="block px-1 pb-1 text-[10px] leading-snug text-[#84848C]"
+                            htmlFor="leglas-custom-run"
+                          >
+                            The command that runs your agent.
+                          </label>
+                          <input
+                            className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 font-mono text-[11px] text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
+                            id="leglas-custom-run"
+                            onChange={(event) => setCustomDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              if (customDraft.trim() !== "" && pickingAgent === null) {
+                                pickAgent("custom", customDraft.trim());
+                              }
+                            }}
+                            placeholder="npx my-agent"
+                            value={customDraft}
+                          />
+                          {/* No syntax to learn: the request rides along at
+                              the end on its own. The placeholder is only for
+                              the command that wants it somewhere else. */}
+                          <p className="px-1 pt-1 text-[9px] leading-snug text-[#84848C]/80">
+                            Your request is added at the end. Put{" "}
+                            <span className="font-mono">{"{prompt}"}</span> where it should go
+                            instead, if needed.
+                          </p>
+                          <div className="flex items-center justify-between pt-1.5">
+                            <button
+                              className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                              onClick={() => setCustomDraft(null)}
+                              type="button"
+                            >
+                              Back
+                            </button>
+                            <button
+                              className="rounded px-1.5 py-0.5 text-[11px] text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={customDraft.trim() === "" || pickingAgent !== null}
+                              onClick={() => pickAgent("custom", customDraft.trim())}
+                              type="button"
+                            >
+                              {pickingAgent === "custom" ? "Saving…" : "Save"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {agentState.agents
+                            .filter((agent) => agent.available)
+                            .map((agent) => {
+                              const active = chip.kind === "chosen" && agent.id === chip.id;
+                              return (
+                                <button
+                                  className={ROW_BUTTON}
+                                  disabled={pickingAgent !== null}
+                                  key={agent.id}
+                                  onClick={() =>
+                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
+                                  }
+                                  type="button"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <BrandMark id={agent.id} />
+                                    <span className="truncate">{agent.name}</span>
+                                  </span>
+                                  {pickingAgent === agent.id ? (
+                                    <span
+                                      aria-label="selecting"
+                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                                    />
+                                  ) : agent.auth === "signed-out" ? (
+                                    /* Caught before the run instead of after
+                                       it: the CLI itself says its login is
+                                       gone, and hiding the row would only
+                                       hide the fix. */
+                                    <span className="text-[10px] text-amber-400/80">
+                                      signed out
+                                    </span>
+                                  ) : (
+                                    active && <span aria-label="current choice">✓</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          <button
+                            className={`${ROW_BUTTON} ${chip.kind === "chosen" && chip.id === "custom" ? "" : "text-[#84848C]"}`}
+                            disabled={pickingAgent !== null}
+                            onClick={() => setCustomDraft(agentState.customRun ?? "")}
+                            type="button"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <BrandMark id="custom" />
+                              <span className="truncate">
+                                {chip.kind === "chosen" && chip.id === "custom"
+                                  ? chip.name
+                                  : "Add your own…"}
+                              </span>
+                            </span>
+                            {chip.kind === "chosen" && chip.id === "custom" && (
+                              <span aria-label="current choice">✓</span>
+                            )}
+                          </button>
+                          {agentState.choice === null && (
+                            <button
+                              className={`${ROW_BUTTON} text-[#84848C]`}
+                              onClick={() => {
+                                st.setPrefs((prefs) => ({
+                                  ...prefs,
+                                  agentPickerDismissed: true,
+                                }));
+                                setAgentMenuOpen(false);
+                              }}
+                              type="button"
+                            >
+                              <span>I&apos;ll run my own</span>
+                              {chip.kind === "manual" && (
+                                <span aria-label="current choice">✓</span>
+                              )}
+                            </button>
+                          )}
+                          {/* The consent sentence belongs to the first choice
+                              only; once one is made, this is just a select. */}
+                          {agentState.choice === null && (
+                            <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
+                              Runs in this project with write access, like in your terminal.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <button
+                      aria-expanded={agentMenuOpen}
+                      aria-haspopup="dialog"
+                      className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
+                      onClick={() => {
+                        // Opening re-asks the CLIs about their logins, so a
+                        // sign-in that happened after boot shows up here.
+                        if (!agentMenuOpen) refreshAgents();
+                        setAgentMenuOpen((open) => !open);
+                      }}
+                      ref={agentTriggerRef}
+                      type="button"
+                    >
+                      {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
+                      <span className="truncate">
+                        {chip.kind === "chosen"
+                          ? chip.name
+                          : chip.kind === "manual"
+                            ? "I'll run my own"
+                            : "Choose an agent"}
+                      </span>
+                      {chosenSignedOut && (
+                        <span
+                          className="size-1.5 shrink-0 rounded-full bg-amber-400"
+                          title="This CLI is signed out. Sign in in your terminal."
+                        >
+                          <span className="sr-only">signed out</span>
+                        </span>
+                      )}
+                      <svg
+                        aria-hidden="true"
+                        className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                          agentMenuOpen ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        height="12"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.75"
+                        viewBox="0 0 16 16"
+                        width="12"
+                      >
+                        <path d="M4 6.5 8 10.5l4-4" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                {/* A real send button, because Enter alone is an invisible
+                    contract. Dim and inert until there is something to send;
+                    the field's one moment of light once there is. */}
+                <button
+                  aria-label={
+                    st.active
+                      ? `Send the change to ${st.displayName(st.active)}`
+                      : "Send the change"
+                  }
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
+                    intent.trim() !== "" && st.active && !sending
+                      ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
+                      : "pointer-events-none text-[#84848C]/60"
+                  }`}
+                  disabled={intent.trim() === "" || !st.active || sending}
+                  type="submit"
+                >
+                  {sending ? (
+                    <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                  ) : (
+                    <svg
+                      aria-hidden="true"
+                      fill="none"
+                      height="13"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.75"
+                      viewBox="0 0 16 16"
+                      width="13"
+                    >
+                      <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
           </form>
 
-          <div className="flex items-center justify-between gap-2 px-3 py-2">
-            {/* While the tools are switched off the composer hint gives its
-                slot to the way back, so the toast is not the only sign. */}
-            {st.prefs.showWidget ? (
-              <span className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                {requestStatusLine(requests, st.active, attached) ?? <>Enter queues it for <span className="font-medium">npx leglas requests</span></>}
-              </span>
-            ) : (
+          {/* One quiet line under the composer, and only when it has a job:
+              the way back to the hidden tools, or word that a terminal
+              watcher is holding the queue. */}
+          {!st.prefs.showWidget ? (
+            <div className="px-3 pb-2">
               <button
-                className="min-w-0 truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                className="min-w-0 max-w-full truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
                 onClick={() => setWidgetOpen(true)}
                 type="button"
               >
                 Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
               </button>
-            )}
-            {/* Named for what lands on the clipboard rather than for the
-                gesture: "Share" said nothing about how it differs from the
-                copy button on every row, which is now the plain link. */}
-            <Tip
-              label={
-                <>
-                  <span className="block">Copy a detailed reference.</span>
-                  <span className="block">For a teammate or an agent.</span>
-                </>
-              }
-            >
-              <button
-                aria-label={`Copy a reference to the ${st.displayName(st.active)} direction`}
-                className="shrink-0 rounded-md bg-[#2E2E2E]/60 px-3.5 py-1.5 text-xs font-medium text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E] hover:text-white"
-                onClick={() => st.copyReference(st.active)}
-                type="button"
-              >
-                {st.copied?.kind === "reference" && st.copied.title === st.active
-                  ? "Copied"
-                  : "Copy reference"}
-              </button>
-            </Tip>
+            </div>
+          ) : requestSnapshot.agent.attached && card === null ? (
+            <div className="px-3 pb-2">
+              <p className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                Your agent is listening
+              </p>
+            </div>
+          ) : null}
           </div>
         </div>
 
@@ -1857,7 +2490,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       {/* Above the rail's own footer when there is a rail, and just clear of
           the collapsed strip when there is not. */}
       <Toasts
-        bottom={st.prefs.collapsed ? 12 : RAIL_FOOTER_H + 8}
+        bottom={st.prefs.collapsed ? 12 : railFooterH + 8}
         left={st.prefs.collapsed ? 60 : 12}
         onDismiss={st.dismissToast}
         toasts={st.toasts}

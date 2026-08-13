@@ -11,6 +11,48 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+The interface runs your agent itself. Asking for a change no longer
+needs a second terminal: pick an agent once and every request runs as
+you send it.
+
+### Added
+
+- **The server runs your agent.** The composer carries its own agent
+  picker, the way a chat carries a model picker: the CLIs found on your
+  machine (Claude Code, Codex, Cursor, or a command of your own) sit one
+  click away beside the send button. Pick one and Leglas spawns it per
+  request, one at a time in queue order. Each run reports in a card
+  above the field: who is working, which file they are touching, a
+  ticking clock, a stop button while it runs, retry and dismiss when it
+  fails. Your agent, your subscription, no keys and no login. (`leglas`)
+- **The picker knows who is signed in.** Each detected CLI is asked for
+  its own login status (`claude auth status`, `codex login status`), so
+  a signed-out agent is marked in the menu before a run fails instead
+  of after. The answer is cached and refreshed behind the scenes; no
+  request waits on it twice. (`leglas`)
+- **Any command is an agent.** The picker's "Add your own" entry takes
+  the command you already run: aider, goose, a script of your own. Your
+  request is handed to it as its last argument, so there is no syntax
+  to learn; `{prompt}` still places it elsewhere for the command that
+  needs that, in the menu and in `leglas watch --run` alike. The chip
+  wears the command's own name, and the run loop treats it exactly like
+  the built-in three. (`leglas`)
+- **`leglas watch` needs no `--run` once an agent is picked.** The
+  choice is shared through `.leglas/watch.json`, and an external watcher
+  always wins over the embedded runner, so the two never race for a
+  request. (`leglas`)
+
+### Changed
+
+- Writing to `/leglas/api/` now happens only from the machine running
+  Leglas: every POST needs a loopback socket, and the browser's Origin
+  must match its Host on top of that. An API that decides what executes
+  on your computer cannot take instructions from the network. Shared
+  links keep working for what they promised, opening and viewing live
+  directions. (`leglas`)
+
 ## 0.3.0 (2026-08-09)
 
 Leglas becomes installable as one thing. The skill teaches an agent the
