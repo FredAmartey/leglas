@@ -3,12 +3,22 @@ import http from "node:http";
 import net from "node:net";
 import { extname, join, normalize, relative } from "node:path";
 
+import { parseTemplate } from "./agent-command.js";
+import {
+  KNOWN_AGENTS,
+  detectAgents,
+  readAgentChoice,
+  saveAgentChoice,
+  type DetectedAgent,
+  type KnownAgentId,
+} from "./agents.js";
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
 import { readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
-import { appendRequest, composeRequest, readRequests } from "./requests.js";
+import { appendRequest, composeRequest, readRequests, removeRequest } from "./requests.js";
+import { startRunner, type RunningAgent } from "./runner.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -67,6 +77,11 @@ export type ServerOptions = {
    * directory is mounted, so a page's sibling assets resolve too.
    */
   fileMounts?: ReadonlyMap<string, string>;
+  /**
+   * Agent detection, injectable so tests need not spawn real vendor CLIs:
+   * the default probes each installed CLI's login status.
+   */
+  detect?: () => Promise<DetectedAgent[]>;
 };
 
 export type RunningServer = {
@@ -82,6 +97,81 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
     "cache-control": "no-store",
   });
   res.end(payload);
+}
+
+function isKnownAgent(value: unknown): value is KnownAgentId {
+  return typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value);
+}
+
+/**
+ * Mutations happen from the machine itself, full stop.
+ *
+ * The API now decides what runs on this computer, so who may write to it is
+ * decided by the one signal a network peer cannot forge: the socket. Every
+ * POST requires a loopback peer. Headers prove nothing about a raw client;
+ * Origin in particular is only enforced by browsers, so a curl across the
+ * LAN can claim any Origin it likes. The Origin check below is therefore
+ * not authentication: it defends the local browser against cross-site and
+ * DNS-rebinding pages, which is the one job Origin can actually do. When it
+ * is present it must match the Host, and the Host must be one this server
+ * would plausibly be reached by from its own machine. Teammates on the LAN
+ * keep what the share story promises, opening and viewing live directions;
+ * changing what runs stays with the person at the keyboard.
+ */
+function isAllowedMutationHost(hostname: string): boolean {
+  const bare = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+  if (bare === "localhost" || bare === "127.0.0.1" || bare === "::1") return true;
+  if (bare.endsWith(".local")) return true;
+  if (!net.isIPv4(bare)) return false;
+
+  const [first, second] = bare.split(".").map(Number);
+  return (
+    first === 10 ||
+    (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (address === undefined) return false;
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "::ffff:127.0.0.1" ||
+    address.startsWith("127.")
+  );
+}
+
+export function isTrustedMutation(req: http.IncomingMessage): boolean {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
+  if (typeof req.headers.host !== "string") return false;
+
+  let host: URL;
+  try {
+    host = new URL(`http://${req.headers.host}`);
+  } catch {
+    return false;
+  }
+  if (!isAllowedMutationHost(host.hostname)) return false;
+
+  const rawOrigin = req.headers.origin;
+  if (rawOrigin === undefined) return true;
+  try {
+    const origin = new URL(rawOrigin);
+    return origin.protocol === "http:" && origin.host === host.host;
+  } catch {
+    return false;
+  }
+}
+
+function hasJsonBody(req: http.IncomingMessage): boolean {
+  const contentType = req.headers["content-type"];
+  return (
+    typeof contentType === "string" &&
+    contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json"
+  );
 }
 
 /**
@@ -226,6 +316,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     project = "",
     cwd = process.cwd(),
     fileMounts = new Map<string, string>(),
+    detect = () => detectAgents(),
   } = options;
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
@@ -239,10 +330,50 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * longer there.
    */
   let lastSeen: number | null = null;
+  const externallyAttached = () =>
+    lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
+  let runner: RunningAgent | null = null;
+
+  /**
+   * Agent detection asks every vendor CLI for its login status, which costs
+   * about a second, so only the first request ever waits for it. After that
+   * the endpoint answers from here instantly and refreshes behind the
+   * response once the answer is old, so signing in shows up on the next look
+   * without any request paying the probe.
+   */
+  let agentsCache: { at: number; agents: DetectedAgent[] } | null = null;
+  let agentsInflight: Promise<DetectedAgent[]> | null = null;
+  const AGENTS_FRESH_MS = 30_000;
+  const probeAgents = (): Promise<DetectedAgent[]> => {
+    agentsInflight ??= detect()
+      .then((agents) => {
+        agentsCache = { at: Date.now(), agents };
+        return agents;
+      })
+      .finally(() => {
+        agentsInflight = null;
+      });
+    return agentsInflight;
+  };
+  const currentAgents = (): Promise<DetectedAgent[]> => {
+    if (agentsCache === null) return probeAgents();
+    if (Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
+      void probeAgents().catch(() => {});
+    }
+    return Promise.resolve(agentsCache.agents);
+  };
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
+
+    if (
+      req.method === "POST" &&
+      path.startsWith(`${LEGLAS_PREFIX}/api/`) &&
+      !isTrustedMutation(req)
+    ) {
+      return sendJson(res, 403, { ok: false, error: "Cross-origin API mutations are refused." });
+    }
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
       // Local previews are re-read on every request, so a direction an agent
@@ -308,10 +439,75 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           intent: parsed.intent.trim(),
           ...composed,
         })
-          .then(() => sendJson(res, 200, { ok: true, ...composed }))
+          .then(() => {
+            // The runner polls every two seconds, but the queue just grew in
+            // this very process: no reason to make the user watch that gap.
+            runner?.nudge();
+            sendJson(res, 200, { ok: true, ...composed });
+          })
           // The prompt is still useful even if the queue could not be written,
           // so the copy path keeps working when the disk does not.
           .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/agents` && req.method === "GET") {
+      return void Promise.all([currentAgents(), readAgentChoice(cwd)]).then(([agents, choice]) =>
+        sendJson(res, 200, {
+          agents,
+          choice: choice.agent,
+          customRun: choice.run,
+        }),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/agent` && req.method === "POST") {
+      // Only the machine's owner decides what executes on it. A teammate on
+      // the LAN can look, queue and rename through the interface, but the
+      // executor: that choice stays with the person whose computer runs it,
+      // so this one route demands the request come from the machine itself.
+      if (!isLoopbackAddress(req.socket.remoteAddress)) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "The agent choice can only be made from the machine running Leglas.",
+        });
+      }
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Agent choice must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { agent?: unknown; run?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { agent?: unknown; run?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+
+        if (!isKnownAgent(parsed.agent) && parsed.agent !== "custom") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a known agent." });
+        }
+        if (parsed.run !== undefined && typeof parsed.run !== "string") {
+          return sendJson(res, 400, { ok: false, error: "The custom run command must be a string." });
+        }
+
+        if (parsed.agent === "custom") {
+          if (typeof parsed.run !== "string") {
+            return sendJson(res, 400, { ok: false, error: "A custom agent needs a run command." });
+          }
+          const template = parseTemplate(parsed.run);
+          if (!template.ok) return sendJson(res, 400, { ok: false, error: template.error });
+          return void saveAgentChoice(cwd, { agent: "custom", run: parsed.run }).then(
+            () => sendJson(res, 200, { ok: true }),
+            () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
+          );
+        }
+
+        return void saveAgentChoice(cwd, { agent: parsed.agent }).then(
+          () => sendJson(res, 200, { ok: true }),
+          () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
+        );
       });
     }
 
@@ -341,12 +537,140 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/requests` && req.method === "GET") {
       // The queue is read fresh just like config: an agent can collect or clear
       // requests while the interface is open, and the next poll tells the truth.
+      const snapshot = runner?.snapshot() ?? {
+        running: false,
+        requestId: null,
+        agent: null,
+        activity: null,
+        startedAt: null,
+        failedIds: [],
+      };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, status }) => ({ id, title, intent, status })),
-          agent: { attached: lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS },
+          requests: requests.map(({ id, title, intent, status }) => ({
+            id,
+            title,
+            intent,
+            status:
+              snapshot.running && snapshot.requestId === id
+                ? "running"
+                : snapshot.failedIds.includes(id)
+                  ? "failed"
+                  : status,
+          })),
+          agent: {
+            attached: externallyAttached(),
+            running: snapshot.running,
+            name: snapshot.running ? snapshot.agent : null,
+            activity: snapshot.running ? snapshot.activity : null,
+            startedAt: snapshot.running ? snapshot.startedAt : null,
+          },
         }),
       );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/requests/cancel` && req.method === "POST") {
+      // The id names which run the click meant. Without one the active run is
+      // stopped, which keeps old callers working; with one, a run that ended
+      // between the click and its arrival is left alone instead of the stop
+      // landing on whatever started next.
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (parsed.id !== undefined && typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "The request id must be a string." });
+        }
+        return sendJson(res, 200, { ok: true, cancelled: runner?.cancel(parsed.id) ?? false });
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/requests/retry` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Retry must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
+        }
+
+        const request = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+        if (request === undefined) {
+          return sendJson(res, 404, { ok: false, error: "No such request." });
+        }
+        if (!(runner?.snapshot().failedIds.includes(request.id) ?? false)) {
+          return sendJson(res, 400, { ok: false, error: "Only a failed request can be retried." });
+        }
+
+        try {
+          if (!(await removeRequest(cwd, request.id))) {
+            return sendJson(res, 404, { ok: false, error: "No such request." });
+          }
+          await appendRequest(cwd, {
+            title: request.title,
+            url: request.url,
+            intent: request.intent,
+            target: request.target,
+            prompt: request.prompt,
+          });
+          // appendRequest assigns a fresh id, which is naturally outside the
+          // runner's process-local failed set and needs no retry exception.
+          runner?.nudge();
+          return sendJson(res, 200, { ok: true });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The request could not be retried." });
+        }
+      });
+    }
+
+    // Letting go of a failed request. The runner will never touch it again
+    // anyway, so removal only makes the queue file agree with that, but it is
+    // held to failed ids so a live or waiting request cannot be swept away.
+    if (path === `${LEGLAS_PREFIX}/api/requests/dismiss` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { id?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { id?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.id !== "string") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
+        }
+        if (!(runner?.snapshot().failedIds.includes(parsed.id) ?? false)) {
+          return sendJson(res, 400, { ok: false, error: "Only a failed request can be dismissed." });
+        }
+
+        try {
+          if (!(await removeRequest(cwd, parsed.id))) {
+            return sendJson(res, 404, { ok: false, error: "No such request." });
+          }
+          return sendJson(res, 200, { ok: true });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The request could not be dismissed." });
+        }
+      });
     }
 
     // The rail holds the renames; this puts them where the commands can read
@@ -435,16 +759,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
+  runner = startRunner({ cwd, externallyAttached });
+
+  let closePromise: Promise<void> | null = null;
 
   return {
     port,
     url: `http://localhost:${port}`,
-    close: () =>
-      new Promise((done) => {
-        for (const socket of sockets) socket.destroy();
-        sockets.clear();
-        server.closeAllConnections();
-        server.close(() => done());
-      }),
+    close: () => {
+      if (closePromise !== null) return closePromise;
+      closePromise = runner.stop().then(
+        () =>
+          new Promise<void>((done) => {
+            for (const socket of sockets) socket.destroy();
+            sockets.clear();
+            server.closeAllConnections();
+            server.close(() => done());
+          }),
+      );
+      return closePromise;
+    },
   };
 }

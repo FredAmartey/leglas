@@ -1,43 +1,201 @@
 import { describe, expect, test } from "vitest";
 
-import { requestStatusLine, type RequestStatus } from "./request-status.js";
+import {
+  composerAgent,
+  formatElapsed,
+  requestCard,
+  type AgentOption,
+  type AgentStatus,
+  type RequestStatus,
+} from "./request-status.js";
 
-const request = (title: string, status: RequestStatus["status"]): RequestStatus => ({ title, status });
+const idleAgent: AgentStatus = {
+  attached: false,
+  running: false,
+  name: null,
+  activity: null,
+  startedAt: null,
+};
 
-describe("requestStatusLine", () => {
-  test("returns nothing for an empty queue", () => expect(requestStatusLine([], "Aurora")).toBeNull());
-  test("ignores requests for other directions", () =>
-    expect(requestStatusLine([request("Current", "queued")], "Aurora")).toBeNull(),
-  );
-  test("counts queued requests", () => {
-    expect(requestStatusLine([request("Aurora", "queued")], "Aurora")).toBe("1 change queued for your agent");
-    expect(requestStatusLine([request("Aurora", "queued"), request("Aurora", "queued")], "Aurora")).toBe("2 changes queued for your agent");
-  });
-  test("reports picked-up requests", () =>
-    expect(requestStatusLine([request("Aurora", "picked-up")], "Aurora")).toBe("Your agent is on it"),
-  );
-  test("prioritizes queued requests in a mixed queue", () =>
-    expect(requestStatusLine([request("Aurora", "picked-up"), request("Aurora", "queued")], "Aurora")).toBe("1 change queued for your agent"),
-  );
+const request = (id: string, status: RequestStatus["status"], title = "Aurora"): RequestStatus => ({
+  id,
+  title,
+  status,
 });
 
-describe("requestStatusLine with an agent attached", () => {
-  test("says the agent is listening when there is nothing pending", () =>
-    expect(requestStatusLine([], "Aurora", true)).toBe("Your agent is listening"),
+const option = (id: string, available = true): AgentOption => ({
+  id,
+  name: id === "claude" ? "Claude" : "Codex",
+  available,
+  auth: "ok",
+});
+
+describe("composerAgent", () => {
+  test("offers the chooser while agents are detected and none is chosen", () => {
+    expect(composerAgent(null, [option("codex", false), option("claude")], false)).toEqual({
+      kind: "choose",
+    });
+  });
+
+  test.each([[[] as AgentOption[]], [[option("claude", false)]]])(
+    "disappears when no agent is detected: %j",
+    (available) => {
+      expect(composerAgent(null, available, false)).toEqual({ kind: "none" });
+    },
   );
-  test("still says nothing when no direction is active", () =>
-    expect(requestStatusLine([], null, true)).toBeNull(),
-  );
-  test("counts queued requests rather than announcing the agent", () =>
-    expect(requestStatusLine([request("Aurora", "queued")], "Aurora", true)).toBe("1 change queued for your agent"),
-  );
-  test("reports work in progress rather than announcing the agent", () =>
-    expect(requestStatusLine([request("Aurora", "picked-up")], "Aurora", true)).toBe("Your agent is on it"),
-  );
-  test("ignores an attached agent's work on another direction", () =>
-    expect(requestStatusLine([request("Ledger", "picked-up")], "Aurora", true)).toBe("Your agent is listening"),
-  );
-  test("behaves exactly as before when nothing is attached", () =>
-    expect(requestStatusLine([], "Aurora", false)).toBeNull(),
-  );
+
+  test("wears the chosen agent's name", () => {
+    expect(composerAgent("claude", [option("codex"), option("claude")], false)).toEqual({
+      kind: "chosen",
+      id: "claude",
+      name: "Claude",
+    });
+  });
+
+  test("gives an existing custom choice a display name", () => {
+    expect(composerAgent("custom", [option("claude")], false)).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "Custom",
+    });
+  });
+
+  test("names a custom choice after its own command", () => {
+    expect(composerAgent("custom", [], false, "aider --yes {prompt}")).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "aider",
+    });
+    expect(composerAgent("custom", [], false, "/usr/local/bin/goose run {prompt}")).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "goose",
+    });
+    expect(composerAgent("custom", [], false, "   ")).toEqual({
+      kind: "chosen",
+      id: "custom",
+      name: "Custom",
+    });
+  });
+
+  test("shows manual after the chooser was declined", () => {
+    expect(composerAgent(null, [option("claude")], true)).toEqual({ kind: "manual" });
+  });
+
+  test("only applies dismissal while no agent is chosen", () => {
+    expect(composerAgent("claude", [option("claude")], true)).toEqual({
+      kind: "chosen",
+      id: "claude",
+      name: "Claude",
+    });
+  });
+
+  test("drops a chosen agent whose binary is no longer detected", () => {
+    expect(composerAgent("claude", [option("claude", false)], false)).toEqual({ kind: "none" });
+    expect(composerAgent("claude", [option("claude", false), option("codex")], false)).toEqual({
+      kind: "choose",
+    });
+  });
+});
+
+describe("requestCard", () => {
+  test("shows the run ahead of every lower-priority state", () => {
+    expect(
+      requestCard(
+        [
+          request("failed", "failed"),
+          request("picked-up", "picked-up"),
+          request("queued", "queued"),
+          request("running", "running", "Warm serif"),
+        ],
+        {
+          attached: true,
+          running: true,
+          name: "Claude",
+          activity: "editing src/Hero.tsx",
+          startedAt: 1700000000000,
+        },
+        true,
+      ),
+    ).toEqual({
+      kind: "running",
+      id: "running",
+      name: "Claude",
+      activity: "editing src/Hero.tsx",
+      startedAt: 1700000000000,
+      title: "Warm serif",
+    });
+  });
+
+  test("treats a running request as active before the agent poll catches up", () => {
+    expect(requestCard([request("running", "running")], idleAgent, true)).toEqual({
+      kind: "running",
+      id: "running",
+      name: "Your agent",
+      activity: null,
+      startedAt: null,
+      title: "Aurora",
+    });
+  });
+
+  test("counts queued requests ahead of picked-up and failed states", () => {
+    expect(
+      requestCard(
+        [
+          request("failed", "failed"),
+          request("picked-up", "picked-up"),
+          request("queued-1", "queued"),
+          request("queued-2", "queued"),
+        ],
+        { ...idleAgent, attached: true },
+        true,
+      ),
+    ).toEqual({ kind: "queued", count: 2, attended: true });
+  });
+
+  test("says when nothing will drain the queue", () => {
+    expect(requestCard([request("queued", "queued")], idleAgent, false)).toEqual({
+      kind: "queued",
+      count: 1,
+      attended: false,
+    });
+  });
+
+  test("reports an external pickup ahead of a failed request", () => {
+    expect(
+      requestCard(
+        [request("failed", "failed"), request("picked-up", "picked-up")],
+        { ...idleAgent, attached: true },
+        true,
+      ),
+    ).toEqual({ kind: "picked-up" });
+  });
+
+  test("offers the most recent failure with its title", () => {
+    expect(
+      requestCard(
+        [request("older", "failed"), request("newer", "failed", "Dark grotesk")],
+        idleAgent,
+        true,
+      ),
+    ).toEqual({ kind: "failed", id: "newer", title: "Dark grotesk" });
+  });
+
+  test("stays empty while the queue is empty", () => {
+    expect(requestCard([], { ...idleAgent, attached: true }, true)).toBeNull();
+  });
+});
+
+describe("formatElapsed", () => {
+  test.each([
+    [0, "0s"],
+    [-2000, "0s"],
+    [12_400, "12s"],
+    [59_999, "59s"],
+    [60_000, "1m 00s"],
+    [65_000, "1m 05s"],
+    [754_000, "12m 34s"],
+  ])("%d ms reads as %s", (milliseconds, expected) => {
+    expect(formatElapsed(milliseconds)).toBe(expected);
+  });
 });

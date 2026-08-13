@@ -1,0 +1,139 @@
+import { describe, expect, test } from "vitest";
+
+import {
+  cancelAgentRun,
+  chooseAgent,
+  dismissFailedRequest,
+  readAgents,
+  retryFailedRequest,
+  type AgentFetcher,
+} from "./agent-api.js";
+
+function recorder(body: unknown = { ok: true }, status = 200) {
+  const calls: { input: string; init?: RequestInit }[] = [];
+  const fetcher: AgentFetcher = async (input, init) => {
+    calls.push({ input, ...(init === undefined ? {} : { init }) });
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  return { calls, fetcher };
+}
+
+describe("embedded agent API", () => {
+  test("reads the complete agent picker state", async () => {
+    const payload = {
+      agents: [
+        { id: "claude", name: "Claude", available: true },
+        { id: "codex", name: "Codex", available: false },
+      ],
+      choice: null,
+      customRun: null,
+    };
+    const recorded = recorder(payload);
+
+    await expect(readAgents(recorded.fetcher)).resolves.toEqual(payload);
+    expect(recorded.calls).toEqual([{ input: "/leglas/api/agents" }]);
+  });
+
+  test("posts the picked adapter as JSON, with the template when custom", async () => {
+    const recorded = recorder();
+
+    await chooseAgent("custom", "aider --yes {prompt}", recorded.fetcher);
+    expect(recorded.calls[0]).toEqual({
+      input: "/leglas/api/agent",
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: "custom", run: "aider --yes {prompt}" }),
+      },
+    });
+    recorded.calls.length = 0;
+
+    await chooseAgent("claude", undefined, recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/agent",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agent: "claude" }),
+        },
+      },
+    ]);
+  });
+
+  test("names the request being stopped when it knows one", async () => {
+    const recorded = recorder();
+
+    await cancelAgentRun("request-3", recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/cancel",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "request-3" }),
+        },
+      },
+    ]);
+  });
+
+  test("wires cancellation to the running-request endpoint", async () => {
+    const recorded = recorder({ ok: true, cancelled: true });
+
+    await cancelAgentRun(null, recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/cancel",
+        init: { method: "POST" },
+      },
+    ]);
+  });
+
+  test("posts the failed id when retrying", async () => {
+    const recorded = recorder();
+
+    await retryFailedRequest("request-7", recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/retry",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "request-7" }),
+        },
+      },
+    ]);
+  });
+
+  test("posts the failed id when dismissing", async () => {
+    const recorded = recorder();
+
+    await dismissFailedRequest("request-7", recorded.fetcher);
+
+    expect(recorded.calls).toEqual([
+      {
+        input: "/leglas/api/requests/dismiss",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "request-7" }),
+        },
+      },
+    ]);
+  });
+
+  test("rejects a refused mutation so the caller can show a toast", async () => {
+    const recorded = recorder({ ok: false, error: "refused" }, 400);
+
+    await expect(chooseAgent("claude", undefined, recorded.fetcher)).rejects.toThrow(
+      "Leglas refused the agent request.",
+    );
+  });
+});

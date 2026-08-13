@@ -7,7 +7,9 @@
 
 export declare const AGENTS_MARKER_END = "<!-- leglas:end -->";
 export declare const AGENTS_MARKER_START = "<!-- leglas:start -->";
+export declare const DEFAULT_PORT = 4100;
 export type Framework = "next" | "react";
+export declare const LEGLAS_PREFIX = "/leglas";
 export type NewDeps = {
     log(line: string): void;
 };
@@ -329,6 +331,7 @@ export declare function fixedProject(directory: string): Project;
 export declare function hostProject(host: RootsHost, options: HostProjectOptions): Project;
 export declare function registerLeglasTools(server: McpServer, options: {
     project: Project;
+    engagement?: Engagement;
 }): LeglasTools;
 export declare function startChannel(server: McpServer, options: {
     project: Project;

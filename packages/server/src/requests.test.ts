@@ -62,6 +62,20 @@ describe("composeRequest", () => {
     expect(prompt).toContain("/pricing-v2");
   });
 
+  test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
+    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer").prompt;
+    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer").prompt;
+
+    // The measured cost of leaving this out is minutes of post-edit test
+    // runs and repo searches per request, not seconds.
+    expect(known).toContain("Make the change in that file and finish.");
+    expect(unknown).toContain("Once found, make the change and finish.");
+    for (const prompt of [known, unknown]) {
+      expect(prompt).toContain("no test run, no build");
+      expect(prompt).toContain("checked visually in a live preview");
+    }
+  });
+
   test("tells the agent to change only this direction, not its siblings", () => {
     const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
 

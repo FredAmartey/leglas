@@ -23,9 +23,20 @@ function scratch(): string {
 }
 
 /** A linked in-process pair: the same wire protocol a host speaks, no stdio. */
-async function connect(cwd: string): Promise<Client> {
+async function connect(
+  cwd: string,
+  options: { touches?: { count: number } } = {},
+): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
-  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd) }));
+  // A silent engagement, so no test beats a real port; the recording variant
+  // proves the wiring where a test asks for it.
+  const engagement = {
+    touch: async () => {
+      if (options.touches) options.touches.count += 1;
+    },
+    stop: async () => {},
+  };
+  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd), engagement }));
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -193,6 +204,18 @@ describe("the MCP face", () => {
 
     expect(isError).toBe(false);
     expect(envelope["file"]).toBe(".leglas/pages/aurora.html");
+  });
+
+  test("working the queue marks the session engaged", async () => {
+    const touches = { count: 0 };
+    const client = await connect(scratch(), { touches });
+
+    await call(client, "requests", {});
+    await call(client, "list", {});
+    await call(client, "requests", { clear: true });
+
+    // Only the queue tool signals engagement; browsing previews does not.
+    expect(touches.count).toBe(2);
   });
 
   test("requests is empty for a fresh project", async () => {

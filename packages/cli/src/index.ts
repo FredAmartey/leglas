@@ -15,7 +15,7 @@ export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate } from
 export { runWatch } from "./run-watch.js";
 export type { TemplateResult, WatchTemplate } from "./watch.js";
 export type { WatchDeps } from "./run-watch.js";
-export { readRequests } from "@leglas/server";
+export { DEFAULT_PORT, LEGLAS_PREFIX, readRequests } from "@leglas/server";
 export type { PendingRequest } from "@leglas/server";
 export { runClassify } from "./run-classify.js";
 export { run } from "./run.js";
