@@ -11,7 +11,7 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.4.0 (2026-08-13)
 
 The interface runs your agent itself. Asking for a change no longer
 needs a second terminal: pick an agent once and every request runs as
@@ -59,6 +59,12 @@ you send it.
 
 ### Changed
 
+- **Runs start the moment you send and finish in half the time.** A new
+  request no longer waits out the runner's poll, and the composed prompt
+  now says how small the job is, so the agent makes the change and
+  finishes instead of verifying a design tweak with test runs. Measured
+  on real runs: the typical small change went from about a minute with
+  two-minute outliers to under thirty seconds. (`leglas`)
 - Writing to `/leglas/api/` now happens only from the machine running
   Leglas: every POST needs a loopback socket, and the browser's Origin
   must match its Host on top of that. An API that decides what executes
