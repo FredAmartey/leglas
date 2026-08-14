@@ -11,7 +11,7 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.4.1 (2026-08-14)
 
 ### Added
 
@@ -19,6 +19,21 @@ because most reach only one of the three.
   per-direction Delete action and a Clear all action, both behind a
   confirmation. Machine-local directions leave `.leglas/previews.json` while
   shared config and preview source files stay untouched. (`leglas`)
+
+### Fixed
+
+- **A direction can be dragged from anywhere on its row.** Vertical movement
+  reorders while horizontal movement still selects text, so the note no longer
+  leaves most of the row unable to drag. (`leglas`)
+- **Rename fields keep Enter and Space.** The row keyboard shortcut now runs
+  only when the row itself has focus, so Enter submits a rename and spaces can
+  be typed into its name. (`leglas`)
+- **An unreadable local registry no longer hides working directions.** Leglas
+  keeps the previews it booted with if `.leglas/previews.json` becomes invalid
+  or unreadable. (`leglas`)
+- **Delete confirmations keep keyboard focus contained.** Focus stays inside
+  the dialog until it closes, then returns to the control that opened it.
+  (`leglas`)
 
 ## 0.4.0 (2026-08-13)
 
