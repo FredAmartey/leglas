@@ -34,9 +34,21 @@ export async function readLocalPreviews(
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
-    // Never added anything here. Not a problem, and not worth reporting.
-    return { previews: [], errors: [] };
+  } catch (error) {
+    const code =
+      error instanceof Error && "code" in error && typeof error.code === "string"
+        ? error.code
+        : null;
+    if (code === "ENOENT") {
+      // Never added anything here. Not a problem, and not worth reporting.
+      return { previews: [], errors: [] };
+    }
+    return {
+      previews: [],
+      errors: [
+        `${LOCAL_PREVIEWS_PATH} could not be read (${code ?? "unknown error"}). Check its permissions and file type; nothing shared is lost.`,
+      ],
+    };
   }
 
   let parsed: unknown;

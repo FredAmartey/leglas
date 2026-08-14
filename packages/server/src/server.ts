@@ -14,7 +14,7 @@ import {
 } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
-import { readLocalPreviews } from "./local-previews.js";
+import { dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
 import { appendRequest, composeRequest, readRequests, removeRequest } from "./requests.js";
@@ -387,8 +387,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const notice = configStalenessNotice(cwd, bootConfigSnapshot, snapshotConfig(cwd));
       if (notice !== null) errors.push(notice);
       return void readLocalPreviews(cwd)
-        .then(({ previews: local }) => {
-          const known = new Set(boot.map((preview) => preview.title));
+        .then(({ previews: local, errors: localErrors }) => {
+          if (localErrors.length > 0) {
+            return sendJson(res, 200, {
+              project,
+              devServer: target,
+              previews: boot,
+              errors,
+            });
+          }
+          const localTitles = new Set(local.map((preview) => preview.title));
+          // Local directions that were present at boot stay fully resolved,
+          // including their file mounts and branch servers. Once deleted from
+          // the registry they leave this payload immediately instead of
+          // lingering until Leglas restarts.
+          const currentBoot = boot.filter(
+            (preview) => preview.local !== true || localTitles.has(preview.title),
+          );
+          const known = new Set(currentBoot.map((preview) => preview.title));
           const fresh = local.filter(
             (preview) =>
               !known.has(preview.title) && preview.branch === undefined && preview.file === undefined,
@@ -396,7 +412,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           sendJson(res, 200, {
             project,
             devServer: target,
-            previews: [...boot, ...fresh],
+            previews: [...currentBoot, ...fresh],
             errors,
           });
         })
@@ -408,6 +424,55 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             errors,
           }),
         );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/previews/delete` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { titles?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { titles?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+
+        const titles = parsed.titles;
+        if (
+          !Array.isArray(titles) ||
+          titles.length === 0 ||
+          titles.some((title) => typeof title !== "string" || title.trim() === "")
+        ) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: "Body needs a non-empty array of direction titles.",
+          });
+        }
+
+        const unique = [...new Set(titles as string[])];
+        try {
+          const local = await readLocalPreviews(cwd);
+          if (local.errors.length > 0) {
+            return sendJson(res, 409, { ok: false, error: local.errors.join(" ") });
+          }
+          const localTitles = new Set(local.previews.map((preview) => preview.title));
+          const unknown = unique.filter((title) => !localTitles.has(title));
+          if (unknown.length > 0) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: "Only machine-local directions can be deleted from the registry.",
+            });
+          }
+
+          const deleted = await dropLocalPreviews(cwd, unique);
+          return sendJson(res, 200, { ok: true, deleted });
+        } catch {
+          return sendJson(res, 500, {
+            ok: false,
+            error: "The directions could not be deleted from Leglas.",
+          });
+        }
+      });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/request` && req.method === "POST") {
@@ -422,11 +487,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
-        const local = await readLocalPreviews(cwd).then(
-          (read) => read.previews,
-          () => [],
-        );
-        const preview = [...(config?.previews ?? []), ...local].find(
+        const localRead = await readLocalPreviews(cwd).catch(() => null);
+        const local = localRead?.errors.length === 0 ? localRead.previews : [];
+        const localTitles = new Set(local.map((entry) => entry.title));
+        const bootConfig = config?.previews ?? [];
+        const boot =
+          localRead === null || localRead.errors.length > 0
+            ? bootConfig
+            : bootConfig.filter(
+                (entry) => entry.local !== true || localTitles.has(entry.title),
+              );
+        const preview = [...boot, ...local].find(
           (entry) => entry.title === parsed.title,
         );
         if (!preview || !parsed.intent?.trim()) {

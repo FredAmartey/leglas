@@ -20,6 +20,8 @@ export type Prefs = {
   collapsed: boolean;
   /** Family roots whose variants are folded away in the rail. */
   collapsedFamilies: string[];
+  /** Directions permanently cleared from this project's Leglas rail. */
+  deleted: string[];
   /** Which corner the tools widget sits in; it is draggable between them. */
   corner: "bottom-left" | "bottom-right" | "top-left" | "top-right";
   /** Interface typeface choice, validated by the shell against its options. */
@@ -58,6 +60,7 @@ export const DEFAULT_PREFS: Prefs = {
   agentPickerDismissed: false,
   collapsed: false,
   collapsedFamilies: [],
+  deleted: [],
   corner: "bottom-right",
   font: "satoshi",
   hidden: [],
@@ -87,8 +90,12 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
     if (!raw) return { ...DEFAULT_PREFS, order: titles };
     const saved = JSON.parse(raw) as Partial<Prefs>;
     const parsed = { ...DEFAULT_PREFS, ...saved };
-    const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
+    const deleted = (Array.isArray(parsed.deleted) ? parsed.deleted : []).filter((title) =>
       titles.includes(title),
+    );
+    const available = titles.filter((title) => !deleted.includes(title));
+    const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
+      available.includes(title),
     );
     const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
     return {
@@ -100,20 +107,21 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
       collapsedFamilies: (Array.isArray(parsed.collapsedFamilies)
         ? parsed.collapsedFamilies
         : []
-      ).filter((title) => titles.includes(title)),
+      ).filter((title) => available.includes(title)),
       // An unrecognised corner would leave the widget unpositioned, and it is
       // the only way into the tools.
       corner: CORNERS.includes(parsed.corner as (typeof CORNERS)[number])
         ? (parsed.corner as Prefs["corner"])
         : DEFAULT_PREFS.corner,
+      deleted,
       font: typeof parsed.font === "string" ? parsed.font : DEFAULT_PREFS.font,
       hidden: (Array.isArray(parsed.hidden) ? parsed.hidden : []).filter((title) =>
-        titles.includes(title),
+        available.includes(title),
       ),
       // Keep saved positions, append anything the config has added since.
-      order: [...kept, ...titles.filter((title) => !kept.includes(title))],
+      order: [...kept, ...available.filter((title) => !kept.includes(title))],
       renames: Object.fromEntries(
-        Object.entries(parsed.renames ?? {}).filter(([title]) => titles.includes(title)),
+        Object.entries(parsed.renames ?? {}).filter(([title]) => available.includes(title)),
       ),
       scaleSplit:
         typeof saved.scaleSplit === "boolean" ? saved.scaleSplit : DEFAULT_PREFS.scaleSplit,
@@ -133,6 +141,28 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
   } catch {
     return { ...DEFAULT_PREFS, order: titles };
   }
+}
+
+/**
+ * Permanently clear directions from the rail and every preference keyed by
+ * them. The tombstone keeps a shared config direction from reappearing on the
+ * next poll, while machine-local directions are also removed from Leglas's
+ * registry by the server.
+ */
+export function deleteDirections(prefs: Prefs, titles: readonly string[]): Prefs {
+  const removed = new Set(titles);
+  const renames = Object.fromEntries(
+    Object.entries(prefs.renames).filter(([title]) => !removed.has(title)),
+  );
+
+  return {
+    ...prefs,
+    collapsedFamilies: prefs.collapsedFamilies.filter((title) => !removed.has(title)),
+    deleted: [...new Set([...prefs.deleted, ...titles])],
+    hidden: prefs.hidden.filter((title) => !removed.has(title)),
+    order: prefs.order.filter((title) => !removed.has(title)),
+    renames,
+  };
 }
 
 /**

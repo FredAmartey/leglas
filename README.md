@@ -286,8 +286,11 @@ trace.
 ## The interface
 
 Directions live in a rail on the left. The stage shows the active one in
-a framed viewport at Full, 1440, 834, or 390 wide. Rename, reorder, hide,
-and tag directions from the rail; layout is saved per project and
+a framed viewport at Full, 1440, 834 or 390 wide. Rename, reorder, hide
+and tag directions from the rail. Open the removed list to restore a
+direction, delete one permanently or clear the full list. Machine-local
+directions are removed from `.leglas/previews.json`; shared project config
+and preview source files stay untouched. Layout is saved per project and
 survives restarts and port changes.
 
 Flipping shows a difference over time. A split shows it at once, which is

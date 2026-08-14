@@ -1,6 +1,15 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_W, MAX_W, MIN_W, loadPrefs, railOrder, reorder, type Prefs } from "./prefs.js";
+import {
+  DEFAULT_W,
+  MAX_W,
+  MIN_W,
+  deleteDirections,
+  loadPrefs,
+  railOrder,
+  reorder,
+  type Prefs,
+} from "./prefs.js";
 import type { Preview } from "./types.js";
 
 const previews: Preview[] = [
@@ -37,6 +46,23 @@ describe("loadPrefs", () => {
     expect(prefs.order).not.toContain("Deleted");
     expect(prefs.hidden).toEqual([]);
     expect(prefs.renames).toEqual({});
+  });
+
+  test("keeps permanently deleted directions out of the rail", () => {
+    const prefs = loadPrefs(
+      stored({
+        deleted: ["Wave"],
+        hidden: ["Wave", "Aurora"],
+        order: ["Original", "Wave", "Aurora"],
+        renames: { Wave: "Foam", Aurora: "Glow" },
+      }),
+      previews,
+    );
+
+    expect(prefs.deleted).toEqual(["Wave"]);
+    expect(prefs.order).toEqual(["Original", "Aurora"]);
+    expect(prefs.hidden).toEqual(["Aurora"]);
+    expect(prefs.renames).toEqual({ Aurora: "Glow" });
   });
 
   test("clamps a rail width that is out of range", () => {
@@ -84,6 +110,31 @@ describe("loadPrefs", () => {
     const prefs = loadPrefs(stored({ hidden: "nope" as unknown as string[] }), previews);
 
     expect(prefs.hidden).toEqual([]);
+  });
+});
+
+describe("deleteDirections", () => {
+  test("removes directions and all of their saved rail state", () => {
+    const prefs: Prefs = {
+      ...loadPrefs(null, previews),
+      collapsedFamilies: ["Wave"],
+      hidden: ["Wave", "Aurora"],
+      renames: { Wave: "Foam", Aurora: "Glow" },
+    };
+
+    const deleted = deleteDirections(prefs, ["Wave"]);
+
+    expect(deleted.deleted).toEqual(["Wave"]);
+    expect(deleted.hidden).toEqual(["Aurora"]);
+    expect(deleted.order).toEqual(["Original", "Aurora"]);
+    expect(deleted.renames).toEqual({ Aurora: "Glow" });
+    expect(deleted.collapsedFamilies).toEqual([]);
+  });
+
+  test("deleting the same direction twice does not duplicate its tombstone", () => {
+    const once = deleteDirections(loadPrefs(null, previews), ["Wave"]);
+
+    expect(deleteDirections(once, ["Wave"]).deleted).toEqual(["Wave"]);
   });
 });
 
