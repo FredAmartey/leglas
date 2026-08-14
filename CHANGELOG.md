@@ -11,6 +11,15 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Added
+
+- **Removed directions can be deleted for good.** The removed list now has a
+  per-direction Delete action and a Clear all action, both behind a
+  confirmation. Machine-local directions leave `.leglas/previews.json` while
+  shared config and preview source files stay untouched. (`leglas`)
+
 ## 0.4.0 (2026-08-13)
 
 The interface runs your agent itself. Asking for a change no longer

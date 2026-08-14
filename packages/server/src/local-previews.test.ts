@@ -54,6 +54,17 @@ describe("readLocalPreviews", () => {
     expect(result.errors.join(" ")).toContain("previews.json");
   });
 
+  test("reports a registry that exists but cannot be read", async () => {
+    const dir = scratch();
+    mkdirSync(join(dir, LOCAL_PREVIEWS_PATH), { recursive: true });
+
+    const result = await readLocalPreviews(dir);
+
+    expect(result.previews).toEqual([]);
+    expect(result.errors.join(" ")).toContain("could not be read");
+    expect(result.errors.join(" ")).not.toContain(dir);
+  });
+
   test("validates entries the same way the config is validated", async () => {
     const dir = scratch();
     seed(dir, JSON.stringify({ previews: [{ url: "/no-title" }] }));

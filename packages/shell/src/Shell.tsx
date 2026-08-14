@@ -191,6 +191,7 @@ function DeleteRemovedDialog({
   busy,
   count,
   error,
+  fallbackFocusRef,
   name,
   onCancel,
   onConfirm,
@@ -198,26 +199,51 @@ function DeleteRemovedDialog({
   busy: boolean;
   count: number;
   error: string | null;
+  fallbackFocusRef: React.RefObject<HTMLElement | null>;
   name: string | null;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
 
   useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
     const returnTo = document.activeElement as HTMLElement | null;
-    cancelRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const onDialogCancel = (event: Event) => {
       event.preventDefault();
       onCancelRef.current();
     };
-    window.addEventListener("keydown", onKey);
+    const onDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+      );
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (first === undefined || last === undefined) {
+        event.preventDefault();
+        dialog.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("cancel", onDialogCancel);
+    dialog.addEventListener("keydown", onDialogKeyDown);
+    if (!dialog.open) dialog.showModal();
+    cancelRef.current?.focus();
     return () => {
-      window.removeEventListener("keydown", onKey);
-      returnTo?.focus?.();
+      dialog.removeEventListener("cancel", onDialogCancel);
+      dialog.removeEventListener("keydown", onDialogKeyDown);
+      if (dialog.open) dialog.close();
+      (returnTo?.isConnected ? returnTo : fallbackFocusRef.current)?.focus();
     };
   }, []);
 
@@ -228,18 +254,20 @@ function DeleteRemovedDialog({
     : `This permanently removes all ${count} directions from Leglas.`;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm"
+    <dialog
+      aria-describedby="delete-removed-description"
+      aria-labelledby="delete-removed-title"
+      aria-modal="true"
+      className="m-auto max-h-[calc(100dvh-3rem)] max-w-none overflow-visible border-0 bg-transparent p-0 text-left text-inherit backdrop:bg-black/50 backdrop:backdrop-blur-sm"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget && !busy) onCancel();
       }}
+      ref={dialogRef}
+      role="alertdialog"
+      tabIndex={-1}
     >
       <div
-        aria-describedby="delete-removed-description"
-        aria-labelledby="delete-removed-title"
-        aria-modal="true"
-        className="w-full max-w-sm rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl"
-        role="alertdialog"
+        className="w-[calc(100vw-3rem)] max-w-sm overscroll-contain rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl"
       >
         <h2 className="text-sm font-medium text-white" id="delete-removed-title">
           {title}
@@ -276,7 +304,7 @@ function DeleteRemovedDialog({
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -2804,6 +2832,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           busy={deletingRemoved}
           count={deletePrompt.titles.length}
           error={deletePrompt.error}
+          fallbackFocusRef={searchRef}
           name={
             deletePrompt.titles.length === 1
               ? st.displayName(deletePrompt.titles[0] ?? "")

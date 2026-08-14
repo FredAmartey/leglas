@@ -586,11 +586,12 @@ describe("startServer", () => {
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
 
-  test("keeps booted local previews in config when the local registry becomes invalid", async () => {
+  test("keeps booted local previews in config when the local registry cannot be read", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-invalid-local-config-"));
     mkdirSync(join(cwd, ".leglas"));
+    const registry = join(cwd, ".leglas/previews.json");
     writeFileSync(
-      join(cwd, ".leglas/previews.json"),
+      registry,
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
     );
     const config = configFor(await startOrigin(), [
@@ -598,7 +599,8 @@ describe("startServer", () => {
       { title: "Aurora", url: "/?v-hero=aurora", local: true },
     ]);
     const server = await start({ config, port: 0, cwd });
-    writeFileSync(join(cwd, ".leglas/previews.json"), "not json");
+    unlinkSync(registry);
+    mkdirSync(registry);
 
     const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: { title: string }[];
