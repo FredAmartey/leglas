@@ -586,6 +586,53 @@ describe("startServer", () => {
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
 
+  test("keeps booted local previews in config when the local registry becomes invalid", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-invalid-local-config-"));
+    mkdirSync(join(cwd, ".leglas"));
+    writeFileSync(
+      join(cwd, ".leglas/previews.json"),
+      JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
+    );
+    const config = configFor(await startOrigin(), [
+      { title: "Current", url: "/" },
+      { title: "Aurora", url: "/?v-hero=aurora", local: true },
+    ]);
+    const server = await start({ config, port: 0, cwd });
+    writeFileSync(join(cwd, ".leglas/previews.json"), "not json");
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: { title: string }[];
+      errors: string[];
+    };
+
+    expect(body.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
+    expect(body.errors).toEqual([]);
+  });
+
+  test("accepts requests for booted local previews when the local registry becomes invalid", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-invalid-local-request-"));
+    mkdirSync(join(cwd, ".leglas"));
+    writeFileSync(
+      join(cwd, ".leglas/previews.json"),
+      JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
+    );
+    const config = configFor(await startOrigin(), [
+      { title: "Aurora", url: "/?v-hero=aurora", local: true },
+    ]);
+    const server = await start({ config, port: 0, cwd });
+    writeFileSync(join(cwd, ".leglas/previews.json"), "not json");
+
+    const response = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Aurora", intent: "warmer" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+    expect(await readRequests(cwd)).toMatchObject([{ title: "Aurora", intent: "warmer" }]);
+  });
+
   test("permanently deletes local previews through the interface API", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-delete-preview-"));
     mkdirSync(join(cwd, ".leglas"));

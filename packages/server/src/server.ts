@@ -387,7 +387,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const notice = configStalenessNotice(cwd, bootConfigSnapshot, snapshotConfig(cwd));
       if (notice !== null) errors.push(notice);
       return void readLocalPreviews(cwd)
-        .then(({ previews: local }) => {
+        .then(({ previews: local, errors: localErrors }) => {
+          if (localErrors.length > 0) {
+            return sendJson(res, 200, {
+              project,
+              devServer: target,
+              previews: boot,
+              errors,
+            });
+          }
           const localTitles = new Set(local.map((preview) => preview.title));
           // Local directions that were present at boot stay fully resolved,
           // including their file mounts and branch servers. Once deleted from
@@ -479,14 +487,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
-        const local = await readLocalPreviews(cwd).then(
-          (read) => read.previews,
-          () => [],
-        );
+        const localRead = await readLocalPreviews(cwd).catch(() => null);
+        const local = localRead?.errors.length === 0 ? localRead.previews : [];
         const localTitles = new Set(local.map((entry) => entry.title));
-        const boot = (config?.previews ?? []).filter(
-          (entry) => entry.local !== true || localTitles.has(entry.title),
-        );
+        const bootConfig = config?.previews ?? [];
+        const boot =
+          localRead === null || localRead.errors.length > 0
+            ? bootConfig
+            : bootConfig.filter(
+                (entry) => entry.local !== true || localTitles.has(entry.title),
+              );
         const preview = [...boot, ...local].find(
           (entry) => entry.title === parsed.title,
         );
