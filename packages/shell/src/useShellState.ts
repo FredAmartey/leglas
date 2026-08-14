@@ -4,6 +4,7 @@ import {
   MAX_W,
   MIN_W,
   VIEWPORTS,
+  deleteDirections,
   loadPrefs,
   railOrder,
   reorder,
@@ -71,8 +72,9 @@ export function useShellState({
 
   const firstVisible = () => {
     const saved = initial();
-    const ordered = saved.order.length ? saved.order : previews.map((preview) => preview.title);
-    return ordered.find((title) => !saved.hidden.includes(title)) ?? ordered[0] ?? "";
+    return (
+      saved.order.find((title) => !saved.hidden.includes(title)) ?? saved.order[0] ?? ""
+    );
   };
 
   const [active, setActiveRaw] = useState<string>(firstVisible);
@@ -150,7 +152,9 @@ export function useShellState({
     );
   };
 
-  const titles = previews.map((preview) => preview.title);
+  const titles = previews
+    .map((preview) => preview.title)
+    .filter((title) => !prefs.deleted.includes(title));
   // Derived every render rather than reconciled once at load, so previews an
   // agent registers mid-session get rows the moment they arrive.
   const ordered = railOrder(prefs.order, titles);
@@ -232,6 +236,39 @@ export function useShellState({
       tone: "info",
       ttl: TOAST_TTL.action,
     });
+  };
+
+  /**
+   * Clear removed directions for good. Machine-local directions also leave
+   * Leglas's registry on disk. Shared directions keep their source config
+   * untouched and use the saved tombstone to stay out of this project's rail.
+   */
+  const deleteRemoved = async (removeTitles: readonly string[]) => {
+    const unique = [...new Set(removeTitles)].filter((title) => prefs.hidden.includes(title));
+    const local = unique.filter((title) => byTitle.get(title)?.local === true);
+
+    if (local.length > 0) {
+      const response = await fetch("/leglas/api/previews/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ titles: local }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "The directions could not be deleted from Leglas.");
+      }
+    }
+
+    const removed = new Set(unique);
+    setPrefs((current) => deleteDirections(current, unique));
+    setMounted((current) => current.filter((title) => !removed.has(title)));
+    if (unique.includes(active)) {
+      const next = ordered.find(
+        (title) => !removed.has(title) && !prefs.hidden.includes(title),
+      );
+      setActiveRaw(next ?? "");
+    }
+    if (prefs.hidden.every((title) => removed.has(title))) setShowHidden(false);
   };
 
   /**
@@ -495,6 +532,7 @@ export function useShellState({
     copied,
     copyLink,
     copyReference,
+    deleteRemoved,
     displayName,
     dismissToast: dismiss,
     focusing,

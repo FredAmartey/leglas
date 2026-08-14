@@ -8,6 +8,8 @@ export type Preview = {
   url: string;
   note: string | undefined;
   tags: readonly string[];
+  /** Machine-local directions carry this through to the interface. */
+  local?: boolean | undefined;
   /**
    * A git branch to preview instead of the running dev server. Leglas creates a
    * worktree for it and starts the app there, so the preview is a URL on

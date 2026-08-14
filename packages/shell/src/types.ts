@@ -11,6 +11,8 @@ export type Preview = {
   tags: readonly string[];
   /** The direction this preview is a variant of; the rail groups the family. */
   basedOn?: string | undefined;
+  /** Added through `leglas add`, so Leglas can remove its local registration. */
+  local?: boolean | undefined;
   /**
    * How the direction is backed, when it is not just a route on the running
    * app. The server has always sent these; the interface reads them so a

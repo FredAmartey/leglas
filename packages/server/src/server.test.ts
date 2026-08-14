@@ -586,6 +586,51 @@ describe("startServer", () => {
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
 
+  test("permanently deletes local previews through the interface API", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-delete-preview-"));
+    mkdirSync(join(cwd, ".leglas"));
+    writeFileSync(
+      join(cwd, ".leglas/previews.json"),
+      JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
+    );
+    // Local previews are part of the boot config in a real Leglas process.
+    // The endpoint must still remove one from the live payload immediately.
+    const config = configFor(await startOrigin(), [
+      { title: "Current", url: "/" },
+      { title: "Aurora", url: "/?v-hero=aurora", local: true },
+    ]);
+    const server = await start({ config, port: 0, cwd });
+
+    const deleted = await fetch(`${server.url}/leglas/api/previews/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ titles: ["Aurora"] }),
+    });
+    const payload = (await deleted.json()) as { deleted: number; ok: boolean };
+
+    expect(deleted.status).toBe(200);
+    expect(payload).toEqual({ deleted: 1, ok: true });
+    const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: { title: string }[];
+    };
+    expect(after.previews.map((preview) => preview.title)).toEqual(["Current"]);
+  });
+
+  test("refuses to rewrite shared config previews through permanent delete", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-delete-shared-preview-"));
+    const config = configFor(await startOrigin(), [{ title: "Current", url: "/" }]);
+    const server = await start({ config, port: 0, cwd });
+
+    const deleted = await fetch(`${server.url}/leglas/api/previews/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ titles: ["Current"] }),
+    });
+
+    expect(deleted.status).toBe(400);
+    expect(await deleted.json()).toMatchObject({ ok: false });
+  });
+
   test("identifies the project, so saved layout survives a port change", async () => {
     const config = configFor(await startOrigin());
     const server = await start({ config, port: 0, project: "/work/app" });
