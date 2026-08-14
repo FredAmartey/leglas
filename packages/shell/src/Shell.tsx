@@ -303,6 +303,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     maxDy: number;
     minDy: number;
     rows: { height: number; mid: number; title: string; top: number }[];
+    startX: number;
     startY: number;
     suppressed: boolean;
   } | null>(null);
@@ -330,10 +331,22 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     if (!meta) return;
     const onMove = (event: PointerEvent) => {
       const dy = event.clientY - meta.startY;
+      const dx = event.clientX - meta.startX;
       setDrag((current) => {
         if (!current || current.settling) return current;
-        if (!current.started && Math.abs(dy) <= 4) return { ...current, dy };
-        if (!current.started) window.getSelection()?.removeAllRanges();
+        if (!current.started) {
+          // Nothing is decided inside the threshold.
+          if (Math.abs(dy) <= 4 && Math.abs(dx) <= 4) return { ...current, dy };
+          // The first real movement chooses which gesture this press was:
+          // down the list reorders, across a line selects the text under the
+          // pointer. Both live on the same surface because a row is a handle
+          // and a row is words, and asking the user to find the sliver that
+          // is only one of them is what made reordering feel broken.
+          if (Math.abs(dx) > Math.abs(dy)) return null;
+          // Whatever the browser painted on the way to the threshold goes;
+          // from here the rail is `select-none` and nothing can extend it.
+          window.getSelection()?.removeAllRanges();
+        }
         const row = meta.rows[current.from];
         if (!row) return current;
         // Follow the pointer within the slot range plus one row of give, so
@@ -1022,7 +1035,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     (title: string, index: number) => (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
       if (st.renaming || st.query.trim() || st.rows.length < 2) return;
-      // Buttons keep their clicks; the note keeps text selection.
+      // Buttons keep their clicks, and anything marked selectable keeps its
+      // selection outright. The note used to be marked that way, which took
+      // the bottom half of every row out of the gesture: a press there could
+      // only ever paint a highlight, and on a rail of two-line notes that is
+      // most of the surface a hand lands on. It is a drag candidate now, and
+      // which gesture the press turns out to be is settled by the direction
+      // it moves in rather than by where it started.
       if ((event.target as HTMLElement).closest("button, [data-selectable]")) return;
       const list = listRef.current;
       const scroller = list?.parentElement;
@@ -1040,6 +1059,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         maxDy: rowRect ? view.bottom - rowRect.bottom : 0,
         minDy: rowRect ? view.top - rowRect.top : 0,
         rows,
+        startX: event.clientX,
         startY: event.clientY,
         suppressed: false,
       };
@@ -1160,6 +1180,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             openAlone(title);
           }}
           onKeyDown={(event) => {
+            // Only when the card itself holds the focus. The rename field sits
+            // inside it, and Enter and Space are the two keys it needs most:
+            // taking them from the whole subtree meant Enter never committed a
+            // rename, because the preventDefault here cancelled the form's own
+            // submission, and a space never reached the name being typed.
+            if (event.target !== event.currentTarget) return;
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               st.setActive(title);
@@ -1245,7 +1271,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       design is the note beneath, the badge, and the last
                       third of the title line. */}
                   <span
-                    className={`block w-fit min-w-[70%] max-w-full cursor-text select-text truncate -my-1 py-1 pr-2 ${
+                    className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
                       variantCount > 0 ? "" : "-ml-3 pl-3"
                     }`}
                     onDoubleClick={(event) => {
@@ -1296,14 +1322,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 are never both worth reading, and swapping them keeps the row
                 the height it already was. */}
             <span
-              className={`mt-0.5 line-clamp-2 block cursor-text select-text text-xs leading-snug transition-colors ${
+              className={`mt-0.5 line-clamp-2 block cursor-text text-xs leading-snug transition-colors ${
                 renamingThis && st.renameError
                   ? "text-amber-300/90"
                   : isActive
                     ? "text-[#D1D5DB]"
                     : "text-[#84848C]"
               }`}
-              data-selectable=""
               id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
             >
               {renamingThis && st.renameError ? st.renameError : (preview?.note ?? preview?.url)}
