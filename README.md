@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/rail-single.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and the selected one running as the real app filling the rest of the window" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/rail-single.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and the selected one running as the real app filling the rest of the window" />
 </p>
 
 <p align="center"><i>Every direction in the rail, the selected one running as your actual app. Arrow keys flip between them.</i></p>
@@ -46,7 +46,7 @@ and sessions that clean up after themselves.
 ## What you can do with Leglas
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name." />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name." />
 </p>
 
 <p align="center"><i>Two directions for the same page, running side by side as the actual app.</i></p>
@@ -181,9 +181,9 @@ The line under the field is the whole status: whether anything is
 listening, what you have queued, and when it has been picked up.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-idle.png" width="290" alt="The change field reading: Enter queues it for npx leglas requests" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-queued.png" width="290" alt="The change field reading: one change queued for your agent" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/pr-assets/field-pickedup.png" width="290" alt="The change field reading: Your agent is on it" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-idle.png" width="290" alt="The change field reading: Enter queues it for npx leglas requests" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-queued.png" width="290" alt="The change field reading: one change queued for your agent" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-pickedup.png" width="290" alt="The change field reading: Your agent is on it" />
 </p>
 
 <p align="center"><i>Nothing waiting, then a request queued, then an agent that has taken it.</i></p>
