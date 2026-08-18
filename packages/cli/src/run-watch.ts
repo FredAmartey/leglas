@@ -7,6 +7,8 @@ import {
   KNOWN_AGENTS,
   LEGLAS_PREFIX,
   PROMPT_TOKEN,
+  classifyFailure,
+  markFailed,
   markPickedUp,
   readAgentChoice,
   readRequests,
@@ -177,13 +179,21 @@ export async function runWatch(
       return;
     }
 
-    // Left in the queue as picked-up and never offered again: a prompt that
-    // broke the agent will break it the same way in two seconds, and the user
-    // is the one paying for the retry. They can see what happened above.
+    // Never offered again: a prompt that broke the agent will break it the
+    // same way in two seconds, and the user is the one paying for the retry.
+    // The verdict is written into the queue rather than kept in this process,
+    // so the interface can say what happened and offer to let it go, and so
+    // the next watcher does not read it as work waiting to be done. The agent
+    // owns this terminal, so the reason is whatever the outcome itself says:
+    // its output went straight to the screen above and was never captured.
     failed.add(request.id);
-    deps.error(
-      `  failed  ${request.title}: ${outcome.ok ? `${command} exited ${outcome.code}` : outcome.error}`,
-    );
+    const failure = classifyFailure({
+      agent: (shownCommand.split(/\s+/)[0] ?? command).split("/").pop() ?? command,
+      error: outcome.ok ? null : outcome.error,
+      exitCode: outcome.ok ? outcome.code : null,
+    });
+    await markFailed(options.cwd, request.id, failure);
+    deps.error(`  failed  ${request.title}: ${failure.message}`);
     deps.error("  Left in the queue and not retried.");
   };
 

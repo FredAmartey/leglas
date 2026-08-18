@@ -11,6 +11,49 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+The public API surface moved (`PendingRequest.status` gained two values and
+the type gained `failure`), so the next release is a minor, not a patch.
+
+### Fixed
+
+- **Codex works in a project that is not a git repository.** `codex exec`
+  refuses such a directory before it reaches a model, so every Codex request
+  in one failed with nothing in the interface to say why. Each codex argv now
+  carries `--skip-git-repo-check`, which moves that precondition and nothing
+  else: writes stay confined by `-s workspace-write`. (`leglas`)
+- **A stopped run is recorded as stopped.** Cancelling used to leave the
+  request looking exactly like a failure, offered back for a rerun, and only
+  in the server's memory: a restart read it as `picked-up` and the card said
+  "your agent is on it" forever. Stops and failures are now written into the
+  queue and told apart on the card. (`leglas`)
+- **A failed change says what went wrong.** "That change failed" is now
+  followed by the reason: you stopped it, the provider was overloaded, the
+  CLI is signed out, its command is gone, Codex refused the directory. The
+  agent's own output stays in the terminal running Leglas rather than being
+  piped into the browser. (`leglas`)
+- **A run waiting on an overloaded provider says so.** Claude retries a 529
+  ten times over roughly 200 seconds without a word; the card now reads
+  "provider is overloaded · retry 4 of 10" instead of a spinner. Leglas does
+  not shorten or kill the vendor's backoff, so a run that recovers still
+  finishes. (`leglas`)
+- **A stopped agent cannot wedge the runner.** A child that ignores SIGTERM,
+  or whose own child outlives it holding the output pipe, never reported that
+  it had closed: the run stayed "running" and everything queued behind it
+  waited forever. A stop now escalates after five seconds and the queue moves
+  on. The same wait bit the agent auth probe, which could leave
+  `/leglas/api/agents` unanswered for the life of the server. (`leglas`)
+- **A failed request no longer costs two provider turns.** A resumed session
+  that died was always rerun cold. That is right for a session the vendor
+  cleaned up, and wrong for an outage: it aimed a second full retry ladder at
+  a provider that was already down. Only a failure with no other explanation
+  earns the rerun now. (`leglas`)
+- **The same change cannot be queued twice by accident.** Sending identical
+  words at the same direction while one is still waiting is refused with a
+  line saying so; anything else still queues, and the composer stays open
+  during a run. (`leglas`)
+
 ## 0.4.1 (2026-08-14)
 
 ### Added

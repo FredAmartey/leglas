@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -204,5 +204,85 @@ describe("request lifecycle", () => {
     const root = cwd();
     expect(await removeRequest(root, "nope")).toBe(false);
     expect(existsSync(join(root, ".leglas"))).toBe(false);
+  });
+});
+
+describe("terminal requests", () => {
+  const cwd = () => mkdtempSync(join(tmpdir(), "leglas-terminal-"));
+  const input = (title: string) => ({
+    title,
+    url: "/",
+    intent: `change ${title}`,
+    target: null,
+    prompt: `prompt for ${title}`,
+  });
+
+  test("a verdict survives the process that wrote it", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Poster"));
+    const [queued] = await readRequests(root);
+    expect(
+      await markFailed(root, queued?.id ?? "", {
+        code: "provider-overloaded",
+        message: "Claude's provider was overloaded and gave up.",
+      }),
+    ).toBe(true);
+
+    // Read back by a process that never saw the run, which is the whole point:
+    // the interface used to say "your agent is on it" about this forever.
+    const [stored] = await readRequests(root);
+    expect(stored?.status).toBe("failed");
+    expect(stored?.failure?.code).toBe("provider-overloaded");
+    // A stop is its own state, so nothing downstream can read it as a failure
+    // worth rerunning on the user's behalf.
+    await markFailed(root, queued?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+    expect((await readRequests(root))[0]?.status).toBe("cancelled");
+    expect(await markFailed(root, "nope", { code: "cancelled", message: "x" })).toBe(false);
+  });
+
+  test("a hand-edited verdict is dropped rather than trusted", async () => {
+    const root = cwd();
+    mkdirSync(join(root, ".leglas"), { recursive: true });
+    writeFileSync(
+      join(root, ".leglas/requests.json"),
+      JSON.stringify({
+        requests: [
+          { id: "a", status: "failed", title: "A", url: "/", intent: "i", target: null, prompt: "p", failure: { code: "made-up", message: "hi" } },
+          { id: "b", status: "wat", title: "B", url: "/", intent: "i", target: null, prompt: "p" },
+        ],
+      }),
+    );
+    const [first, second] = await readRequests(root);
+    expect(first?.status).toBe("failed");
+    expect(first?.failure).toBeUndefined();
+    // An unknown status is queued, the way it always was.
+    expect(second?.status).toBe("queued");
+  });
+
+  test("collection never hands an ended request to another agent", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Stopped"));
+    await appendRequest(root, input("Live"));
+    const [stopped] = await readRequests(root);
+    await markFailed(root, stopped?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+
+    // Asking for the change the user just stopped would be the worst possible
+    // reading of the queue.
+    expect((await collectRequests(root)).map((request) => request.title)).toEqual(["Live"]);
+    const after = await readRequests(root);
+    expect(after.map((request) => request.status)).toEqual(["cancelled", "picked-up"]);
+  });
+
+  test("clearing counts only what is still waiting as pending", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Failed"));
+    await appendRequest(root, input("Waiting"));
+    const [broken] = await readRequests(root);
+    await markFailed(root, broken?.id ?? "", { code: "agent-error", message: "Codex exited with code 1." });
+
+    // The failed one is finished with, not outstanding work, so it is swept up
+    // rather than reported as still pending.
+    expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 1 });
+    expect((await readRequests(root)).map((request) => request.title)).toEqual(["Waiting"]);
   });
 });

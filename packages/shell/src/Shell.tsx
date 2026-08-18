@@ -32,6 +32,7 @@ import {
   composerAgent,
   formatElapsed,
   requestCard,
+  waitingLabel,
   type AgentStatus,
   type RequestStatus,
 } from "./request-status.js";
@@ -105,6 +106,8 @@ const IDLE_AGENT: AgentStatus = {
   name: null,
   activity: null,
   startedAt: null,
+  stopping: false,
+  waiting: null,
 };
 
 const EMPTY_AGENTS: AgentsPayload = {
@@ -828,6 +831,46 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     requestSnapshot.agent,
     chip.kind === "chosen" || requestSnapshot.agent.attached,
   );
+  // One line each, worked out here rather than in five nested ternaries down
+  // in the markup. The headline says what happened; the detail says the one
+  // useful thing about it, which for a failure is the server's own verdict
+  // and never the agent's raw output.
+  const cardHeadline =
+    card === null
+      ? null
+      : card.kind === "running"
+        ? card.stopping
+          ? `Stopping ${card.name}`
+          : `${card.name} is on it`
+        : card.kind === "queued"
+          ? card.count === 1
+            ? "Change queued"
+            : `${card.count} changes queued`
+          : card.kind === "picked-up"
+            ? "Your agent is on it"
+            : card.kind === "stopped"
+              ? "You stopped that change"
+              : "That change failed";
+  const cardDetail =
+    card === null
+      ? null
+      : card.kind === "running"
+        ? card.stopping
+          ? "waiting for it to exit"
+          : card.waiting !== null
+            ? waitingLabel(card.waiting)
+            : (card.activity ?? card.title)
+        : card.kind === "queued"
+          ? card.attended
+            ? "your agent picks it up next"
+            : chip.kind === "manual"
+              ? "waiting for your own agent"
+              : "pick who runs your changes"
+          : card.kind === "failed"
+            ? (card.reason ?? card.title)
+            : card.kind === "stopped"
+              ? card.title
+              : null;
   // The elapsed counter ticks locally between polls; the anchor comes from
   // the server so a reload half-way through a run does not restart it.
   const runStartedAt = card?.kind === "running" ? card.startedAt : null;
@@ -1822,7 +1865,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 role="status"
               >
                 <div className="flex items-center gap-2">
-                  {card.kind === "failed" ? (
+                  {card.kind === "stopped" ? (
+                    /* The same square as the button that did it: a stop is
+                       not a warning, and the amber triangle said otherwise. */
+                    <span
+                      aria-hidden="true"
+                      className="flex size-3.5 shrink-0 items-center justify-center text-[#84848C]"
+                    >
+                      <span className="block size-2 rounded-[2px] bg-current" />
+                    </span>
+                  ) : card.kind === "failed" ? (
                     <svg
                       aria-hidden="true"
                       className="shrink-0 text-amber-400/90"
@@ -1854,35 +1906,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[11px] font-medium leading-tight text-[#D1D5DB]">
-                      {card.kind === "running"
-                        ? `${card.name} is on it`
-                        : card.kind === "queued"
-                          ? card.count === 1
-                            ? "Change queued"
-                            : `${card.count} changes queued`
-                          : card.kind === "picked-up"
-                            ? "Your agent is on it"
-                            : "That change failed"}
+                      {cardHeadline}
                     </p>
-                    {(card.kind === "running" && (card.activity ?? card.title) !== null && (
-                      <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
-                        {card.activity ?? card.title}
+                    {cardDetail !== null && (
+                      /* Not truncated to one line: a failure's reason is the
+                         whole point of showing it, and "Claude is not signed
+                         in" cut at the rail's width says nothing. */
+                      <p className="mt-0.5 text-[10px] leading-tight text-[#84848C]">
+                        {cardDetail}
                       </p>
-                    )) ||
-                      (card.kind === "queued" && (
-                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
-                          {card.attended
-                            ? "your agent picks it up next"
-                            : chip.kind === "manual"
-                              ? "waiting for your own agent"
-                              : "pick who runs your changes"}
-                        </p>
-                      )) ||
-                      (card.kind === "failed" && (
-                        <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
-                          {card.title}
-                        </p>
-                      ))}
+                    )}
                   </div>
                   {card.kind === "running" && runStartedAt !== null && (
                     <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
@@ -1894,11 +1927,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       <button
                         aria-label="Stop this run"
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
-                        disabled={requestAction !== null}
+                        disabled={requestAction !== null || card.stopping}
                         onClick={() => cancelRequest(card.id)}
                         type="button"
                       >
-                        {requestAction === "cancel" ? (
+                        {requestAction === "cancel" || card.stopping ? (
                           <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
                         ) : (
                           <span className="block size-2 rounded-[2px] bg-current" />
@@ -1906,11 +1939,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       </button>
                     </Tip>
                   )}
-                  {card.kind === "failed" && (
+                  {(card.kind === "failed" || card.kind === "stopped") && (
                     <span className="flex shrink-0 items-center">
-                      <Tip label="Try it again">
+                      <Tip label={card.kind === "stopped" ? "Run it after all" : "Try it again"}>
                         <button
-                          aria-label="Retry this change"
+                          aria-label={
+                            card.kind === "stopped"
+                              ? "Run this change after all"
+                              : "Retry this change"
+                          }
                           className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
                           disabled={requestAction !== null}
                           onClick={() => retryRequest(card.id)}
@@ -1938,7 +1975,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       </Tip>
                       <Tip label="Let it go">
                         <button
-                          aria-label="Dismiss this failed change"
+                          aria-label={
+                            card.kind === "stopped"
+                              ? "Dismiss this stopped change"
+                              : "Dismiss this failed change"
+                          }
                           className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
                           disabled={requestAction !== null}
                           onClick={() => dismissRequest(card.id)}
@@ -1987,8 +2028,29 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ title, intent: value }),
               })
-                .then((response) => response.json() as Promise<{ ok: boolean; prompt?: string }>)
+                .then(
+                  (response) =>
+                    response.json() as Promise<{
+                      ok: boolean;
+                      prompt?: string;
+                      duplicate?: boolean;
+                    }>,
+                )
                 .then((result) => {
+                  // The same words at the same direction, already waiting.
+                  // The field keeps them: this is the moment to change the
+                  // wording or wait, not to lose what was typed. Anything
+                  // else still queues, so the queue keeps being a queue.
+                  if (result.duplicate === true) {
+                    setSending(false);
+                    st.notify({
+                      kind: "request",
+                      message: `That exact change to ${name} is already queued.`,
+                      tone: "info",
+                      ttl: TOAST_TTL.action,
+                    });
+                    return;
+                  }
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
                   // The send is over once the queue has the request; the

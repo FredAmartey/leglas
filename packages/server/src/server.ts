@@ -17,7 +17,14 @@ import { findConfigFile } from "./find-config.js";
 import { dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
-import { appendRequest, composeRequest, readRequests, removeRequest } from "./requests.js";
+import {
+  appendRequest,
+  composeRequest,
+  isTerminal,
+  readRequests,
+  removeRequest,
+  type PendingRequest,
+} from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -164,6 +171,18 @@ export function isTrustedMutation(req: http.IncomingMessage): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a request is over, by either record that can say so.
+ *
+ * The runner remembers what it ran; the queue file remembers what happened,
+ * including across a restart. A request that ended before this process
+ * started has only the file to speak for it, and it still deserves a rerun
+ * button and a way to be let go.
+ */
+function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean {
+  return isTerminal(request.status) || failedIds.includes(request.id);
 }
 
 function hasJsonBody(req: http.IncomingMessage): boolean {
@@ -503,11 +522,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (!preview || !parsed.intent?.trim()) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
+        // The composer stays open during a run on purpose: queueing the next
+        // change while one is in flight is the point of a queue. Sending the
+        // same words at the same direction twice is not: it is a second copy
+        // of work already waiting, and it costs a whole provider turn. The
+        // usual way in is a stop followed by retyping the same request, which
+        // reads as a retry and behaves as a duplicate.
+        const intent = parsed.intent.trim();
+        const live = (await readRequests(cwd).catch(() => [])).filter(
+          (entry) => entry.status === "queued" || entry.status === "picked-up",
+        );
+        if (live.some((entry) => entry.title === preview.title && entry.intent === intent)) {
+          return sendJson(res, 409, {
+            ok: false,
+            duplicate: true,
+            error: `That exact change to ${preview.title} is already waiting.`,
+          });
+        }
+
         const composed = composeRequest(preview, parsed.intent);
         void appendRequest(cwd, {
           title: preview.title,
           url: preview.url,
-          intent: parsed.intent.trim(),
+          intent,
           ...composed,
         })
           .then(() => {
@@ -614,20 +651,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         agent: null,
         activity: null,
         startedAt: null,
+        stopping: false,
+        waiting: null,
         failedIds: [],
       };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, status }) => ({
+          requests: requests.map(({ id, title, intent, status, failure }) => ({
             id,
             title,
             intent,
+            // The run in flight is the one thing the file cannot know. After
+            // that the file is the record, including across a restart, and the
+            // process-local failed set only covers a request whose verdict
+            // could not be written.
             status:
               snapshot.running && snapshot.requestId === id
                 ? "running"
-                : snapshot.failedIds.includes(id)
+                : status === "queued" && snapshot.failedIds.includes(id)
                   ? "failed"
                   : status,
+            failure: failure ?? null,
           })),
           agent: {
             attached: externallyAttached(),
@@ -635,6 +679,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             name: snapshot.running ? snapshot.agent : null,
             activity: snapshot.running ? snapshot.activity : null,
             startedAt: snapshot.running ? snapshot.startedAt : null,
+            // A stop that has been asked for but not yet obeyed. The card
+            // says so rather than going on describing a live run.
+            stopping: snapshot.running && snapshot.stopping,
+            // Why a run that looks stalled is stalled, while it is stalled.
+            waiting: snapshot.running ? snapshot.waiting : null,
           },
         }),
       );
@@ -685,8 +734,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (request === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such request." });
         }
-        if (!(runner?.snapshot().failedIds.includes(request.id) ?? false)) {
-          return sendJson(res, 400, { ok: false, error: "Only a failed request can be retried." });
+        // Either record will do: the process-local set for a run this server
+        // saw, or the queue's own verdict for one it inherited from an earlier
+        // process. Without the second, a restart left the request unactionable.
+        if (!isEnded(request, runner?.snapshot().failedIds ?? [])) {
+          return sendJson(res, 400, { ok: false, error: "Only an ended request can be run again." });
         }
 
         try {
@@ -729,8 +781,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (typeof parsed.id !== "string") {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
-        if (!(runner?.snapshot().failedIds.includes(parsed.id) ?? false)) {
-          return sendJson(res, 400, { ok: false, error: "Only a failed request can be dismissed." });
+        const target = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+        if (target === undefined || !isEnded(target, runner?.snapshot().failedIds ?? [])) {
+          return sendJson(res, 400, { ok: false, error: "Only an ended request can be dismissed." });
         }
 
         try {

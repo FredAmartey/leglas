@@ -5,14 +5,41 @@ import {
   KNOWN_AGENTS,
   activityFrom,
   readAgentChoice,
+  retryFrom,
   sessionFrom,
   type AgentChoice,
   type SavedAgentChoice,
 } from "./agents.js";
-import { markPickedUp, readRequests, removeRequest, type PendingRequest } from "./requests.js";
+import {
+  classifyFailure,
+  sessionShaped,
+  type Failure,
+  type RetryNotice,
+} from "./failure.js";
+import {
+  markFailed,
+  markPickedUp,
+  readRequests,
+  removeRequest,
+  type PendingRequest,
+} from "./requests.js";
 
 const POLL_MS = 2000;
 const OUTPUT_LINES = 20;
+
+/**
+ * How long a stopped run has to end itself before Leglas stops waiting.
+ *
+ * SIGTERM is the polite ask and an agent that honours it is gone in well
+ * under a second. What this bounds is the run that does not end: a CLI that
+ * traps the signal, or a wrapper whose own child outlives it still holding
+ * the output pipe open, in which case the "close" event never arrives at all.
+ * Until this existed that wedged the runner for the life of the process: the
+ * card said a stopped run was still going, no verdict was ever written, and
+ * every request queued behind it waited on a child that was never coming
+ * back. The escalation only ever follows a stop the user asked for.
+ */
+const CANCEL_GRACE_MS = 5000;
 
 export type RunnerState = {
   running: boolean;
@@ -20,6 +47,15 @@ export type RunnerState = {
   agent: string | null;
   activity: string | null;
   startedAt: number | null;
+  /** True between a stop being asked for and the child actually going. */
+  stopping: boolean;
+  /**
+   * The retry the vendor CLI is sitting in, while it is sitting in one. This
+   * is the difference between a run that looks wedged and a run that says it
+   * is waiting on an overloaded provider; Leglas cannot shorten the vendor's
+   * backoff, but it can stop the wait being a mystery.
+   */
+  waiting: RetryNotice | null;
   failedIds: readonly string[];
 };
 
@@ -48,6 +84,8 @@ export type RunnerOptions = {
   spawn?: RunnerSpawn;
   setInterval?: (callback: () => void, milliseconds: number) => unknown;
   clearInterval?: (handle: unknown) => void;
+  /** Injected by tests so the cancel grace period does not cost real seconds. */
+  setTimeout?: (callback: () => void, milliseconds: number) => void;
 };
 
 export type RunningAgent = {
@@ -151,17 +189,33 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
 
+  const setLater =
+    options.setTimeout ??
+    ((callback: () => void, milliseconds: number) => {
+      // Unrefed: a grace period still counting down must never be the reason
+      // a process stays alive.
+      setTimeout(callback, milliseconds).unref?.();
+    });
+
   let state: ActiveRunnerState = {
     running: false,
     requestId: null,
     agent: null,
     activity: null,
     startedAt: null,
+    stopping: false,
+    waiting: null,
   };
   let stopped = false;
   let ticking: Promise<void> | null = null;
   let stopPromise: Promise<void> | null = null;
-  let active: { child: RunnerChild; requestId: string; cancelled: boolean } | null = null;
+  let active: {
+    child: RunnerChild;
+    requestId: string;
+    cancelled: boolean;
+    /** Settle the run as stopped without waiting for the child's streams. */
+    abandon: () => void;
+  } | null = null;
 
   /**
    * The vendor session each agent may continue, per this server process.
@@ -173,7 +227,15 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const sessions = new Map<AgentChoice, { id: string; turns: number }>();
 
   const idle = () => {
-    state = { running: false, requestId: null, agent: null, activity: null, startedAt: null };
+    state = {
+      running: false,
+      requestId: null,
+      agent: null,
+      activity: null,
+      startedAt: null,
+      stopping: false,
+      waiting: null,
+    };
   };
 
   const rememberLine = (lines: string[], line: string) => {
@@ -181,8 +243,29 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     if (lines.length > OUTPUT_LINES) lines.splice(0, lines.length - OUTPUT_LINES);
   };
 
-  const reportFailure = (request: PendingRequest, error: string, lines: readonly string[]) => {
-    console.error(`Leglas agent failed for ${request.title}: ${error}`);
+  /**
+   * Write the verdict where the interface and the next process can both read
+   * it, and put the agent's own last words in the terminal running Leglas.
+   *
+   * The output stays here rather than travelling to the browser: twenty lines
+   * of vendor log can carry a prompt, a path or a token, and the card only
+   * needs to say what happened and what to do about it.
+   */
+  const reportFailure = async (
+    request: PendingRequest,
+    failure: Failure,
+    lines: readonly string[],
+  ): Promise<void> => {
+    failed.add(request.id);
+    await markFailed(options.cwd, request.id, failure).catch(() => {
+      // The queue is unwritable; the in-memory record still stops a rerun for
+      // the life of this process, which is what it did before any of this.
+    });
+    if (failure.code === "cancelled") {
+      console.error(`Leglas stopped the run for ${request.title}.`);
+      return;
+    }
+    console.error(`Leglas agent failed for ${request.title}: ${failure.message}`);
     for (const line of lines) console.error(`  ${line}`);
   };
 
@@ -190,7 +273,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
-    observed: { sessionId: string | null; edited: boolean },
+    observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
   ): Promise<ChildOutcome> => {
     let child: RunnerChild;
     try {
@@ -206,17 +289,29 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       });
     }
 
-    const current = { child, requestId: request.id, cancelled: false };
+    const current = {
+      child,
+      requestId: request.id,
+      cancelled: false,
+      abandon: () => {},
+    };
     active = current;
 
     const stdoutFlush = lineReader(child.stdout, (line) => {
       rememberLine(lines, line);
       const sessionId = sessionFrom(resolved.agent, line);
       if (sessionId !== null) observed.sessionId = sessionId;
+      const retry = retryFrom(resolved.agent, line);
+      if (retry !== null) {
+        observed.retry = retry;
+        if (active === current) state = { ...state, waiting: retry };
+      }
       const activity = activityFrom(resolved.agent, line, options.cwd);
       if (activity !== null) {
         if (activity.startsWith("editing")) observed.edited = true;
-        if (active === current) state = { ...state, activity };
+        // Work resuming ends the wait: the backoff is over the moment the
+        // agent says anything else.
+        if (active === current) state = { ...state, activity, waiting: null };
       }
     });
     const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
@@ -230,6 +325,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         stderrFlush();
         resolve(outcome);
       };
+      current.abandon = () => settle({ ok: false, error: "cancelled" });
 
       child.once("error", (error) => settle({ ok: false, error: error.message }));
       child.once("close", (code, signal) => {
@@ -256,10 +352,15 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // this request. The false return is the lock we get from the queue file.
       if (!(await markPickedUp(options.cwd, request.id))) return;
       // Stop may have landed while the queue write was in flight, before a
-      // child existed for cancel() to signal. Leave the picked-up request as a
-      // failed handoff instead of starting new work during shutdown.
+      // child existed for cancel() to signal. Record the handoff as ended by
+      // the shutdown instead of starting new work, and instead of leaving a
+      // picked-up request the next process would read as live.
       if (stopped) {
-        failed.add(request.id);
+        await reportFailure(
+          request,
+          classifyFailure({ agent: resolved.name, error: "stopped by shutdown" }),
+          [],
+        );
         return;
       }
       // Wall-clock rather than injected time: the value only feeds the elapsed
@@ -270,9 +371,29 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         agent: resolved.name,
         activity: null,
         startedAt: Date.now(),
+        stopping: false,
+        waiting: null,
       };
-      const observed = { sessionId: null as string | null, edited: false };
+      const observed = {
+        sessionId: null as string | null,
+        edited: false,
+        retry: null as RetryNotice | null,
+      };
+      // The name is read once: a cold rerun resolves the same vendor, and a
+      // closure over the mutable binding would only be harder to read.
+      const agent = resolved.name;
       let outcome = await runChild(request, resolved, lines, observed);
+      const verdict = (): Failure =>
+        classifyFailure({
+          agent,
+          error: outcome.ok ? null : stopped && outcome.error === "cancelled"
+            ? "stopped by shutdown"
+            : outcome.error,
+          exitCode: outcome.ok ? outcome.code : null,
+          lines,
+          retry: observed.retry,
+        });
+      let failure = verdict();
 
       // A resume that died without touching a file is a session problem, not
       // a request problem: the vendor may simply have cleaned the session up.
@@ -281,15 +402,22 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // stack half-applied changes. The edited flag leans on activityFrom
       // labelling every edit attempt; a vendor event stripped of its path
       // data would slip past it, which is accepted, documented coupling.
-      const cancelled = !outcome.ok && outcome.error === "cancelled";
+      //
+      // The verdict gates it too, and that is the difference between one
+      // provider turn and two: an overloaded provider, a spent limit, a
+      // signed-out CLI or a refused directory answers the second run exactly
+      // as it answered the first. Claude alone retries an overload ten times
+      // over roughly 200 seconds before it exits, so a blind rerun aims a
+      // second ladder at a provider that is already down, on the user's
+      // account.
       if (
         !(outcome.ok && outcome.code === 0) &&
         resolved.resumed &&
         !observed.edited &&
-        !cancelled &&
-        // Not redundant with the line above: a stop that lands between the
-        // first child settling and the retry starting finds no child to
-        // cancel, so nothing says "cancelled". Stopped still means stopped.
+        sessionShaped(failure.code) &&
+        // Not redundant with the verdict: a stop that lands between the first
+        // child settling and the retry starting finds no child to cancel, so
+        // nothing says "cancelled". Stopped still means stopped.
         !stopped
       ) {
         sessions.delete(resolved.agent);
@@ -297,9 +425,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (cold !== null) {
           resolved = cold;
           observed.sessionId = null;
+          observed.retry = null;
           // The failed attempt's last activity must not caption the fresh one.
-          state = { ...state, activity: null };
+          state = { ...state, activity: null, waiting: null };
           outcome = await runChild(request, resolved, lines, observed);
+          failure = verdict();
         }
       }
 
@@ -319,12 +449,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       }
 
       sessions.delete(resolved.agent);
-      failed.add(request.id);
-      reportFailure(
-        request,
-        outcome.ok ? `${resolved.command} exited ${outcome.code}` : outcome.error,
-        lines,
-      );
+      await reportFailure(request, failure, lines);
     } finally {
       idle();
     }
@@ -363,13 +488,27 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // clicked may describe a run that no longer exists. Refusing the mismatch
     // makes that click a no-op instead of a misfire.
     if (id !== undefined && active.requestId !== id) return false;
-    active.cancelled = true;
-    failed.add(active.requestId);
+    const current = active;
+    current.cancelled = true;
+    failed.add(current.requestId);
+    // The card stops claiming the run is live the moment the stop is asked
+    // for, rather than whenever the child gets around to going.
+    state = { ...state, stopping: true, waiting: null };
     try {
-      active.child.kill("SIGTERM");
+      current.child.kill("SIGTERM");
     } catch {
       // The close or error event still settles the run if the process raced us.
     }
+    setLater(() => {
+      // Already settled: the child went, and this run is somebody else's now.
+      if (active !== current) return;
+      try {
+        current.child.kill("SIGKILL");
+      } catch {
+        // Nothing left to signal; the run is settled below either way.
+      }
+      current.abandon();
+    }, CANCEL_GRACE_MS);
     return true;
   };
 

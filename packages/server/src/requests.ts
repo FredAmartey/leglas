@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import type { Preview } from "./config.js";
+import type { Failure, FailureCode } from "./failure.js";
 
 export type ComposedRequest = { prompt: string; target: string | null };
 
@@ -84,15 +85,56 @@ export function composeRequest(preview: Preview, intent: string): ComposedReques
 /** Where pending requests wait for an agent to collect them. */
 export const REQUESTS_PATH = ".leglas/requests.json";
 
+/**
+ * Where a request has got to.
+ *
+ * `queued` and `picked-up` are the live half, and removal is still the only
+ * completion signal the tool can stand behind: an agent that finished has
+ * nothing left to say. The two terminal states exist because the opposite is
+ * not true of a run that ended badly. That used to live only in the running
+ * server's memory, so a restart read a stopped or failed request back as
+ * `picked-up` and the interface said "your agent is on it" about a run that
+ * had been over for days, with no way to dismiss it.
+ */
+export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
+
+const TERMINAL: readonly RequestStatus[] = ["failed", "cancelled"];
+
+/** Whether a request is finished with, one way or the other. */
+export function isTerminal(status: RequestStatus): boolean {
+  return TERMINAL.includes(status);
+}
+
 export type PendingRequest = {
   id: string;
-  status: "queued" | "picked-up";
+  status: RequestStatus;
   title: string;
   url: string;
   intent: string;
   target: string | null;
   prompt: string;
+  /** Why it ended, on a terminal request. Absent on every other status. */
+  failure?: Failure;
 };
+
+const FAILURE_CODES: readonly FailureCode[] = [
+  "cancelled",
+  "stopped",
+  "missing-agent",
+  "not-signed-in",
+  "provider-overloaded",
+  "provider-limit",
+  "needs-trust",
+  "agent-error",
+];
+
+function failureOf(value: unknown): Failure | null {
+  if (typeof value !== "object" || value === null) return null;
+  const entry = value as Partial<Failure>;
+  if (typeof entry.message !== "string" || entry.message === "") return null;
+  if (entry.code === undefined || !FAILURE_CODES.includes(entry.code)) return null;
+  return { code: entry.code, message: entry.message };
+}
 
 export async function readRequests(cwd: string): Promise<PendingRequest[]> {
   try {
@@ -100,11 +142,23 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
     const parsed = JSON.parse(raw) as { requests?: unknown };
     if (!Array.isArray(parsed.requests)) return [];
     return parsed.requests.map((request, index) => {
-      const entry = request as Partial<PendingRequest>;
+      const { failure: rawFailure, ...entry } = request as Partial<PendingRequest>;
+      const status: RequestStatus =
+        entry.status === "picked-up" ||
+        entry.status === "failed" ||
+        entry.status === "cancelled"
+          ? entry.status
+          : "queued";
+      // A verdict is only read back in the shape it was written, and only on a
+      // request that ended. Anything else in that slot is a hand-edited file,
+      // and a request with no reason reads better than one carrying a reason
+      // nobody can trust.
+      const failure = isTerminal(status) ? failureOf(rawFailure) : null;
       return {
         ...entry,
         id: typeof entry.id === "string" ? entry.id : String(index),
-        status: entry.status === "picked-up" ? "picked-up" : "queued",
+        status,
+        ...(failure === null ? {} : { failure }),
       } as PendingRequest;
     });
   } catch {
@@ -132,12 +186,17 @@ export async function appendRequest(
 
 export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
   const requests = await readRequests(cwd);
-  const collected = requests.map((request) => ({ ...request, status: "picked-up" as const }));
+  // A request that already ended is not work: handing a cancelled one to an
+  // agent would ask for the change the user just stopped, and handing over a
+  // failed one spends a turn on the thing that already broke.
+  const collected = requests.map((request) =>
+    isTerminal(request.status) ? request : { ...request, status: "picked-up" as const },
+  );
   // Collecting an empty queue writes nothing: this is the one command agents
   // run speculatively, and a probe must not materialise .leglas/ in a project
   // that never used the interface.
-  if (requests.some((request) => request.status !== "picked-up")) await writeQueue(cwd, collected);
-  return collected;
+  if (requests.some((request) => request.status === "queued")) await writeQueue(cwd, collected);
+  return collected.filter((request) => !isTerminal(request.status));
 }
 
 /**
@@ -155,6 +214,32 @@ export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
     cwd,
     requests.map((request) =>
       request.id === id ? { ...request, status: "picked-up" as const } : request,
+    ),
+  );
+  return true;
+}
+
+/**
+ * Write down how a run ended, so the record outlives the process that ran it.
+ *
+ * The request stays in the queue: the interface still has to show it, offer a
+ * rerun and let the user let it go. What changes is that it can no longer be
+ * mistaken for work in flight, by this server after a restart, by `leglas
+ * requests`, or by a channel host reading the same file.
+ */
+export async function markFailed(cwd: string, id: string, failure: Failure): Promise<boolean> {
+  const requests = await readRequests(cwd);
+  if (!requests.some((request) => request.id === id)) return false;
+  await writeQueue(
+    cwd,
+    requests.map((request) =>
+      request.id === id
+        ? {
+            ...request,
+            status: failure.code === "cancelled" ? ("cancelled" as const) : ("failed" as const),
+            failure,
+          }
+        : request,
     ),
   );
   return true;
@@ -187,7 +272,10 @@ export async function removeRequest(cwd: string, id: string): Promise<boolean> {
  */
 export async function clearRequests(cwd: string): Promise<{ cleared: number; pending: number }> {
   const requests = await readRequests(cwd);
-  const pending = requests.filter((request) => request.status !== "picked-up");
+  // Pending is what nobody has taken yet. A request that ended, well or
+  // badly, is not waiting for anyone, so clearing sweeps it up with the
+  // collected ones rather than reporting it as outstanding work.
+  const pending = requests.filter((request) => request.status === "queued");
   const cleared = requests.length - pending.length;
   // Same reason collecting an empty queue writes nothing: acknowledging work
   // that was never there must not materialise .leglas/ in a fresh project.

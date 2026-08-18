@@ -125,6 +125,91 @@ describe("startServer", () => {
     expect(second).toEqual(first);
   });
 
+  test("refuses a second copy of a change that is still waiting", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }, { title: "Hero", url: "/hero" }]),
+      port: 0,
+      cwd,
+    });
+    const send = (title: string, intent: string) =>
+      fetch(`${server.url}/leglas/api/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, intent }),
+      });
+
+    expect((await send("Poster", "make it warmer")).status).toBe(200);
+
+    // The same words at the same direction, which is what retyping after a
+    // stop produces. Two runs of it cost two provider turns and race each
+    // other over one file.
+    const repeat = await send("Poster", "  make it warmer  ");
+    expect(repeat.status).toBe(409);
+    expect(await repeat.json()).toEqual({
+      ok: false,
+      duplicate: true,
+      error: "That exact change to Poster is already waiting.",
+    });
+
+    // The queue itself is untouched, and everything that is not an exact
+    // repeat still queues: a second change to the same direction, and the
+    // same change to another one.
+    expect((await send("Poster", "make it colder")).status).toBe(200);
+    expect((await send("Hero", "make it warmer")).status).toBe(200);
+    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: { title: string; intent: string }[];
+    };
+    expect(body.requests.map((request) => `${request.title}: ${request.intent}`)).toEqual([
+      "Poster: make it warmer",
+      "Poster: make it colder",
+      "Hero: make it warmer",
+    ]);
+  });
+
+  test("a verdict inherited from an earlier process is still actionable", async () => {
+    // Nothing ran in this server: the queue arrived carrying a request an
+    // earlier process had already failed. Before verdicts were written down
+    // this read as picked-up forever, with no way to rerun it or let it go.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-inherited-"));
+    mkdirSync(join(cwd, ".leglas"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".leglas/requests.json"),
+      JSON.stringify({
+        requests: [
+          {
+            id: "old-1",
+            status: "failed",
+            title: "Poster",
+            url: "/",
+            intent: "warmer",
+            target: null,
+            prompt: "make it warmer",
+            failure: { code: "provider-overloaded", message: "Claude's provider was overloaded and gave up." },
+          },
+        ],
+      }),
+    );
+    const server = await start({ config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]), port: 0, cwd });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: { id: string; status: string; failure: { code: string } | null }[];
+    };
+    expect(body.requests[0]).toMatchObject({
+      status: "failed",
+      failure: { code: "provider-overloaded" },
+    });
+
+    const dismissed = await fetch(`${server.url}/leglas/api/requests/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "old-1" }),
+    });
+    expect(await dismissed.json()).toEqual({ ok: true });
+    const after = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof body;
+    expect(after.requests).toEqual([]);
+  });
+
   test("reads the queue without collecting it, so watch still has work to do", async () => {
     // Reading is what the interface does three times a second. If it marked
     // anything, the queue would empty itself just by being looked at.
@@ -143,6 +228,8 @@ describe("startServer", () => {
       name: null,
       activity: null,
       startedAt: null,
+      stopping: false,
+      waiting: null,
     });
     expect(existsSync(join(cwd, ".leglas"))).toBe(false);
   });
@@ -265,7 +352,7 @@ describe("startServer", () => {
     });
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     type RequestsBody = {
-      requests: { id: string; status: string }[];
+      requests: { id: string; status: string; failure: { code: string; message: string } | null }[];
       agent: { attached: boolean; running: boolean; name: string | null; activity: string | null };
     };
 
@@ -284,6 +371,8 @@ describe("startServer", () => {
       name: "Custom",
       activity: null,
       startedAt: expect.any(Number),
+      stopping: false,
+      waiting: null,
     });
 
     // Naming a request that is not the running one is a refusal, not a stop.
@@ -306,7 +395,13 @@ describe("startServer", () => {
       body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    expect(body.requests[0]?.status).toBe("failed");
+    // A stop is its own state and says who did it, so nothing in the
+    // interface can dress it up as a provider failure worth rerunning.
+    expect(body.requests[0]?.status).toBe("cancelled");
+    expect(body.requests[0]?.failure).toEqual({
+      code: "cancelled",
+      message: "You stopped this run.",
+    });
 
     const idle = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
     expect(await idle.json()).toEqual({ ok: true, cancelled: false });
@@ -873,7 +968,7 @@ describe("mutation trust", () => {
     // The finding this closes: a curl from across the LAN sends no Origin,
     // and before the runner existed the worst it could do was queue text.
     expect(isTrustedMutation(request({ host: "192.168.1.20:4100" }, "192.168.1.44"))).toBe(false);
-    expect(isTrustedMutation(request({ host: "fred.local:4100" }, "192.168.1.44"))).toBe(false);
+    expect(isTrustedMutation(request({ host: "desk.local:4100" }, "192.168.1.44"))).toBe(false);
   });
 
   test("a forged Origin does not make a network peer a browser", () => {
