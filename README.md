@@ -346,6 +346,7 @@ leglas keep <title>        Keep a winner and end the exploration
   --count <n>          (explore) How many directions, default 3
   --based-on <title>     (explore) Variants of an existing direction instead of new ones
   --based-on <title>     (add) The direction this preview is a variant of; groups the family
+  --asked-for <text>     (add) The change that was asked for, in the words that were typed
   --change <path>      (classify) A file the direction creates or wires up
   --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title

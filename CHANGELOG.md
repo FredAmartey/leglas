@@ -14,7 +14,24 @@ because most reach only one of the three.
 ## Unreleased
 
 The public API surface moved (`PendingRequest.status` gained two values and
-the type gained `failure`), so the next release is a minor, not a patch.
+the type gained `failure` and `mode`), so the next release is a minor, not a
+patch.
+
+### Added
+
+- **A change makes a variant instead of overwriting the direction.** Sending
+  "the pouch looks fake" at a direction used to edit that direction's file, so
+  the thing being compared against was gone. It now builds a new direction
+  from a copy of the parent, registered under it in the rail with the parent
+  as its default comparison. A chip beside the send button switches to
+  changing the direction itself, for the times a change really is a fix.
+  (`leglas`)
+- **A direction says where it came from.** Hovering a row shows its note in
+  full, the direction it was built from, and the change that was asked for in
+  the words that were typed. The selected direction carries the same line
+  under the composer without being hovered. Registration takes it as
+  `leglas add --asked-for`, which the `add` MCP tool exposes too. (`leglas`,
+  `leglas-mcp`)
 
 ### Fixed
 

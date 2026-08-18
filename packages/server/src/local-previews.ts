@@ -24,6 +24,8 @@ export type AddInput = {
   file?: string | undefined;
   /** The direction this preview is a variant of; the rail groups the family. */
   basedOn?: string | undefined;
+  /** The change that was asked for, in the words that were typed. */
+  askedFor?: string | undefined;
 };
 
 export async function readLocalPreviews(
@@ -108,6 +110,7 @@ export async function addLocalPreview(
     ...(input.branch === undefined ? {} : { branch: input.branch }),
     ...(input.file === undefined ? {} : { file: input.file }),
     ...(input.basedOn === undefined ? {} : { basedOn: input.basedOn }),
+    ...(input.askedFor === undefined ? {} : { askedFor: input.askedFor }),
   };
 
   const check = normalizeConfig({ previews: [candidate] }, { requireDevCommand: false });

@@ -17,6 +17,52 @@ function seed(dir: string, contents: string): void {
 
 const shared: Preview[] = [{ title: "Current", url: "/", note: undefined, tags: [] }];
 
+describe("a variant's origin", () => {
+  test("survives the round trip, so the rail can say where a direction came from", async () => {
+    const dir = scratch();
+
+    const outcome = await addLocalPreview(
+      dir,
+      {
+        title: "Softer pouch",
+        url: "/?v-hero=softer",
+        basedOn: "Current",
+        askedFor: "the pouch looks fake when it turns",
+      },
+      shared,
+    );
+    expect(outcome.ok).toBe(true);
+
+    const result = await readLocalPreviews(dir);
+    expect(result.previews[0]).toMatchObject({
+      askedFor: "the pouch looks fake when it turns",
+      basedOn: "Current",
+      title: "Softer pouch",
+    });
+  });
+
+  test("an entry with no origin stays clean rather than carrying empty fields", async () => {
+    const dir = scratch();
+    await addLocalPreview(dir, { title: "Ledger", url: "/?v-hero=ledger" }, shared);
+
+    const stored = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8")) as {
+      previews: Record<string, unknown>[];
+    };
+    expect(stored.previews[0]).not.toHaveProperty("askedFor");
+    expect(stored.previews[0]).not.toHaveProperty("basedOn");
+  });
+
+  // A hand-edited file is validated exactly as the shared config is, and an
+  // empty ask is a mistake worth naming rather than a card that opens blank.
+  test("refuses an ask that is not a change request", async () => {
+    const dir = scratch();
+    seed(dir, JSON.stringify({ previews: [{ title: "Aurora", url: "/", askedFor: "  " }] }));
+
+    const result = await readLocalPreviews(dir);
+    expect(result.errors.join(" ")).toContain("askedFor");
+  });
+});
+
 describe("readLocalPreviews", () => {
   test("returns nothing when the project has never added one", async () => {
     const result = await readLocalPreviews(scratch());

@@ -167,6 +167,87 @@ describe("startServer", () => {
     ]);
   });
 
+  test("a change forks the direction unless the caller asks to replace it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-mode-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
+      port: 0,
+      cwd,
+    });
+    const send = (body: Record<string, unknown>) =>
+      fetch(`${server.url}/leglas/api/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    // No mode named. The safe half of the pair is what a missing field gets,
+    // because the other half overwrites the direction being compared.
+    const implied = (await (await send({ title: "Poster", intent: "warmer" })).json()) as {
+      prompt: string;
+      mode: string;
+    };
+    expect(implied.mode).toBe("variant");
+    expect(implied.prompt).toContain("add a new design direction based on");
+
+    const asked = (await (
+      await send({ title: "Poster", intent: "colder", mode: "replace" })
+    ).json()) as { prompt: string; mode: string };
+    expect(asked.mode).toBe("replace");
+    expect(asked.prompt).toContain('change only the "Poster" design direction');
+
+    // The queue keeps which kind of change each one is, so a request that
+    // outlives this process still knows what it was asked to do.
+    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: { intent: string }[];
+    };
+    expect(body.requests).toHaveLength(2);
+  });
+
+  test("refuses a mode it does not recognise rather than guessing", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-badmode-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+    });
+
+    const refused = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster", intent: "warmer", mode: "overwrite" }),
+    });
+    expect(refused.status).toBe(400);
+
+    // Nothing was queued on the way to being refused.
+    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: unknown[];
+    };
+    expect(body.requests).toEqual([]);
+  });
+
+  test("the same words in the other mode are not a duplicate", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-modedupe-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
+      port: 0,
+      cwd,
+    });
+    const send = (mode: string) =>
+      fetch(`${server.url}/leglas/api/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Poster", intent: "warmer", mode }),
+      });
+
+    expect((await send("variant")).status).toBe(200);
+    // Forking the direction and rewriting it are different work, so this is a
+    // second request rather than a second copy of the first.
+    expect((await send("replace")).status).toBe(200);
+    // A genuine repeat is still refused.
+    expect((await send("replace")).status).toBe(409);
+  });
+
   test("a verdict inherited from an earlier process is still actionable", async () => {
     // Nothing ran in this server: the queue arrived carrying a request an
     // earlier process had already failed. Before verdicts were written down

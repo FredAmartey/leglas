@@ -326,6 +326,27 @@ describe("add --based-on", () => {
   });
 });
 
+describe("add --asked-for", () => {
+  test("records the change that was asked for, in the words that were typed", () => {
+    const result = parseArgs([
+      "add", "--title", "Softer pouch", "--url", "/?v-hero=softer", "--asked-for",
+      'the pouch looks fake when it turns',
+    ]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.askedFor).toBe("the pouch looks fake when it turns");
+  });
+
+  test("is optional, because most directions were never asked for in words", () => {
+    const result = parseArgs(["add", "--title", "Ledger", "--url", "/?v-hero=ledger"]);
+
+    expect(result.kind).toBe("add");
+    if (result.kind !== "add") return;
+    expect(result.preview.askedFor).toBeUndefined();
+  });
+});
+
 describe("watch", () => {
   test("takes the agent command as one argument", () => {
     const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);

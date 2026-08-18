@@ -27,6 +27,7 @@ import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
+import { provenanceLine, provenanceOf } from "./provenance.js";
 import type { Preview } from "./types.js";
 import {
   composerAgent,
@@ -44,6 +45,58 @@ import {
   retryFailedRequest,
   type AgentsPayload,
 } from "./agent-api.js";
+
+/**
+ * A tip that is only there when there is something to say.
+ *
+ * The rail asks for a card on every row and gets one on the few rows that
+ * record where they came from. Wrapping unconditionally and letting the label
+ * be null would open an empty bubble on every hover, which is how a surface
+ * teaches people to ignore it.
+ */
+function HoverCard({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
+  if (label === null) return <>{children}</>;
+  return (
+    <Tip label={label} side="right" wide>
+      {children}
+    </Tip>
+  );
+}
+
+/**
+ * What the rail cannot fit: the note in full, and the origin under a rule.
+ *
+ * The note is repeated deliberately. It is clamped to two lines in the row,
+ * and the moment someone hovers a row to ask what it is, the truncated half
+ * is the half they wanted. `basedOn` holds the parent's title as it was at
+ * registration, so it is resolved through the same rename map the rail uses
+ * or a renamed parent is named twice, differently, on one screen.
+ */
+function cardFor(
+  preview: Preview | undefined,
+  name: string,
+  displayName: (title: string) => string,
+): React.ReactNode {
+  const origin = provenanceOf(preview);
+  if (origin === null) return null;
+
+  return (
+    <>
+      <span className="block text-white">{name}</span>
+      {preview?.note ? (
+        <span className="mt-0.5 block font-normal text-[#D1D5DB]">{preview.note}</span>
+      ) : null}
+      <span className="mt-1.5 block border-t border-white/10 pt-1.5 font-normal text-[#84848C]">
+        {origin.basedOn === null ? null : (
+          <span className="block">Variant of {displayName(origin.basedOn)}</span>
+        )}
+        {origin.askedFor === null ? null : (
+          <span className="mt-0.5 block">You asked for “{origin.askedFor}”</span>
+        )}
+      </span>
+    </>
+  );
+}
 
 /**
  * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
@@ -403,6 +456,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   // deep, addressing a direction the panel never named. Under the list, the
   // direction it means is the highlighted row directly above it.
   const [intent, setIntent] = useState("");
+  /**
+   * Whether the next change forks the direction or rewrites it.
+   *
+   * Variant every session, deliberately not remembered: the two do different
+   * work and only one of them can be undone, so the safe half is what a fresh
+   * window starts on. The chip beside the send button carries the state, so
+   * which one is armed is never a guess.
+   */
+  const [mode, setMode] = useState<"variant" | "replace">("variant");
   // The field is a textarea that wears one row until the words need more,
   // then grows line by line to a cap. Measured from scrollHeight because
   // wrapping depends on the rail width and the face the user picked.
@@ -823,6 +885,22 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     st.prefs.agentPickerDismissed,
     agentState.customRun,
   );
+  /**
+   * Where the direction being changed came from, said without being asked.
+   *
+   * The rail keeps this on hover, which is right for the rows being browsed.
+   * The one in the composer's sights is different: what it was built from and
+   * what was last asked of it are what decide the next thing typed, so it
+   * carries the line whether or not anyone thinks to hover.
+   */
+  const activeOrigin = (() => {
+    const origin = provenanceOf(st.active === null ? undefined : st.previewFor(st.active));
+    if (origin === null) return null;
+    return provenanceLine(
+      origin.basedOn === null ? null : st.displayName(origin.basedOn),
+      origin.askedFor,
+    );
+  })();
   const chosenSignedOut =
     chip.kind === "chosen" &&
     agentState.agents.some((agent) => agent.id === chip.id && agent.auth === "signed-out");
@@ -1355,186 +1433,196 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               : undefined
         }
       >
-        <div
-          aria-pressed={isActive}
-          className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pr-3 text-left transition-colors active:cursor-grabbing ${
-            isVariant ? "pl-11" : "pl-3"
-          } ${isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""}`}
-          onClick={() => {
-            if (renamingThis) return;
-            if (dragMeta.current?.suppressed) {
-              dragMeta.current.suppressed = false;
-              return;
-            }
-            st.setActive(title);
-          }}
-          onDoubleClick={(event) => {
-            // The whole card opens the design, and only two things carve out
-            // of it: the buttons, which have their own jobs, and the name,
-            // which stops the event itself. Everything else — the note, the
-            // badge, the empty space beside them — is one target.
-            if (renamingThis) return;
-            if ((event.target as HTMLElement).closest("button")) return;
-            // The second click of the pair has already selected a word.
-            window.getSelection()?.removeAllRanges();
-            openAlone(title);
-          }}
-          onKeyDown={(event) => {
-            // Only when the card itself holds the focus. The rename field sits
-            // inside it, and Enter and Space are the two keys it needs most:
-            // taking them from the whole subtree meant Enter never committed a
-            // rename, because the preventDefault here cancelled the form's own
-            // submission, and a space never reached the name being typed.
-            if (event.target !== event.currentTarget) return;
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              st.setActive(title);
-            }
-          }}
-          onPointerDown={onRowPointerDown(title, index)}
-          role="button"
-          tabIndex={0}
+        {/* Everything the rail cannot fit: the note in full, the direction
+            this one was built from, and the change that was asked for. Only
+            for a direction that records one of them, so a card never opens
+            to say nothing, and never while the name is being edited. */}
+        <HoverCard
+          label={
+            renamingThis ? null : cardFor(preview, st.displayName(title), st.displayName)
+          }
         >
-          <span className="min-w-0 flex-1">
-            {/* The buttons float over the row rather than sitting in it, so
-                the title line has to give up the strip they land on or a long
-                name runs underneath them. Four 24px buttons and the gaps
-                between them, 8px in from the edge, less the 12px the row
-                already pads: 98px, or 72px on the active row, which has no
-                compare button. Only while they are up — at rest the name gets
-                the whole line back. */}
-            <span
-              className={`flex items-center gap-2 ${
-                dragging || renamingThis
-                  ? ""
-                  : isActive
-                    ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
-                    : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
-              }`}
-            >
-              {variantCount > 0 && (
-                <Tip label={folded ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}` : "Fold the variants away"}>
-                  <button
-                    aria-expanded={!folded}
-                    aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
-                    className="-ml-1 flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      st.toggleFamily(title);
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    type="button"
-                  >
-                    <svg
-                      className={`size-2.5 transition-transform duration-150 motion-reduce:transition-none ${folded ? "-rotate-90" : ""}`}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 10 10"
+          <div
+            aria-pressed={isActive}
+            className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pr-3 text-left transition-colors active:cursor-grabbing ${
+              isVariant ? "pl-11" : "pl-3"
+            } ${isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""}`}
+            onClick={() => {
+              if (renamingThis) return;
+              if (dragMeta.current?.suppressed) {
+                dragMeta.current.suppressed = false;
+                return;
+              }
+              st.setActive(title);
+            }}
+            onDoubleClick={(event) => {
+              // The whole card opens the design, and only two things carve out
+              // of it: the buttons, which have their own jobs, and the name,
+              // which stops the event itself. Everything else — the note, the
+              // badge, the empty space beside them — is one target.
+              if (renamingThis) return;
+              if ((event.target as HTMLElement).closest("button")) return;
+              // The second click of the pair has already selected a word.
+              window.getSelection()?.removeAllRanges();
+              openAlone(title);
+            }}
+            onKeyDown={(event) => {
+              // Only when the card itself holds the focus. The rename field sits
+              // inside it, and Enter and Space are the two keys it needs most:
+              // taking them from the whole subtree meant Enter never committed a
+              // rename, because the preventDefault here cancelled the form's own
+              // submission, and a space never reached the name being typed.
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                st.setActive(title);
+              }
+            }}
+            onPointerDown={onRowPointerDown(title, index)}
+            role="button"
+            tabIndex={0}
+          >
+            <span className="min-w-0 flex-1">
+              {/* The buttons float over the row rather than sitting in it, so
+                  the title line has to give up the strip they land on or a long
+                  name runs underneath them. Four 24px buttons and the gaps
+                  between them, 8px in from the edge, less the 12px the row
+                  already pads: 98px, or 72px on the active row, which has no
+                  compare button. Only while they are up — at rest the name gets
+                  the whole line back. */}
+              <span
+                className={`flex items-center gap-2 ${
+                  dragging || renamingThis
+                    ? ""
+                    : isActive
+                      ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
+                      : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
+                }`}
+              >
+                {variantCount > 0 && (
+                  <Tip label={folded ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}` : "Fold the variants away"}>
+                    <button
+                      aria-expanded={!folded}
+                      aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
+                      className="-ml-1 flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        st.toggleFamily(title);
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      type="button"
                     >
-                      <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    {folded ? (
-                      <span className="text-[10px] leading-none tabular-nums">{variantCount}</span>
-                    ) : null}
-                  </button>
-                </Tip>
-              )}
-              {renamingThis ? (
-                <RenameForm
-                  error={st.renameError}
-                  initial={st.displayName(title)}
-                  label={`Rename the ${st.displayName(title)} direction`}
-                  onCancel={() => st.startRename(null)}
-                  onCommit={(value, via) => st.rename(title, value, via)}
-                />
-              ) : (
-                <span
-                  className={`min-w-0 flex-1 text-sm font-medium leading-5 transition-colors duration-150 ${
-                    isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
-                  }`}
-                >
-                  {/* Two targets share this row and the split between them is
-                      the whole trick. The outer box is flex-1, so hanging the
-                      gesture there made most of the card rename instead of
-                      open. Hanging it on the glyphs alone was the other
-                      extreme: a four-character name is a sliver to hit.
-
-                      So the name gets a box of its own — at least 70% of the
-                      line the rename field will fill, growing to fit a longer
-                      name. Each padding is cancelled by an equal negative
-                      margin, which buys territory without moving a pixel of
-                      text or changing the row's height. It reaches into the
-                      left gutter, where there is nothing to take it from,
-                      except on a family root where the fold control is
-                      already sitting there. What is left for opening the
-                      design is the note beneath, the badge, and the last
-                      third of the title line. */}
+                      <svg
+                        className={`size-2.5 transition-transform duration-150 motion-reduce:transition-none ${folded ? "-rotate-90" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        viewBox="0 0 10 10"
+                      >
+                        <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {folded ? (
+                        <span className="text-[10px] leading-none tabular-nums">{variantCount}</span>
+                      ) : null}
+                    </button>
+                  </Tip>
+                )}
+                {renamingThis ? (
+                  <RenameForm
+                    error={st.renameError}
+                    initial={st.displayName(title)}
+                    label={`Rename the ${st.displayName(title)} direction`}
+                    onCancel={() => st.startRename(null)}
+                    onCommit={(value, via) => st.rename(title, value, via)}
+                  />
+                ) : (
                   <span
-                    className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
-                      variantCount > 0 ? "" : "-ml-3 pl-3"
+                    className={`min-w-0 flex-1 text-sm font-medium leading-5 transition-colors duration-150 ${
+                      isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
                     }`}
-                    onDoubleClick={(event) => {
-                      event.stopPropagation();
-                      window.getSelection()?.removeAllRanges();
-                      st.startRename(title);
-                    }}
                   >
-                    {st.displayName(title)}
+                    {/* Two targets share this row and the split between them is
+                        the whole trick. The outer box is flex-1, so hanging the
+                        gesture there made most of the card rename instead of
+                        open. Hanging it on the glyphs alone was the other
+                        extreme: a four-character name is a sliver to hit.
+
+                        So the name gets a box of its own — at least 70% of the
+                        line the rename field will fill, growing to fit a longer
+                        name. Each padding is cancelled by an equal negative
+                        margin, which buys territory without moving a pixel of
+                        text or changing the row's height. It reaches into the
+                        left gutter, where there is nothing to take it from,
+                        except on a family root where the fold control is
+                        already sitting there. What is left for opening the
+                        design is the note beneath, the badge, and the last
+                        third of the title line. */}
+                    <span
+                      className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
+                        variantCount > 0 ? "" : "-ml-3 pl-3"
+                      }`}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        window.getSelection()?.removeAllRanges();
+                        st.startRename(title);
+                      }}
+                    >
+                      {st.displayName(title)}
+                    </span>
                   </span>
-                </span>
-              )}
-              {splitting && title === compare ? (
-                <span
-                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${badgeAside}`}
-                >
-                  Comparing
-                </span>
-              ) : twins[title] ? (
-                <Tip
-                  label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
-                >
+                )}
+                {splitting && title === compare ? (
                   <span
-                    className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
+                    className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${badgeAside}`}
                   >
-                    Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
+                    Comparing
                   </span>
-                </Tip>
-              ) : checking(title) ? (
-                <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
-                >
-                  <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
-                  Cooking
-                </span>
-              ) : (
-                preview?.tags[0] && (
+                ) : twins[title] ? (
+                  <Tip
+                    label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
+                  >
+                    <span
+                      className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
+                    >
+                      Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
+                    </span>
+                  </Tip>
+                ) : checking(title) ? (
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${badgeAside}`}
-                    style={tagTone(preview.tags[0])}
+                    className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
                   >
-                    {preview.tags[0]}
+                    <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
+                    Cooking
                   </span>
-                )
-              )}
+                ) : (
+                  preview?.tags[0] && (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${badgeAside}`}
+                      style={tagTone(preview.tags[0])}
+                    >
+                      {preview.tags[0]}
+                    </span>
+                  )
+                )}
+              </span>
+              {/* A refused name takes this line rather than adding one. The two
+                  are never both worth reading, and swapping them keeps the row
+                  the height it already was. */}
+              <span
+                className={`mt-0.5 line-clamp-2 block cursor-text text-xs leading-snug transition-colors ${
+                  renamingThis && st.renameError
+                    ? "text-amber-300/90"
+                    : isActive
+                      ? "text-[#D1D5DB]"
+                      : "text-[#84848C]"
+                }`}
+                id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
+              >
+                {renamingThis && st.renameError ? st.renameError : (preview?.note ?? preview?.url)}
+              </span>
             </span>
-            {/* A refused name takes this line rather than adding one. The two
-                are never both worth reading, and swapping them keeps the row
-                the height it already was. */}
-            <span
-              className={`mt-0.5 line-clamp-2 block cursor-text text-xs leading-snug transition-colors ${
-                renamingThis && st.renameError
-                  ? "text-amber-300/90"
-                  : isActive
-                    ? "text-[#D1D5DB]"
-                    : "text-[#84848C]"
-              }`}
-              id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
-            >
-              {renamingThis && st.renameError ? st.renameError : (preview?.note ?? preview?.url)}
-            </span>
-          </span>
-        </div>
+          </div>
+        </HoverCard>
         <div
           className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
             renamingThis ? "invisible" : ""
@@ -2026,7 +2114,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               void fetch("/leglas/api/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ title, intent: value }),
+                body: JSON.stringify({ title, intent: value, mode }),
               })
                 .then(
                   (response) =>
@@ -2123,8 +2211,62 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 value={intent}
               />
               <div className="flex items-center justify-end gap-1.5 p-1">
+                {/* What the change does to the direction it is aimed at, in
+                    the one place the aiming happens. A chip rather than a
+                    setting: it is a per-change decision, and the answer has to
+                    be readable in the second before Enter. */}
+                <Tip
+                  label={
+                    mode === "variant"
+                      ? "Builds a new direction beside this one and leaves this one alone."
+                      : "Changes this direction itself. Nothing is kept of what it was."
+                  }
+                >
+                  <button
+                    aria-label={
+                      mode === "variant"
+                        ? "This change makes a new variant. Switch to changing the direction itself."
+                        : "This change edits the direction itself. Switch to making a new variant."
+                    }
+                    className="mr-auto flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                    onClick={() => setMode(mode === "variant" ? "replace" : "variant")}
+                    type="button"
+                  >
+                    {mode === "variant" ? (
+                      <svg
+                        aria-hidden
+                        fill="none"
+                        height="11"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        viewBox="0 0 16 16"
+                        width="11"
+                      >
+                        <circle cx="4.5" cy="3.6" r="1.9" />
+                        <circle cx="11.5" cy="12.4" r="1.9" />
+                        <path d="M4.5 5.5v2.6a4.3 4.3 0 0 0 4.3 4.3h0.8" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg
+                        aria-hidden
+                        fill="none"
+                        height="11"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        viewBox="0 0 16 16"
+                        width="11"
+                      >
+                        <path
+                          d="M10.8 2.9 13.1 5.2 5.6 12.7H3.3v-2.3z"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                    {mode === "variant" ? "as a variant" : "in place"}
+                  </button>
+                </Tip>
                 {chip.kind === "none" ? (
-                  <span className="mr-auto min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
+                  <span className="min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
                     Enter queues it for <span className="font-medium">npx leglas requests</span>
                   </span>
                 ) : (
@@ -2419,6 +2561,16 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
             </div>
           </form>
 
+          {activeOrigin === null ? null : (
+            <div className="px-3 pb-2">
+              <p
+                className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
+                title={activeOrigin}
+              >
+                {activeOrigin}
+              </p>
+            </div>
+          )}
           {/* One quiet line under the composer, and only when it has a job:
               the way back to the hidden tools, or word that a terminal
               watcher is holding the queue. */}

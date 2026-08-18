@@ -145,11 +145,19 @@ export function registerLeglasTools(
           .describe("Project-relative HTML file for Leglas to serve itself; no dev server needed."),
         basedOn: z.string().optional()
           .describe("Title of the direction this is a variant of; the rail groups the family."),
+        askedFor: z.string().optional()
+          .describe(
+            "The change this direction was asked for, in the words that were typed. " +
+              "Pass it verbatim when building a variant someone requested; the rail shows it.",
+          ),
       },
     },
-    async ({ title, url, note, tags, branch, file, basedOn }) =>
+    async ({ title, url, note, tags, branch, file, basedOn, askedFor }) =>
       inProject(project, (cwd, deps) =>
-        runAdd({ preview: { title, url, note, tags, branch, file, basedOn }, json: true, cwd }, deps),
+        runAdd(
+          { preview: { title, url, note, tags, branch, file, basedOn, askedFor }, json: true, cwd },
+          deps,
+        ),
       ),
   );
 

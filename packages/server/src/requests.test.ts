@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, readRequests, removeRequest, targetFor, variantSlot } from "./requests.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -39,23 +39,148 @@ describe("targetFor", () => {
   });
 });
 
+describe("composeRequest, as a variant", () => {
+  const filePreview = (title: string, file: string): Preview => ({
+    title,
+    url: "/leglas/local/hero.html",
+    note: undefined,
+    tags: [],
+    file,
+  });
+
+  test("builds a new direction and says the old one is not to be touched", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "the pouch looks fake",
+      "variant",
+    );
+
+    expect(prompt).toContain('add a new design direction based on the "Poster" direction');
+    expect(prompt).toContain('Leave "Poster" itself exactly as it is');
+    expect(prompt).toContain("the pouch looks fake");
+  });
+
+  // The whole point of the mode: a variant is its parent plus the change. An
+  // agent told only to build something new produces a fresh design wearing a
+  // related name, which is not comparable with what it came from.
+  test("starts the new direction from a copy of the parent's file", () => {
+    const { prompt, target } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(target).toBe(".leglas/variants/hero/poster.tsx");
+    expect(prompt).toContain("Its source is .leglas/variants/hero/poster.tsx.");
+    expect(prompt).toContain("Copy that file to a new one in the same folder");
+  });
+
+  test("hands over the registration that puts it under its parent", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("npx leglas add");
+    expect(prompt).toContain('--url "/?v-hero=<key>"');
+    expect(prompt).toContain('--based-on "Poster"');
+    expect(prompt).toContain('--asked-for "warmer"');
+    expect(prompt).toContain(".leglas/variants/hero/switch.tsx");
+  });
+
+  // A quote in the request would end the argument early and hand the shell
+  // the rest of the sentence.
+  test("quotes the request so a typed quote cannot break the command", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      'make the "hero" bolder',
+      "variant",
+    );
+
+    expect(prompt).toContain('--asked-for "make the \\"hero\\" bolder"');
+  });
+
+  test("a file-backed direction is copied as a file and registered as one", () => {
+    const { prompt } = composeRequest(
+      filePreview("Poster", "directions/poster.html"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("Its source is directions/poster.html.");
+    expect(prompt).toContain("Copy that file to a new file beside it");
+    expect(prompt).toContain('--file "<the new file>"');
+    expect(prompt).not.toContain("--url");
+  });
+
+  test("a direction with no derivable source still gets a usable brief", () => {
+    const { prompt, target } = composeRequest(
+      preview("Current", "/"),
+      "warmer",
+      "variant",
+    );
+
+    expect(target).toBeNull();
+    expect(prompt).toContain("Find what renders it first.");
+    expect(prompt).toContain("Copy its source rather than editing it");
+    expect(prompt).toContain('--based-on "Current"');
+  });
+
+  test("reports the mode it composed for, so the queue can record it", () => {
+    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "variant").mode).toBe(
+      "variant",
+    );
+    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "replace").mode).toBe(
+      "replace",
+    );
+  });
+
+  // The two prompts ask for opposite work, and the failure mode of getting it
+  // wrong is an overwritten direction.
+  test("never tells the agent to edit the parent", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).not.toContain("Make the change in that file");
+    expect(prompt).not.toContain("change only");
+  });
+});
+
+describe("variantSlot", () => {
+  test("reads the surface and option a scaffold url names", () => {
+    expect(variantSlot("/?v-hero=poster")).toEqual({ option: "poster", surface: "hero" });
+  });
+
+  test("refuses anything that could climb out of the variants directory", () => {
+    expect(variantSlot("/?v-hero=../../etc/passwd")).toBeNull();
+  });
+
+  test("has nothing to say about a url the scaffold did not write", () => {
+    expect(variantSlot("/pricing")).toBeNull();
+  });
+});
+
 describe("composeRequest", () => {
   test("names the direction so the agent knows what is being changed", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "make it warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "make it warmer", "replace");
 
     expect(prompt).toContain("Aurora");
     expect(prompt).toContain("make it warmer");
   });
 
   test("points at the exact file when the url reveals one", () => {
-    const { prompt, target } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt, target } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(target).toBe(".leglas/variants/hero/aurora.tsx");
     expect(prompt).toContain(".leglas/variants/hero/aurora.tsx");
   });
 
   test("still produces a usable prompt when the file cannot be derived", () => {
-    const { prompt, target } = composeRequest(preview("Pricing v2", "/pricing-v2"), "tighten it");
+    const { prompt, target } = composeRequest(preview("Pricing v2", "/pricing-v2"), "tighten it", "replace");
 
     expect(target).toBeNull();
     expect(prompt).toContain("Pricing v2");
@@ -63,8 +188,8 @@ describe("composeRequest", () => {
   });
 
   test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
-    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer").prompt;
-    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer").prompt;
+    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace").prompt;
+    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer", "replace").prompt;
 
     // The measured cost of leaving this out is minutes of post-edit test
     // runs and repo searches per request, not seconds.
@@ -77,19 +202,19 @@ describe("composeRequest", () => {
   });
 
   test("tells the agent to change only this direction, not its siblings", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(prompt.toLowerCase()).toContain("only");
   });
 
   test("does not ask the agent to re-register a direction that already exists", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(prompt).not.toContain("leglas add");
   });
 
   test("trims the intent, so padding from a textarea does not reach the agent", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "  warmer\n\n");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "  warmer\n\n", "replace");
 
     expect(prompt).toContain("What to change: warmer");
     expect(prompt).not.toMatch(/\n{3}/);
@@ -126,7 +251,12 @@ describe("request lifecycle", () => {
     const queue = join(root, ".leglas/requests.json");
     mkdirSync(join(root, ".leglas"));
     writeFileSync(queue, JSON.stringify({ requests: [input] }));
-    expect(await readRequests(root)).toEqual([{ ...input, id: "0", status: "queued" }]);
+    // A request written before the two modes existed rewrote the direction in
+    // place, so that is what it is read back as. Nothing is written to say so:
+    // the file on disk is left exactly as it was found.
+    expect(await readRequests(root)).toEqual([
+      { ...input, id: "0", mode: "replace", status: "queued" },
+    ]);
     expect(JSON.parse(readFileSync(queue, "utf8"))).toEqual({ requests: [input] });
   });
 

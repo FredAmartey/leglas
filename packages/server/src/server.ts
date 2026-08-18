@@ -24,6 +24,7 @@ import {
   readRequests,
   removeRequest,
   type PendingRequest,
+  type RequestMode,
 } from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 
@@ -498,12 +499,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { title?: string; intent?: string };
+        let parsed: { title?: string; intent?: string; mode?: unknown };
         try {
-          parsed = JSON.parse(body || "{}") as { title?: string; intent?: string };
+          parsed = JSON.parse(body || "{}") as {
+            title?: string;
+            intent?: string;
+            mode?: unknown;
+          };
         } catch {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
+        // Variant unless the caller says otherwise: a change that overwrites
+        // the direction it came from destroys the comparison the tool exists
+        // for, so the safe half of the pair is the one a missing field gets.
+        // An unrecognised value is refused rather than rounded to a default,
+        // because the two do different work and only one of them is reversible.
+        if (parsed.mode !== undefined && parsed.mode !== "variant" && parsed.mode !== "replace") {
+          return sendJson(res, 400, {
+            ok: false,
+            error: "mode must be \"variant\" or \"replace\".",
+          });
+        }
+        const mode: RequestMode = parsed.mode === "replace" ? "replace" : "variant";
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
         const localRead = await readLocalPreviews(cwd).catch(() => null);
@@ -532,7 +549,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const live = (await readRequests(cwd).catch(() => [])).filter(
           (entry) => entry.status === "queued" || entry.status === "picked-up",
         );
-        if (live.some((entry) => entry.title === preview.title && entry.intent === intent)) {
+        if (
+          live.some(
+            (entry) =>
+              entry.title === preview.title &&
+              entry.intent === intent &&
+              // The same words in the other mode are not the same request:
+              // one forks the direction and the other rewrites it. Only a
+              // genuine repeat is refused.
+              (entry.mode ?? "replace") === mode,
+          )
+        ) {
           return sendJson(res, 409, {
             ok: false,
             duplicate: true,
@@ -540,7 +567,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const composed = composeRequest(preview, parsed.intent);
+        const composed = composeRequest(preview, parsed.intent, mode);
         void appendRequest(cwd, {
           title: preview.title,
           url: preview.url,
@@ -751,6 +778,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             intent: request.intent,
             target: request.target,
             prompt: request.prompt,
+            // The stored prompt already carries the mode's instructions; the
+            // field travels with it so the queue keeps saying which kind of
+            // change this is.
+            ...(request.mode === undefined ? {} : { mode: request.mode }),
           });
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.

@@ -5,10 +5,53 @@ import { dirname, join } from "node:path";
 import type { Preview } from "./config.js";
 import type { Failure, FailureCode } from "./failure.js";
 
-export type ComposedRequest = { prompt: string; target: string | null };
+/**
+ * What a change does to the direction it was sent at.
+ *
+ * `variant` builds a new direction beside the old one and leaves the old one
+ * standing; `replace` edits it where it lies. Variant is the interface's
+ * default because the whole tool is a comparison, and a change that overwrites
+ * its own baseline destroys the thing being compared. Replace stays one click
+ * away because not every change is a fork: a typo, a colour that is simply
+ * wrong, or another pass at a variant made a minute ago all want the file
+ * they already have.
+ *
+ * No default is assumed here. The two produce different work and one of them
+ * cannot be undone, so the caller has to say which it means.
+ */
+export type RequestMode = "variant" | "replace";
+
+export type ComposedRequest = { prompt: string; target: string | null; mode: RequestMode };
 
 /** Only names the scaffold generates: no separators, no traversal. */
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9-]*$/i;
+
+export type VariantSlot = { surface: string; option: string };
+
+/**
+ * The surface and option a scaffold-generated URL names, if it names one.
+ *
+ * `/?v-hero=aurora` is the convention `leglas new` writes and `leglas explore`
+ * teaches: surface "hero", option "aurora". Both halves are checked against
+ * the scaffold's own naming before either is handed to a path or a command.
+ */
+export function variantSlot(url: string): VariantSlot | null {
+  if (!url.startsWith("/")) return null;
+  if (!url.includes("?")) return null;
+
+  const query = url.slice(url.indexOf("?") + 1);
+  for (const pair of query.split("&")) {
+    const [rawKey, rawValue] = pair.split("=");
+    if (rawKey === undefined || rawValue === undefined) continue;
+    if (!rawKey.startsWith("v-")) continue;
+
+    const surface = rawKey.slice(2);
+    const option = decodeURIComponent(rawValue);
+    if (!SAFE_SEGMENT.test(surface) || !SAFE_SEGMENT.test(option)) return null;
+    return { surface, option };
+  }
+  return null;
+}
 
 /**
  * The file behind a preview, when the URL was produced by `leglas new`.
@@ -20,22 +63,8 @@ const SAFE_SEGMENT = /^[a-z0-9][a-z0-9-]*$/i;
  * the preview rather than pointing at a file that may not exist.
  */
 export function targetFor(url: string): string | null {
-  if (!url.startsWith("/")) return null;
-
-  const query = url.slice(url.indexOf("?") + 1);
-  if (!url.includes("?")) return null;
-
-  for (const pair of query.split("&")) {
-    const [rawKey, rawValue] = pair.split("=");
-    if (rawKey === undefined || rawValue === undefined) continue;
-    if (!rawKey.startsWith("v-")) continue;
-
-    const surface = rawKey.slice(2);
-    const option = decodeURIComponent(rawValue);
-    if (!SAFE_SEGMENT.test(surface) || !SAFE_SEGMENT.test(option)) return null;
-    return `.leglas/variants/${surface}/${option}.tsx`;
-  }
-  return null;
+  const slot = variantSlot(url);
+  return slot === null ? null : `.leglas/variants/${slot.surface}/${slot.option}.tsx`;
 }
 
 /**
@@ -48,38 +77,123 @@ export function targetFor(url: string): string | null {
  * intent meant leaving the interface for a terminal. This closes that without
  * taking over generation.
  */
-export function composeRequest(preview: Preview, intent: string): ComposedRequest {
+export function composeRequest(
+  preview: Preview,
+  intent: string,
+  mode: RequestMode,
+): ComposedRequest {
   // A file-backed preview names its own source; a URL has to be decoded.
   const target = preview.file ?? targetFor(preview.url);
   const cleaned = intent.trim();
 
+  const prompt =
+    mode === "variant"
+      ? variantPrompt(preview, cleaned, target)
+      : replacePrompt(preview, cleaned, target);
+
+  return { prompt, target, mode };
+}
+
+/**
+ * The closing rules both prompts share.
+ *
+ * Agents give an unscoped prompt the full treatment: survey the project, make
+ * the edit, then verify with test runs and searches. For a design tweak the
+ * verification is the run; the live preview shows the result the moment the
+ * file is saved. Saying so is the single biggest speed lever this side of the
+ * vendor, because the edit itself takes seconds.
+ */
+const SCOPE =
+  `This is a scoped design change: no test run, no build, and no survey of ` +
+  `the rest of the project is needed. The result is checked visually in a ` +
+  `live preview, not by tooling.\n\n` +
+  `Leave every other direction exactly as it is; they are alternatives being ` +
+  `compared side by side, so changing a sibling destroys the comparison. Keep ` +
+  `the change additive: do not rewrite shared components that other ` +
+  `directions rely on.`;
+
+function replacePrompt(preview: Preview, cleaned: string, target: string | null): string {
   const where =
     target === null
       ? `The direction is titled "${preview.title}" and renders at ${preview.url}. Find what produces it.`
       : `It lives at ${target}.`;
-
-  // Agents give an unscoped prompt the full treatment: survey the project,
-  // make the edit, then verify with test runs and searches. For a design
-  // tweak the verification is the run; the live preview shows the result the
-  // moment the file is saved. Saying so is the single biggest speed lever
-  // this side of the vendor: the edit itself takes seconds.
   const pace =
     target === null
       ? `Once found, make the change and finish. `
       : `Make the change in that file and finish. `;
 
-  const prompt =
+  return (
     `In this project, change only the "${preview.title}" design direction. ${where}\n\n` +
     `What to change: ${cleaned}\n\n` +
-    `${pace}This is a scoped design change: no test run, no build, and no ` +
-    `survey of the rest of the project is needed. The result is checked ` +
-    `visually in a live preview, not by tooling.\n\n` +
-    `Leave every other direction exactly as it is; they are alternatives being ` +
-    `compared side by side, so changing a sibling destroys the comparison. The ` +
-    `direction is already registered, so nothing needs re-registering. Keep the ` +
-    `change additive: do not rewrite shared components that other directions rely on.`;
+    `${pace}${SCOPE} The direction is already registered, so nothing needs ` +
+    `re-registering.`
+  );
+}
 
-  return { prompt, target };
+/**
+ * A change that branches instead of overwriting.
+ *
+ * Three things have to land or the new direction is not comparable with the
+ * one it came from. It starts as a copy of the parent's source, so what
+ * reaches the rail is the parent plus the change rather than a fresh design
+ * wearing a related name. It is registered with `--based-on`, which is what
+ * puts it under its parent in the rail and makes the parent its default
+ * comparison. And it carries the request that produced it, in the user's own
+ * words, because a fortnight later the rail is a row of names nobody can
+ * account for.
+ *
+ * Registration is a CLI call rather than a file the agent writes, because
+ * `leglas add` is the same path `leglas explore` already teaches and it
+ * validates the entry before it can reach the rail broken.
+ */
+function variantPrompt(preview: Preview, cleaned: string, target: string | null): string {
+  const slot = variantSlot(preview.url);
+  const parent = JSON.stringify(preview.title);
+  const asked = JSON.stringify(cleaned);
+
+  const source =
+    target === null
+      ? `Find what renders it first.`
+      : `Its source is ${target}.`;
+
+  // Where the copy goes, and how the finished direction is named back to
+  // Leglas, is the one part that differs by how the parent is served.
+  const [make, register] =
+    preview.file !== undefined
+      ? [
+          `Copy that file to a new file beside it and make the change in the copy.`,
+          `  npx leglas add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+        ]
+      : slot !== null
+        ? [
+            `Copy that file to a new one in the same folder and make the change ` +
+              `in the copy. The new file's name without its extension is its key, ` +
+              `and that key has to be listed in the DIRECTIONS map in ` +
+              `.leglas/variants/${slot.surface}/switch.tsx or its URL will not resolve.`,
+            `  npx leglas add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+          ]
+        : [
+            `Copy its source rather than editing it, and make the change in the ` +
+              `copy. Add the new direction the way this project already switches ` +
+              `between them; if it has a Leglas branch point, that is the ` +
+              `DIRECTIONS map in .leglas/variants/<surface>/switch.tsx.`,
+            `  npx leglas add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+          ];
+
+  return (
+    `In this project, add a new design direction based on the ` +
+    `"${preview.title}" direction. Leave "${preview.title}" itself exactly as ` +
+    `it is: it is the thing the new one will be compared against.\n\n` +
+    `${source} ${make}\n\n` +
+    `What to change: ${cleaned}\n\n` +
+    `Then register it, which is what puts it on the rail:\n\n` +
+    `${register}\n\n` +
+    `Name it for its idea rather than numbering it, and keep the name short ` +
+    `enough to read in a narrow rail. Pass --asked-for exactly as given above; ` +
+    `it is the user's own words and the interface shows them. Registering it ` +
+    `is the last step; finish there.\n\n` +
+    `${SCOPE}`
+  );
 }
 
 /** Where pending requests wait for an agent to collect them. */
@@ -115,6 +229,12 @@ export type PendingRequest = {
   prompt: string;
   /** Why it ended, on a terminal request. Absent on every other status. */
   failure?: Failure;
+  /**
+   * Whether this change forks the direction or rewrites it. Absent on a
+   * request written before the distinction existed, which the reader treats
+   * as `replace`: that is what those requests actually did.
+   */
+  mode?: RequestMode;
 };
 
 const FAILURE_CODES: readonly FailureCode[] = [
@@ -158,6 +278,7 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
         ...entry,
         id: typeof entry.id === "string" ? entry.id : String(index),
         status,
+        mode: entry.mode === "variant" ? "variant" : "replace",
         ...(failure === null ? {} : { failure }),
       } as PendingRequest;
     });

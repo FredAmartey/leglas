@@ -70,6 +70,7 @@ export async function runAdd(
       branch: options.preview.branch,
       file: options.preview.file,
       basedOn: options.preview.basedOn,
+      askedFor: options.preview.askedFor,
     },
     shared,
   );
@@ -152,6 +153,7 @@ export async function runList(
         note: preview.note ?? null,
         tags: preview.tags,
         basedOn: preview.basedOn ?? null,
+        askedFor: preview.askedFor ?? null,
         local: preview.local,
         branch: preview.branch ?? null,
         file: preview.file ?? null,
