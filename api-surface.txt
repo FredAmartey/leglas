@@ -120,6 +120,12 @@ export type PendingRequest = {
      * as `replace`: that is what those requests actually did.
      */
     mode?: RequestMode;
+    /**
+     * The notes this change answers, by id. Present only when pins were left.
+     * A change made in place forgets them once it lands, because the design
+     * they point at is the one that was just rewritten.
+     */
+    notes?: readonly string[];
 };
 export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 export type RunDeps = {

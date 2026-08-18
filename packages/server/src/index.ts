@@ -13,6 +13,18 @@ export { WORKTREES_DIR, startAppProcess, startWorktree, substitutePort, worktree
 export type { RunningApp, RunningWorktree } from "./worktree.js";
 export { classifyFailure, sessionShaped } from "./failure.js";
 export type { Failure, FailureCode, FailureInput, RetryNotice } from "./failure.js";
+export {
+  ANNOTATIONS_PATH,
+  addAnnotation,
+  anchorFrom,
+  annotationsFor,
+  describeAnchor,
+  describeAnnotations,
+  readAnnotations,
+  removeAnnotations,
+  type Annotation,
+  type AnnotationAnchor,
+} from "./annotations.js";
 export { REQUESTS_PATH, appendRequest, clearRequests, collectRequests, composeRequest, isTerminal, markFailed, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
 export { startRunner } from "./runner.js";
 export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";

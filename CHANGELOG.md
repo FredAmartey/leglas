@@ -14,11 +14,22 @@ because most reach only one of the three.
 ## Unreleased
 
 The public API surface moved (`PendingRequest.status` gained two values and
-the type gained `failure` and `mode`), so the next release is a minor, not a
-patch.
+the type gained `failure`, `mode` and `notes`), so the next release is a
+minor, not a patch.
 
 ### Added
 
+- **Point at what is wrong instead of describing where it is.** Press `A`, or
+  use the chip beside the send button, and the preview turns into a picker:
+  hovering outlines the element under the pointer, clicking drops a numbered
+  pin and takes a note. Pins alone are a complete request, so the composer can
+  be left empty; what it does take is the sentence about the change rather
+  than the paragraph about which element. Each note carries the element's own
+  words, its tag and classes, a CSS path and the rectangle it filled, and the
+  request tells the agent which of those to trust as the design moves under
+  them. A pin whose element has gone says so rather than pointing confidently
+  at the wrong thing. Notes live in `.leglas/annotations.json`, and a change
+  made in place forgets the ones it answered. (`leglas`)
 - **A change makes a variant instead of overwriting the direction.** Sending
   "the pouch looks fake" at a direction used to edit that direction's file, so
   the thing being compared against was gone. It now builds a new direction

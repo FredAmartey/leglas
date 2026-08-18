@@ -100,3 +100,18 @@ describe("resolveKey", () => {
     }
   });
 });
+describe("annotating", () => {
+  test("A leaves notes on the design", () => {
+    expect(resolveKey({ key: "a" })).toEqual({ kind: "note" });
+    expect(resolveKey({ key: "A" })).toEqual({ kind: "note" });
+  });
+
+  test("stays out of the way while words are being typed", () => {
+    expect(resolveKey({ key: "a", typing: true })).toBeNull();
+  });
+
+  test("leaves the browser's own chords alone", () => {
+    expect(resolveKey({ key: "a", metaKey: true })).toBeNull();
+  });
+});
+

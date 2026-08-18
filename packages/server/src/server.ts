@@ -15,6 +15,13 @@ import {
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
 import { dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
+import {
+  addAnnotation,
+  anchorFrom,
+  annotationsFor,
+  readAnnotations,
+  removeAnnotations,
+} from "./annotations.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
 import {
@@ -536,7 +543,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const preview = [...boot, ...local].find(
           (entry) => entry.title === parsed.title,
         );
-        if (!preview || !parsed.intent?.trim()) {
+        if (!preview) {
+          return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
+        }
+        // A note carries its own address and its own words, so pins alone are
+        // a complete request and the composer is allowed to be empty. Nothing
+        // at all still is not a request.
+        const notes = annotationsFor(await readAnnotations(cwd).catch(() => []), preview.title);
+        if (!parsed.intent?.trim() && notes.length === 0) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
         // The composer stays open during a run on purpose: queueing the next
@@ -545,10 +559,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // of work already waiting, and it costs a whole provider turn. The
         // usual way in is a stop followed by retyping the same request, which
         // reads as a retry and behaves as a duplicate.
-        const intent = parsed.intent.trim();
+        const intent = (parsed.intent ?? "").trim();
         const live = (await readRequests(cwd).catch(() => [])).filter(
           (entry) => entry.status === "queued" || entry.status === "picked-up",
         );
+        // Pins stay on a direction after a fork, so the same send can be made
+        // twice by pressing the button twice. That is the same request, and
+        // the notes it answers are part of what makes it the same one: the
+        // same words at the same direction with a different set of pins is
+        // not.
+        const sameNotes = (entry: PendingRequest) => {
+          const before = [...(entry.notes ?? [])].sort().join(",");
+          return before === notes.map((note) => note.id).sort().join(",");
+        };
         if (
           live.some(
             (entry) =>
@@ -557,7 +580,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               // The same words in the other mode are not the same request:
               // one forks the direction and the other rewrites it. Only a
               // genuine repeat is refused.
-              (entry.mode ?? "replace") === mode,
+              (entry.mode ?? "replace") === mode &&
+              sameNotes(entry),
           )
         ) {
           return sendJson(res, 409, {
@@ -567,11 +591,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const composed = composeRequest(preview, parsed.intent, mode);
+        const composed = composeRequest(preview, intent, mode, notes);
         void appendRequest(cwd, {
           title: preview.title,
           url: preview.url,
           intent,
+          // The ids travel with the request so a change made in place can
+          // forget the notes it answered. A fork leaves them where they are:
+          // the direction they point at was not touched.
+          ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
           ...composed,
         })
           .then(() => {
@@ -796,6 +824,75 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // Letting go of a failed request. The runner will never touch it again
     // anyway, so removal only makes the queue file agree with that, but it is
     // held to failed ids so a live or waiting request cannot be swept away.
+    // The notes left on a preview, and the two ways they change. They are read
+    // on every poll like the queue is, because a note can be left in one pane
+    // while another is being looked at.
+    if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "GET") {
+      return void readAnnotations(cwd).then((annotations) =>
+        sendJson(res, 200, { annotations }),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { title?: unknown; note?: unknown; anchor?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as typeof parsed;
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+          return sendJson(res, 400, { ok: false, error: "A note needs a direction." });
+        }
+        const anchor = anchorFrom(parsed.anchor);
+        if (anchor === null) {
+          return sendJson(res, 400, { ok: false, error: "A note needs something to point at." });
+        }
+        try {
+          const annotation = await addAnnotation(cwd, {
+            anchor,
+            note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+            title: parsed.title,
+          });
+          return sendJson(res, 200, { ok: true, annotation });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The note could not be kept." });
+        }
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/annotations/delete` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Delete must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { ids?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { ids?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        const ids = Array.isArray(parsed.ids)
+          ? parsed.ids.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        if (ids.length === 0) {
+          return sendJson(res, 400, { ok: false, error: "Body needs the notes to forget." });
+        }
+        try {
+          return sendJson(res, 200, { ok: true, deleted: await removeAnnotations(cwd, ids) });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The notes could not be forgotten." });
+        }
+      });
+    }
+
     if (path === `${LEGLAS_PREFIX}/api/requests/dismiss` && req.method === "POST") {
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });

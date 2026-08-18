@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
+import { removeAnnotations } from "./annotations.js";
 import {
   KNOWN_AGENTS,
   activityFrom,
@@ -443,6 +444,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
                 ? previous.turns + 1
                 : 1,
           });
+        }
+        // A change made in place answered its notes by rewriting the design
+        // they were left on, so keeping them would leave pins pointing at
+        // something that no longer exists. A fork leaves them alone: the
+        // direction they point at is exactly as it was.
+        if (request.mode === "replace" && request.notes !== undefined) {
+          await removeAnnotations(options.cwd, request.notes).catch(() => 0);
         }
         await removeRequest(options.cwd, request.id);
         return;

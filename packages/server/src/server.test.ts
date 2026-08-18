@@ -125,6 +125,154 @@ describe("startServer", () => {
     expect(second).toEqual(first);
   });
 
+  test("keeps a note, hands it back, and forgets it on request", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-api-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+    const anchor = {
+      classes: ["pouch"],
+      rect: { height: 220, width: 340, x: 512, y: 180 },
+      selector: "main > div:nth-of-type(2)",
+      tag: "div",
+      text: "Made in Ghana",
+      viewport: 1440,
+    };
+
+    const kept = await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({ anchor, note: "looks fake", title: "Poster" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(kept.status).toBe(200);
+    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+
+    const listed = (await (
+      await fetch(`${server.url}/leglas/api/annotations`)
+    ).json()) as { annotations: { note: string }[] };
+    expect(listed.annotations).toMatchObject([{ note: "looks fake", title: "Poster" }]);
+
+    const forgotten = await fetch(`${server.url}/leglas/api/annotations/delete`, {
+      body: JSON.stringify({ ids: [annotation.id] }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
+  });
+
+  test("refuses a note with nothing to point at", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-anchor-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+
+    const posted = await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({ note: "looks fake", title: "Poster" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(posted.status).toBe(400);
+  });
+
+  // The pins carry their own words and their own address, so the composer is
+  // allowed to be empty. This is the whole point of leaving them.
+  test("a change with notes and no words is still a request", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-request-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+    await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({
+        anchor: {
+          classes: [],
+          rect: { height: 20, width: 40, x: 1, y: 2 },
+          selector: "h1",
+          tag: "h1",
+          text: "Tropical",
+          viewport: 1440,
+        },
+        note: "too tight",
+        title: "Poster",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    const posted = await fetch(`${server.url}/leglas/api/request`, {
+      body: JSON.stringify({ title: "Poster", intent: "" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(posted.status).toBe(200);
+    const { prompt } = (await posted.json()) as { prompt: string };
+    expect(prompt).toContain("1. too tight");
+    expect(prompt).toContain("path h1");
+    expect(prompt).toContain("reading “Tropical”");
+  });
+
+  // The pins stay on a direction after a fork, so the send button can be
+  // pressed twice on the same brief. That costs two provider turns for one
+  // piece of work.
+  test("refuses the same notes sent twice while the first is still waiting", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-dup-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+    await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({
+        anchor: {
+          classes: [],
+          rect: { height: 20, width: 40, x: 1, y: 2 },
+          selector: "h1",
+          spot: { x: 0.5, y: 0.5 },
+          tag: "h1",
+          text: "Tropical",
+          viewport: 1440,
+        },
+        note: "too tight",
+        title: "Poster",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const send = () =>
+      fetch(`${server.url}/leglas/api/request`, {
+        body: JSON.stringify({ title: "Poster", intent: "" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(409);
+  });
+
+  test("nothing typed and nothing pinned is not a request", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-empty-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+
+    const posted = await fetch(`${server.url}/leglas/api/request`, {
+      body: JSON.stringify({ title: "Poster", intent: "  " }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(posted.status).toBe(400);
+  });
+
   test("refuses a second copy of a change that is still waiting", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-"));
     const server = await start({

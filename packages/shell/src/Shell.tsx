@@ -28,6 +28,8 @@ import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
+import { anchorFor, type Anchor } from "./anchor.js";
+import { addNote, deleteNotes, readNotes, type Annotation } from "./annotations-api.js";
 import type { Preview } from "./types.js";
 import {
   composerAgent,
@@ -398,6 +400,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [widgetOpen, setWidgetOpen] = useState(false);
   // The way into the tools when the widget is switched off the stage.
   const onToggleTools = useCallback(() => setWidgetOpen((open) => !open), []);
+  const onToggleNote = useCallback(() => setAnnotating((on) => !on), []);
   const st = useShellState({
     previews,
     project,
@@ -405,6 +408,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     onToggleSplit,
     onToggleHelp,
     onToggleTools,
+    onToggleNote,
     // While the keymap is on screen it is the subject, not a way to drive what
     // is behind it. ? still closes it.
     suspended: helpOpen || deletePrompt !== null,
@@ -828,6 +832,22 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     requests: RequestStatus[];
     agent: AgentStatus;
   }>({ requests: [], agent: IDLE_AGENT });
+  /**
+   * The notes left on every direction, and whether the preview is currently
+   * taking new ones.
+   *
+   * Annotating is a mode rather than an always-live click target because the
+   * thing under the pointer is a running application: reaching the state worth
+   * annotating usually means clicking through the app first. A mode that has
+   * to be asked for is also a mode that cannot be entered by accident, which
+   * matters when the alternative is swallowing a click meant for a button.
+   */
+  const [notes, setNotes] = useState<Annotation[]>([]);
+  const [annotating, setAnnotating] = useState(false);
+  /** The element under the pointer while picking, in shell coordinates. */
+  const [picked, setPicked] = useState<{ height: number; left: number; top: number; width: number } | null>(null);
+  /** A pin dropped and waiting for its words. */
+  const [draft, setDraft] = useState<{ anchor: Anchor; left: number; title: string; top: number } | null>(null);
   const [agentState, setAgentState] = useState<AgentsPayload>(EMPTY_AGENTS);
   const [agentsTick, refreshAgents] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
@@ -853,22 +873,33 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // and that response must not land.
     let cancelled = false;
     const poll = () =>
-      fetch("/leglas/api/requests")
-        .then(
-          (response) =>
-            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
-        )
-        .then((payload) => {
+      Promise.all([
+        fetch("/leglas/api/requests")
+          .then(
+            (response) =>
+              response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
+          )
+          .then((payload) => {
+            if (cancelled) return;
+            const next = {
+              requests: payload.requests,
+              agent: payload.agent ?? IDLE_AGENT,
+            };
+            setRequestSnapshot((current) =>
+              JSON.stringify(current) === JSON.stringify(next) ? current : next,
+            );
+          }),
+        // Read on the same beat as the queue, because the two move together:
+        // a change made in place forgets the notes it answered, and a poll
+        // that only watched the queue would leave pins on a design that no
+        // longer has the problem they describe.
+        readNotes().then((fresh) => {
           if (cancelled) return;
-          const next = {
-            requests: payload.requests,
-            agent: payload.agent ?? IDLE_AGENT,
-          };
-          setRequestSnapshot((current) =>
-            JSON.stringify(current) === JSON.stringify(next) ? current : next,
+          setNotes((current) =>
+            JSON.stringify(current) === JSON.stringify(fresh) ? current : fresh,
           );
-        })
-        .catch(() => {});
+        }),
+      ]).catch(() => {});
     const timer = window.setInterval(() => void poll(), 2000);
     void poll();
     return () => {
@@ -893,6 +924,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * what was last asked of it are what decide the next thing typed, so it
    * carries the line whether or not anyone thinks to hover.
    */
+  /** The notes waiting on the direction the composer is aimed at. */
+  const activeNotes = st.active === null ? [] : notes.filter((note) => note.title === st.active);
   const activeOrigin = (() => {
     const origin = provenanceOf(st.active === null ? undefined : st.previewFor(st.active));
     if (origin === null) return null;
@@ -1370,6 +1403,177 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * what opens is the direction filling the window with none of this chrome
    * around it — the closest thing to seeing it shipped.
    */
+  /**
+   * The frame showing one direction, and the geometry needed to talk to it.
+   *
+   * A pane may be scaled: a 1440 viewport preset inside a narrower pane keeps
+   * its own dimensions and is scaled as a whole, so the app inside measures
+   * the width it was designed for. That makes the frame's painted size and its
+   * internal coordinates two different spaces, and every pointer position has
+   * to cross between them. The scale is read from the two widths rather than
+   * threaded down from the pane, so it cannot drift from what is on screen.
+   */
+  const frameGeometry = (title: string) => {
+    const frame = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-preview="${CSS.escape(title)}"]`,
+    );
+    if (frame === null) return null;
+    let doc: Document | null = null;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      // Another origin. Unreadable by design, so notes are unavailable there.
+      return null;
+    }
+    const view = doc?.defaultView ?? null;
+    if (doc === null || view === null) return null;
+    const rect = frame.getBoundingClientRect();
+    return { doc, rect, scale: view.innerWidth > 0 ? rect.width / view.innerWidth : 1, view };
+  };
+
+  /** The element under the pointer, in the preview's own coordinates. */
+  const elementAt = (title: string, clientX: number, clientY: number) => {
+    const geometry = frameGeometry(title);
+    if (geometry === null) return null;
+    const point = {
+      x: (clientX - geometry.rect.left) / geometry.scale,
+      y: (clientY - geometry.rect.top) / geometry.scale,
+    };
+    const element = geometry.doc.elementFromPoint(point.x, point.y);
+    if (element === null) return null;
+    return { box: element.getBoundingClientRect(), element, point, view: geometry.view };
+  };
+
+  /**
+   * Where each note's pin belongs now.
+   *
+   * Resolved from the selector every time rather than trusted from the file,
+   * because the design moves: that is what the notes are for. A selector that
+   * no longer resolves falls back to the rectangle recorded when the note was
+   * left, and says so, which is more honest than hiding the note or pinning it
+   * confidently to the wrong element.
+   */
+  const measurePins = useCallback(() => {
+    const title = st.active;
+    const geometry = title === null ? null : frameGeometry(title);
+    if (title === null || geometry === null) return [];
+
+    return notes
+      .filter((note) => note.title === title)
+      .map((note, index) => {
+        let found: Element | null = null;
+        try {
+          found = geometry.doc.querySelector(note.anchor.selector);
+        } catch {
+          // A selector the browser will not parse is a stale one, not a crash.
+        }
+        const box = found?.getBoundingClientRect() ?? {
+          height: note.anchor.rect.height,
+          left: note.anchor.rect.x,
+          top: note.anchor.rect.y,
+          width: note.anchor.rect.width,
+        };
+        const spot = note.anchor.spot ?? { x: 0.5, y: 0 };
+        return {
+          id: note.id,
+          left: box.left + spot.x * box.width,
+          note: note.note,
+          number: index + 1,
+          stale: found === null,
+          top: box.top + spot.y * box.height,
+        };
+      });
+  }, [notes, st.active]);
+
+  const [pins, setPins] = useState<ReturnType<typeof measurePins>>([]);
+
+  /**
+   * Pins follow the page they are pinned to, which means following its scroll.
+   *
+   * Only while annotating: outside the mode the design is being judged, and
+   * anything Leglas paints over it is in the way of the one job the pane has.
+   * The count in the composer is what says the notes are still there.
+   */
+  useEffect(() => {
+    if (!annotating) {
+      setPins([]);
+      return;
+    }
+    const remeasure = () => setPins(measurePins());
+    remeasure();
+
+    const geometry = st.active === null ? null : frameGeometry(st.active);
+    geometry?.view.addEventListener("scroll", remeasure, { passive: true });
+    geometry?.view.addEventListener("resize", remeasure);
+    window.addEventListener("resize", remeasure);
+    return () => {
+      geometry?.view.removeEventListener("scroll", remeasure);
+      geometry?.view.removeEventListener("resize", remeasure);
+      window.removeEventListener("resize", remeasure);
+    };
+  }, [annotating, measurePins, st.active]);
+
+  /**
+   * Escape backs out one step: the note being typed, then the mode. Bound
+   * here rather than in the keymap because Escape is a way out of whatever is
+   * open, not a shortcut, and the keymap deliberately holds only letters,
+   * digits and arrows.
+   */
+  useEffect(() => {
+    if (!annotating) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (draft !== null) {
+        setDraft(null);
+        return;
+      }
+      setAnnotating(false);
+      setPicked(null);
+    };
+    // The pointer may be over a preview, whose document owns the keystroke.
+    const targets: EventTarget[] = [window];
+    for (const frame of document.querySelectorAll("iframe")) {
+      try {
+        const inner = (frame as HTMLIFrameElement).contentDocument;
+        if (inner) targets.push(inner);
+      } catch {
+        // Another origin, which never had our listener to begin with.
+      }
+    }
+    for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+    return () => {
+      for (const target of targets)
+        target.removeEventListener("keydown", onKey as EventListener);
+    };
+  }, [annotating, draft]);
+
+  /** Leaving the mode drops anything half-typed with it. */
+  const stopAnnotating = () => {
+    setAnnotating(false);
+    setPicked(null);
+    setDraft(null);
+  };
+
+  const keepNote = (title: string, anchor: Anchor, text: string) => {
+    setDraft(null);
+    void addNote(title, text, anchor)
+      .then(() => bumpRequests())
+      .catch(() =>
+        st.notify({
+          kind: "request",
+          message: "That note could not be kept.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        }),
+      );
+  };
+
+  const forgetNote = (id: string) => {
+    void deleteNotes([id])
+      .then(() => bumpRequests())
+      .catch(() => {});
+  };
+
   const openAlone = (title: string) => {
     window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
   };
@@ -2108,7 +2312,9 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
               event.preventDefault();
               const value = intent.trim();
               const title = st.active;
-              if (!value || !title || sending) return;
+              // A note carries its own words and its own address, so pins
+              // alone are a request. Nothing at all still is not.
+              if ((!value && activeNotes.length === 0) || !title || sending) return;
               const name = st.displayName(title);
               setSending(true);
               void fetch("/leglas/api/request", {
@@ -2204,7 +2410,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   }
                 }}
                 placeholder={
-                  st.active ? `Change ${st.displayName(st.active)}…` : "No direction to change yet"
+                  st.active === null
+                    ? "No direction to change yet"
+                    : activeNotes.length > 0
+                      ? `Send ${activeNotes.length === 1 ? "the note" : `${activeNotes.length} notes`}, or add words…`
+                      : `Change ${st.displayName(st.active)}…`
                 }
                 ref={requestRef}
                 rows={1}
@@ -2263,6 +2473,51 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       </svg>
                     )}
                     {mode === "variant" ? "as a variant" : "in place"}
+                  </button>
+                </Tip>
+                {/* The way in that is not a keystroke, and the count that says
+                    the pins are still there once the mode is left. */}
+                <Tip
+                  label={
+                    annotating
+                      ? "Stop leaving notes"
+                      : activeNotes.length > 0
+                        ? "Show the notes on this direction"
+                        : "Point at what is wrong, instead of describing where it is"
+                  }
+                >
+                  <button
+                    aria-label={
+                      annotating
+                        ? "Stop leaving notes on the design"
+                        : `Leave notes on the design${
+                            activeNotes.length > 0 ? `, ${activeNotes.length} so far` : ""
+                          }`
+                    }
+                    aria-pressed={annotating}
+                    className={`flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none transition-colors ${
+                      annotating
+                        ? "bg-[#7C9CFF]/20 text-[#AFC2FF]"
+                        : "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                    }`}
+                    onClick={() => (annotating ? stopAnnotating() : setAnnotating(true))}
+                    type="button"
+                  >
+                    <svg
+                      aria-hidden
+                      fill="none"
+                      height="11"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      viewBox="0 0 16 16"
+                      width="11"
+                    >
+                      <path d="M8 1.8a4.2 4.2 0 0 1 4.2 4.2c0 3-4.2 8-4.2 8S3.8 9 3.8 6A4.2 4.2 0 0 1 8 1.8Z" strokeLinejoin="round" />
+                      <circle cx="8" cy="6" r="1.4" />
+                    </svg>
+                    {activeNotes.length > 0
+                      ? `${activeNotes.length} ${activeNotes.length === 1 ? "note" : "notes"}`
+                      : "Note"}
                   </button>
                 </Tip>
                 {chip.kind === "none" ? (
@@ -2532,11 +2787,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       : "Send the change"
                   }
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
-                    intent.trim() !== "" && st.active && !sending
+                    (intent.trim() !== "" || activeNotes.length > 0) && st.active && !sending
                       ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
                       : "pointer-events-none text-[#84848C]/60"
                   }`}
-                  disabled={intent.trim() === "" || !st.active || sending}
+                  disabled={(intent.trim() === "" && activeNotes.length === 0) || !st.active || sending}
                   type="submit"
                 >
                   {sending ? (
@@ -2719,7 +2974,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 worth reading is not worth reading at half size.
               */}
               <div
-                className={scaling ? "origin-top-left" : "size-full"}
+                className={scaling ? "relative origin-top-left" : "relative size-full"}
                 style={
                   scaling
                     ? {
@@ -2768,9 +3023,141 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     setErrored((current) => ({ ...current, [title]: true }));
                   }
                 }}
+                data-preview={title}
                 src={st.urlFor(title)}
                 title={`Preview: ${st.displayName(title)}`}
               />
+              {/*
+                The note layer. It lives inside the scaled box, so the outline
+                it draws traces the element at whatever size the pane is
+                showing it. Its own chrome is scaled back the other way: a pin
+                at half size is a pin nobody can read, and the numbers have to
+                match the ones in the request the agent gets.
+              */}
+              {annotating && title === st.active ? (
+                <div
+                  className="absolute inset-0 z-20 cursor-crosshair"
+                  onClick={(event) => {
+                    const hit = elementAt(title, event.clientX, event.clientY);
+                    if (hit === null) return;
+                    setPicked(null);
+                    const anchor = anchorFor(hit.element, hit.box, hit.view.innerWidth, {
+                      x: hit.point.x,
+                      y: hit.point.y,
+                    });
+                    setDraft({
+                      anchor,
+                      left: hit.box.left + anchor.spot.x * hit.box.width,
+                      title,
+                      top: hit.box.top + anchor.spot.y * hit.box.height,
+                    });
+                  }}
+                  onPointerLeave={() => setPicked(null)}
+                  onPointerMove={(event) => {
+                    if (draft !== null) return;
+                    const hit = elementAt(title, event.clientX, event.clientY);
+                    setPicked(
+                      hit === null
+                        ? null
+                        : {
+                            height: hit.box.height,
+                            left: hit.box.left,
+                            top: hit.box.top,
+                            width: hit.box.width,
+                          },
+                    );
+                  }}
+                >
+                  {picked !== null && draft === null ? (
+                    <div
+                      className="pointer-events-none absolute bg-[#7C9CFF]/10 outline outline-2 outline-[#7C9CFF]"
+                      style={{
+                        height: picked.height,
+                        left: picked.left,
+                        top: picked.top,
+                        width: picked.width,
+                      }}
+                    />
+                  ) : null}
+
+                  {pins.map((pin) => (
+                    <div
+                      className="group/pin absolute flex items-center gap-1"
+                      key={pin.id}
+                      style={{
+                        left: pin.left,
+                        top: pin.top,
+                        transform: `translate(-50%, -50%) scale(${scaling ? 1 / paneScale : 1})`,
+                        transformOrigin: "center",
+                      }}
+                    >
+                      <span
+                        className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow-lg ${
+                          pin.stale ? "bg-amber-500" : "bg-[#7C9CFF]"
+                        }`}
+                        title={pin.stale ? "This element has moved or gone since the note was left." : undefined}
+                      >
+                        {pin.number}
+                      </span>
+                      {/* The words and the way to drop them, on hover only:
+                          at rest the pane is showing a design, and a row of
+                          open notes over it is the thing in the way. */}
+                      <span className="pointer-events-none flex max-w-56 items-center gap-1 rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover/pin:pointer-events-auto group-hover/pin:opacity-100">
+                        <span className="min-w-0 flex-1 truncate">{pin.note || "No words"}</span>
+                        <button
+                          aria-label="Forget this note"
+                          className="shrink-0 rounded px-1 text-[#84848C] transition-colors hover:text-white"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            forgetNote(pin.id);
+                          }}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+
+                  {draft !== null && draft.title === title ? (
+                    <form
+                      className="absolute z-30 w-64 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl"
+                      onClick={(event) => event.stopPropagation()}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const field = event.currentTarget.elements.namedItem("note");
+                        keepNote(
+                          draft.title,
+                          draft.anchor,
+                          field instanceof HTMLInputElement ? field.value.trim() : "",
+                        );
+                      }}
+                      style={{
+                        left: draft.left,
+                        top: draft.top + 8,
+                        transform: `scale(${scaling ? 1 / paneScale : 1})`,
+                        transformOrigin: "top left",
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 text-xs text-white placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
+                        name="note"
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setDraft(null);
+                          }
+                        }}
+                        placeholder={`What is wrong with this ${draft.anchor.tag}?`}
+                      />
+                      <p className="px-1 pt-1 text-[10px] leading-snug text-[#84848C]">
+                        Enter keeps it · Esc drops it
+                      </p>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
               </div>
               {errored[title] ? (
                 <ErrorOverlay

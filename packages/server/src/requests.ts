@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
+import { describeAnnotations, type Annotation } from "./annotations.js";
 import type { Preview } from "./config.js";
 import type { Failure, FailureCode } from "./failure.js";
 
@@ -81,17 +82,63 @@ export function composeRequest(
   preview: Preview,
   intent: string,
   mode: RequestMode,
+  notes: readonly Annotation[] = [],
 ): ComposedRequest {
   // A file-backed preview names its own source; a URL has to be decoded.
   const target = preview.file ?? targetFor(preview.url);
   const cleaned = intent.trim();
+  const asked = changeBlock(cleaned, notes);
+  // What the new direction will record as the request behind it. Typed words
+  // when there are any; otherwise the notes are the request, and a variant
+  // that recorded an empty string would be the one thing on the rail nobody
+  // can account for.
+  const recorded =
+    cleaned === ""
+      ? notes
+          .map((entry) => entry.note)
+          .filter((entry) => entry !== "")
+          .join("; ")
+      : cleaned;
 
   const prompt =
     mode === "variant"
-      ? variantPrompt(preview, cleaned, target)
-      : replacePrompt(preview, cleaned, target);
+      ? variantPrompt(preview, recorded, asked, target)
+      : replacePrompt(preview, asked, target);
 
   return { prompt, target, mode };
+}
+
+/**
+ * How the anchors are to be read, said once rather than per note.
+ *
+ * The order is the order they go stale in. An agent handed a stale CSS path
+ * and told nothing else will either edit the wrong element or give up; told
+ * which facts to trust first, it finds the right one from the words on screen
+ * almost every time.
+ */
+const ANCHORS =
+  `Each path and rectangle was recorded when the note was left, against the ` +
+  `design as it looked then. Trust the element's own words first, then its ` +
+  `tag and classes, then the path, and treat the rectangle as a hint about ` +
+  `where on the page to look rather than a fact.`;
+
+/**
+ * What was asked for: typed words, notes left on the design, or both.
+ *
+ * A note carries its own address, so the words left over are only about what
+ * is wrong. That is the whole reason the pins exist, and why a request with
+ * nothing typed into the composer is still a complete request.
+ */
+function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
+  if (notes.length === 0) return `What to change: ${cleaned}`;
+
+  const many = notes.length === 1 ? "a note" : `${notes.length} notes`;
+  const lead =
+    cleaned === ""
+      ? `What to change, left as ${many} on the design itself:`
+      : `What to change: ${cleaned}\n\nAnd ${many} left on the design itself:`;
+
+  return `${lead}\n\n${describeAnnotations(notes)}\n\n${ANCHORS}`;
 }
 
 /**
@@ -112,7 +159,7 @@ const SCOPE =
   `the change additive: do not rewrite shared components that other ` +
   `directions rely on.`;
 
-function replacePrompt(preview: Preview, cleaned: string, target: string | null): string {
+function replacePrompt(preview: Preview, asked: string, target: string | null): string {
   const where =
     target === null
       ? `The direction is titled "${preview.title}" and renders at ${preview.url}. Find what produces it.`
@@ -124,7 +171,7 @@ function replacePrompt(preview: Preview, cleaned: string, target: string | null)
 
   return (
     `In this project, change only the "${preview.title}" design direction. ${where}\n\n` +
-    `What to change: ${cleaned}\n\n` +
+    `${asked}\n\n` +
     `${pace}${SCOPE} The direction is already registered, so nothing needs ` +
     `re-registering.`
   );
@@ -146,10 +193,15 @@ function replacePrompt(preview: Preview, cleaned: string, target: string | null)
  * `leglas add` is the same path `leglas explore` already teaches and it
  * validates the entry before it can reach the rail broken.
  */
-function variantPrompt(preview: Preview, cleaned: string, target: string | null): string {
+function variantPrompt(
+  preview: Preview,
+  recorded: string,
+  asked: string,
+  target: string | null,
+): string {
   const slot = variantSlot(preview.url);
   const parent = JSON.stringify(preview.title);
-  const asked = JSON.stringify(cleaned);
+  const askedFor = JSON.stringify(recorded);
 
   const source =
     target === null
@@ -162,7 +214,7 @@ function variantPrompt(preview: Preview, cleaned: string, target: string | null)
     preview.file !== undefined
       ? [
           `Copy that file to a new file beside it and make the change in the copy.`,
-          `  npx leglas add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+          `  npx leglas add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
         ]
       : slot !== null
         ? [
@@ -170,14 +222,14 @@ function variantPrompt(preview: Preview, cleaned: string, target: string | null)
               `in the copy. The new file's name without its extension is its key, ` +
               `and that key has to be listed in the DIRECTIONS map in ` +
               `.leglas/variants/${slot.surface}/switch.tsx or its URL will not resolve.`,
-            `  npx leglas add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+            `  npx leglas add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ]
         : [
             `Copy its source rather than editing it, and make the change in the ` +
               `copy. Add the new direction the way this project already switches ` +
               `between them; if it has a Leglas branch point, that is the ` +
               `DIRECTIONS map in .leglas/variants/<surface>/switch.tsx.`,
-            `  npx leglas add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${asked}`,
+            `  npx leglas add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ];
 
   return (
@@ -185,7 +237,7 @@ function variantPrompt(preview: Preview, cleaned: string, target: string | null)
     `"${preview.title}" direction. Leave "${preview.title}" itself exactly as ` +
     `it is: it is the thing the new one will be compared against.\n\n` +
     `${source} ${make}\n\n` +
-    `What to change: ${cleaned}\n\n` +
+    `${asked}\n\n` +
     `Then register it, which is what puts it on the rail:\n\n` +
     `${register}\n\n` +
     `Name it for its idea rather than numbering it, and keep the name short ` +
@@ -235,6 +287,12 @@ export type PendingRequest = {
    * as `replace`: that is what those requests actually did.
    */
   mode?: RequestMode;
+  /**
+   * The notes this change answers, by id. Present only when pins were left.
+   * A change made in place forgets them once it lands, because the design
+   * they point at is the one that was just rewritten.
+   */
+  notes?: readonly string[];
 };
 
 const FAILURE_CODES: readonly FailureCode[] = [
