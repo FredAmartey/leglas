@@ -28,6 +28,8 @@ describe("KNOWN_AGENTS", () => {
     expect(KNOWN_AGENTS.codex.args("make it warmer")).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -50,6 +52,8 @@ describe("KNOWN_AGENTS", () => {
     ]);
     expect(KNOWN_AGENTS.codex.terminalArgs("make it warmer")).toEqual([
       "exec",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -77,6 +81,17 @@ test("codex is told it may run outside a git repository", () => {
   // The flag moves the repository precondition and nothing else: the sandbox
   // still confines writes to the workspace.
   expect(KNOWN_AGENTS.codex.args("make it warmer")).toContain("workspace-write");
+});
+
+test("codex can inspect the live preview without changing the user's quality settings", () => {
+  for (const argv of [
+    KNOWN_AGENTS.codex.args("make it warmer"),
+    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
+    KNOWN_AGENTS.codex.terminalArgs("make it warmer"),
+  ]) {
+    expect(argv).toContain("sandbox_workspace_write.network_access=true");
+    expect(argv.join(" ")).not.toMatch(/model_reasoning_effort|--model|-m /);
+  }
 });
 
 test("detectAgents probes binaries and logins through the injected hooks", async () => {
@@ -126,7 +141,7 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
 });
 
-test("resume argv continues the session, and codex carries no sandbox flag", () => {
+test("resume argv continues the session without trying to replace its sandbox", () => {
   expect(KNOWN_AGENTS.claude.resumeArgs("sid-1", "make it warmer")).toEqual([
     "-p",
     "--resume",
@@ -145,6 +160,8 @@ test("resume argv continues the session, and codex carries no sandbox flag", () 
     "resume",
     "sid-2",
     "--json",
+    "-c",
+    "sandbox_workspace_write.network_access=true",
     "--skip-git-repo-check",
     "make it warmer",
   ]);

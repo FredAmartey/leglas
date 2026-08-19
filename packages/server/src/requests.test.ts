@@ -82,11 +82,36 @@ describe("composeRequest, as a variant", () => {
       "variant",
     );
 
-    expect(prompt).toContain("npx leglas add");
+    expect(prompt).toContain("npx -y leglas add");
     expect(prompt).toContain('--url "/?v-hero=<key>"');
     expect(prompt).toContain('--based-on "Poster"');
     expect(prompt).toContain('--asked-for "warmer"');
     expect(prompt).toContain(".leglas/variants/hero/switch.tsx");
+  });
+
+  test("registers through the exact running CLI without package discovery", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+      [],
+      'node "/opt/Leglas Current/bin.js"',
+    );
+
+    expect(prompt).toContain('node "/opt/Leglas Current/bin.js" add');
+    expect(prompt).not.toContain("npx");
+  });
+
+  test("marks interface discovery and server startup as already complete", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("Request collection, direction discovery and the live-server check are already complete");
+    expect(prompt).toContain("do not start or restart the app or Leglas");
+    expect(prompt).toContain("Use the existing live preview");
   });
 
   // A quote in the request would end the argument early and hand the shell

@@ -87,6 +87,12 @@ export type ServerOptions = {
   /** Project root, where the request queue is written. */
   cwd?: string;
   /**
+   * Exact command for the running Leglas CLI. Embedded requests use it for
+   * registration so the agent never pays for npx package discovery or lands
+   * on a cached version with a different command surface.
+   */
+  leglasCommand?: string;
+  /**
    * Directories served under FILES_PREFIX, keyed by mount slug. This is how a
    * file-backed preview renders with no dev server at all: the whole
    * directory is mounted, so a page's sibling assets resolve too.
@@ -342,6 +348,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shellDir = null,
     project = "",
     cwd = process.cwd(),
+    leglasCommand = "npx -y leglas",
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
   } = options;
@@ -591,7 +598,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const composed = composeRequest(preview, intent, mode, notes);
+        const composed = composeRequest(preview, intent, mode, notes, leglasCommand);
         void appendRequest(cwd, {
           title: preview.title,
           url: preview.url,

@@ -58,6 +58,14 @@ describe("planInit", () => {
     );
   });
 
+  test("does not repeat setup for a request created by the running interface", () => {
+    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
+
+    expect(contents).toMatch(/already\s+completed exploration, request collection/);
+    expect(contents).toMatch(/Do not\s+repeat `explore`, `requests`, `list`/);
+    expect(contents).toContain("or server startup");
+  });
+
   test("teaches the hands-free path so agents can offer it", () => {
     const contents = write(plan(), "AGENTS.md")?.contents ?? "";
 

@@ -29,6 +29,17 @@ export type AnnotationAnchor = {
   rect: AnnotationRect;
   /** The point that was pointed at, as a fraction of the element's own box. */
   spot: { x: number; y: number };
+  /**
+   * A dragged region, as fractions of the element's own box.
+   *
+   * Present when the annotation was swept across an area rather than aimed at
+   * one thing. The element is then the nearest thing that holds the whole
+   * region, which is what makes the note resolvable at all: the region itself
+   * belongs to no element.
+   */
+  region?: { x: number; y: number; width: number; height: number };
+  /** The outermost elements that region covers, for the agent to recognise it. */
+  covers?: readonly { tag: string; text: string }[];
   viewport: number;
 };
 
@@ -47,6 +58,7 @@ const TEXT_CAP = 120;
 const TAG_CAP = 40;
 const CLASS_CAP = 8;
 const CLASS_LENGTH_CAP = 60;
+const COVERS_CAP = 8;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -88,8 +100,30 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
         .map((entry) => entry.slice(0, CLASS_LENGTH_CAP))
     : [];
 
+  const rawRegion = isRecord(value["region"]) ? value["region"] : null;
+  const region =
+    rawRegion === null
+      ? null
+      : {
+          height: fraction(rawRegion["height"]),
+          width: fraction(rawRegion["width"]),
+          x: fraction(rawRegion["x"]),
+          y: fraction(rawRegion["y"]),
+        };
+  const covers = Array.isArray(value["covers"])
+    ? value["covers"]
+        .filter(isRecord)
+        .slice(0, COVERS_CAP)
+        .map((entry) => ({
+          tag: text(entry["tag"], TAG_CAP) || "element",
+          text: text(entry["text"], TEXT_CAP),
+        }))
+    : [];
+
   return {
     classes,
+    ...(covers.length === 0 ? {} : { covers }),
+    ...(region === null ? {} : { region }),
     rect: {
       height: size(rect["height"]),
       width: size(rect["width"]),
@@ -180,13 +214,25 @@ export function annotationsFor(
  * stale and is only ever a hint about where to look.
  */
 export function describeAnchor(anchor: AnnotationAnchor): string {
-  const parts = [`<${anchor.tag}>`];
-  if (anchor.classes.length > 0) parts.push(`class "${anchor.classes.join(" ")}"`);
-  if (anchor.text !== "") parts.push(`reading “${anchor.text}”`);
-
   const where =
     `about ${anchor.rect.width}×${anchor.rect.height} at ` +
     `(${anchor.rect.x}, ${anchor.rect.y}) in a ${anchor.viewport}px-wide viewport`;
+
+  // A swept region is not "this element", and saying so would send an agent
+  // to rewrite a container when the point was the row of things inside it.
+  // What it covers leads, because that is what was being looked at; the
+  // element is named as the thing that holds them.
+  if (anchor.region !== undefined) {
+    const covered = (anchor.covers ?? [])
+      .map((entry) => (entry.text === "" ? `<${entry.tag}>` : `<${entry.tag}> “${entry.text}”`))
+      .join(", ");
+    const inside = covered === "" ? "" : ` covering ${covered};`;
+    return `an area inside <${anchor.tag}>;${inside} path ${anchor.selector}; ${where}`;
+  }
+
+  const parts = [`<${anchor.tag}>`];
+  if (anchor.classes.length > 0) parts.push(`class "${anchor.classes.join(" ")}"`);
+  if (anchor.text !== "") parts.push(`reading “${anchor.text}”`);
 
   return `${parts.join(", ")}; path ${anchor.selector}; ${where}`;
 }

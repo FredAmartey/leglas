@@ -20,16 +20,21 @@ minor, not a patch.
 ### Added
 
 - **Point at what is wrong instead of describing where it is.** Press `A`, or
-  use the chip beside the send button, and the preview turns into a picker:
-  hovering outlines the element under the pointer, clicking drops a numbered
-  pin and takes a note. Pins alone are a complete request, so the composer can
-  be left empty; what it does take is the sentence about the change rather
-  than the paragraph about which element. Each note carries the element's own
-  words, its tag and classes, a CSS path and the rectangle it filled, and the
-  request tells the agent which of those to trust as the design moves under
-  them. A pin whose element has gone says so rather than pointing confidently
-  at the wrong thing. Notes live in `.leglas/annotations.json`, and a change
-  made in place forgets the ones it answered. (`leglas`)
+  use the Annotate chip beside the send button, and the preview turns into a
+  picker: hovering outlines the element under the pointer, clicking drops a
+  numbered pin and takes a note, and dragging marks an area and names every
+  element it covers. The page still scrolls while the mode is on, so what is
+  below the fold is as reachable as what is not. Annotations alone are a
+  complete request, so the composer can be left empty; what it does take is
+  the sentence about the change rather than the paragraph about which element.
+  Each one carries the element's own words, its tag and classes, a CSS path
+  and the rectangle it filled, and the request tells the agent which of those
+  to trust as the design moves under them. One whose element has gone says so
+  rather than pointing confidently at the wrong thing. The card that takes the
+  words keeps clear of what it is asking about, flipping and shifting at the
+  edges of the pane rather than hanging off them. They live in
+  `.leglas/annotations.json`, and a change made in place forgets the ones it
+  answered. (`leglas`)
 - **A change makes a variant instead of overwriting the direction.** Sending
   "the pouch looks fake" at a direction used to edit that direction's file, so
   the thing being compared against was gone. It now builds a new direction
@@ -45,6 +50,16 @@ minor, not a patch.
   `leglas-mcp`)
 
 ### Fixed
+
+- **Embedded Codex changes keep their quality without paying orchestration
+  tax.** Leglas still respects the user's selected model and reasoning effort,
+  but Codex can now reach the live localhost preview from its workspace
+  sandbox. Interface-generated requests say that exploration, collection and
+  server startup are already complete, and registration calls the exact
+  running Leglas CLI instead of asking `npx` to discover and possibly fetch a
+  package. This removes the cache probes, duplicate dev-server attempts and
+  version hunt that could turn a small design edit into a multi-minute run.
+  (`leglas`)
 
 - **Codex works in a project that is not a git repository.** `codex exec`
   refuses such a directory before it reaches a model, so every Codex request

@@ -205,6 +205,8 @@ describe("startRunner", () => {
     expect(spawned.calls[0]?.[1]).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -223,6 +225,8 @@ describe("startRunner", () => {
       "resume",
       "th_1",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "--skip-git-repo-check",
       "prompt for Second",
     ]);
@@ -299,6 +303,8 @@ describe("startRunner", () => {
     expect(spawned.calls[2]?.[1]).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
       "--skip-git-repo-check",

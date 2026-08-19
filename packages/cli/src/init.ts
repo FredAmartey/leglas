@@ -29,6 +29,11 @@ direction. Build it directly. A planning or approval step before implementing
 costs more than the work itself, and the directions on screen are the thing
 being asked for.
 
+A request that says it came from the running Leglas interface has already
+completed exploration, request collection and the live-server check. Follow
+the exact source and registration command in that request directly. Do not
+repeat \`explore\`, \`requests\`, \`list\`, CLI help/version checks or server startup.
+
 When asked for design variations, alternatives, or "a few options":
 
 1. **Add beside what exists. Never replace it.** Every direction has to render

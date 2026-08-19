@@ -107,7 +107,7 @@ export function shortcutList(mac: boolean): readonly Shortcut[] {
     { keys: ["1", "9"], join: "to", label: "Jump straight to a direction" },
     { keys: ["C"], label: "Compare against the direction you were last on" },
     { keys: ["R"], label: "Ask for a change to this direction" },
-    { keys: ["A"], label: "Leave notes on the design itself" },
+    { keys: ["A"], label: "Annotate the design: point at what is wrong" },
     { keys: [searchCap(mac)], label: "Search" },
     { keys: ["B"], label: "Collapse or open the rail" },
     { keys: ["T"], label: "Open or close the Leglas dev tool menu" },

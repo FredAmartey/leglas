@@ -48,6 +48,16 @@ export type Anchor = {
    * the thing that was pointed at.
    */
   spot: { x: number; y: number };
+  /**
+   * A swept area, as fractions of the element's own box.
+   *
+   * Present when the annotation was dragged across a region rather than aimed
+   * at one thing. The element is then the nearest one holding the whole
+   * region, because the region itself belongs to none.
+   */
+  region?: { x: number; y: number; width: number; height: number };
+  /** The outermost elements the region covers, for the agent to recognise it. */
+  covers?: readonly { tag: string; text: string }[];
   /** The viewport width it was placed at, since layout is width-dependent. */
   viewport: number;
 };

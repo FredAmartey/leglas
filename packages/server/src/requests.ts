@@ -83,6 +83,7 @@ export function composeRequest(
   intent: string,
   mode: RequestMode,
   notes: readonly Annotation[] = [],
+  leglasCommand = "npx -y leglas",
 ): ComposedRequest {
   // A file-backed preview names its own source; a URL has to be decoded.
   const target = preview.file ?? targetFor(preview.url);
@@ -102,7 +103,7 @@ export function composeRequest(
 
   const prompt =
     mode === "variant"
-      ? variantPrompt(preview, recorded, asked, target)
+      ? variantPrompt(preview, recorded, asked, target, leglasCommand)
       : replacePrompt(preview, asked, target);
 
   return { prompt, target, mode };
@@ -151,6 +152,11 @@ function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
  * vendor, because the edit itself takes seconds.
  */
 const SCOPE =
+  `This request came from the running Leglas interface. Request collection, ` +
+  `direction discovery and the live-server check are already complete. Do not ` +
+  `run Leglas explore, requests, list, show, help or version commands, do not ` +
+  `inspect package caches, and do not start or restart the app or Leglas. Use ` +
+  `the existing live preview if visual inspection is useful.\n\n` +
   `This is a scoped design change: no test run, no build, and no survey of ` +
   `the rest of the project is needed. The result is checked visually in a ` +
   `live preview, not by tooling.\n\n` +
@@ -198,6 +204,7 @@ function variantPrompt(
   recorded: string,
   asked: string,
   target: string | null,
+  leglasCommand: string,
 ): string {
   const slot = variantSlot(preview.url);
   const parent = JSON.stringify(preview.title);
@@ -214,7 +221,7 @@ function variantPrompt(
     preview.file !== undefined
       ? [
           `Copy that file to a new file beside it and make the change in the copy.`,
-          `  npx leglas add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+          `  ${leglasCommand} add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
         ]
       : slot !== null
         ? [
@@ -222,14 +229,14 @@ function variantPrompt(
               `in the copy. The new file's name without its extension is its key, ` +
               `and that key has to be listed in the DIRECTIONS map in ` +
               `.leglas/variants/${slot.surface}/switch.tsx or its URL will not resolve.`,
-            `  npx leglas add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+            `  ${leglasCommand} add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ]
         : [
             `Copy its source rather than editing it, and make the change in the ` +
               `copy. Add the new direction the way this project already switches ` +
               `between them; if it has a Leglas branch point, that is the ` +
               `DIRECTIONS map in .leglas/variants/<surface>/switch.tsx.`,
-            `  npx leglas add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+            `  ${leglasCommand} add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ];
 
   return (

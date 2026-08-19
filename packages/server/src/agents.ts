@@ -17,6 +17,18 @@ export type AgentAuth = "ok" | "signed-out" | "unknown";
 
 type ProbeResult = { code: number; stdout: string };
 
+/**
+ * The embedded runner edits a live application. Workspace-write remains the
+ * filesystem boundary, while loopback/network access lets Codex inspect the
+ * dev server that is already running instead of trying and failing to boot a
+ * second one. This deliberately says nothing about model or reasoning effort:
+ * those stay the user's choice.
+ */
+const CODEX_WORKSPACE_CONFIG = [
+  "-c",
+  "sandbox_workspace_write.network_access=true",
+] as const;
+
 // `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
 // a human-watched terminal. Keep the pair in step when an agent's CLI changes.
 // `authArgs` asks the CLI whether its login is live, and `authVerdict` reads
@@ -85,6 +97,7 @@ export const KNOWN_AGENTS = {
     args: (prompt: string): string[] => [
       "exec",
       "--json",
+      ...CODEX_WORKSPACE_CONFIG,
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -92,6 +105,7 @@ export const KNOWN_AGENTS = {
     ],
     terminalArgs: (prompt: string): string[] => [
       "exec",
+      ...CODEX_WORKSPACE_CONFIG,
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -105,6 +119,7 @@ export const KNOWN_AGENTS = {
       "resume",
       sessionId,
       "--json",
+      ...CODEX_WORKSPACE_CONFIG,
       "--skip-git-repo-check",
       prompt,
     ],

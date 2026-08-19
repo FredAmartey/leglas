@@ -176,6 +176,51 @@ describe("annotationsFor", () => {
   });
 });
 
+describe("a swept region", () => {
+  const region = anchor({
+    covers: [
+      { tag: "h1", text: "Dried fruit, done properly" },
+      { tag: "p", text: "Made in Ghana" },
+    ],
+    region: { height: 0.4, width: 0.8, x: 0.1, y: 0.2 },
+    tag: "main",
+  });
+
+  test("survives the round trip", () => {
+    expect(anchorFrom(region)).toEqual(region);
+  });
+
+  test("keeps a region inside the element it is a fraction of", () => {
+    const read = anchorFrom({ ...region, region: { height: 9, width: -1, x: 0.5, y: 2 } });
+
+    expect(read?.region).toEqual({ height: 1, width: 0, x: 0.5, y: 1 });
+  });
+
+  test("caps what a drag across half the page can record", () => {
+    const read = anchorFrom({
+      ...region,
+      covers: Array.from({ length: 40 }, () => ({ tag: "div", text: "x".repeat(400) })),
+    });
+
+    expect(read?.covers).toHaveLength(8);
+    expect(read?.covers?.[0]?.text).toHaveLength(120);
+  });
+
+  // Sending an agent to rewrite the container when the point was the row of
+  // things inside it is the failure this wording exists to prevent.
+  test("is described as an area, not as the element that holds it", () => {
+    const written = describeAnchor(region);
+
+    expect(written).toContain("an area inside <main>");
+    expect(written).toContain('covering <h1> “Dried fruit, done properly”, <p> “Made in Ghana”');
+    expect(written).not.toContain("reading “Made in Ghana”");
+  });
+
+  test("an ordinary annotation is still described as its element", () => {
+    expect(describeAnchor(anchor())).toContain("<div>, class \"pouch\"");
+  });
+});
+
 describe("describeAnchor", () => {
   test("leads with what survives a change and ends with what does not", () => {
     expect(describeAnchor(anchor())).toBe(

@@ -143,7 +143,11 @@ describe("runWatch", () => {
 
   test.each([
     ["claude", "Claude", "claude -p {prompt} --permission-mode acceptEdits"],
-    ["codex", "Codex", "codex exec -s workspace-write --skip-git-repo-check {prompt}"],
+    [
+      "codex",
+      "Codex",
+      "codex exec -c sandbox_workspace_write.network_access=true -s workspace-write --skip-git-repo-check {prompt}",
+    ],
     ["cursor", "Cursor", "cursor-agent -p {prompt}"],
   ])("synthesizes the terminal template for %s", async (agent, name, command) => {
     const root = cwd();
