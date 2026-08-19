@@ -135,12 +135,13 @@ export type Covered = { tag: string; text: string };
 const COVERS_CAP = 8;
 
 /**
- * What a region contains, as the request will describe it.
+ * What a region covers, as the request will describe it.
  *
- * Only the outermost elements: a dragged box over a card catches the card,
- * its heading, the heading's span and the text node's wrapper, and listing
- * all four says no more than listing the first. Anything already inside
- * something else on the list is dropped.
+ * The innermost things the sweep touches, not the outermost. A box drawn
+ * around a row of cards is held by the row, and naming the row says only
+ * "the row"; naming the heading and the sentence inside each card says what
+ * was actually being looked at. Anything with a touched descendant is that
+ * descendant's container, so it is dropped in favour of it.
  */
 export function coversFrom(entries: readonly Covered[]): Covered[] {
   const seen = new Set<string>();

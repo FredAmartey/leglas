@@ -9,6 +9,7 @@ import {
   coversFrom,
   fractionsIn,
   isDrag,
+  overlaps,
   placeCard,
   type Box,
   type Point,
@@ -347,26 +348,28 @@ export function AnnotateLayer({
    */
   const sweep = (at: Geometry, region: Box) => {
     const all = [...at.doc.body.querySelectorAll("*")].slice(0, SCAN_CAP);
-    const inside = all.filter((element) => {
+    // Touched, not enclosed. A band swept through a row of cards encloses
+    // none of them, and requiring containment described that as an area
+    // covering nothing at all. Sweeping through things is the gesture people
+    // actually make, so intersecting the sweep is what counts.
+    const touched = all.filter((element) => {
       const box = boxOf(element.getBoundingClientRect());
-      return box.width > 0 && box.height > 0 && contains(region, box);
+      return box.width > 0 && box.height > 0 && overlaps(region, box);
     });
-    let outermost = inside.filter(
-      (element) => !inside.some((other) => other !== element && other.contains(element)),
+    // The innermost of those, not the outermost. A box drawn around a row is
+    // held by the row, and naming the row says only "the row"; naming the
+    // heading and the sentence inside each card says what was being looked
+    // at. Anything with a touched descendant is that descendant's container.
+    const covered = touched.filter(
+      (element) =>
+        !touched.some((other) => other !== element && element.contains(other)) &&
+        // Scaffolding with no words and no picture of its own tells an agent
+        // nothing it can act on.
+        (elementText(element.textContent) !== "" ||
+          ["a", "button", "canvas", "img", "input", "svg", "video"].includes(
+            element.tagName.toLowerCase(),
+          )),
     );
-    // A sweep across three cards catches the grid that holds them, and naming
-    // the grid describes the area as one run-on string of everyone's text. If
-    // the whole region turned out to be a single container whose children are
-    // all inside it too, the children are what was being pointed at.
-    while (outermost.length === 1) {
-      const only = outermost[0] as Element;
-      const children = [...only.children].filter((child) => {
-        const box = boxOf(child.getBoundingClientRect());
-        return box.width > 0 && box.height > 0 && contains(region, box);
-      });
-      if (children.length < 2) break;
-      outermost = children;
-    }
 
     // The nearest thing that holds the whole region, which is what makes the
     // annotation resolvable: the region itself belongs to no element.
@@ -379,7 +382,7 @@ export function AnnotateLayer({
 
     return {
       covers: coversFrom(
-        outermost.map((element) => ({
+        covered.map((element) => ({
           tag: element.tagName.toLowerCase(),
           text: elementText(element.textContent),
         })),
