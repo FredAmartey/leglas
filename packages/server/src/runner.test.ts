@@ -69,6 +69,26 @@ const until = async (condition: () => Promise<boolean> | boolean): Promise<void>
   }
 };
 
+/**
+ * Beat the manual clock until something happens.
+ *
+ * One `tick()` is not enough on its own: the runner refuses to overlap a tick
+ * that is still in flight, and the tail of a run does real asynchronous work
+ * (writing the verdict, or dropping the finished request) after the thing a
+ * test waits on is already observable. In the server that costs nothing,
+ * because the real interval fires again two seconds later. With a clock the
+ * test drives, a swallowed tick is the end of the story, so the test keeps
+ * beating.
+ */
+const tickUntil = async (
+  clock: { tick(): void },
+  condition: () => Promise<boolean> | boolean,
+): Promise<void> =>
+  until(async () => {
+    clock.tick();
+    return await condition();
+  });
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("startRunner", () => {
@@ -100,8 +120,7 @@ describe("startRunner", () => {
 
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
-    clock.tick();
-    await until(() => spawned.calls.length === 2);
+    await tickUntil(clock, () => spawned.calls.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("prompt for Second");
 
     spawned.children[1]?.close(0);
@@ -110,7 +129,7 @@ describe("startRunner", () => {
     expect(clock.clearInterval).toHaveBeenCalledWith("timer");
   });
 
-  test("keeps a failed request picked-up and never retries it", async () => {
+  test("records a failed request as failed and never retries it", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-failed-"));
     await saveAgentChoice(cwd, { agent: "codex" });
@@ -128,10 +147,15 @@ describe("startRunner", () => {
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.close(1);
     await until(() => !runner.snapshot().running);
-    expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
-    expect(runner.snapshot().failedIds).toEqual([
-      (await readRequests(cwd))[0]?.id,
-    ]);
+    const [broken] = await readRequests(cwd);
+    expect(broken?.status).toBe("failed");
+    // No story in the output, so the verdict is the honest one: the agent ran
+    // and exited nonzero, and its last words are in the terminal.
+    expect(broken?.failure).toEqual({
+      code: "agent-error",
+      message: "Codex exited with code 1. Its last output is in the Leglas terminal.",
+    });
+    expect(runner.snapshot().failedIds).toEqual([broken?.id]);
     clock.tick();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
@@ -156,8 +180,7 @@ describe("startRunner", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(0);
     attached = false;
-    clock.tick();
-    await until(() => spawned.calls.length === 1);
+    await tickUntil(clock, () => spawned.calls.length === 1);
 
     spawned.children[0]?.close(0);
     await runner.stop();
@@ -182,8 +205,11 @@ describe("startRunner", () => {
     expect(spawned.calls[0]?.[1]).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
+      "--skip-git-repo-check",
       "prompt for First",
     ]);
     spawned.children[0]?.child.stdout.write(
@@ -192,14 +218,16 @@ describe("startRunner", () => {
     spawned.children[0]?.close(0);
 
     await until(async () => (await readRequests(cwd)).length === 1);
-    clock.tick();
-    await until(() => spawned.children.length === 2);
+    await tickUntil(clock, () => spawned.children.length === 2);
     // The second request continues the first one's conversation.
     expect(spawned.calls[1]?.[1]).toEqual([
       "exec",
       "resume",
       "th_1",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
+      "--skip-git-repo-check",
       "prompt for Second",
     ]);
     spawned.children[1]?.child.stdout.write(
@@ -225,7 +253,7 @@ describe("startRunner", () => {
     });
 
     for (let turn = 1; turn <= 10; turn += 1) {
-      await until(() => spawned.children.length === turn);
+      await tickUntil(clock, () => spawned.children.length === turn);
       const argv = spawned.calls[turn - 1]?.[1] ?? [];
       // Turn 1 opens the session, 2 through 8 ride it, 9 hits the cap and
       // opens a fresh one, 10 rides that. The cap is the whole point: an
@@ -238,7 +266,6 @@ describe("startRunner", () => {
       );
       spawned.children[turn - 1]?.close(0);
       await until(async () => (await readRequests(cwd)).length === 10 - turn);
-      clock.tick();
     }
     await runner.stop();
   });
@@ -265,10 +292,9 @@ describe("startRunner", () => {
     );
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
-    clock.tick();
 
     // The resume dies instantly, the way a vendor-expired session does.
-    await until(() => spawned.children.length === 2);
+    await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("resume");
     spawned.children[1]?.close(1);
 
@@ -277,8 +303,11 @@ describe("startRunner", () => {
     expect(spawned.calls[2]?.[1]).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
+      "--skip-git-repo-check",
       "prompt for Fragile",
     ]);
     spawned.children[2]?.child.stdout.write(
@@ -313,11 +342,10 @@ describe("startRunner", () => {
     );
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 2);
-    clock.tick();
 
     // The resumed run edits a file, then dies. Rerunning could stack a second
     // half-edit on the first, so this must surface as a failure.
-    await until(() => spawned.children.length === 2);
+    await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("resume");
     spawned.children[1]?.child.stdout.write(
       `${JSON.stringify({ type: "item.started", item: { type: "file_change", changes: [{ path: "x.html" }] } })}\n`,
@@ -327,8 +355,7 @@ describe("startRunner", () => {
     expect(spawned.children).toHaveLength(2);
 
     // The conversation is over: the next request starts cold.
-    clock.tick();
-    await until(() => spawned.children.length === 3);
+    await tickUntil(clock, () => spawned.children.length === 3);
     expect(spawned.calls[2]?.[1][0]).toBe("exec");
     expect(spawned.calls[2]?.[1][1]).toBe("--json");
     spawned.children[2]?.close(0);
@@ -403,11 +430,141 @@ describe("startRunner", () => {
     await until(() => !runner.snapshot().running);
     expect(runner.snapshot().startedAt).toBeNull();
     expect(runner.cancel()).toBe(false);
-    expect((await readRequests(cwd))[0]?.status).toBe("picked-up");
+    // Written down as stopped, not parked as picked-up: a restart must not
+    // read this back as a run still in flight.
+    expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
 
     clock.tick();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
+    await runner.stop();
+  });
+
+  test("an overloaded provider is not answered with a second cold run", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-overload-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Seed"));
+    await appendRequest(cwd, input("Poster"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.children.length === 1);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+
+    // The resume exhausts the vendor's own retry ladder against an overloaded
+    // provider: ten attempts, roughly 200 seconds, then a nonzero exit. The
+    // session is fine, so the old rule would fire a second cold run and pay
+    // the whole ladder again while the provider is still down.
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).toContain("--resume");
+    spawned.children[1]?.child.stdout.write(
+      `${JSON.stringify({
+        type: "system",
+        subtype: "api_retry",
+        attempt: 10,
+        max_retries: 10,
+        error_status: 529,
+        error: "overloaded",
+      })}\n`,
+    );
+    spawned.children[1]?.close(1);
+
+    await until(() => runner.snapshot().failedIds.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(spawned.children).toHaveLength(2);
+
+    const failed = (await readRequests(cwd))[0];
+    expect(failed?.status).toBe("failed");
+    expect(failed?.failure?.code).toBe("provider-overloaded");
+    await runner.stop();
+  });
+
+  test("a cancelled request is recorded as cancelled, not as a failure to retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cancel-state-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Poster"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => runner.snapshot().running);
+    expect(runner.cancel()).toBe(true);
+    await until(() => !runner.snapshot().running);
+
+    // Written down, so a restart cannot read this back as "your agent is on
+    // it" and the interface can say who stopped it.
+    const stopped = (await readRequests(cwd))[0];
+    expect(stopped?.status).toBe("cancelled");
+    expect(stopped?.failure?.code).toBe("cancelled");
+    await runner.stop();
+  });
+
+  test("a child that will not go is stopped anyway, and the queue moves on", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-wedge-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Poster"));
+    await appendRequest(cwd, input("Next"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let grace: (() => void) | null = null;
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      setTimeout: (callback, milliseconds) => {
+        expect(milliseconds).toBe(5000);
+        grace = callback;
+      },
+    });
+
+    await until(() => spawned.children.length === 1);
+    // This child ignores the signal, and its streams never end: a CLI that
+    // traps SIGTERM, or a wrapper whose own child outlives it holding the
+    // pipe. Nothing will ever emit "close".
+    const stubborn = spawned.children[0];
+    if (stubborn !== undefined) stubborn.child.kill = vi.fn(() => true);
+
+    expect(runner.cancel()).toBe(true);
+    // The card stops claiming a live run immediately, before the child goes.
+    expect(runner.snapshot().stopping).toBe(true);
+    expect(runner.snapshot().running).toBe(true);
+
+    // Nothing has settled yet, so without an escalation this is where the
+    // runner used to stay for the rest of its life.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(runner.snapshot().running).toBe(true);
+
+    grace?.();
+    await until(() => !runner.snapshot().running);
+    expect(stubborn?.child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
+
+    // And the request queued behind it gets its turn.
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).toContain("prompt for Next");
+    spawned.children[1]?.close(0);
     await runner.stop();
   });
 });

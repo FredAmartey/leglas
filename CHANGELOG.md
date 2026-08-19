@@ -11,6 +11,92 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+The public API surface moved (`PendingRequest.status` gained two values and
+the type gained `failure`, `mode` and `notes`), so the next release is a
+minor, not a patch.
+
+### Added
+
+- **Point at what is wrong instead of describing where it is.** Press `A`, or
+  use the Annotate chip beside the send button, and the preview turns into a
+  picker: hovering outlines the element under the pointer, clicking drops a
+  numbered pin and takes a note, and dragging marks an area and names every
+  element it covers. The page still scrolls while the mode is on, so what is
+  below the fold is as reachable as what is not. Annotations alone are a
+  complete request, so the composer can be left empty; what it does take is
+  the sentence about the change rather than the paragraph about which element.
+  Each one carries the element's own words, its tag and classes, a CSS path
+  and the rectangle it filled, and the request tells the agent which of those
+  to trust as the design moves under them. One whose element has gone says so
+  rather than pointing confidently at the wrong thing. The card that takes the
+  words keeps clear of what it is asking about, flipping and shifting at the
+  edges of the pane rather than hanging off them. They live in
+  `.leglas/annotations.json`, and a change made in place forgets the ones it
+  answered. (`leglas`)
+- **A change makes a variant instead of overwriting the direction.** Sending
+  "the pouch looks fake" at a direction used to edit that direction's file, so
+  the thing being compared against was gone. It now builds a new direction
+  from a copy of the parent, registered under it in the rail with the parent
+  as its default comparison. A chip beside the send button switches to
+  changing the direction itself, for the times a change really is a fix.
+  (`leglas`)
+- **A direction says where it came from.** Hovering a row shows its note in
+  full, the direction it was built from, and the change that was asked for in
+  the words that were typed. The selected direction carries the same line
+  under the composer without being hovered. Registration takes it as
+  `leglas add --asked-for`, which the `add` MCP tool exposes too. (`leglas`,
+  `leglas-mcp`)
+
+### Fixed
+
+- **Embedded Codex changes keep their quality without paying orchestration
+  tax.** Leglas still respects the user's selected model and reasoning effort,
+  but Codex can now reach the live localhost preview from its workspace
+  sandbox. Interface-generated requests say that exploration, collection and
+  server startup are already complete, and registration calls the exact
+  running Leglas CLI instead of asking `npx` to discover and possibly fetch a
+  package. This removes the cache probes, duplicate dev-server attempts and
+  version hunt that could turn a small design edit into a multi-minute run.
+  (`leglas`)
+
+- **Codex works in a project that is not a git repository.** `codex exec`
+  refuses such a directory before it reaches a model, so every Codex request
+  in one failed with nothing in the interface to say why. Each codex argv now
+  carries `--skip-git-repo-check`, which moves that precondition and nothing
+  else: writes stay confined by `-s workspace-write`. (`leglas`)
+- **A stopped run is recorded as stopped.** Cancelling used to leave the
+  request looking exactly like a failure, offered back for a rerun, and only
+  in the server's memory: a restart read it as `picked-up` and the card said
+  "your agent is on it" forever. Stops and failures are now written into the
+  queue and told apart on the card. (`leglas`)
+- **A failed change says what went wrong.** "That change failed" is now
+  followed by the reason: you stopped it, the provider was overloaded, the
+  CLI is signed out, its command is gone, Codex refused the directory. The
+  agent's own output stays in the terminal running Leglas rather than being
+  piped into the browser. (`leglas`)
+- **A run waiting on an overloaded provider says so.** Claude retries a 529
+  ten times over roughly 200 seconds without a word; the card now reads
+  "provider is overloaded · retry 4 of 10" instead of a spinner. Leglas does
+  not shorten or kill the vendor's backoff, so a run that recovers still
+  finishes. (`leglas`)
+- **A stopped agent cannot wedge the runner.** A child that ignores SIGTERM,
+  or whose own child outlives it holding the output pipe, never reported that
+  it had closed: the run stayed "running" and everything queued behind it
+  waited forever. A stop now escalates after five seconds and the queue moves
+  on. The same wait bit the agent auth probe, which could leave
+  `/leglas/api/agents` unanswered for the life of the server. (`leglas`)
+- **A failed request no longer costs two provider turns.** A resumed session
+  that died was always rerun cold. That is right for a session the vendor
+  cleaned up, and wrong for an outage: it aimed a second full retry ladder at
+  a provider that was already down. Only a failure with no other explanation
+  earns the rerun now. (`leglas`)
+- **The same change cannot be queued twice by accident.** Sending identical
+  words at the same direction while one is still waiting is refused with a
+  line saying so; anything else still queues, and the composer stays open
+  during a run. (`leglas`)
+
 ## 0.4.1 (2026-08-14)
 
 ### Added

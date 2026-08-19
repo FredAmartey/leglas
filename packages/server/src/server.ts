@@ -15,9 +15,24 @@ import {
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
 import { dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
+import {
+  addAnnotation,
+  anchorFrom,
+  annotationsFor,
+  readAnnotations,
+  removeAnnotations,
+} from "./annotations.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
-import { appendRequest, composeRequest, readRequests, removeRequest } from "./requests.js";
+import {
+  appendRequest,
+  composeRequest,
+  isTerminal,
+  readRequests,
+  removeRequest,
+  type PendingRequest,
+  type RequestMode,
+} from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -71,6 +86,12 @@ export type ServerOptions = {
   project?: string;
   /** Project root, where the request queue is written. */
   cwd?: string;
+  /**
+   * Exact command for the running Leglas CLI. Embedded requests use it for
+   * registration so the agent never pays for npx package discovery or lands
+   * on a cached version with a different command surface.
+   */
+  leglasCommand?: string;
   /**
    * Directories served under FILES_PREFIX, keyed by mount slug. This is how a
    * file-backed preview renders with no dev server at all: the whole
@@ -164,6 +185,18 @@ export function isTrustedMutation(req: http.IncomingMessage): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a request is over, by either record that can say so.
+ *
+ * The runner remembers what it ran; the queue file remembers what happened,
+ * including across a restart. A request that ended before this process
+ * started has only the file to speak for it, and it still deserves a rerun
+ * button and a way to be let go.
+ */
+function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean {
+  return isTerminal(request.status) || failedIds.includes(request.id);
 }
 
 function hasJsonBody(req: http.IncomingMessage): boolean {
@@ -315,6 +348,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shellDir = null,
     project = "",
     cwd = process.cwd(),
+    leglasCommand = "npx -y leglas",
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
   } = options;
@@ -479,12 +513,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { title?: string; intent?: string };
+        let parsed: { title?: string; intent?: string; mode?: unknown };
         try {
-          parsed = JSON.parse(body || "{}") as { title?: string; intent?: string };
+          parsed = JSON.parse(body || "{}") as {
+            title?: string;
+            intent?: string;
+            mode?: unknown;
+          };
         } catch {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
+        // Variant unless the caller says otherwise: a change that overwrites
+        // the direction it came from destroys the comparison the tool exists
+        // for, so the safe half of the pair is the one a missing field gets.
+        // An unrecognised value is refused rather than rounded to a default,
+        // because the two do different work and only one of them is reversible.
+        if (parsed.mode !== undefined && parsed.mode !== "variant" && parsed.mode !== "replace") {
+          return sendJson(res, 400, {
+            ok: false,
+            error: "mode must be \"variant\" or \"replace\".",
+          });
+        }
+        const mode: RequestMode = parsed.mode === "replace" ? "replace" : "variant";
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
         const localRead = await readLocalPreviews(cwd).catch(() => null);
@@ -500,14 +550,63 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const preview = [...boot, ...local].find(
           (entry) => entry.title === parsed.title,
         );
-        if (!preview || !parsed.intent?.trim()) {
+        if (!preview) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
-        const composed = composeRequest(preview, parsed.intent);
+        // A note carries its own address and its own words, so pins alone are
+        // a complete request and the composer is allowed to be empty. Nothing
+        // at all still is not a request.
+        const notes = annotationsFor(await readAnnotations(cwd).catch(() => []), preview.title);
+        if (!parsed.intent?.trim() && notes.length === 0) {
+          return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
+        }
+        // The composer stays open during a run on purpose: queueing the next
+        // change while one is in flight is the point of a queue. Sending the
+        // same words at the same direction twice is not: it is a second copy
+        // of work already waiting, and it costs a whole provider turn. The
+        // usual way in is a stop followed by retyping the same request, which
+        // reads as a retry and behaves as a duplicate.
+        const intent = (parsed.intent ?? "").trim();
+        const live = (await readRequests(cwd).catch(() => [])).filter(
+          (entry) => entry.status === "queued" || entry.status === "picked-up",
+        );
+        // Pins stay on a direction after a fork, so the same send can be made
+        // twice by pressing the button twice. That is the same request, and
+        // the notes it answers are part of what makes it the same one: the
+        // same words at the same direction with a different set of pins is
+        // not.
+        const sameNotes = (entry: PendingRequest) => {
+          const before = [...(entry.notes ?? [])].sort().join(",");
+          return before === notes.map((note) => note.id).sort().join(",");
+        };
+        if (
+          live.some(
+            (entry) =>
+              entry.title === preview.title &&
+              entry.intent === intent &&
+              // The same words in the other mode are not the same request:
+              // one forks the direction and the other rewrites it. Only a
+              // genuine repeat is refused.
+              (entry.mode ?? "replace") === mode &&
+              sameNotes(entry),
+          )
+        ) {
+          return sendJson(res, 409, {
+            ok: false,
+            duplicate: true,
+            error: `That exact change to ${preview.title} is already waiting.`,
+          });
+        }
+
+        const composed = composeRequest(preview, intent, mode, notes, leglasCommand);
         void appendRequest(cwd, {
           title: preview.title,
           url: preview.url,
-          intent: parsed.intent.trim(),
+          intent,
+          // The ids travel with the request so a change made in place can
+          // forget the notes it answered. A fork leaves them where they are:
+          // the direction they point at was not touched.
+          ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
           ...composed,
         })
           .then(() => {
@@ -614,20 +713,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         agent: null,
         activity: null,
         startedAt: null,
+        stopping: false,
+        waiting: null,
         failedIds: [],
       };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, status }) => ({
+          requests: requests.map(({ id, title, intent, status, failure }) => ({
             id,
             title,
             intent,
+            // The run in flight is the one thing the file cannot know. After
+            // that the file is the record, including across a restart, and the
+            // process-local failed set only covers a request whose verdict
+            // could not be written.
             status:
               snapshot.running && snapshot.requestId === id
                 ? "running"
-                : snapshot.failedIds.includes(id)
+                : status === "queued" && snapshot.failedIds.includes(id)
                   ? "failed"
                   : status,
+            failure: failure ?? null,
           })),
           agent: {
             attached: externallyAttached(),
@@ -635,6 +741,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             name: snapshot.running ? snapshot.agent : null,
             activity: snapshot.running ? snapshot.activity : null,
             startedAt: snapshot.running ? snapshot.startedAt : null,
+            // A stop that has been asked for but not yet obeyed. The card
+            // says so rather than going on describing a live run.
+            stopping: snapshot.running && snapshot.stopping,
+            // Why a run that looks stalled is stalled, while it is stalled.
+            waiting: snapshot.running ? snapshot.waiting : null,
           },
         }),
       );
@@ -685,8 +796,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (request === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such request." });
         }
-        if (!(runner?.snapshot().failedIds.includes(request.id) ?? false)) {
-          return sendJson(res, 400, { ok: false, error: "Only a failed request can be retried." });
+        // Either record will do: the process-local set for a run this server
+        // saw, or the queue's own verdict for one it inherited from an earlier
+        // process. Without the second, a restart left the request unactionable.
+        if (!isEnded(request, runner?.snapshot().failedIds ?? [])) {
+          return sendJson(res, 400, { ok: false, error: "Only an ended request can be run again." });
         }
 
         try {
@@ -699,6 +813,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             intent: request.intent,
             target: request.target,
             prompt: request.prompt,
+            // The stored prompt already carries the mode's instructions; the
+            // field travels with it so the queue keeps saying which kind of
+            // change this is.
+            ...(request.mode === undefined ? {} : { mode: request.mode }),
           });
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.
@@ -713,6 +831,75 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // Letting go of a failed request. The runner will never touch it again
     // anyway, so removal only makes the queue file agree with that, but it is
     // held to failed ids so a live or waiting request cannot be swept away.
+    // The notes left on a preview, and the two ways they change. They are read
+    // on every poll like the queue is, because a note can be left in one pane
+    // while another is being looked at.
+    if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "GET") {
+      return void readAnnotations(cwd).then((annotations) =>
+        sendJson(res, 200, { annotations }),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { title?: unknown; note?: unknown; anchor?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as typeof parsed;
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+          return sendJson(res, 400, { ok: false, error: "A note needs a direction." });
+        }
+        const anchor = anchorFrom(parsed.anchor);
+        if (anchor === null) {
+          return sendJson(res, 400, { ok: false, error: "A note needs something to point at." });
+        }
+        try {
+          const annotation = await addAnnotation(cwd, {
+            anchor,
+            note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+            title: parsed.title,
+          });
+          return sendJson(res, 200, { ok: true, annotation });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The note could not be kept." });
+        }
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/annotations/delete` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Delete must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { ids?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as { ids?: unknown };
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        const ids = Array.isArray(parsed.ids)
+          ? parsed.ids.filter((entry): entry is string => typeof entry === "string")
+          : [];
+        if (ids.length === 0) {
+          return sendJson(res, 400, { ok: false, error: "Body needs the notes to forget." });
+        }
+        try {
+          return sendJson(res, 200, { ok: true, deleted: await removeAnnotations(cwd, ids) });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The notes could not be forgotten." });
+        }
+      });
+    }
+
     if (path === `${LEGLAS_PREFIX}/api/requests/dismiss` && req.method === "POST") {
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });
@@ -729,8 +916,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (typeof parsed.id !== "string") {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
-        if (!(runner?.snapshot().failedIds.includes(parsed.id) ?? false)) {
-          return sendJson(res, 400, { ok: false, error: "Only a failed request can be dismissed." });
+        const target = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+        if (target === undefined || !isEnded(target, runner?.snapshot().failedIds ?? [])) {
+          return sendJson(res, 400, { ok: false, error: "Only an ended request can be dismissed." });
         }
 
         try {

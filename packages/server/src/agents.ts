@@ -4,6 +4,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
 import { WATCH_PATH } from "./agent-command.js";
+import type { RetryNotice } from "./failure.js";
 
 /**
  * Whether a CLI's saved login will actually carry a run. "ok" and
@@ -15,6 +16,18 @@ import { WATCH_PATH } from "./agent-command.js";
 export type AgentAuth = "ok" | "signed-out" | "unknown";
 
 type ProbeResult = { code: number; stdout: string };
+
+/**
+ * The embedded runner edits a live application. Workspace-write remains the
+ * filesystem boundary, while loopback/network access lets Codex inspect the
+ * dev server that is already running instead of trying and failing to boot a
+ * second one. This deliberately says nothing about model or reasoning effort:
+ * those stay the user's choice.
+ */
+const CODEX_WORKSPACE_CONFIG = [
+  "-c",
+  "sandbox_workspace_write.network_access=true",
+] as const;
 
 // `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
 // a human-watched terminal. Keep the pair in step when an agent's CLI changes.
@@ -73,15 +86,41 @@ export const KNOWN_AGENTS = {
   codex: {
     name: "Codex",
     binary: "codex",
-    args: (prompt: string): string[] => ["exec", "--json", "-s", "workspace-write", prompt],
-    terminalArgs: (prompt: string): string[] => ["exec", "-s", "workspace-write", prompt],
+    // `--skip-git-repo-check` is what lets Codex run at all in a project the
+    // user never put under version control: without it codex-cli refuses
+    // before it reaches a model, with "Not inside a trusted directory and
+    // --skip-git-repo-check was not specified", and every Codex request in a
+    // non-git project fails for a reason nothing in Leglas explained. The flag
+    // moves that precondition and only that: `-s workspace-write` still
+    // confines writes to the project, so the sandbox boundary is unchanged,
+    // and in a git repository the flag does nothing at all.
+    args: (prompt: string): string[] => [
+      "exec",
+      "--json",
+      ...CODEX_WORKSPACE_CONFIG,
+      "-s",
+      "workspace-write",
+      "--skip-git-repo-check",
+      prompt,
+    ],
+    terminalArgs: (prompt: string): string[] => [
+      "exec",
+      ...CODEX_WORKSPACE_CONFIG,
+      "-s",
+      "workspace-write",
+      "--skip-git-repo-check",
+      prompt,
+    ],
     // No sandbox flag here: `codex exec resume` refuses it and inherits the
-    // session's own sandbox, which the first turn set to workspace-write.
+    // session's own sandbox, which the first turn set to workspace-write. The
+    // repository check is per invocation, so resume needs the flag of its own.
     resumeArgs: (sessionId: string, prompt: string): string[] => [
       "exec",
       "resume",
       sessionId,
       "--json",
+      ...CODEX_WORKSPACE_CONFIG,
+      "--skip-git-repo-check",
       prompt,
     ],
     sessionFrom: (event: Record<string, unknown>): string | null =>
@@ -142,8 +181,20 @@ const PROBE_TIMEOUT_MS = 3000;
  * One status command, capped stdout, hard deadline. A CLI that hangs on its
  * own status question must never hold the agents endpoint hostage; it just
  * reads as unknown.
+ *
+ * The deadline answers as well as kills. "close" waits for the child's output
+ * streams to end, not merely for the child to exit, so a wrapper script whose
+ * own child outlives it keeps the pipe open and that event never arrives. The
+ * kill alone then left this promise pending for good, and because the agents
+ * endpoint holds one in-flight probe for the whole process, every later
+ * request queued behind it: the chooser in the composer simply stopped
+ * loading, for the life of the server.
  */
-function execProbe(binary: string, args: readonly string[]): Promise<ProbeResult | null> {
+export function execProbe(
+  binary: string,
+  args: readonly string[],
+  timeoutMs: number = PROBE_TIMEOUT_MS,
+): Promise<ProbeResult | null> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
@@ -156,7 +207,10 @@ function execProbe(binary: string, args: readonly string[]): Promise<ProbeResult
     child.stdout?.on("data", (chunk: Buffer) => {
       if (stdout.length < 4096) stdout += chunk.toString();
     });
-    const deadline = setTimeout(() => child.kill("SIGKILL"), PROBE_TIMEOUT_MS);
+    const deadline = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(null);
+    }, timeoutMs);
     child.once("error", () => {
       clearTimeout(deadline);
       resolve(null);
@@ -336,6 +390,39 @@ export function sessionFrom(agent: AgentChoice, line: string): string | null {
   }
   if (event === null) return null;
   return KNOWN_AGENTS[agent].sessionFrom(event);
+}
+
+/**
+ * The retry a vendor CLI is announcing, when it announces one.
+ *
+ * Claude Code emits `system`/`api_retry` per attempt while it backs off, and
+ * that event is the only thing Leglas hears during the stall: nothing reaches
+ * stderr, and no other stdout event fires, so a run against an overloaded
+ * provider looks identical to a run that is thinking. Measured against a
+ * local endpoint returning 529: ten attempts with delays climbing 0.6s, 1s,
+ * 2s, 4.9s, 9.2s, 19s, 32.6s, 35.3s, which is where the ~200s wait comes
+ * from before the CLI exits nonzero.
+ *
+ * Codex retries its own requests silently, so a Codex stall stays opaque and
+ * this returns nothing for it. That is the vendor's surface, not a gap here.
+ */
+export function retryFrom(agent: AgentChoice, line: string): RetryNotice | null {
+  if (agent !== "claude" && agent !== "cursor") return null;
+  let event: Record<string, unknown> | null;
+  try {
+    event = record(JSON.parse(line));
+  } catch {
+    return null;
+  }
+  if (event === null || event.type !== "system" || event.subtype !== "api_retry") return null;
+
+  const attempt = typeof event.attempt === "number" ? event.attempt : 1;
+  return {
+    attempt,
+    max: typeof event.max_retries === "number" ? event.max_retries : null,
+    status: typeof event.error_status === "number" ? event.error_status : null,
+    reason: typeof event.error === "string" && event.error !== "" ? event.error.toLowerCase() : null,
+  };
 }
 
 function isAgentChoice(value: unknown): value is AgentChoice {

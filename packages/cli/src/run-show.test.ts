@@ -25,7 +25,7 @@ function collect() {
 const add = (cwd: string, title: string, url: string) =>
   runAdd(
     {
-      preview: { title, url, note: undefined, tags: undefined, branch: undefined, file: undefined, basedOn: undefined },
+      preview: { title, url, note: undefined, tags: undefined, branch: undefined, file: undefined, basedOn: undefined, askedFor: undefined },
       json: true,
       cwd,
     },

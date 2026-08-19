@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, readRequests, removeRequest, targetFor, variantSlot } from "./requests.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -39,23 +39,173 @@ describe("targetFor", () => {
   });
 });
 
+describe("composeRequest, as a variant", () => {
+  const filePreview = (title: string, file: string): Preview => ({
+    title,
+    url: "/leglas/local/hero.html",
+    note: undefined,
+    tags: [],
+    file,
+  });
+
+  test("builds a new direction and says the old one is not to be touched", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "the pouch looks fake",
+      "variant",
+    );
+
+    expect(prompt).toContain('add a new design direction based on the "Poster" direction');
+    expect(prompt).toContain('Leave "Poster" itself exactly as it is');
+    expect(prompt).toContain("the pouch looks fake");
+  });
+
+  // The whole point of the mode: a variant is its parent plus the change. An
+  // agent told only to build something new produces a fresh design wearing a
+  // related name, which is not comparable with what it came from.
+  test("starts the new direction from a copy of the parent's file", () => {
+    const { prompt, target } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(target).toBe(".leglas/variants/hero/poster.tsx");
+    expect(prompt).toContain("Its source is .leglas/variants/hero/poster.tsx.");
+    expect(prompt).toContain("Copy that file to a new one in the same folder");
+  });
+
+  test("hands over the registration that puts it under its parent", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("npx -y leglas add");
+    expect(prompt).toContain('--url "/?v-hero=<key>"');
+    expect(prompt).toContain('--based-on "Poster"');
+    expect(prompt).toContain('--asked-for "warmer"');
+    expect(prompt).toContain(".leglas/variants/hero/switch.tsx");
+  });
+
+  test("registers through the exact running CLI without package discovery", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+      [],
+      'node "/opt/Leglas Current/bin.js"',
+    );
+
+    expect(prompt).toContain('node "/opt/Leglas Current/bin.js" add');
+    expect(prompt).not.toContain("npx");
+  });
+
+  test("marks interface discovery and server startup as already complete", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("Request collection, direction discovery and the live-server check are already complete");
+    expect(prompt).toContain("do not start or restart the app or Leglas");
+    expect(prompt).toContain("Use the existing live preview");
+  });
+
+  // A quote in the request would end the argument early and hand the shell
+  // the rest of the sentence.
+  test("quotes the request so a typed quote cannot break the command", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      'make the "hero" bolder',
+      "variant",
+    );
+
+    expect(prompt).toContain('--asked-for "make the \\"hero\\" bolder"');
+  });
+
+  test("a file-backed direction is copied as a file and registered as one", () => {
+    const { prompt } = composeRequest(
+      filePreview("Poster", "directions/poster.html"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).toContain("Its source is directions/poster.html.");
+    expect(prompt).toContain("Copy that file to a new file beside it");
+    expect(prompt).toContain('--file "<the new file>"');
+    expect(prompt).not.toContain("--url");
+  });
+
+  test("a direction with no derivable source still gets a usable brief", () => {
+    const { prompt, target } = composeRequest(
+      preview("Current", "/"),
+      "warmer",
+      "variant",
+    );
+
+    expect(target).toBeNull();
+    expect(prompt).toContain("Find what renders it first.");
+    expect(prompt).toContain("Copy its source rather than editing it");
+    expect(prompt).toContain('--based-on "Current"');
+  });
+
+  test("reports the mode it composed for, so the queue can record it", () => {
+    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "variant").mode).toBe(
+      "variant",
+    );
+    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "replace").mode).toBe(
+      "replace",
+    );
+  });
+
+  // The two prompts ask for opposite work, and the failure mode of getting it
+  // wrong is an overwritten direction.
+  test("never tells the agent to edit the parent", () => {
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "variant",
+    );
+
+    expect(prompt).not.toContain("Make the change in that file");
+    expect(prompt).not.toContain("change only");
+  });
+});
+
+describe("variantSlot", () => {
+  test("reads the surface and option a scaffold url names", () => {
+    expect(variantSlot("/?v-hero=poster")).toEqual({ option: "poster", surface: "hero" });
+  });
+
+  test("refuses anything that could climb out of the variants directory", () => {
+    expect(variantSlot("/?v-hero=../../etc/passwd")).toBeNull();
+  });
+
+  test("has nothing to say about a url the scaffold did not write", () => {
+    expect(variantSlot("/pricing")).toBeNull();
+  });
+});
+
 describe("composeRequest", () => {
   test("names the direction so the agent knows what is being changed", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "make it warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "make it warmer", "replace");
 
     expect(prompt).toContain("Aurora");
     expect(prompt).toContain("make it warmer");
   });
 
   test("points at the exact file when the url reveals one", () => {
-    const { prompt, target } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt, target } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(target).toBe(".leglas/variants/hero/aurora.tsx");
     expect(prompt).toContain(".leglas/variants/hero/aurora.tsx");
   });
 
   test("still produces a usable prompt when the file cannot be derived", () => {
-    const { prompt, target } = composeRequest(preview("Pricing v2", "/pricing-v2"), "tighten it");
+    const { prompt, target } = composeRequest(preview("Pricing v2", "/pricing-v2"), "tighten it", "replace");
 
     expect(target).toBeNull();
     expect(prompt).toContain("Pricing v2");
@@ -63,8 +213,8 @@ describe("composeRequest", () => {
   });
 
   test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
-    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer").prompt;
-    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer").prompt;
+    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace").prompt;
+    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer", "replace").prompt;
 
     // The measured cost of leaving this out is minutes of post-edit test
     // runs and repo searches per request, not seconds.
@@ -77,19 +227,19 @@ describe("composeRequest", () => {
   });
 
   test("tells the agent to change only this direction, not its siblings", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(prompt.toLowerCase()).toContain("only");
   });
 
   test("does not ask the agent to re-register a direction that already exists", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
     expect(prompt).not.toContain("leglas add");
   });
 
   test("trims the intent, so padding from a textarea does not reach the agent", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "  warmer\n\n");
+    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "  warmer\n\n", "replace");
 
     expect(prompt).toContain("What to change: warmer");
     expect(prompt).not.toMatch(/\n{3}/);
@@ -126,7 +276,12 @@ describe("request lifecycle", () => {
     const queue = join(root, ".leglas/requests.json");
     mkdirSync(join(root, ".leglas"));
     writeFileSync(queue, JSON.stringify({ requests: [input] }));
-    expect(await readRequests(root)).toEqual([{ ...input, id: "0", status: "queued" }]);
+    // A request written before the two modes existed rewrote the direction in
+    // place, so that is what it is read back as. Nothing is written to say so:
+    // the file on disk is left exactly as it was found.
+    expect(await readRequests(root)).toEqual([
+      { ...input, id: "0", mode: "replace", status: "queued" },
+    ]);
     expect(JSON.parse(readFileSync(queue, "utf8"))).toEqual({ requests: [input] });
   });
 
@@ -204,5 +359,85 @@ describe("request lifecycle", () => {
     const root = cwd();
     expect(await removeRequest(root, "nope")).toBe(false);
     expect(existsSync(join(root, ".leglas"))).toBe(false);
+  });
+});
+
+describe("terminal requests", () => {
+  const cwd = () => mkdtempSync(join(tmpdir(), "leglas-terminal-"));
+  const input = (title: string) => ({
+    title,
+    url: "/",
+    intent: `change ${title}`,
+    target: null,
+    prompt: `prompt for ${title}`,
+  });
+
+  test("a verdict survives the process that wrote it", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Poster"));
+    const [queued] = await readRequests(root);
+    expect(
+      await markFailed(root, queued?.id ?? "", {
+        code: "provider-overloaded",
+        message: "Claude's provider was overloaded and gave up.",
+      }),
+    ).toBe(true);
+
+    // Read back by a process that never saw the run, which is the whole point:
+    // the interface used to say "your agent is on it" about this forever.
+    const [stored] = await readRequests(root);
+    expect(stored?.status).toBe("failed");
+    expect(stored?.failure?.code).toBe("provider-overloaded");
+    // A stop is its own state, so nothing downstream can read it as a failure
+    // worth rerunning on the user's behalf.
+    await markFailed(root, queued?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+    expect((await readRequests(root))[0]?.status).toBe("cancelled");
+    expect(await markFailed(root, "nope", { code: "cancelled", message: "x" })).toBe(false);
+  });
+
+  test("a hand-edited verdict is dropped rather than trusted", async () => {
+    const root = cwd();
+    mkdirSync(join(root, ".leglas"), { recursive: true });
+    writeFileSync(
+      join(root, ".leglas/requests.json"),
+      JSON.stringify({
+        requests: [
+          { id: "a", status: "failed", title: "A", url: "/", intent: "i", target: null, prompt: "p", failure: { code: "made-up", message: "hi" } },
+          { id: "b", status: "wat", title: "B", url: "/", intent: "i", target: null, prompt: "p" },
+        ],
+      }),
+    );
+    const [first, second] = await readRequests(root);
+    expect(first?.status).toBe("failed");
+    expect(first?.failure).toBeUndefined();
+    // An unknown status is queued, the way it always was.
+    expect(second?.status).toBe("queued");
+  });
+
+  test("collection never hands an ended request to another agent", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Stopped"));
+    await appendRequest(root, input("Live"));
+    const [stopped] = await readRequests(root);
+    await markFailed(root, stopped?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+
+    // Asking for the change the user just stopped would be the worst possible
+    // reading of the queue.
+    expect((await collectRequests(root)).map((request) => request.title)).toEqual(["Live"]);
+    const after = await readRequests(root);
+    expect(after.map((request) => request.status)).toEqual(["cancelled", "picked-up"]);
+  });
+
+  test("clearing counts only what is still waiting as pending", async () => {
+    const root = cwd();
+    await appendRequest(root, input("Failed"));
+    await appendRequest(root, input("Waiting"));
+    const [broken] = await readRequests(root);
+    await markFailed(root, broken?.id ?? "", { code: "agent-error", message: "Codex exited with code 1." });
+
+    // The failed one is finished with, not outstanding work, so it is swept up
+    // rather than reported as still pending.
+    expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 1 });
+    expect((await readRequests(root)).map((request) => request.title)).toEqual(["Waiting"]);
   });
 });

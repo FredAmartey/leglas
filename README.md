@@ -177,6 +177,19 @@ directly above the field. Your agent drains the queue with `npx leglas requests 
 it with `--clear`. Leglas runs no model of its own; your agent already
 knows your conventions and your taste.
 
+Most of what you would type into that field is the part describing where
+the problem is, so you can point at it instead. Press `A` and the preview
+becomes a picker: hovering outlines the element under the pointer,
+clicking drops a numbered pin that takes a note, and dragging marks an
+area and names every element inside it. The page still scrolls, so the
+thing three screens down is as easy to mark as the headline. Annotations
+are a request on their own, so the field can stay empty; leave three and
+send once. Each one carries the element's own words, its tag and classes,
+a path and the box it filled, and the request tells your agent which of
+those to trust first, because the design moves under them by design. One
+whose element has since gone turns amber rather than pointing confidently
+at the wrong thing.
+
 The line under the field is the whole status: whether anything is
 listening, what you have queued, and when it has been picked up.
 
@@ -308,8 +321,9 @@ drawn at and the scale it is shown at. If you want the narrow rendering,
 that is what the tools popover's "Scale each side to fit" switch is for.
 
 Arrows move between directions, `1` to `9` jump straight to one, `R` asks
-for a change to the one you are on, `Cmd K` (`Ctrl K` elsewhere) searches
-and `B` collapses the rail. Press `?` for the whole keymap.
+for a change to the one you are on, `A` annotates the design itself,
+`Cmd K` (`Ctrl K` elsewhere) searches and `B` collapses the rail. Press `?`
+for the whole keymap.
 
 A small tools widget floats over the stage and can be dragged to any
 corner, because a floating control has a habit of sitting exactly where
@@ -346,6 +360,7 @@ leglas keep <title>        Keep a winner and end the exploration
   --count <n>          (explore) How many directions, default 3
   --based-on <title>     (explore) Variants of an existing direction instead of new ones
   --based-on <title>     (add) The direction this preview is a variant of; groups the family
+  --asked-for <text>     (add) The change that was asked for, in the words that were typed
   --change <path>      (classify) A file the direction creates or wires up
   --rewrite <path>     (classify) An existing file whose behaviour must change
   --note <text>        (add) Second line under the title

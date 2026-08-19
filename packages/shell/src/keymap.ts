@@ -21,6 +21,7 @@ export type KeyAction =
   | { kind: "help" }
   | { kind: "jump"; index: number }
   | { kind: "move"; delta: 1 | -1 }
+  | { kind: "note" }
   | { kind: "rail" }
   | { kind: "request" }
   | { kind: "search" }
@@ -63,6 +64,7 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
   if (key === "ArrowUp") return { kind: "move", delta: -1 };
 
   const letter = key.length === 1 ? key.toLowerCase() : "";
+  if (letter === "a") return { kind: "note" };
   if (letter === "c") return { kind: "split" };
   if (letter === "b") return { kind: "rail" };
   if (letter === "r") return { kind: "request" };
@@ -105,6 +107,7 @@ export function shortcutList(mac: boolean): readonly Shortcut[] {
     { keys: ["1", "9"], join: "to", label: "Jump straight to a direction" },
     { keys: ["C"], label: "Compare against the direction you were last on" },
     { keys: ["R"], label: "Ask for a change to this direction" },
+    { keys: ["A"], label: "Annotate the design: point at what is wrong" },
     { keys: [searchCap(mac)], label: "Search" },
     { keys: ["B"], label: "Collapse or open the rail" },
     { keys: ["T"], label: "Open or close the Leglas dev tool menu" },

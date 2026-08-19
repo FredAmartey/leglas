@@ -1,7 +1,7 @@
 export { DEFAULT_DEV_SERVER, DEFAULT_INSTALL_COMMAND, normalizeConfig } from "./config.js";
 export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate, tokenize } from "./agent-command.js";
 export type { TemplateResult, WatchTemplate } from "./agent-command.js";
-export { KNOWN_AGENTS, activityFrom, detectAgents, readAgentChoice, saveAgentChoice } from "./agents.js";
+export { KNOWN_AGENTS, activityFrom, detectAgents, readAgentChoice, retryFrom, saveAgentChoice } from "./agents.js";
 export type { AgentChoice, AgentChoiceInput, DetectedAgent, KnownAgentId, SavedAgentChoice } from "./agents.js";
 export { classifyDirection } from "./classify.js";
 export type { DeclaredChange, Placement } from "./classify.js";
@@ -11,7 +11,21 @@ export { LOCAL_PREVIEWS_PATH, addLocalPreview, dropLocalPreviews, readLocalPrevi
 export { createProxyHandler } from "./proxy.js";
 export { WORKTREES_DIR, startAppProcess, startWorktree, substitutePort, worktreeSlug } from "./worktree.js";
 export type { RunningApp, RunningWorktree } from "./worktree.js";
-export { REQUESTS_PATH, appendRequest, clearRequests, collectRequests, composeRequest, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
+export { classifyFailure, sessionShaped } from "./failure.js";
+export type { Failure, FailureCode, FailureInput, RetryNotice } from "./failure.js";
+export {
+  ANNOTATIONS_PATH,
+  addAnnotation,
+  anchorFrom,
+  annotationsFor,
+  describeAnchor,
+  describeAnnotations,
+  readAnnotations,
+  removeAnnotations,
+  type Annotation,
+  type AnnotationAnchor,
+} from "./annotations.js";
+export { REQUESTS_PATH, appendRequest, clearRequests, collectRequests, composeRequest, isTerminal, markFailed, markPickedUp, readRequests, removeRequest, targetFor } from "./requests.js";
 export { startRunner } from "./runner.js";
 export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";
 export type { Renames, TitleResolution } from "./renames.js";
@@ -20,6 +34,6 @@ export type { LeglasConfig, NormalizeResult, Preview } from "./config.js";
 export type { LoadResult } from "./load-config.js";
 export type { AddInput, LocalPreview } from "./local-previews.js";
 export type { ProxyHandler, ProxyOptions } from "./proxy.js";
-export type { ComposedRequest, PendingRequest } from "./requests.js";
+export type { ComposedRequest, PendingRequest, RequestStatus } from "./requests.js";
 export type { RunnerChild, RunnerOptions, RunnerSpawn, RunnerState, RunningAgent } from "./runner.js";
 export type { RunningServer, ServerOptions } from "./server.js";

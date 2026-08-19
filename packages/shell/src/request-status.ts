@@ -1,7 +1,32 @@
+/** Why a request ended, as the server classified it. */
+export type RequestFailure = { code: string; message: string };
+
 export type RequestStatus = {
   id: string;
   title: string;
-  status: "queued" | "picked-up" | "running" | "failed";
+  /**
+   * "running" is the server's overlay for the one request in flight; the
+   * other four are the queue's own. "cancelled" is separate from "failed" on
+   * purpose: the same card treated a stop and a provider outage alike, and
+   * offering to run the thing the user just stopped is the one reaction that
+   * is always wrong.
+   */
+  status: "queued" | "picked-up" | "running" | "failed" | "cancelled";
+  failure?: RequestFailure | null;
+};
+
+/**
+ * The vendor's own backoff, while a run is inside one.
+ *
+ * Claude reports each attempt as it retries; nothing else reaches the
+ * interface during that time, which is how a 200-second wait on an overloaded
+ * provider came to look like an agent quietly thinking.
+ */
+export type AgentWaiting = {
+  attempt: number;
+  max: number | null;
+  status: number | null;
+  reason: string | null;
 };
 
 export type AgentStatus = {
@@ -10,6 +35,9 @@ export type AgentStatus = {
   name: string | null;
   activity: string | null;
   startedAt: number | null;
+  /** A stop has been asked for and the agent has not gone yet. */
+  stopping?: boolean;
+  waiting?: AgentWaiting | null;
 };
 
 export type AgentOption = {
@@ -75,10 +103,38 @@ export type RequestCard =
       activity: string | null;
       startedAt: number | null;
       title: string | null;
+      /** True once a stop is asked for, until the agent actually goes. */
+      stopping: boolean;
+      /** Set while the vendor is backing off, so the wait can say why. */
+      waiting: AgentWaiting | null;
     }
   | { kind: "queued"; count: number; attended: boolean }
   | { kind: "picked-up" }
-  | { kind: "failed"; id: string; title: string };
+  | { kind: "failed"; id: string; title: string; reason: string | null }
+  | { kind: "stopped"; id: string; title: string };
+
+/**
+ * What a run is waiting on, in one short line under the agent's name.
+ *
+ * Leglas cannot shorten a vendor's backoff and must not kill a run to escape
+ * it: the same process may be mid-edit, and the attempt after this one may be
+ * the one that works. What it can do is stop the wait being unexplained, so
+ * the stop button becomes a decision instead of a guess.
+ */
+export function waitingLabel(waiting: AgentWaiting): string {
+  const of =
+    waiting.max === null
+      ? `retry ${waiting.attempt}`
+      : `retry ${waiting.attempt} of ${waiting.max}`;
+  const status = waiting.status;
+  const reason = waiting.reason ?? "";
+  if (status === 429 || reason.includes("rate")) return `provider is rate limiting · ${of}`;
+  if (status === 401 || status === 403 || reason.includes("auth"))
+    return `provider refused the login · ${of}`;
+  if (status === 529 || status === 503 || reason.includes("overload"))
+    return `provider is overloaded · ${of}`;
+  return `provider returned an error · ${of}`;
+}
 
 /**
  * Seconds under a minute, then whole minutes with seconds. Runs are minutes
@@ -105,6 +161,9 @@ export function requestCard(
       activity: agent.activity,
       startedAt: agent.startedAt,
       title: running?.title ?? null,
+      stopping: agent.stopping === true,
+      // A run on its way out is not waiting on a provider any more.
+      waiting: agent.stopping === true ? null : (agent.waiting ?? null),
     };
   }
 
@@ -113,8 +172,16 @@ export function requestCard(
 
   if (requests.some((request) => request.status === "picked-up")) return { kind: "picked-up" };
 
-  const failed = requests.findLast((request) => request.status === "failed");
-  if (failed !== undefined) return { kind: "failed", id: failed.id, title: failed.title };
-
-  return null;
+  const ended = requests.findLast(
+    (request) => request.status === "failed" || request.status === "cancelled",
+  );
+  if (ended === undefined) return null;
+  if (ended.status === "cancelled") return { kind: "stopped", id: ended.id, title: ended.title };
+  return {
+    kind: "failed",
+    id: ended.id,
+    title: ended.title,
+    // The server writes this line; the raw agent output stays in its terminal.
+    reason: ended.failure?.message ?? null,
+  };
 }

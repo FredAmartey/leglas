@@ -27,6 +27,7 @@ const preview = (over: Record<string, unknown>) => ({
   branch: undefined,
   file: undefined,
   basedOn: undefined,
+  askedFor: undefined,
   ...over,
 });
 

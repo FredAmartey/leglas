@@ -8,6 +8,27 @@
 export declare const AGENTS_MARKER_END = "<!-- leglas:end -->";
 export declare const AGENTS_MARKER_START = "<!-- leglas:start -->";
 export declare const DEFAULT_PORT = 4100;
+export type Failure = {
+    code: FailureCode;
+    message: string;
+};
+export type FailureCode = 
+/** The user pressed stop. Not a failure at all, and never retried for them. */
+"cancelled"
+/** Leglas itself was shutting down and took the run with it. */
+ | "stopped"
+/** The agent's binary could not be executed: gone from PATH, or not runnable. */
+ | "missing-agent"
+/** The CLI ran and its provider refused the credentials. */
+ | "not-signed-in"
+/** The provider was overloaded; the CLI exhausted its own retries. */
+ | "provider-overloaded"
+/** The provider reported a rate or usage limit. */
+ | "provider-limit"
+/** Codex refused the directory: no git repository and no trust on record. */
+ | "needs-trust"
+/** The agent ran, did its own thing, and exited nonzero. */
+ | "agent-error";
 export type Framework = "next" | "react";
 export declare const LEGLAS_PREFIX = "/leglas";
 export type NewDeps = {
@@ -85,13 +106,28 @@ export type ParseResult = {
 };
 export type PendingRequest = {
     id: string;
-    status: "queued" | "picked-up";
+    status: RequestStatus;
     title: string;
     url: string;
     intent: string;
     target: string | null;
     prompt: string;
+    /** Why it ended, on a terminal request. Absent on every other status. */
+    failure?: Failure;
+    /**
+     * Whether this change forks the direction or rewrites it. Absent on a
+     * request written before the distinction existed, which the reader treats
+     * as `replace`: that is what those requests actually did.
+     */
+    mode?: RequestMode;
+    /**
+     * The notes this change answers, by id. Present only when pins were left.
+     * A change made in place forgets them once it lands, because the design
+     * they point at is the one that was just rewritten.
+     */
+    notes?: readonly string[];
 };
+export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 export type RunDeps = {
     open(url: string): Promise<void>;
     log(line: string): void;

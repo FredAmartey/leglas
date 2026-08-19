@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -6,6 +7,27 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { appendRequest, readRequests } from "@leglas/server";
 
 import { runWatch } from "./run-watch.js";
+
+/**
+ * A port with nothing behind it, bound and released so the number is real.
+ *
+ * `port: DEAD_PORT` means DEFAULT_PORT, and these tests then aimed watcher
+ * heartbeats at whatever is genuinely running on 4100 on the machine running
+ * them: a developer's own Leglas, told a watcher had attached and then gone.
+ * Every startup and shutdown here also became a real network round trip,
+ * which is what made this file the first to time out under a loaded suite.
+ * A closed port fails locally and at once, which is the case the loop is
+ * written for anyway.
+ */
+async function closedPort(): Promise<number> {
+  const probe = net.createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = probe.address() as net.AddressInfo;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}
+
+const DEAD_PORT = await closedPort();
 
 const cwd = () => mkdtempSync(join(tmpdir(), "leglas-watch-"));
 
@@ -28,7 +50,9 @@ function writeWatchConfig(root: string, config: Record<string, unknown>): void {
 }
 
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
-  const deadline = Date.now() + 5000;
+  // Under vitest's own 5s ceiling, so a wait that never lands says what it
+  // was waiting for instead of reporting a bare timeout.
+  const deadline = Date.now() + 4000;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((tick) => setTimeout(tick, 20));
@@ -40,7 +64,7 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
   const d = deps();
   let outcome: Awaited<ReturnType<typeof runWatch>> | null = null;
   const running = runWatch(
-    { run, port: undefined, cwd: root, signal: controller.signal },
+    { run, port: DEAD_PORT, cwd: root, signal: controller.signal },
     d,
   ).then((result) => {
     outcome = result;
@@ -78,7 +102,7 @@ describe("runWatch", () => {
 
     const controller = new AbortController();
     const running = runWatch(
-      { run: 'node -e "process.exit(0)" {prompt}', port: undefined, cwd: root, signal: controller.signal },
+      { run: 'node -e "process.exit(0)" {prompt}', port: DEAD_PORT, cwd: root, signal: controller.signal },
       deps(),
     );
     await until(async () => (await readRequests(root)).length === 0);
@@ -90,7 +114,7 @@ describe("runWatch", () => {
 
   test("refuses to start with no template anywhere", async () => {
     const d = deps();
-    const outcome = await runWatch({ run: undefined, port: undefined, cwd: cwd() }, d);
+    const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd() }, d);
 
     expect(outcome.exitCode).toBe(1);
     expect(d.lines.join("\n")).toContain("pick an agent in the interface");
@@ -119,7 +143,11 @@ describe("runWatch", () => {
 
   test.each([
     ["claude", "Claude", "claude -p {prompt} --permission-mode acceptEdits"],
-    ["codex", "Codex", "codex exec -s workspace-write {prompt}"],
+    [
+      "codex",
+      "Codex",
+      "codex exec -c sandbox_workspace_write.network_access=true -s workspace-write --skip-git-repo-check {prompt}",
+    ],
     ["cursor", "Cursor", "cursor-agent -p {prompt}"],
   ])("synthesizes the terminal template for %s", async (agent, name, command) => {
     const root = cwd();
@@ -163,7 +191,7 @@ describe("runWatch", () => {
     const running = runWatch(
       {
         run: `node -e "setTimeout(() => process.exit(0), 400)" {prompt}`,
-        port: undefined,
+        port: DEAD_PORT,
         cwd: root,
         signal: controller.signal,
       },
@@ -180,14 +208,14 @@ describe("runWatch", () => {
     expect(await readRequests(root)).toEqual([]);
   });
 
-  test("a command that cannot spawn leaves the request picked-up and unretried", async () => {
+  test("a command that cannot spawn is written down as failed and unretried", async () => {
     const root = cwd();
     await appendRequest(root, input);
 
     const controller = new AbortController();
     const d = deps();
     const running = runWatch(
-      { run: "leglas-watch-test-no-such-program {prompt}", port: undefined, cwd: root, signal: controller.signal },
+      { run: "leglas-watch-test-no-such-program {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
       d,
     );
 
@@ -197,7 +225,11 @@ describe("runWatch", () => {
 
     const remaining = await readRequests(root);
     expect(remaining).toHaveLength(1);
-    expect(remaining[0]?.status).toBe("picked-up");
+    // Left in the queue, but as a request that ended rather than one still in
+    // somebody's hands: the interface reads this file, and "picked-up" there
+    // said an agent was working on it for as long as the file existed.
+    expect(remaining[0]?.status).toBe("failed");
+    expect(remaining[0]?.failure?.code).toBe("missing-agent");
     expect(d.lines.join("\n")).toContain("not retried");
   });
 
@@ -205,7 +237,7 @@ describe("runWatch", () => {
     const root = cwd();
     const controller = new AbortController();
     const running = runWatch(
-      { run: "node {prompt}", port: undefined, cwd: root, signal: controller.signal },
+      { run: "node {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
       deps(),
     );
 

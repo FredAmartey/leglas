@@ -7,7 +7,9 @@ import {
   KNOWN_AGENTS,
   activityFrom,
   detectAgents,
+  execProbe,
   readAgentChoice,
+  retryFrom,
   saveAgentChoice,
   sessionFrom,
 } from "./agents.js";
@@ -26,8 +28,11 @@ describe("KNOWN_AGENTS", () => {
     expect(KNOWN_AGENTS.codex.args("make it warmer")).toEqual([
       "exec",
       "--json",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
+      "--skip-git-repo-check",
       "make it warmer",
     ]);
     expect(KNOWN_AGENTS.cursor.args("make it warmer")).toEqual([
@@ -47,8 +52,11 @@ describe("KNOWN_AGENTS", () => {
     ]);
     expect(KNOWN_AGENTS.codex.terminalArgs("make it warmer")).toEqual([
       "exec",
+      "-c",
+      "sandbox_workspace_write.network_access=true",
       "-s",
       "workspace-write",
+      "--skip-git-repo-check",
       "make it warmer",
     ]);
     expect(KNOWN_AGENTS.cursor.terminalArgs("make it warmer")).toEqual([
@@ -56,6 +64,34 @@ describe("KNOWN_AGENTS", () => {
       "make it warmer",
     ]);
   });
+});
+
+test("codex is told it may run outside a git repository", () => {
+  // codex-cli 0.147.0 refuses before it contacts a model: "Not inside a
+  // trusted directory and --skip-git-repo-check was not specified." Every
+  // codex argv Leglas builds has to carry the flag, or the whole vendor is
+  // unusable in a project the user never put under version control.
+  for (const argv of [
+    KNOWN_AGENTS.codex.args("make it warmer"),
+    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
+    KNOWN_AGENTS.codex.terminalArgs("make it warmer"),
+  ]) {
+    expect(argv).toContain("--skip-git-repo-check");
+  }
+  // The flag moves the repository precondition and nothing else: the sandbox
+  // still confines writes to the workspace.
+  expect(KNOWN_AGENTS.codex.args("make it warmer")).toContain("workspace-write");
+});
+
+test("codex can inspect the live preview without changing the user's quality settings", () => {
+  for (const argv of [
+    KNOWN_AGENTS.codex.args("make it warmer"),
+    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
+    KNOWN_AGENTS.codex.terminalArgs("make it warmer"),
+  ]) {
+    expect(argv).toContain("sandbox_workspace_write.network_access=true");
+    expect(argv.join(" ")).not.toMatch(/model_reasoning_effort|--model|-m /);
+  }
 });
 
 test("detectAgents probes binaries and logins through the injected hooks", async () => {
@@ -83,6 +119,18 @@ test("detectAgents probes binaries and logins through the injected hooks", async
   ]);
 });
 
+test("a status command whose child outlives it still answers, as unknown", async () => {
+  // The shape that wedged the agents endpoint: the command exits at once, but
+  // something it started holds the output pipe open, so "close" never fires.
+  // Waiting on that event alone left the probe pending for the life of the
+  // process and the composer's chooser never loaded again.
+  const started = Date.now();
+  const result = await execProbe("/bin/sh", ["-c", "sleep 30 & echo hello"], 150);
+
+  expect(result).toBeNull();
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
 test("an unreadable or failed probe reads as unknown, never as signed out", async () => {
   const agents = await detectAgents(
     async () => true,
@@ -93,7 +141,7 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
 });
 
-test("resume argv continues the session, and codex carries no sandbox flag", () => {
+test("resume argv continues the session without trying to replace its sandbox", () => {
   expect(KNOWN_AGENTS.claude.resumeArgs("sid-1", "make it warmer")).toEqual([
     "-p",
     "--resume",
@@ -105,12 +153,16 @@ test("resume argv continues the session, and codex carries no sandbox flag", () 
     "--permission-mode",
     "acceptEdits",
   ]);
-  // `codex exec resume` refuses -s and inherits the session's sandbox.
+  // `codex exec resume` refuses -s and inherits the session's sandbox. The
+  // repository check is per invocation, so the flag is not inherited.
   expect(KNOWN_AGENTS.codex.resumeArgs("sid-2", "make it warmer")).toEqual([
     "exec",
     "resume",
     "sid-2",
     "--json",
+    "-c",
+    "sandbox_workspace_write.network_access=true",
+    "--skip-git-repo-check",
     "make it warmer",
   ]);
 });
@@ -141,6 +193,39 @@ test("each vendor's verdict reads its own CLI honestly", () => {
   expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "cursor-agent 1.2.3" })).toBe(
     "unknown",
   );
+});
+
+describe("retryFrom", () => {
+  test("reads the api_retry event Claude prints while it backs off", () => {
+    // Captured from claude stream-json against a local endpoint answering 529.
+    const line = JSON.stringify({
+      type: "system",
+      subtype: "api_retry",
+      attempt: 3,
+      max_retries: 10,
+      retry_delay_ms: 2045,
+      error_status: 529,
+      error: "overloaded",
+      session_id: "s_1",
+    });
+    expect(retryFrom("claude", line)).toEqual({
+      attempt: 3,
+      max: 10,
+      status: 529,
+      reason: "overloaded",
+    });
+    // Cursor's stream-json follows Claude's shape; codex retries silently.
+    expect(retryFrom("cursor", line)).not.toBeNull();
+    expect(retryFrom("codex", line)).toBeNull();
+  });
+
+  test("ignores every other line, including malformed ones", () => {
+    expect(retryFrom("claude", "not json")).toBeNull();
+    expect(
+      retryFrom("claude", JSON.stringify({ type: "system", subtype: "init", session_id: "s" })),
+    ).toBeNull();
+    expect(retryFrom("claude", JSON.stringify({ type: "assistant" }))).toBeNull();
+  });
 });
 
 describe("activityFrom", () => {

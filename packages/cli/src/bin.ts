@@ -60,6 +60,7 @@ Options for add
   --branch <name>      Back the preview with a checkout of this git branch
   --file <path>        Preview a plain HTML file served by Leglas itself
   --based-on <title>   The direction this is a variant of; groups the family
+  --asked-for <text>   The change that was asked for, in the words that were typed
 `;
 
 function version(): string {

@@ -48,6 +48,7 @@ export type ShellStateProps = {
   onToggleHelp?: (() => void) | undefined;
   /** Invoked by the tools shortcut; the widget and popover live in the shell. */
   onToggleTools?: (() => void) | undefined;
+  onToggleNote?: (() => void) | undefined;
   /**
    * Hold every shortcut but help, for when something on top owns the keyboard.
    */
@@ -61,6 +62,7 @@ export function useShellState({
   onToggleSplit,
   onToggleHelp,
   onToggleTools,
+  onToggleNote,
   suspended = false,
 }: ShellStateProps) {
   const key = storageKey(project);
@@ -381,6 +383,9 @@ export function useShellState({
       } else if (action.kind === "tools") {
         event.preventDefault();
         onToggleTools?.();
+      } else if (action.kind === "note") {
+        event.preventDefault();
+        onToggleNote?.();
       } else if (action.kind === "rail") {
         setPrefs((current) => ({ ...current, collapsed: !current.collapsed }));
       } else if (action.kind === "jump") {
@@ -428,6 +433,7 @@ export function useShellState({
     onToggleSplit,
     onToggleHelp,
     onToggleTools,
+    onToggleNote,
     suspended,
     // Re-attach as previews mount and as each one finishes loading, since a
     // fresh document does not inherit the old one's listener.

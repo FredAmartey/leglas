@@ -11,6 +11,8 @@ export type Preview = {
   tags: readonly string[];
   /** The direction this preview is a variant of; the rail groups the family. */
   basedOn?: string | undefined;
+  /** The change that was asked for, in the words that were typed. */
+  askedFor?: string | undefined;
   /** Added through `leglas add`, so Leglas can remove its local registration. */
   local?: boolean | undefined;
   /**

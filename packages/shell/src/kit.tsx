@@ -141,10 +141,17 @@ export function Tip({
   children,
   label,
   side = "top",
+  wide = false,
 }: {
   children: React.ReactNode;
   label: React.ReactNode;
   side?: "right" | "top";
+  /**
+   * Let the label wrap inside a fixed width instead of running on one line.
+   * A tip names a control in a few words; a card explains where a direction
+   * came from, and that is a sentence someone typed.
+   */
+  wide?: boolean;
 }) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const bubbleRef = useRef<HTMLSpanElement | null>(null);
@@ -249,9 +256,9 @@ export function Tip({
             }`}
           >
             <span
-              className={`leglas-tip block whitespace-nowrap rounded-lg border border-white/10 bg-[#171717] px-2 py-1 text-xs font-medium text-white shadow-lg ${
-                tip.out ? `leglas-tip-out-${tip.at}` : `leglas-tip-in-${tip.at}`
-              }`}
+              className={`leglas-tip block rounded-lg border border-white/10 bg-[#171717] px-2 py-1 text-xs font-medium text-white shadow-lg ${
+                wide ? "w-64 whitespace-normal" : "whitespace-nowrap"
+              } ${tip.out ? `leglas-tip-out-${tip.at}` : `leglas-tip-in-${tip.at}`}`}
               ref={bubbleRef}
             >
               {label}

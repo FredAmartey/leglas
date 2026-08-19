@@ -30,6 +30,15 @@ export type Preview = {
    * Purely descriptive: an unknown title makes the preview an ordinary root.
    */
   basedOn?: string | undefined;
+  /**
+   * The change that was asked for, in the words that were typed.
+   *
+   * Distinct from the note, which says what a direction is: this says what
+   * someone wanted when they asked for it. A rail of names a fortnight old is
+   * unaccountable without it, and paraphrasing it into the note loses the one
+   * thing no agent can reconstruct.
+   */
+  askedFor?: string | undefined;
 };
 
 export type LeglasConfig = {
@@ -191,6 +200,11 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       errors.push(`${at} has a basedOn that is not a direction title.`);
     }
 
+    const askedFor = entry["askedFor"];
+    if (askedFor !== undefined && (typeof askedFor !== "string" || askedFor.trim() === "")) {
+      errors.push(`${at} has an askedFor that is not a change request.`);
+    }
+
     const tags = entry["tags"];
     previews.push({
       title: typeof title === "string" ? title : "",
@@ -200,6 +214,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       ...(typeof branch === "string" ? { branch } : {}),
       ...(typeof file === "string" ? { file } : {}),
       ...(typeof basedOn === "string" && basedOn.trim() !== "" ? { basedOn } : {}),
+      ...(typeof askedFor === "string" && askedFor.trim() !== "" ? { askedFor } : {}),
     });
   });
 

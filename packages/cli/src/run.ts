@@ -38,6 +38,25 @@ function findShellDir(): string | null {
   }
 }
 
+/** A command word safe to paste into the user's platform shell. */
+function shellWord(value: string): string {
+  if (/^[A-Za-z0-9_./:=+\\-]+$/.test(value)) return value;
+  if (process.platform === "win32") return `"${value.replaceAll('"', '""')}"`;
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * The embedded agent is a child of this exact CLI process, so registration
+ * can call the already-running package directly. Falling back keeps source
+ * imports and unusual programmatic hosts working without pretending a bin
+ * file exists beside them.
+ */
+function embeddedLeglasCommand(): string {
+  const entry = join(dirname(fileURLToPath(import.meta.url)), "bin.js");
+  if (!existsSync(entry)) return "npx -y leglas";
+  return [process.execPath, entry].map(shellWord).join(" ");
+}
+
 export type RunDeps = {
   open(url: string): Promise<void>;
   log(line: string): void;
@@ -181,6 +200,7 @@ export async function run(
     // directory does. Either way saved layout survives a port change.
     project: loaded.path ?? options.cwd,
     cwd: options.cwd,
+    leglasCommand: embeddedLeglasCommand(),
     ...(options.port === undefined ? {} : { port: options.port }),
   });
 
