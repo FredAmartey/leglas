@@ -364,6 +364,11 @@ export function AnnotateLayer({
     const covered = touched.filter(
       (element) =>
         !touched.some((other) => other !== element && element.contains(other)) &&
+        // Something that swallows the whole sweep is what the region sits in,
+        // not what it points at. A band drawn across empty space would
+        // otherwise name the page container and hand over every word on it as
+        // one run-on string.
+        !contains(boxOf(element.getBoundingClientRect()), region) &&
         // Scaffolding with no words and no picture of its own tells an agent
         // nothing it can act on.
         (elementText(element.textContent) !== "" ||
