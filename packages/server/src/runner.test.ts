@@ -1,11 +1,13 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import { appendRequest, readRequests } from "./requests.js";
 import { startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
 
@@ -564,6 +566,121 @@ describe("startRunner", () => {
     // And the request queued behind it gets its turn.
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).toContain("prompt for Next");
+    spawned.children[1]?.close(0);
+    await runner.stop();
+  });
+
+  test("hands claude the registration allowance on a fork, and only on a fork", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-allow-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, { ...input("Fork"), mode: "variant" });
+    await appendRequest(cwd, input("Tweak"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      leglasCommand: "npx -y leglas",
+    });
+
+    // A fork ends by running the registration CLI, and non-interactive Claude
+    // cannot approve a Bash call on its own: without the allowance the
+    // mandatory last step is refused, the agent gives up politely, and the
+    // run exits 0 having put nothing on the rail.
+    await until(() => spawned.children.length === 1);
+    const forkArgs = spawned.calls[0]?.[1] ?? [];
+    const at = forkArgs.indexOf("--allowedTools");
+    expect(at).toBeGreaterThan(-1);
+    expect(forkArgs[at + 1]).toBe("Bash(npx -y leglas add *)");
+
+    await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+
+    // A change in place is told nothing needs re-registering, so it gets no
+    // Bash allowance either.
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).not.toContain("--allowedTools");
+    spawned.children[1]?.close(0);
+    await runner.stop();
+  });
+
+  test("a resumed fork carries the registration allowance too", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-allow-resume-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, { ...input("First fork"), mode: "variant" });
+    await appendRequest(cwd, { ...input("Second fork"), mode: "variant" });
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      leglasCommand: "npx -y leglas",
+    });
+
+    await until(() => spawned.children.length === 1);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
+    );
+    await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+
+    await tickUntil(clock, () => spawned.children.length === 2);
+    const resumed = spawned.calls[1]?.[1] ?? [];
+    expect(resumed).toContain("--resume");
+    const at = resumed.indexOf("--allowedTools");
+    expect(at).toBeGreaterThan(-1);
+    expect(resumed[at + 1]).toBe("Bash(npx -y leglas add *)");
+    await runner.stop();
+  });
+
+  test("a fork that registers nothing fails instead of vanishing", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-unregistered-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, { ...input("Fork"), mode: "variant" });
+    const clock = manualClock();
+    const spawned = spawner();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      leglasCommand: "npx -y leglas",
+    });
+
+    // The agent says all the right things, exits 0, and never registers.
+    // Before the verdict existed this counted as success: the request was
+    // removed, the card disappeared, and nothing reached the rail.
+    await until(() => spawned.children.length === 1);
+    spawned.children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
+    );
+    spawned.children[0]?.close(0);
+
+    await until(() => runner.snapshot().failedIds.length === 1);
+    const [fork] = await readRequests(cwd);
+    expect(fork?.status).toBe("failed");
+    expect(fork?.failure).toEqual({
+      code: "not-registered",
+      message:
+        "Claude finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.",
+    });
+
+    // The conversation ignored its final instruction, so the session is not
+    // trusted with the next request: a fresh fork starts cold.
+    await appendRequest(cwd, { ...input("Another fork"), mode: "variant" });
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).not.toContain("--resume");
     spawned.children[1]?.close(0);
     await runner.stop();
   });

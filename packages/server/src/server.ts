@@ -1018,7 +1018,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
-  runner = startRunner({ cwd, externallyAttached });
+  runner = startRunner({ cwd, externallyAttached, leglasCommand });
 
   let closePromise: Promise<void> | null = null;
 

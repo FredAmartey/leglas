@@ -1,7 +1,10 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
+import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
   activityFrom,
@@ -21,6 +24,7 @@ import {
   markFailed,
   markPickedUp,
   readRequests,
+  registrationCommand,
   removeRequest,
   type PendingRequest,
 } from "./requests.js";
@@ -87,6 +91,13 @@ export type RunnerOptions = {
   clearInterval?: (handle: unknown) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
   setTimeout?: (callback: () => void, milliseconds: number) => void;
+  /**
+   * How a fork's prompt names the registration CLI, exactly as the prompt
+   * composer received it. It feeds the pre-approval a non-interactive CLI
+   * needs to run that command; absent, no allowance is granted and a fork
+   * behaves as it did before the allowance existed.
+   */
+  leglasCommand?: string;
 };
 
 export type RunningAgent = {
@@ -122,9 +133,12 @@ function resolveCommand(
   choice: SavedAgentChoice,
   prompt: string,
   sessionId: string | null = null,
+  registration: string | null = null,
 ): ResolvedCommand | null {
   if (choice.agent === null) return null;
 
+  // A custom template is the user's own command, and its permissions are
+  // theirs to configure; nothing is appended to an argv Leglas did not write.
   if (choice.agent === "custom") {
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
@@ -133,12 +147,14 @@ function resolveCommand(
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
+  const allow =
+    registration !== null && "allowArgs" in adapter ? adapter.allowArgs(registration) : [];
   if (sessionId !== null && "resumeArgs" in adapter) {
     return {
       agent: choice.agent,
       name: adapter.name,
       command: adapter.binary,
-      args: adapter.resumeArgs(sessionId, prompt),
+      args: [...adapter.resumeArgs(sessionId, prompt), ...allow],
       resumed: true,
     };
   }
@@ -146,7 +162,7 @@ function resolveCommand(
     agent: choice.agent,
     name: adapter.name,
     command: adapter.binary,
-    args: adapter.args(prompt),
+    args: [...adapter.args(prompt), ...allow],
     resumed: false,
   };
 }
@@ -339,11 +355,24 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     });
   };
 
+  /** The previews file as it stands, or null before it exists. */
+  const registered = (): Promise<string | null> =>
+    readFile(join(options.cwd, LOCAL_PREVIEWS_PATH), "utf8").catch(() => null);
+
   const handle = async (request: PendingRequest, choice: SavedAgentChoice): Promise<void> => {
     const session =
       choice.agent !== null ? (sessions.get(choice.agent) ?? null) : null;
     const continuable = session !== null && session.turns < SESSION_TURNS_CAP;
-    let resolved = resolveCommand(choice, request.prompt, continuable ? session.id : null);
+    const registration =
+      request.mode === "variant" && options.leglasCommand !== undefined
+        ? registrationCommand(options.leglasCommand)
+        : null;
+    let resolved = resolveCommand(
+      choice,
+      request.prompt,
+      continuable ? session.id : null,
+      registration,
+    );
     if (resolved === null) return;
 
     const lines: string[] = [];
@@ -380,6 +409,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         edited: false,
         retry: null as RetryNotice | null,
       };
+      // A fork's one observable outcome is the previews file gaining its
+      // entry, so the file as it stood before the run is what exit 0 gets
+      // judged against.
+      const before = request.mode === "variant" ? await registered() : null;
       // The name is read once: a cold rerun resolves the same vendor, and a
       // closure over the mutable binding would only be harder to read.
       const agent = resolved.name;
@@ -422,7 +455,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         !stopped
       ) {
         sessions.delete(resolved.agent);
-        const cold = resolveCommand(choice, request.prompt);
+        const cold = resolveCommand(choice, request.prompt, null, registration);
         if (cold !== null) {
           resolved = cold;
           observed.sessionId = null;
@@ -435,6 +468,16 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       }
 
       if (outcome.ok && outcome.code === 0) {
+        // An exit 0 that registered nothing is a run that could not or would
+        // not finish its last step, and counting it as success is how three
+        // runs once vanished without a trace: request removed, card gone, rail
+        // unchanged, the agent's explanation discarded. The conversation
+        // ignored its final instruction, so it is not resumed either.
+        if (request.mode === "variant" && (await registered()) === before) {
+          sessions.delete(resolved.agent);
+          await reportFailure(request, classifyFailure({ agent, error: "not-registered" }), lines);
+          return;
+        }
         if (observed.sessionId !== null) {
           const previous = sessions.get(resolved.agent);
           sessions.set(resolved.agent, {
