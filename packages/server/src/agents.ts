@@ -66,6 +66,12 @@ export const KNOWN_AGENTS = {
       "--permission-mode",
       "acceptEdits",
     ],
+    // Non-interactive Claude cannot approve a Bash call: acceptEdits covers
+    // files, so a command the prompt requires is refused every time with
+    // nobody there to say yes. This allows exactly that command and nothing
+    // wider. Codex needs no equivalent, because workspace-write already lets
+    // it run commands.
+    allowArgs: (command: string): string[] => ["--allowedTools", `Bash(${command} *)`],
     // Every stream-json event names its session.
     sessionFrom: (event: Record<string, unknown>): string | null =>
       typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,

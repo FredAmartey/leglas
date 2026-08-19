@@ -27,6 +27,8 @@ export type FailureCode =
   | "provider-limit"
   /** Codex refused the directory: no git repository and no trust on record. */
   | "needs-trust"
+  /** The run exited cleanly without registering the direction it was asked for. */
+  | "not-registered"
   /** The agent ran, did its own thing, and exited nonzero. */
   | "agent-error";
 
@@ -114,6 +116,8 @@ function message(code: FailureCode, input: FailureInput): string {
       return `${agent} reported a rate or usage limit, so nothing ran.`;
     case "needs-trust":
       return `Codex refused this project: it is not a git repository and Codex has no trust on record for it.`;
+    case "not-registered":
+      return `${agent} finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.`;
     case "agent-error":
       return input.exitCode === null || input.exitCode === undefined
         ? `${agent} stopped without finishing. Its last output is in the Leglas terminal.`
@@ -137,14 +141,16 @@ export function classifyFailure(input: FailureInput): Failure {
   const code: FailureCode =
     error === "cancelled"
       ? "cancelled"
-      : error !== null && /^stopped by /.test(error)
-        ? "stopped"
-        : error !== null && MISSING_BINARY.test(error)
-          ? "missing-agent"
-          : (error !== null ? fromLines([error]) : null) ??
-            fromStatus(input.retry?.status ?? null, input.retry?.reason ?? null) ??
-            fromLines(lines) ??
-            "agent-error";
+      : error === "not-registered"
+        ? "not-registered"
+        : error !== null && /^stopped by /.test(error)
+          ? "stopped"
+          : error !== null && MISSING_BINARY.test(error)
+            ? "missing-agent"
+            : (error !== null ? fromLines([error]) : null) ??
+              fromStatus(input.retry?.status ?? null, input.retry?.reason ?? null) ??
+              fromLines(lines) ??
+              "agent-error";
 
   return { code, message: message(code, input) };
 }

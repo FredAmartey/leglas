@@ -27,6 +27,8 @@ export type FailureCode =
  | "provider-limit"
 /** Codex refused the directory: no git repository and no trust on record. */
  | "needs-trust"
+/** The run exited cleanly without registering the direction it was asked for. */
+ | "not-registered"
 /** The agent ran, did its own thing, and exited nonzero. */
  | "agent-error";
 export type Framework = "next" | "react";

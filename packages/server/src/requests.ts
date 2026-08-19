@@ -165,6 +165,19 @@ const SCOPE =
   `the change additive: do not rewrite shared components that other ` +
   `directions rely on.`;
 
+/**
+ * The exact command a fork's prompt tells the agent to run to register.
+ *
+ * The runner pre-approves this prefix for a CLI that cannot ask mid-run, so
+ * prompt and allowance must come from one place: an allowance for a command
+ * the prompt does not name is a hole, and a prompt naming a command the
+ * allowance does not cover is a run that builds everything and registers
+ * nothing.
+ */
+export function registrationCommand(leglasCommand: string): string {
+  return `${leglasCommand} add`;
+}
+
 function replacePrompt(preview: Preview, asked: string, target: string | null): string {
   const where =
     target === null
@@ -209,6 +222,7 @@ function variantPrompt(
   const slot = variantSlot(preview.url);
   const parent = JSON.stringify(preview.title);
   const askedFor = JSON.stringify(recorded);
+  const add = registrationCommand(leglasCommand);
 
   const source =
     target === null
@@ -221,7 +235,7 @@ function variantPrompt(
     preview.file !== undefined
       ? [
           `Copy that file to a new file beside it and make the change in the copy.`,
-          `  ${leglasCommand} add --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+          `  ${add} --title "<name>" --file "<the new file>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
         ]
       : slot !== null
         ? [
@@ -229,14 +243,14 @@ function variantPrompt(
               `in the copy. The new file's name without its extension is its key, ` +
               `and that key has to be listed in the DIRECTIONS map in ` +
               `.leglas/variants/${slot.surface}/switch.tsx or its URL will not resolve.`,
-            `  ${leglasCommand} add --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+            `  ${add} --title "<name>" --url "/?v-${slot.surface}=<key>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ]
         : [
             `Copy its source rather than editing it, and make the change in the ` +
               `copy. Add the new direction the way this project already switches ` +
               `between them; if it has a Leglas branch point, that is the ` +
               `DIRECTIONS map in .leglas/variants/<surface>/switch.tsx.`,
-            `  ${leglasCommand} add --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
+            `  ${add} --title "<name>" --url "<the URL that shows it>" --based-on ${parent} --note "<what this direction is, one line>" --asked-for ${askedFor}`,
           ];
 
   return (
@@ -310,6 +324,7 @@ const FAILURE_CODES: readonly FailureCode[] = [
   "provider-overloaded",
   "provider-limit",
   "needs-trust",
+  "not-registered",
   "agent-error",
 ];
 

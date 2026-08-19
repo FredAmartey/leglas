@@ -91,6 +91,17 @@ describe("classifyFailure", () => {
     );
   });
 
+  test("a clean exit that registered nothing is named as itself", () => {
+    // Exit 0 with a polite goodbye used to read as success, and everything the
+    // run built stayed invisible. The verdict is Leglas's own, so no output
+    // sniffing outranks it.
+    const failure = classifyFailure({ agent: "Claude", error: "not-registered" });
+    expect(failure.code).toBe("not-registered");
+    expect(failure.message).toBe(
+      "Claude finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.",
+    );
+  });
+
   test("only a session-shaped failure earns a second run", () => {
     expect(sessionShaped("agent-error")).toBe(true);
     for (const code of [
@@ -101,6 +112,7 @@ describe("classifyFailure", () => {
       "provider-overloaded",
       "provider-limit",
       "needs-trust",
+      "not-registered",
     ] as const) {
       expect([code, sessionShaped(code)]).toEqual([code, false]);
     }
