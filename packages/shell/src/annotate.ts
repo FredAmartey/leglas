@@ -129,6 +129,24 @@ export function cardWidth(viewport: number): number {
   return Math.round(Math.min(256, Math.max(180, viewport - 48)));
 }
 
+/**
+ * The box that holds all of them, or nothing when there are none.
+ *
+ * A sweep is drawn as a band through things, which is the quickest way to
+ * mean "these", but it is a poor description of what was meant: kept as
+ * drawn, it records a line through the middle of some text and paints one
+ * back over the design. Snapping to what it caught makes the region the
+ * thing it named.
+ */
+export function unionOf(boxes: readonly Box[]): Box | null {
+  if (boxes.length === 0) return null;
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.width));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+  return { height: bottom - top, width: right - left, x: left, y: top };
+}
+
 export type Covered = { tag: string; text: string };
 
 /** Enough for the agent to recognise the region, before the brief bloats. */

@@ -10,6 +10,7 @@ import {
   isDrag,
   overlaps,
   placeCard,
+  unionOf,
 } from "./annotate.js";
 
 describe("isDrag", () => {
@@ -150,6 +151,26 @@ describe("cardWidth", () => {
   test("never narrows past a slot you can type a sentence into", () => {
     expect(cardWidth(200)).toBe(180);
     expect(cardWidth(0)).toBe(256);
+  });
+});
+
+describe("unionOf", () => {
+  test("holds everything it was given", () => {
+    expect(
+      unionOf([
+        { height: 40, width: 100, x: 10, y: 20 },
+        { height: 20, width: 60, x: 200, y: 100 },
+      ]),
+    ).toEqual({ height: 100, width: 250, x: 10, y: 20 });
+  });
+
+  test("is one box when there is one box", () => {
+    const only = { height: 10, width: 10, x: 5, y: 5 };
+    expect(unionOf([only])).toEqual(only);
+  });
+
+  test("has nothing to hold when the sweep caught nothing", () => {
+    expect(unionOf([])).toBeNull();
   });
 });
 

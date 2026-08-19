@@ -11,6 +11,7 @@ import {
   isDrag,
   overlaps,
   placeCard,
+  unionOf,
   type Box,
   type Point,
 } from "./annotate.js";
@@ -381,6 +382,8 @@ export function AnnotateLayer({
     }
 
     return {
+      // What was caught, not the line drawn to catch it.
+      bounds: unionOf(covered.map((element) => boxOf(element.getBoundingClientRect()))) ?? region,
       covers: coversFrom(
         covered.map((element) => ({
           tag: element.tagName.toLowerCase(),
@@ -397,19 +400,19 @@ export function AnnotateLayer({
 
     // A sweep names an area; a click names the thing under it.
     if (from !== null && isDrag(from, to)) {
-      const region = boxBetween(from, to);
-      const { covers, holder } = sweep(at, region);
+      const swept = boxBetween(from, to);
+      const { bounds, covers, holder } = sweep(at, swept);
       const holderBox = boxOf(holder.getBoundingClientRect());
       setDraft({
         anchor: {
           ...anchorFor(holder, holderBox, at.view.innerWidth, {
-            x: region.x + region.width / 2,
-            y: region.y + region.height / 2,
+            x: bounds.x + bounds.width / 2,
+            y: bounds.y + bounds.height / 2,
           }),
           covers,
-          region: fractionsIn(holderBox, region),
+          region: fractionsIn(holderBox, bounds),
         },
-        about: region,
+        about: bounds,
       });
       return;
     }
@@ -531,7 +534,11 @@ export function AnnotateLayer({
             />
           )}
           <div
-            className="group/pin absolute flex items-center gap-1"
+            // The badge alone sizes this box. The card beside it is hidden
+            // until hover but still laid out, and while it was a flex sibling
+            // its width dragged the centring transform with it, parking every
+            // badge half a card to the left of the thing it marks.
+            className="group/pin absolute size-5"
             onPointerDown={(event) => event.stopPropagation()}
             onPointerMove={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
@@ -555,7 +562,7 @@ export function AnnotateLayer({
             {/* The words and the way to drop them, on hover only: at rest the
                 pane is showing a design, and a row of open cards over it is
                 the thing in the way. */}
-            <span className="pointer-events-none flex max-w-56 items-center gap-1 rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover/pin:pointer-events-auto group-hover/pin:opacity-100">
+            <span className="pointer-events-none absolute left-full top-1/2 ml-1 flex w-max max-w-56 -translate-y-1/2 items-center gap-1 rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover/pin:pointer-events-auto group-hover/pin:opacity-100">
               <span className="min-w-0 flex-1 truncate">{pin.note || "No words"}</span>
               <button
                 aria-label="Forget this annotation"
