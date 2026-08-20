@@ -11,11 +11,11 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.5.0 (2026-08-20)
 
-The public API surface moved (`PendingRequest.status` gained two values and
-the type gained `failure`, `mode` and `notes`), so the next release is a
-minor, not a patch.
+This is a minor rather than a patch because the public API surface moved:
+`PendingRequest.status` gained two values, and the type gained `failure`,
+`mode` and `notes`.
 
 ### Added
 

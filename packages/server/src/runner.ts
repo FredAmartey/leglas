@@ -273,11 +273,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     failure: Failure,
     lines: readonly string[],
   ): Promise<void> => {
-    failed.add(request.id);
     await markFailed(options.cwd, request.id, failure).catch(() => {
-      // The queue is unwritable; the in-memory record still stops a rerun for
-      // the life of this process, which is what it did before any of this.
+      // The queue is unwritable; the in-memory record below still stops a
+      // rerun for the life of this process, which is what it did before any
+      // of this.
     });
+    // Do not expose the in-memory verdict before the durable one. Consumers
+    // use failedIds as the signal that the queue is ready to read.
+    failed.add(request.id);
     if (failure.code === "cancelled") {
       console.error(`Leglas stopped the run for ${request.title}.`);
       return;
