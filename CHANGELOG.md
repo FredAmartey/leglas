@@ -11,7 +11,7 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.6.1 (2026-08-20)
 
 ### Fixed
 
