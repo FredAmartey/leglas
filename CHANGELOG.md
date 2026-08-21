@@ -11,6 +11,18 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Fixed
+
+- **A preview that broke on its first try comes back with the others.** When
+  the dev server returns, Leglas reloads the previews that depend on it, but
+  it only reloaded the ones that had rendered successfully at least once. A
+  preview whose very first navigation failed had never rendered, so it was
+  skipped: its error notice was cleared and the dead frame left in place, with
+  nothing on screen to say it was still broken and no way back short of a
+  manual reload. Every app-backed preview now reloads. (`leglas`)
+
 ## 0.6.0 (2026-08-20)
 
 ### Changed
