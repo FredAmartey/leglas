@@ -872,37 +872,40 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // reset by a remount while the torn-down run's fetch is still in flight,
     // and that response must not land.
     let cancelled = false;
-    const poll = (signal: AbortSignal) => {
-      // The notes ride the queue's own signal, so the pair is one read with
-      // one deadline rather than two loops racing for the same sockets.
+    const poll = async (signal: AbortSignal) => {
       const signalled: NoteFetcher = (input, init) => fetch(input, { ...init, signal });
-      return Promise.all([
-        fetch("/leglas/api/requests", { signal })
-          .then(
-            (response) =>
-              response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
-          )
-          .then((payload) => {
-            if (cancelled) return;
-            const next = {
-              requests: payload.requests,
-              agent: payload.agent ?? IDLE_AGENT,
-            };
-            setRequestSnapshot((current) =>
-              JSON.stringify(current) === JSON.stringify(next) ? current : next,
-            );
-          }),
-        // Read on the same beat as the queue, because the two move together:
-        // a change made in place forgets the notes it answered, and a poll
-        // that only watched the queue would leave pins on a design that no
-        // longer has the problem they describe.
-        readNotes(signalled).then((fresh) => {
+      await fetch("/leglas/api/requests", { signal })
+        .then(
+          (response) =>
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
+        )
+        .then((payload) => {
+          if (cancelled) return;
+          const next = {
+            requests: payload.requests,
+            agent: payload.agent ?? IDLE_AGENT,
+          };
+          setRequestSnapshot((current) =>
+            JSON.stringify(current) === JSON.stringify(next) ? current : next,
+          );
+        })
+        // Caught per read rather than around the pair: these are two reads on
+        // one beat, and one of them failing is no reason to skip the other.
+        .catch(() => {});
+      // Read on the same beat as the queue, because the two move together: a
+      // change made in place forgets the notes it answered, and a poll that
+      // only watched the queue would leave pins on a design that no longer
+      // has the problem they describe. After it rather than beside it, so the
+      // beat costs one socket instead of two and the previews keep the rest;
+      // both are local JSON, so the extra round trip is not a visible one.
+      await readNotes(signalled)
+        .then((fresh) => {
           if (cancelled) return;
           setNotes((current) =>
             JSON.stringify(current) === JSON.stringify(fresh) ? current : fresh,
           );
-        }),
-      ]).catch(() => {});
+        })
+        .catch(() => {});
     };
     const stop = startPoll(poll, { everyMs: 2000 });
     return () => {

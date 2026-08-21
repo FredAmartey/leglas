@@ -23,10 +23,10 @@
  * future poll can forget them:
  *
  * - One read at a time. A tick arriving while a read is in flight is
- *   dropped, not queued, which caps a loop at whatever one read costs, no
- *   matter how slow the answer is. The shell's three loops then hold at most
- *   four of the six sockets, because the queue's beat reads the notes
- *   alongside it, instead of an unbounded number.
+ *   dropped, not queued, which caps a loop at a single socket no matter how
+ *   slow the answer is. Three loops then cost three of the six sockets
+ *   instead of an unbounded number. A loop that reads more than one endpoint
+ *   holds to this by reading them one after another, not at once.
  * - Every read has a deadline. A request that hangs past it is aborted, which
  *   returns the socket rather than holding it for the life of the page.
  */
