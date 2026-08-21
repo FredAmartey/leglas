@@ -30,9 +30,9 @@ import type { Preview } from "./types.js";
  * that can be taken back carry their own undo, so nothing here is a change you
  * have to squint at the rail to confirm.
  *
- * Panes mount lazily on first activation and stay mounted after, so flips are
- * instant without paying for every direction upfront. Nested inside another
- * preview, only the active pane mounts, or self-hosting multiplies iframes.
+ * Pane history is recorded lazily on activation. A shell body decides whether
+ * to retain that history or mount only what is visible; nested shells expose
+ * only the active pane so self-hosting never multiplies iframes.
  */
 /** The link on its own, or the block that says what the direction is. */
 export type CopyKind = "link" | "reference";

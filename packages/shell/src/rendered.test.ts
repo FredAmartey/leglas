@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
+import {
+  paintSample,
+  quantiseCssPixel,
+  renderedSignature,
+  twinsOf,
+  visualSample,
+} from "./rendered.js";
 
 describe("renderedSignature", () => {
   test("two pages drawing the same thing agree", () => {
@@ -104,6 +110,92 @@ describe("paint in the signature", () => {
 
   test("no paint sample behaves as before", () => {
     expect(renderedSignature(TEXT, TAGS)).toBe(renderedSignature(TEXT, TAGS, []));
+  });
+
+  test("the same copy and paint in a different layout is not a duplicate", () => {
+    const sharedPaint = ["rgb(13,13,13);none;rgb(240,240,240)"];
+    const capsule = renderedSignature(TEXT, TAGS, sharedPaint, ["NAV{rect:120,20,650,64;display:grid}"]);
+    const satellite = renderedSignature(TEXT, TAGS, sharedPaint, ["NAV{rect:940,20,260,340;display:block}"]);
+
+    expect(capsule).not.toBe(satellite);
+  });
+
+  test("identical high-fidelity visual records still agree", () => {
+    const visual = ["SVG{rect:20,20,64,64;d:M0 0L64 64}", "NAV{rect:120,20,650,64;display:grid}"];
+    expect(renderedSignature(TEXT, TAGS, [], visual)).toBe(renderedSignature(TEXT, TAGS, [], visual));
+  });
+
+  test("pseudo-elements, vector geometry, and media sources affect the verdict", () => {
+    const base = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:10px}}", "PATH{d:M0 0L1 1}", "IMG{src:a.webp}"]);
+    const changed = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:20px}}", "PATH{d:M0 0L2 2}", "IMG{src:b.webp}"]);
+
+    expect(base).not.toBe(changed);
+  });
+});
+
+describe("visualSample", () => {
+  type FakeElement = {
+    getAttribute: (name: string) => string | null;
+    getBoundingClientRect: () => { bottom: number; height: number; left: number; right: number; top: number; width: number };
+    matches: () => boolean;
+    closest: () => null;
+    ownerDocument: { defaultView: { getComputedStyle: () => { position: string }; scrollX: number; scrollY: number } };
+    parentElement: FakeElement | null;
+    querySelectorAll: () => FakeElement[];
+    tagName: string;
+  };
+
+  const fakeTree = (childLeft: number, path = "M0 0L10 10") => {
+    const ownerDocument = {
+      defaultView: { getComputedStyle: () => ({ position: "static" }), scrollX: 0, scrollY: 0 },
+    };
+    const rect = (left: number, width: number) => ({ bottom: 40, height: 20, left, right: left + width, top: 20, width });
+    const child: FakeElement = {
+      getAttribute: (name) => name === "d" ? path : null,
+      getBoundingClientRect: () => rect(childLeft, 100),
+      matches: () => false,
+      closest: () => null,
+      ownerDocument,
+      parentElement: null,
+      querySelectorAll: () => [],
+      tagName: "PATH",
+    };
+    const body: FakeElement = {
+      getAttribute: () => null,
+      getBoundingClientRect: () => rect(0, 1280),
+      matches: () => false,
+      closest: () => null,
+      ownerDocument,
+      parentElement: null,
+      querySelectorAll: () => [child],
+      tagName: "BODY",
+    };
+    child.parentElement = body;
+    return body as unknown as HTMLElement;
+  };
+
+  const styleOf = (_element: Element, pseudo?: string) => ({
+    getPropertyValue: (property: string) => {
+      if (property === "content") return pseudo ? "none" : "";
+      if (property === "animation-name") return "none";
+      if (property === "display") return "block";
+      return "";
+    },
+  });
+
+  test("captures geometry that text-and-tag comparison misses", () => {
+    expect(visualSample(fakeTree(20), styleOf)).not.toEqual(visualSample(fakeTree(220), styleOf));
+  });
+
+  test("captures vector path changes", () => {
+    expect(visualSample(fakeTree(20, "M0 0L10 10"), styleOf)).not.toEqual(
+      visualSample(fakeTree(20, "M0 0L20 20"), styleOf),
+    );
+  });
+
+  test("half-pixel quantisation ignores sub-raster noise", () => {
+    expect(quantiseCssPixel(10.01)).toBe(quantiseCssPixel(10.19));
+    expect(quantiseCssPixel(10.01)).not.toBe(quantiseCssPixel(10.49));
   });
 });
 

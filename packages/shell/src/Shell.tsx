@@ -19,10 +19,12 @@ import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
 import { startPoll } from "./poll.js";
+import { previewFrameIsReady, watchPreviewFrame } from "./preview-frame.js";
+import { previewFrameForSource, previewMessageSignal } from "./preview-message.js";
 import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
-import { paintSample, renderedSignature, twinsOf } from "./rendered.js";
+import { paintSample, renderedSignature, twinsOf, visualSample } from "./rendered.js";
 import { scanQueue } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
@@ -392,7 +394,15 @@ type DeletePrompt = {
   titles: readonly string[];
 };
 
-export function Shell({ previews, project }: { previews: Preview[]; project: string }) {
+export function Shell({
+  previews,
+  project,
+  scanPreviews = true,
+}: {
+  previews: Preview[];
+  project: string;
+  scanPreviews?: boolean;
+}) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const requestRef = useRef<HTMLTextAreaElement | null>(null);
   const splitRef = useRef<(() => void) | null>(null);
@@ -705,10 +715,20 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   });
   const visible = paneTitles({ active: st.active, compare, split });
   const splitting = visible.length > 1;
-  // Panes mount when first activated, so a direction compared against without
-  // ever having been opened would have nothing to render. Anything on stage
-  // has to be mounted whether or not it was ever the active one.
-  const mounted = [...new Set([...st.panes, ...visible])];
+  // Keep only the visible stage alive. An exported app can carry a full client
+  // runtime, so retaining every previously opened direction multiplies both
+  // memory and network work while offering no visible benefit.
+  const mounted = visible;
+  const mountedKey = mounted.join("\u0000");
+  const previousMounted = useRef(new Set<string>());
+
+  useEffect(() => {
+    const previous = previousMounted.current;
+    for (const title of mounted) {
+      if (!previous.has(title)) st.resetLoaded(title);
+    }
+    previousMounted.current = new Set(mounted);
+  }, [mountedKey]);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const stageWatch = useRef<ResizeObserver | null>(null);
@@ -1238,6 +1258,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     }
   });
 
+  const readyDocuments = useRef(new WeakSet<Document>());
+
   const readRendered = (title: string, frame: HTMLIFrameElement) => {
     // Cross-origin panes are unreadable by design; a branch preview or a
     // deployed URL simply goes uncompared.
@@ -1263,11 +1285,97 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           };
         })
       : [];
-    const signature = renderedSignature(doc.body.innerText ?? "", tags, paint);
+    const visual = view
+      ? visualSample(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
+      : [];
+    const signature = renderedSignature(doc.body.innerText ?? "", tags, paint, visual);
     setSignatures((current) =>
       current[title] === signature ? current : { ...current, [title]: signature },
     );
   };
+
+  /**
+   * Fingerprinting hundreds of computed styles is intentionally deferred until
+   * the preview has painted and the browser has idle time. Waiting briefly for
+   * fonts avoids recording a transient fallback-font layout, while a deadline
+   * keeps one slow font request from stalling the duplicate scan.
+   */
+  const scheduleRenderedRead = (title: string, frame: HTMLIFrameElement) => {
+    let fonts: FontFaceSet | undefined;
+    try {
+      fonts = frame.contentDocument?.fonts;
+    } catch {
+      // A cross-origin frame is handled by readRendered.
+    }
+
+    const fontDeadline = new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+    const fontsReady = fonts?.status === "loading"
+      ? Promise.race([fonts.ready.then(() => undefined), fontDeadline])
+      : Promise.resolve();
+
+    void fontsReady.then(() => {
+      const run = () => {
+        applyOverlayPref(frame, !st.prefs.showDevOverlays);
+        readRendered(title, frame);
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(run, { timeout: 1_200 });
+      } else {
+        window.setTimeout(run, 0);
+      }
+    });
+  };
+
+  /** Commit a successful navigation once for each real iframe document. */
+  const markPreviewReady = (title: string, frame: HTMLIFrameElement) => {
+    st.markLoaded(title);
+    setErrored((current) =>
+      current[title] ? { ...current, [title]: false } : current,
+    );
+
+    let doc: Document | null = null;
+    try {
+      doc = frame.contentDocument;
+    } catch {
+      // Cross-origin previews can be loaded but cannot be inspected.
+    }
+    if (doc === null || readyDocuments.current.has(doc)) return;
+    readyDocuments.current.add(doc);
+
+    // A client-rendered app draws after load, so read once the frame has had
+    // a chance to paint rather than at the navigation event itself.
+    applyOverlayPref(frame, !st.prefs.showDevOverlays);
+    window.setTimeout(() => {
+      scheduleRenderedRead(title, frame);
+    }, 600);
+  };
+
+  const markPreviewReadyRef = useRef(markPreviewReady);
+  markPreviewReadyRef.current = markPreviewReady;
+
+  useEffect(() => {
+    const onPreviewMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return;
+      const signal = previewMessageSignal(event.data);
+      if (signal === null) return;
+
+      const frame = previewFrameForSource(
+        document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]"),
+        event.source,
+      );
+      const title = frame?.dataset.preview;
+      if (frame === null || title === undefined) return;
+
+      if (signal === "ready") {
+        markPreviewReadyRef.current(title, frame);
+      } else {
+        setErrored((current) => ({ ...current, [title]: true }));
+      }
+    };
+
+    window.addEventListener("message", onPreviewMessage);
+    return () => window.removeEventListener("message", onPreviewMessage);
+  }, []);
 
   /**
    * The duplicate check without waiting for clicks.
@@ -1284,9 +1392,11 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * record N failures — but a preview Leglas serves itself never went down,
    * so those scan regardless.
    */
-  const scannable = health.reachable
-    ? previews
-    : previews.filter((preview) => !needsDevServer(preview));
+  const scannable = scanPreviews
+    ? health.reachable
+      ? previews
+      : previews.filter((preview) => !needsDevServer(preview))
+    : [];
   const scanning = scanQueue(scannable, signatures, mounted)[0] ?? null;
 
   /**
@@ -1297,6 +1407,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
    * keeps a tag that appears late from reading as a glitch.
    */
   const checking = (title: string) =>
+    scanPreviews &&
     (health.reachable || !appPanes.has(title)) &&
     !(title in signatures) &&
     st.urlFor(title).startsWith("/");
@@ -1319,14 +1430,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // one page would produce two signatures depending on who read it.
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
-      applyOverlayPref(frame, !st.prefs.showDevOverlays);
       let readable = false;
       try {
         readable = frame.contentDocument != null;
       } catch {
         readable = false;
       }
-      if (readable) readRendered(title, frame);
+      if (readable) scheduleRenderedRead(title, frame);
       // Unreadable means a failed navigation; the null verdict moves the
       // queue on instead of retrying forever.
       else setSignatures((current) => ({ ...current, [title]: null }));
@@ -1334,17 +1444,33 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   };
 
   useEffect(() => {
-    if (st.loaded[st.active] || errored[st.active]) return;
-    // A known-down dev server needs no waiting — the answer is already in —
-    // but only for panes that render through it. A file preview still loads
-    // on its own clock while the app is down.
-    const wait = health.reachable || !appPanes.has(st.active) ? LOAD_TIMEOUT_MS : 0;
-    const timer = setTimeout(
-      () => setErrored((current) => ({ ...current, [st.active]: true })),
-      wait,
-    );
-    return () => clearTimeout(timer);
-  }, [st.active, st.loaded, errored, reloadTick, health.reachable]);
+    const stopWatching: Array<() => void> = [];
+    for (const title of mounted) {
+      if (st.loaded[title] || errored[title]) continue;
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `iframe[data-preview="${CSS.escape(title)}"]`,
+      );
+      if (frame === null) continue;
+
+      // A known-down dev server needs no waiting, but a file preview is served
+      // by Leglas itself and still gets the ordinary navigation window.
+      const timeoutMs =
+        health.reachable || !appPanes.has(title) ? LOAD_TIMEOUT_MS : 0;
+      stopWatching.push(
+        watchPreviewFrame({
+          frame,
+          onFailure: () =>
+            setErrored((current) => ({ ...current, [title]: true })),
+          onReady: () => markPreviewReady(title, frame),
+          sameOrigin: st.urlFor(title).startsWith("/"),
+          timeoutMs,
+        }),
+      );
+    }
+    return () => {
+      for (const stop of stopWatching) stop();
+    };
+  }, [mountedKey, st.loaded, errored, reloadTick, health.reachable]);
 
   const reloadPane = (title: string) => {
     setErrored((current) => ({ ...current, [title]: false }));
@@ -1644,7 +1770,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   </span>
                 ) : twins[title] ? (
                   <Tip
-                    label={`Renders the same page as ${twins[title]?.join(", ")}. Check the URL.`}
+                    label={`Rendered structure, layout, visual styles, media, and vector geometry match ${twins[title]?.join(", ")} at this viewport.`}
                   >
                     <span
                       className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
@@ -2810,37 +2936,12 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                 key={reloadTick[title] ?? 0}
                 onError={() => setErrored((current) => ({ ...current, [title]: true }))}
                 onLoad={(event) => {
-                  // A failed navigation still fires load but lands on an error
-                  // document whose contentDocument reads as null or throws, so
-                  // for same-origin previews readability is the signal.
-                  //
-                  // A preview served from another origin is never readable, so
-                  // the same check would condemn every one of them: a branch
-                  // preview on its own port, or a deployed URL. There, load is
-                  // all the signal available.
                   const src = st.urlFor(title);
-                  const sameOrigin = src.startsWith("/");
-                  let ok = true;
-                  if (sameOrigin) {
-                    try {
-                      ok = event.currentTarget.contentDocument != null;
-                    } catch {
-                      ok = false;
-                    }
-                  }
-                  if (ok) {
-                    st.markLoaded(title);
-                    setErrored((current) => (current[title] ? { ...current, [title]: false } : current));
-                    // A client-rendered app draws after load, so read once the
-                    // frame has had a chance to paint rather than at load.
-                    const frame = event.currentTarget;
-                    applyOverlayPref(frame, !st.prefs.showDevOverlays);
-                    window.setTimeout(() => {
-                      applyOverlayPref(frame, !st.prefs.showDevOverlays);
-                      readRendered(title, frame);
-                    }, 600);
-                  } else {
-                    setErrored((current) => ({ ...current, [title]: true }));
+                  // Cross-origin previews expose only the event. Same-origin
+                  // previews must have left about:blank and produced a real
+                  // readable document before they are considered loaded.
+                  if (!src.startsWith("/") || previewFrameIsReady(event.currentTarget)) {
+                    markPreviewReady(title, event.currentTarget);
                   }
                 }}
                 data-preview={title}

@@ -44,6 +44,8 @@ export type Preview = {
 export type LeglasConfig = {
   devServer: string;
   previews: Preview[];
+  /** Whether the shell should render unopened directions to detect duplicates. */
+  scanPreviews?: boolean;
   /** How to start the app in a checkout Leglas manages. `{port}` is required. */
   devCommand: string | undefined;
   installCommand: string;
@@ -243,12 +245,18 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     errors.push("installCommand must be a non-empty string.");
   }
 
+  const scanPreviews = source["scanPreviews"] ?? true;
+  if (typeof scanPreviews !== "boolean") {
+    errors.push("scanPreviews must be a boolean.");
+  }
+
   if (errors.length > 0) return { config: null, errors };
 
   return {
     config: {
       devServer: devServer as string,
       previews,
+      scanPreviews: scanPreviews as boolean,
       devCommand: typeof devCommand === "string" ? devCommand : undefined,
       installCommand: installCommand as string,
     },

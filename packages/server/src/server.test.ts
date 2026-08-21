@@ -45,7 +45,8 @@ function configFor(port: number, previews: LeglasConfig["previews"] = []): Legla
 }
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
-  const server = await startServer(options);
+  // Server tests exercise HTTP behavior, not the installed Codex binary.
+  const server = await startServer({ codexAppServer: null, ...options });
   running.push(server);
   return server;
 }
@@ -521,6 +522,74 @@ describe("startServer", () => {
     expect(probes).toBe(2);
   });
 
+  test("serves stale agent state while routine authentication refreshes in the background", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-stale-"));
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const initial = [
+      {
+        id: "claude" as const,
+        name: "Claude",
+        available: true,
+        auth: "ok" as const,
+        efforts: ["low" as const],
+      },
+      {
+        id: "codex" as const,
+        name: "Codex",
+        available: true,
+        auth: "unknown" as const,
+        efforts: ["high" as const],
+      },
+      {
+        id: "cursor" as const,
+        name: "Cursor",
+        available: false,
+        auth: "unknown" as const,
+        efforts: [],
+      },
+    ];
+    const refreshed = initial.map((agent) =>
+      agent.id === "codex" ? { ...agent, auth: "ok" as const } : agent,
+    );
+    let probes = 0;
+    let finishRefresh: (() => void) | null = null;
+    const server = await start({
+      config: configFor(await startOrigin()),
+      port: 0,
+      cwd,
+      detect: () => {
+        probes += 1;
+        if (probes === 1) return Promise.resolve(initial);
+        return new Promise((resolve) => {
+          finishRefresh = () => resolve(refreshed);
+        });
+      },
+    });
+
+    const first = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+      agents: typeof initial;
+    };
+    expect(first.agents).toEqual(initial);
+
+    now.mockReturnValue(31_001);
+    const stale = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+      agents: typeof initial;
+    };
+    // The second detector is deliberately unresolved: receiving this answer
+    // proves the routine request did not wait behind it.
+    expect(stale.agents).toEqual(initial);
+    expect(probes).toBe(2);
+
+    expect(finishRefresh).not.toBeNull();
+    finishRefresh?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    const fresh = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+      agents: typeof initial;
+    };
+    expect(fresh.agents).toEqual(refreshed);
+    expect(probes).toBe(2);
+  });
+
   test.each([
     { agent: "unknown" },
     { agent: "custom" },
@@ -884,6 +953,18 @@ describe("startServer", () => {
     expect(res.status).toBe(200);
     expect(body.previews).toHaveLength(1);
     expect(body.errors).toEqual([]);
+  });
+
+  test("tells the shell when unopened preview scanning is disabled", async () => {
+    const config = configFor(await startOrigin(), [{ title: "Current", url: "/", note: undefined, tags: [] }]);
+    config.scanPreviews = false;
+    const server = await start({ config, port: 0 });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      scanPreviews: boolean;
+    };
+
+    expect(body.scanPreviews).toBe(false);
   });
 
   test("a url preview registered after boot joins the config live", async () => {

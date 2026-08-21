@@ -4,6 +4,7 @@ import net from "node:net";
 import { extname, join, normalize, relative } from "node:path";
 
 import { parseTemplate } from "./agent-command.js";
+import type { CodexTurnRunner } from "./codex-app-server.js";
 import {
   KNOWN_AGENTS,
   detectAgents,
@@ -104,6 +105,8 @@ export type ServerOptions = {
    * the default probes each installed CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
+  /** Persistent Codex transport; null disables it (notably in unit tests). */
+  codexAppServer?: CodexTurnRunner | null;
 };
 
 export type RunningServer = {
@@ -391,11 +394,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return agentsInflight;
   };
   const currentAgents = (refresh = false): Promise<DetectedAgent[]> => {
-    if (refresh || agentsCache === null || Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
+    if (refresh || agentsCache === null) {
       return probeAgents();
+    }
+
+    // Authentication state can change while the interface is open, but a
+    // routine read does not need to sit behind every vendor CLI while that is
+    // checked. Serve the last truthful answer and replace it in the
+    // background; opening the picker still uses refresh=1 and awaits the
+    // definitive result.
+    if (Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
+      void probeAgents().catch(() => {
+        // A failed refresh leaves the last successful answer intact.
+      });
     }
     return Promise.resolve(agentsCache.agents);
   };
+
+  // Start the only blocking discovery before the browser asks for it. This
+  // overlaps CLI authentication with shell and preview loading; the first API
+  // read joins the same in-flight promise if it arrives before completion.
+  void probeAgents().catch(() => {
+    // The endpoint can retry on demand; startup itself must stay available.
+  });
 
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
@@ -427,6 +448,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             return sendJson(res, 200, {
               project,
               devServer: target,
+              scanPreviews: config?.scanPreviews ?? true,
               previews: boot,
               errors,
             });
@@ -447,6 +469,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           sendJson(res, 200, {
             project,
             devServer: target,
+            scanPreviews: config?.scanPreviews ?? true,
             previews: [...currentBoot, ...fresh],
             errors,
           });
@@ -455,6 +478,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           sendJson(res, 200, {
             project,
             devServer: target,
+            scanPreviews: config?.scanPreviews ?? true,
             previews: boot,
             errors,
           }),
@@ -1052,7 +1076,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
-  runner = startRunner({ cwd, externallyAttached, leglasCommand });
+  runner = startRunner({
+    cwd,
+    externallyAttached,
+    leglasCommand,
+    ...(options.codexAppServer === undefined
+      ? {}
+      : { codexAppServer: options.codexAppServer }),
+  });
 
   let closePromise: Promise<void> | null = null;
 

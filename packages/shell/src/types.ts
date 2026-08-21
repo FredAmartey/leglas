@@ -29,6 +29,7 @@ export type ConfigPayload = {
   /** Stable project identity, so layout survives a port change. */
   project: string;
   devServer: string;
+  scanPreviews?: boolean;
   previews: Preview[];
   errors: string[];
 };

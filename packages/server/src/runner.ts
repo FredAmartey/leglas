@@ -4,6 +4,10 @@ import { join } from "node:path";
 
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
+import {
+  createCodexAppServer,
+  type CodexTurnRunner,
+} from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
@@ -13,6 +17,7 @@ import {
   retryFrom,
   sessionFrom,
   type AgentChoice,
+  type AgentEffort,
   type SavedAgentChoice,
 } from "./agents.js";
 import {
@@ -88,6 +93,8 @@ export type RunnerOptions = {
   cwd: string;
   externallyAttached: () => boolean;
   spawn?: RunnerSpawn;
+  /** Injected by app-server tests; null keeps the legacy Codex CLI path. */
+  codexAppServer?: CodexTurnRunner | null;
   setInterval?: (callback: () => void, milliseconds: number) => unknown;
   clearInterval?: (handle: unknown) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
@@ -114,6 +121,9 @@ type ResolvedCommand = {
   name: string;
   command: string;
   args: string[];
+  prompt: string;
+  effort: AgentEffort | null;
+  sessionId: string | null;
   /** True when the argv continues a saved session instead of starting cold. */
   resumed: boolean;
 };
@@ -144,7 +154,15 @@ function resolveCommand(
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
     if (!parsed.ok) return null;
-    return { agent: "custom", name: "Custom", ...commandFor(parsed.template, prompt), resumed: false };
+    return {
+      agent: "custom",
+      name: "Custom",
+      ...commandFor(parsed.template, prompt),
+      prompt,
+      effort: null,
+      sessionId: null,
+      resumed: false,
+    };
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
@@ -156,6 +174,9 @@ function resolveCommand(
       name: adapter.name,
       command: adapter.binary,
       args: [...adapter.resumeArgs(sessionId, prompt, choice.effort), ...allow],
+      prompt,
+      effort: choice.effort,
+      sessionId,
       resumed: true,
     };
   }
@@ -164,6 +185,9 @@ function resolveCommand(
     name: adapter.name,
     command: adapter.binary,
     args: [...adapter.args(prompt, choice.effort), ...allow],
+    prompt,
+    effort: choice.effort,
+    sessionId: null,
     resumed: false,
   };
 }
@@ -203,6 +227,16 @@ function defaultSpawn(
  */
 export function startRunner(options: RunnerOptions): RunningAgent {
   const spawn = options.spawn ?? defaultSpawn;
+  const codexAppServer =
+    options.codexAppServer === undefined
+      ? options.spawn === undefined
+        ? createCodexAppServer(options.cwd)
+        : null
+      : options.codexAppServer;
+  // Pay the process and protocol handshake while the user is still looking at
+  // the interface. If this Codex version has no app-server, runChild falls
+  // back to the existing exec path without changing the request.
+  void codexAppServer?.warm().catch(() => {});
   const setEvery = options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
@@ -226,6 +260,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
   let stopped = false;
   let ticking: Promise<void> | null = null;
+  // Requests can land while the previous tick is removing its completed queue
+  // entry. Count those nudges rather than dropping or coalescing them: each
+  // accepted queue addition deserves one immediate successor tick, without
+  // ever overlapping the active agent.
+  let pendingNudges = 0;
   let stopPromise: Promise<void> | null = null;
   let active: {
     child: RunnerChild;
@@ -290,7 +329,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     for (const line of lines) console.error(`  ${line}`);
   };
 
-  const runChild = (
+  const runChild = async (
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
@@ -298,16 +337,41 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   ): Promise<ChildOutcome> => {
     let child: RunnerChild;
     try {
-      child = spawn(resolved.command, resolved.args, {
-        cwd: options.cwd,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      child =
+        resolved.agent === "codex" && codexAppServer !== null
+          ? await codexAppServer.run({
+              prompt: resolved.prompt,
+              effort: resolved.effort,
+              sessionId: resolved.sessionId,
+            })
+          : spawn(resolved.command, resolved.args, {
+              cwd: options.cwd,
+              shell: false,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
     } catch (error) {
-      return Promise.resolve({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      // Older Codex builds and a failed app-server handshake retain the exact
+      // CLI behavior Leglas shipped before this optimization.
+      if (resolved.agent === "codex" && codexAppServer !== null) {
+        try {
+          child = spawn(resolved.command, resolved.args, {
+            cwd: options.cwd,
+            shell: false,
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+        } catch (fallbackError) {
+          return {
+            ok: false,
+            error:
+              fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          };
+        }
+      } else {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
 
     const current = {
@@ -520,8 +584,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     if (request !== null && !stopped) await handle(request, choice);
   };
 
-  const schedule = () => {
-    if (stopped || ticking !== null) return;
+  const schedule = (remember = false) => {
+    if (stopped) return;
+    if (ticking !== null) {
+      if (remember) pendingNudges += 1;
+      return;
+    }
     const task = tick();
     ticking = task;
     void task
@@ -530,10 +598,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       )
       .finally(() => {
         if (ticking === task) ticking = null;
+        if (pendingNudges > 0 && !stopped) {
+          pendingNudges -= 1;
+          schedule();
+        }
       });
   };
 
-  const timer = setEvery(schedule, POLL_MS);
+  const timer = setEvery(() => schedule(), POLL_MS);
   schedule();
 
   const cancel = (id?: string): boolean => {
@@ -574,6 +646,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     cancel();
     stopPromise = Promise.resolve(ticking)
       .catch(() => {})
+      .then(() => codexAppServer?.close())
       .then(() => {});
     return stopPromise;
   };
@@ -582,8 +655,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stop,
     snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
-    // schedule already refuses to overlap a tick in flight, so a nudge during
-    // a run costs nothing and a nudge between runs starts the next one now.
-    nudge: schedule,
+    // A nudge during a tick is latched and checked as soon as that tick
+    // settles; a nudge between ticks starts immediately. Neither can overlap
+    // the active agent.
+    nudge: () => schedule(true),
   };
 }

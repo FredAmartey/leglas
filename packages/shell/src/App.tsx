@@ -105,5 +105,11 @@ export function App() {
     );
   }
 
-  return <Shell previews={load.config.previews} project={load.config.project} />;
+  return (
+    <Shell
+      previews={load.config.previews}
+      project={load.config.project}
+      scanPreviews={load.config.scanPreviews ?? true}
+    />
+  );
 }

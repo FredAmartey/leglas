@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import { appendRequest, readRequests } from "./requests.js";
 import { startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
@@ -162,6 +163,40 @@ describe("startRunner", () => {
     clock.tick();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
+    await runner.stop();
+  });
+
+  test("falls back to codex exec when the persistent app-server is unavailable", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-app-server-fallback-"));
+    await saveAgentChoice(cwd, { agent: "codex", effort: "high" });
+    await appendRequest(cwd, input("Fallback"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const appServer: CodexTurnRunner = {
+      warm: async () => {
+        throw new Error("unsupported");
+      },
+      run: async () => {
+        throw new Error("unsupported");
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.calls.length === 1);
+    expect(spawned.calls[0]?.[0]).toBe("codex");
+    expect(spawned.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(["exec", "--json", "model_reasoning_effort=high"]),
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
   });
 
@@ -365,7 +400,7 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("a nudge starts a queued request without waiting for the poll", async () => {
+  test("a nudge starts immediately and survives a tick already in flight", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-nudge-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const clock = manualClock();
@@ -388,22 +423,32 @@ describe("startRunner", () => {
     await until(() => spawned.calls.length === 1);
     expect(spawned.calls[0]?.[1][1]).toBe("prompt for Now");
 
-    // While a run is live a nudge is swallowed whole: the tick in flight
-    // already owns the queue, so nothing can overlap it.
+    // While a run is live the nudge is remembered, but nothing overlaps the
+    // active child.
     await appendRequest(cwd, input("Later"));
+    runner.nudge();
+    await appendRequest(cwd, input("Last"));
     runner.nudge();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
 
     spawned.children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 1);
+    // No manual clock tick: the remembered nudge starts the queued successor
+    // as soon as the first tick settles instead of waiting up to two seconds.
+    await until(() => spawned.calls.length === 2);
+    expect(spawned.calls[1]?.[1][1]).toBe("prompt for Later");
+    spawned.children[1]?.close(0);
+    await until(() => spawned.calls.length === 3);
+    expect(spawned.calls[2]?.[1][1]).toBe("prompt for Last");
+    spawned.children[2]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
 
     // Stopped means stopped: a late nudge must not restart anything, even
     // with work still queued.
     runner.nudge();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(spawned.calls).toHaveLength(1);
+    expect(spawned.calls).toHaveLength(3);
   });
 
   test("cancels the active child with SIGTERM and treats the request as failed", async () => {

@@ -11,6 +11,30 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **Embedded Codex runs stay warm between requests.** Leglas now prewarms one
+  Codex app-server process, starts and resumes threads through its streamed
+  protocol and maps cancellation to a turn interrupt. The selected model,
+  effort, project instructions, tools, workspace-write boundary and live
+  preview access are unchanged. Older Codex builds or a failed app-server
+  handshake fall back to the existing `codex exec` path. (`leglas`)
+
+### Fixed
+
+- **A newly queued request starts immediately even as the previous run is
+  finishing.** A request arriving during the final queue write of an active
+  runner used to lose its immediate wake-up and wait for the two-second poll.
+  Wake-ups are now latched until the active tick settles, without ever running
+  two agents at once. (`leglas`)
+- **Routine agent reads no longer wait behind stale authentication probes.**
+  Leglas starts the initial CLI detection alongside server startup. Once it
+  has a truthful result, ordinary reads return it immediately and refresh an
+  expired answer in the background; opening the picker still waits for the
+  explicitly requested fresh result. (`leglas`)
+
 ## 0.6.1 (2026-08-20)
 
 ### Fixed
