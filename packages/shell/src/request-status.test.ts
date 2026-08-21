@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  changingRequestTitles,
   composerAgent,
   formatElapsed,
   requestCard,
   waitingLabel,
+  workingRequestTitles,
   type AgentOption,
   type AgentStatus,
   type RequestFailure,
@@ -39,9 +41,23 @@ const option = (id: string, available = true): AgentOption => ({
   efforts: [],
 });
 
+describe("request direction activity", () => {
+  test("separates queued changes from work an agent has picked up", () => {
+    const requests = [
+      request("queued", "queued", "Queued"),
+      request("picked", "picked-up", "Picked"),
+      request("running", "running", "Running"),
+      request("failed", "failed", "Failed"),
+    ];
+
+    expect(changingRequestTitles(requests)).toEqual(["Queued", "Picked", "Running"]);
+    expect([...workingRequestTitles(requests)]).toEqual(["Picked", "Running"]);
+  });
+});
+
 describe("composerAgent", () => {
   test("offers the chooser while agents are detected and none is chosen", () => {
-    expect(composerAgent(null, [option("codex", false), option("claude")], false)).toEqual({
+    expect(composerAgent(null, [option("codex", false), option("claude")])).toEqual({
       kind: "choose",
     });
   });
@@ -49,12 +65,12 @@ describe("composerAgent", () => {
   test.each([[[] as AgentOption[]], [[option("claude", false)]]])(
     "disappears when no agent is detected: %j",
     (available) => {
-      expect(composerAgent(null, available, false)).toEqual({ kind: "none" });
+      expect(composerAgent(null, available)).toEqual({ kind: "none" });
     },
   );
 
   test("wears the chosen agent's name", () => {
-    expect(composerAgent("claude", [option("codex"), option("claude")], false)).toEqual({
+    expect(composerAgent("claude", [option("codex"), option("claude")])).toEqual({
       kind: "chosen",
       id: "claude",
       name: "Claude",
@@ -62,7 +78,7 @@ describe("composerAgent", () => {
   });
 
   test("gives an existing custom choice a display name", () => {
-    expect(composerAgent("custom", [option("claude")], false)).toEqual({
+    expect(composerAgent("custom", [option("claude")])).toEqual({
       kind: "chosen",
       id: "custom",
       name: "Custom",
@@ -70,38 +86,26 @@ describe("composerAgent", () => {
   });
 
   test("names a custom choice after its own command", () => {
-    expect(composerAgent("custom", [], false, "aider --yes {prompt}")).toEqual({
+    expect(composerAgent("custom", [], "aider --yes {prompt}")).toEqual({
       kind: "chosen",
       id: "custom",
       name: "aider",
     });
-    expect(composerAgent("custom", [], false, "/usr/local/bin/goose run {prompt}")).toEqual({
+    expect(composerAgent("custom", [], "/usr/local/bin/goose run {prompt}")).toEqual({
       kind: "chosen",
       id: "custom",
       name: "goose",
     });
-    expect(composerAgent("custom", [], false, "   ")).toEqual({
+    expect(composerAgent("custom", [], "   ")).toEqual({
       kind: "chosen",
       id: "custom",
       name: "Custom",
     });
   });
 
-  test("shows manual after the chooser was declined", () => {
-    expect(composerAgent(null, [option("claude")], true)).toEqual({ kind: "manual" });
-  });
-
-  test("only applies dismissal while no agent is chosen", () => {
-    expect(composerAgent("claude", [option("claude")], true)).toEqual({
-      kind: "chosen",
-      id: "claude",
-      name: "Claude",
-    });
-  });
-
   test("drops a chosen agent whose binary is no longer detected", () => {
-    expect(composerAgent("claude", [option("claude", false)], false)).toEqual({ kind: "none" });
-    expect(composerAgent("claude", [option("claude", false), option("codex")], false)).toEqual({
+    expect(composerAgent("claude", [option("claude", false)])).toEqual({ kind: "none" });
+    expect(composerAgent("claude", [option("claude", false), option("codex")])).toEqual({
       kind: "choose",
     });
   });

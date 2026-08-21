@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { previewFrameIsReady, watchPreviewFrame } from "./preview-frame.js";
+import {
+  markPreviewLoaded,
+  previewFrameIsReady,
+  previewIdentity,
+  previewIsLoaded,
+  resetPreviewLoaded,
+  watchPreviewFrame,
+} from "./preview-frame.js";
 
 function fakeFrame(
   initial: { href: string; readyState: DocumentReadyState } | null,
@@ -121,5 +128,26 @@ describe("preview iframe readiness", () => {
 
     expect(onReady).not.toHaveBeenCalled();
     expect(onFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe("preview loading identity", () => {
+  it("separates URL changes and explicit reloads of one title", () => {
+    const first = previewIdentity("Aurora", "/?v=one", 0);
+    const changed = previewIdentity("Aurora", "/?v=two", 0);
+    const reloaded = previewIdentity("Aurora", "/?v=one", 1);
+    const loaded = markPreviewLoaded({}, "Aurora", first);
+
+    expect(previewIsLoaded(loaded, "Aurora", first)).toBe(true);
+    expect(previewIsLoaded(loaded, "Aurora", changed)).toBe(false);
+    expect(previewIsLoaded(loaded, "Aurora", reloaded)).toBe(false);
+  });
+
+  it("forgets a prior mount before the same identity is shown again", () => {
+    const identity = previewIdentity("Aurora", "/?v=one", 0);
+    const loaded = markPreviewLoaded({}, "Aurora", identity);
+
+    expect(resetPreviewLoaded(loaded, "Aurora")).toEqual({});
+    expect(resetPreviewLoaded({}, "Aurora")).toEqual({});
   });
 });

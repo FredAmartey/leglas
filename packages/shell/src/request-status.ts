@@ -50,6 +50,30 @@ export type AgentOption = {
   efforts: readonly AgentEffort[];
 };
 
+/** Directions whose source may change before their current request settles. */
+export function changingRequestTitles(requests: readonly RequestStatus[]): string[] {
+  return [
+    ...new Set(
+      requests
+        .filter((request) =>
+          request.status === "queued" ||
+          request.status === "picked-up" ||
+          request.status === "running",
+        )
+        .map((request) => request.title),
+    ),
+  ];
+}
+
+/** Directions an agent has actually picked up, excluding work still queued. */
+export function workingRequestTitles(requests: readonly RequestStatus[]): Set<string> {
+  return new Set(
+    requests
+      .filter((request) => request.status === "picked-up" || request.status === "running")
+      .map((request) => request.title),
+  );
+}
+
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
@@ -62,14 +86,12 @@ export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
  */
 export type ComposerAgent =
   | { kind: "chosen"; id: string; name: string }
-  | { kind: "manual" }
   | { kind: "choose" }
   | { kind: "none" };
 
 export function composerAgent(
   choice: string | null,
   available: readonly AgentOption[],
-  dismissed: boolean,
   customRun: string | null = null,
 ): ComposerAgent {
   if (choice === "custom") {
@@ -86,7 +108,7 @@ export function composerAgent(
   if (selected?.available) return { kind: "chosen", id: selected.id, name: selected.name };
 
   if (!available.some((option) => option.available)) return { kind: "none" };
-  return dismissed ? { kind: "manual" } : { kind: "choose" };
+  return { kind: "choose" };
 }
 
 /**

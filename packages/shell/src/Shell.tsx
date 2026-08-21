@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import {
@@ -19,13 +19,20 @@ import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
 import { startPoll } from "./poll.js";
-import { previewFrameIsReady, watchPreviewFrame } from "./preview-frame.js";
+import { previewFrameIsReady, previewIdentity, watchPreviewFrame } from "./preview-frame.js";
 import { previewFrameForSource, previewMessageSignal } from "./preview-message.js";
 import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { paintSample, renderedSignature, twinsOf, visualSample } from "./rendered.js";
-import { forgetSignature, scanQueue } from "./scan.js";
+import {
+  forgetScans,
+  recordScan,
+  scanQueue,
+  scanSignatures,
+  type PreviewScan,
+  type PreviewScanOutcome,
+} from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
@@ -42,10 +49,12 @@ import {
 } from "./annotations-api.js";
 import type { Preview } from "./types.js";
 import {
+  changingRequestTitles,
   composerAgent,
   formatElapsed,
   requestCard,
   waitingLabel,
+  workingRequestTitles,
   type AgentEffort,
   type AgentStatus,
   type RequestStatus,
@@ -723,16 +732,35 @@ export function Shell({
   // runtime, so retaining every previously opened direction multiplies both
   // memory and network work while offering no visible benefit.
   const mounted = visible;
-  const mountedKey = mounted.join("\u0000");
-  const previousMounted = useRef(new Set<string>());
+  const previousMounted = useRef(new Map<string, string>());
+  const paneIdentityFor = (title: string) =>
+    previewIdentity(title, st.urlFor(title), reloadTick[title] ?? 0);
+  const paneLoaded = (title: string) => {
+    const identity = paneIdentityFor(title);
+    return previousMounted.current.get(title) === identity && st.isLoaded(title, identity);
+  };
+  const mountedIdentities = new Map(mounted.map((title) => [title, paneIdentityFor(title)]));
+  const mountedIdentityKey = [...mountedIdentities.values()].join("\u0001");
+  const currentPaneIdentities = useRef(mountedIdentities);
+  currentPaneIdentities.current = mountedIdentities;
 
-  useEffect(() => {
+  // Reset before paint. An ordinary effect lets a reused title draw one frame
+  // with its previous loaded state before the skeleton catches up.
+  useLayoutEffect(() => {
     const previous = previousMounted.current;
-    for (const title of mounted) {
-      if (!previous.has(title)) st.resetLoaded(title);
+    const changed = [...mountedIdentities].filter(
+      ([title, identity]) => previous.get(title) !== identity,
+    );
+    for (const [title] of changed) st.resetLoaded(title);
+    if (changed.some(([title]) => errored[title])) {
+      setErrored((current) => {
+        const next = { ...current };
+        for (const [title] of changed) next[title] = false;
+        return next;
+      });
     }
-    previousMounted.current = new Set(mounted);
-  }, [mountedKey]);
+    previousMounted.current = new Map(mountedIdentities);
+  }, [mountedIdentityKey]);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const stageWatch = useRef<ResizeObserver | null>(null);
@@ -943,7 +971,6 @@ export function Shell({
   const chip = composerAgent(
     agentState.choice,
     agentState.agents,
-    st.prefs.agentPickerDismissed,
     agentState.customRun,
   );
   const selectedAgent =
@@ -1012,9 +1039,7 @@ export function Shell({
         : card.kind === "queued"
           ? card.attended
             ? "your agent picks it up next"
-            : chip.kind === "manual"
-              ? "waiting for your own agent"
-              : "pick who runs your changes"
+            : "pick who runs your changes"
           : card.kind === "failed"
             ? (card.reason ?? card.title)
             : card.kind === "stopped"
@@ -1062,16 +1087,27 @@ export function Shell({
   }, [agentMenuOpen]);
   const pickAgent = (agent: string) => {
     if (pickingAgent !== null || savingEffort) return;
+    const name = agentState.agents.find((option) => option.id === agent)?.name ?? "Agent";
     setPickingAgent(agent);
     void chooseAgent(agent)
       .then(() => {
         refreshAgents();
         setAgentMenuOpen(false);
       })
-      .catch(() => {
+      .catch(async () => {
+        try {
+          const current = await readAgents(true);
+          setAgentState(current);
+          if (current.choice === agent) {
+            setAgentMenuOpen(false);
+            return;
+          }
+        } catch {
+          // The original error is more useful than a failed recovery read.
+        }
         st.notify({
           kind: "agent-choice",
-          message: "That agent could not be selected. No run started.",
+          message: `${name} wasn’t selected. Try again.`,
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
@@ -1192,8 +1228,20 @@ export function Shell({
   // page, so two directions draw the same thing and the comparison is empty.
   // Read from what each pane actually rendered, which is the claim being made
   // on screen and the only thing that works for a client-rendered app.
-  const [signatures, setSignatures] = useState<Record<string, string | null>>({});
-  const twins = twinsOf(signatures);
+  const [scans, setScans] = useState<Record<string, PreviewScan>>({});
+
+  // A visible pane replacement invalidates its background verdict before the
+  // new document paints. URL changes are also rejected by scanSignatures, but
+  // an explicit retry of the same URL needs this generation-aware reset.
+  const previousScanPanes = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    const previous = previousScanPanes.current;
+    const changed = [...mountedIdentities]
+      .filter(([title, identity]) => previous.get(title) !== identity)
+      .map(([title]) => title);
+    if (changed.length > 0) setScans((current) => forgetScans(current, changed));
+    previousScanPanes.current = new Map(mountedIdentities);
+  }, [mountedIdentityKey]);
 
   /**
    * Hide the framework's own dev badge inside a preview.
@@ -1262,16 +1310,16 @@ export function Shell({
     }
   });
 
-  const readRendered = (title: string, frame: HTMLIFrameElement) => {
+  const readRendered = (frame: HTMLIFrameElement): string | null | undefined => {
     // Cross-origin panes are unreadable by design; a branch preview or a
     // deployed URL simply goes uncompared.
     let doc: Document | null = null;
     try {
       doc = frame.contentDocument;
     } catch {
-      return;
+      return undefined;
     }
-    if (!doc?.body) return;
+    if (!doc?.body) return undefined;
 
     const tags = [...doc.body.querySelectorAll("*")]
       .slice(0, 400)
@@ -1290,10 +1338,7 @@ export function Shell({
     const visual = view
       ? visualSample(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
       : [];
-    const signature = renderedSignature(doc.body.innerText ?? "", tags, paint, visual);
-    setSignatures((current) =>
-      current[title] === signature ? current : { ...current, [title]: signature },
-    );
+    return renderedSignature(doc.body.innerText ?? "", tags, paint, visual);
   };
 
   /**
@@ -1302,7 +1347,10 @@ export function Shell({
    * fonts avoids recording a transient fallback-font layout, while a deadline
    * keeps one slow font request from stalling the duplicate scan.
    */
-  const scheduleRenderedRead = (title: string, frame: HTMLIFrameElement) => {
+  const scheduleRenderedRead = (
+    frame: HTMLIFrameElement,
+    onRead: (signature: string | null | undefined) => void,
+  ) => {
     let fonts: FontFaceSet | undefined;
     try {
       fonts = frame.contentDocument?.fonts;
@@ -1318,7 +1366,7 @@ export function Shell({
     void fontsReady.then(() => {
       const run = () => {
         applyOverlayPref(frame, !st.prefs.showDevOverlays);
-        readRendered(title, frame);
+        onRead(readRendered(frame));
       };
       if (typeof window.requestIdleCallback === "function") {
         window.requestIdleCallback(run, { timeout: 1_200 });
@@ -1331,8 +1379,9 @@ export function Shell({
   const readyDocuments = useRef(new WeakSet<Document>());
 
   /** Commit a successful navigation once for each real iframe document. */
-  const markPreviewReady = (title: string, frame: HTMLIFrameElement) => {
-    st.markLoaded(title);
+  const markPreviewReady = (title: string, identity: string, frame: HTMLIFrameElement) => {
+    if (currentPaneIdentities.current.get(title) !== identity) return;
+    st.markLoaded(title, identity);
     setErrored((current) =>
       current[title] ? { ...current, [title]: false } : current,
     );
@@ -1348,10 +1397,6 @@ export function Shell({
     if (doc === null || readyDocuments.current.has(doc)) return;
     readyDocuments.current.add(doc);
 
-    // Duplicate signatures come only from the fixed-size scanner below. A new
-    // document invalidates its old canonical verdict so recovery, reload and
-    // navigation cannot leave a stale duplicate badge behind.
-    setSignatures((current) => forgetSignature(current, title));
   };
 
   const markPreviewReadyRef = useRef(markPreviewReady);
@@ -1368,10 +1413,11 @@ export function Shell({
         event.source,
       );
       const title = frame?.dataset.preview;
-      if (frame === null || title === undefined) return;
+      const identity = frame?.dataset.previewIdentity;
+      if (frame === null || title === undefined || identity === undefined) return;
 
       if (signal === "ready") {
-        markPreviewReadyRef.current(title, frame);
+        markPreviewReadyRef.current(title, identity, frame);
       } else {
         setErrored((current) => ({ ...current, [title]: true }));
       }
@@ -1402,55 +1448,88 @@ export function Shell({
       ? previews
       : previews.filter((preview) => !needsDevServer(preview))
     : [];
-  const scanning = scanQueue(scannable, signatures)[0] ?? null;
+  const changingTitles = changingRequestTitles(requestSnapshot.requests);
+  const changingTitlesKey = changingTitles.toSorted().join("\u0000");
+  const scanBlocked = requestSnapshot.agent.running || changingTitles.length > 0;
+  const workingTitles = workingRequestTitles(requestSnapshot.requests);
 
-  /**
-   * Whether a row's duplicate verdict is still being earned. Verdicts are
-   * re-derived from real renders every session, precisely because the agent
-   * edits these pages between visits, so for a few seconds after load the
-   * honest state of a row is still cooking, and saying so quietly is what
-   * keeps a tag that appears late from reading as a glitch.
-   */
-  const checking = (title: string) =>
-    scanPreviews &&
-    (health.reachable || !appPanes.has(title)) &&
-    !(title in signatures) &&
-    st.urlFor(title).startsWith("/");
-
-  // A hung navigation would stall the walk, so a scan that produces nothing
-  // within the pane timeout records the null verdict and the queue moves on.
+  // A result recorded before an edit began must not reappear when the queue
+  // settles. Clear affected directions once per live-work transition, while
+  // also hiding them synchronously in the render that first reports the work.
   useEffect(() => {
-    if (scanning === null) return;
+    if (!scanBlocked) return;
+    setScans((current) =>
+      forgetScans(current, changingTitles.length > 0 ? changingTitles : Object.keys(current)),
+    );
+  }, [scanBlocked, changingTitlesKey]);
+
+  const visibleReady = mounted.every((title) => paneLoaded(title));
+  const scansForDisplay = scanBlocked
+    ? forgetScans(scans, changingTitles.length > 0 ? changingTitles : Object.keys(scans))
+    : scans;
+  const signatures = scanSignatures(previews, scansForDisplay);
+  const twins = twinsOf(signatures);
+  const scanningPreview =
+    !scanBlocked && visibleReady ? (scanQueue(scannable, scansForDisplay)[0] ?? null) : null;
+  const scanning = scanningPreview?.title ?? null;
+  const scanKey =
+    scanningPreview === null ? null : `${scanningPreview.title}\u0000${scanningPreview.url}`;
+  const activeScan = useRef(scanKey);
+  activeScan.current = scanKey;
+  const activeScanFrame = useRef<HTMLIFrameElement | null>(null);
+  const currentPreviewUrls = useRef(new Map(previews.map((preview) => [preview.title, preview.url])));
+  currentPreviewUrls.current = new Map(previews.map((preview) => [preview.title, preview.url]));
+
+  const finishScan = (
+    preview: Preview,
+    outcome: PreviewScanOutcome,
+    frame: HTMLIFrameElement,
+  ) => {
+    const expected = `${preview.title}\u0000${preview.url}`;
+    if (activeScan.current !== expected) return;
+    if (activeScanFrame.current !== frame) return;
+    if (currentPreviewUrls.current.get(preview.title) !== preview.url) return;
+    setScans((current) => recordScan(current, preview, outcome));
+  };
+
+  // A hung navigation is a failed check, not an empty but valid signature.
+  useEffect(() => {
+    if (scanningPreview === null) return;
+    const frame = activeScanFrame.current;
+    if (frame === null) return;
     const timer = window.setTimeout(() => {
-      setSignatures((current) =>
-        scanning in current ? current : { ...current, [scanning]: null },
-      );
+      finishScan(scanningPreview, { status: "failed" }, frame);
     }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [scanning]);
+  }, [scanKey]);
 
-  const onScanLoad = (title: string, frame: HTMLIFrameElement) => {
+  const onScanLoad = (preview: Preview, frame: HTMLIFrameElement) => {
+    // A fresh iframe fires load for about:blank before the real navigation.
+    // The visible watcher rejects it, and the background scanner must too.
+    if (!previewFrameIsReady(frame)) return;
     // A hidden badge leaves the text, so every canonical read applies the same
     // overlay preference before measuring.
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
-      let readable = false;
-      try {
-        readable = frame.contentDocument != null;
-      } catch {
-        readable = false;
-      }
-      if (readable) scheduleRenderedRead(title, frame);
-      // Unreadable means a failed navigation; the null verdict moves the
-      // queue on instead of retrying forever.
-      else setSignatures((current) => ({ ...current, [title]: null }));
+      const expected = `${preview.title}\u0000${preview.url}`;
+      if (activeScan.current !== expected) return;
+      scheduleRenderedRead(frame, (signature) => {
+        finishScan(
+          preview,
+          signature === undefined
+            ? { status: "failed" }
+            : { status: "complete", signature },
+          frame,
+        );
+      });
     }, 600);
   };
 
   useEffect(() => {
     const stopWatching: Array<() => void> = [];
     for (const title of mounted) {
-      if (st.loaded[title] || errored[title]) continue;
+      const identity = mountedIdentities.get(title) ?? paneIdentityFor(title);
+      if (st.isLoaded(title, identity) || errored[title]) continue;
       const frame = document.querySelector<HTMLIFrameElement>(
         `iframe[data-preview="${CSS.escape(title)}"]`,
       );
@@ -1465,7 +1544,7 @@ export function Shell({
           frame,
           onFailure: () =>
             setErrored((current) => ({ ...current, [title]: true })),
-          onReady: () => markPreviewReady(title, frame),
+          onReady: () => markPreviewReady(title, identity, frame),
           sameOrigin: st.urlFor(title).startsWith("/"),
           timeoutMs,
         }),
@@ -1474,7 +1553,7 @@ export function Shell({
     return () => {
       for (const stop of stopWatching) stop();
     };
-  }, [mountedKey, st.loaded, errored, reloadTick, health.reachable]);
+  }, [mountedIdentityKey, st.loaded, errored, health.reachable]);
 
   const reloadPane = (title: string) => {
     setErrored((current) => ({ ...current, [title]: false }));
@@ -1571,6 +1650,7 @@ export function Shell({
 
   const renderRow = (title: string, index: number) => {
     const isActive = title === st.active;
+    const isWorking = workingTitles.has(title);
     const preview = st.previewFor(title);
     const isDragged = dragging && drag?.title === title;
     const shift = dragging && !isDragged ? shiftFor(index) : 0;
@@ -1772,6 +1852,13 @@ export function Shell({
                   >
                     Comparing
                   </span>
+                ) : isWorking ? (
+                  <span
+                    className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
+                  >
+                    <ThinkingOrb aria-label="Working on direction" size={20} state={MOOD} theme="dark" />
+                    Cooking
+                  </span>
                 ) : twins[title] ? (
                   <Tip
                     label={`Rendered structure, layout, visual styles, media and vector geometry match ${twins[title]?.join(", ")} in a 1280 × 800 comparison.`}
@@ -1782,7 +1869,7 @@ export function Shell({
                       Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
                     </span>
                   </Tip>
-                ) : checking(title) ? (
+                ) : scanning === title ? (
                   <span
                     className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
                   >
@@ -2628,31 +2715,6 @@ export function Shell({
                           <span aria-label="current choice">✓</span>
                         </button>
                       ) : null}
-                      {agentState.choice === null && (
-                        <button
-                          className={`${ROW_BUTTON} text-[#84848C]`}
-                          onClick={() => {
-                            st.setPrefs((prefs) => ({
-                              ...prefs,
-                              agentPickerDismissed: true,
-                            }));
-                            setAgentMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <span>I&apos;ll run my own</span>
-                          {chip.kind === "manual" && (
-                            <span aria-label="current choice">✓</span>
-                          )}
-                        </button>
-                      )}
-                      {/* The consent sentence belongs to the first choice
-                          only; once one is made, this is just a select. */}
-                      {agentState.choice === null && (
-                        <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
-                          Runs in this project with write access, like in your terminal.
-                        </p>
-                      )}
                       {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
                         <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
                           <label className="flex min-h-7 items-center justify-between gap-3">
@@ -2712,9 +2774,7 @@ export function Shell({
                       <span className="truncate">
                         {chip.kind === "chosen"
                           ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
-                          : chip.kind === "manual"
-                            ? "I'll run my own"
-                            : "Choose an agent"}
+                          : "Choose an agent"}
                       </span>
                       {chosenSignedOut && (
                         <span
@@ -2953,18 +3013,23 @@ export function Shell({
               >
               <iframe
                 className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
-                key={reloadTick[title] ?? 0}
+                key={paneIdentityFor(title)}
                 onError={() => setErrored((current) => ({ ...current, [title]: true }))}
                 onLoad={(event) => {
                   const src = st.urlFor(title);
+                  const identity = event.currentTarget.dataset.previewIdentity;
                   // Cross-origin previews expose only the event. Same-origin
                   // previews must have left about:blank and produced a real
                   // readable document before they are considered loaded.
-                  if (!src.startsWith("/") || previewFrameIsReady(event.currentTarget)) {
-                    markPreviewReady(title, event.currentTarget);
+                  if (
+                    identity !== undefined &&
+                    (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
+                  ) {
+                    markPreviewReady(title, identity, event.currentTarget);
                   }
                 }}
                 data-preview={title}
+                data-preview-identity={paneIdentityFor(title)}
                 src={st.urlFor(title)}
                 title={`Preview: ${st.displayName(title)}`}
               />
@@ -2990,13 +3055,13 @@ export function Shell({
                   }
                 />
               ) : (
-                <SkeletonOverlay loaded={Boolean(st.loaded[title])} />
+                <SkeletonOverlay loaded={paneLoaded(title)} />
               )}
               {/* A pane that loaded before the server died keeps showing that
                   render. Saying so is the difference between a stale preview
                   and a lie — but only for panes the server rendered. A file
                   preview is served by Leglas and is as current as ever. */}
-              {!health.reachable && st.loaded[title] && appPanes.has(title) && (
+              {!health.reachable && paneLoaded(title) && appPanes.has(title) && (
                 <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
                   <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">
                     Stale — dev server stopped
@@ -3216,7 +3281,7 @@ export function Shell({
                 type="button"
               >
                 <Mark size={30} />
-                {!st.loaded[st.active] && (
+                {!paneLoaded(st.active) && (
                   <span className="absolute -right-0.5 -top-0.5 size-2 animate-pulse rounded-full bg-amber-400 motion-reduce:animate-none" />
                 )}
               </button>
@@ -3235,13 +3300,14 @@ export function Shell({
         width={(st.prefs.collapsed ? 320 : st.prefs.width) - 24}
       />
 
-      {scanning !== null && (
+      {scanningPreview !== null && (
         <iframe
           aria-hidden
           className="pointer-events-none fixed border-0"
-          key={scanning}
-          onLoad={(event) => onScanLoad(scanning, event.currentTarget)}
-          src={st.urlFor(scanning)}
+          key={scanKey ?? undefined}
+          onLoad={(event) => onScanLoad(scanningPreview, event.currentTarget)}
+          ref={activeScanFrame}
+          src={scanningPreview.url}
           style={{
             height: DUPLICATE_VIEWPORT.height,
             left: -2400,

@@ -6,6 +6,45 @@ export type PreviewFrameWatcher = {
   timeoutMs: number;
 };
 
+export type LoadedPreviews = Readonly<Record<string, string>>;
+
+/**
+ * The document generation a loading verdict belongs to.
+ *
+ * A title alone is not an identity: an agent can replace its URL in place, and
+ * a retry deliberately remounts the same URL. Keeping all three parts in the
+ * key prevents either navigation from inheriting a completed older frame.
+ */
+export function previewIdentity(title: string, url: string, reload: number): string {
+  return `${title}\u0000${url}\u0000${reload}`;
+}
+
+export function previewIsLoaded(
+  loaded: LoadedPreviews,
+  title: string,
+  identity: string,
+): boolean {
+  return loaded[title] === identity;
+}
+
+export function markPreviewLoaded(
+  loaded: LoadedPreviews,
+  title: string,
+  identity: string,
+): Record<string, string> {
+  return loaded[title] === identity ? loaded : { ...loaded, [title]: identity };
+}
+
+export function resetPreviewLoaded(
+  loaded: LoadedPreviews,
+  title: string,
+): Record<string, string> {
+  if (!(title in loaded)) return loaded;
+  const next = { ...loaded };
+  delete next[title];
+  return next;
+}
+
 /**
  * A cached iframe may already be complete before a framework observes its
  * load event. Same-origin previews let us verify the real document directly.
