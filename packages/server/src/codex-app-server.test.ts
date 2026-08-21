@@ -20,7 +20,7 @@ class FakeProcess {
   private buffered = "";
   private ended = false;
 
-  constructor() {
+  constructor(private readonly closeOnSigterm = true) {
     this.stdin.on("data", (chunk: Buffer) => {
       this.buffered += chunk.toString();
       const lines = this.buffered.split("\n");
@@ -39,6 +39,7 @@ class FakeProcess {
   kill(signal: NodeJS.Signals): boolean {
     this.signals.push(signal);
     if (this.ended) return false;
+    if (signal === "SIGTERM" && !this.closeOnSigterm) return true;
     this.ended = true;
     queueMicrotask(() => this.events.emit("close", null, signal));
     return true;
@@ -49,10 +50,10 @@ class FakeProcess {
   }
 }
 
-function harness() {
+function harness(closeOnSigterm = true) {
   const processes: FakeProcess[] = [];
   const spawn: CodexAppServerSpawn = (_command, _args, _options) => {
-    const process = new FakeProcess();
+    const process = new FakeProcess(closeOnSigterm);
     processes.push(process);
     return process;
   };
@@ -71,9 +72,9 @@ function byMethod(process: FakeProcess, method: string): Message[] {
   return process.messages.filter((message) => message.method === method);
 }
 
-async function initialize() {
-  const spawned = harness();
-  const server = createCodexAppServer("/project", spawned.spawn);
+async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
+  const spawned = harness(closeOnSigterm);
+  const server = createCodexAppServer("/project", spawned.spawn, requestTimeoutMs);
   const warming = server.warm();
   await until(() => spawned.processes.length === 1);
   const process = spawned.processes[0] as FakeProcess;
@@ -219,5 +220,76 @@ describe("Codex app-server transport", () => {
     });
     await closed;
     await server.close();
+  });
+
+  test("replays an immediate completion to a late close listener", async () => {
+    const { process, server } = await initialize();
+    const running = server.run({ prompt: "quick", effort: null, sessionId: null });
+    await until(() => byMethod(process, "thread/start").length === 1);
+    const thread = byMethod(process, "thread/start")[0] as Message;
+    process.send({ id: thread.id, result: { thread: { id: "th_quick" } } });
+    await until(() => byMethod(process, "turn/start").length === 1);
+    const turn = byMethod(process, "turn/start")[0] as Message;
+
+    // Both lines arrive in one stdout batch. The completion is handled before
+    // run() resolves and before the queue can attach its close listener.
+    process.stdout.write(
+      `${JSON.stringify({ id: turn.id, result: { turn: { id: "turn_quick" } } })}\n` +
+        `${JSON.stringify({
+          method: "turn/completed",
+          params: {
+            threadId: "th_quick",
+            turn: { id: "turn_quick", status: "completed", error: null },
+          },
+        })}\n`,
+    );
+    const child = await running;
+    const closed = new Promise<number | null>((resolve) =>
+      child.once("close", (code) => resolve(code)),
+    );
+    await expect(closed).resolves.toBe(0);
+    await server.close();
+  });
+
+  test("fails pending requests instead of crashing on an asynchronous stdin error", async () => {
+    const { process, server } = await initialize();
+    const running = server.run({ prompt: "pipe", effort: null, sessionId: null });
+    await until(() => byMethod(process, "thread/start").length === 1);
+
+    process.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+
+    await expect(running).rejects.toThrow("EPIPE");
+    expect(process.signals).toContain("SIGTERM");
+    await server.close();
+  });
+
+  test("terminates an ambiguously accepted turn before reporting its timeout", async () => {
+    const { process, server } = await initialize(10);
+    const running = server.run({ prompt: "timeout", effort: null, sessionId: null });
+    await until(() => byMethod(process, "thread/start").length === 1);
+    const thread = byMethod(process, "thread/start")[0] as Message;
+    process.send({ id: thread.id, result: { thread: { id: "th_timeout" } } });
+    await until(() => byMethod(process, "turn/start").length === 1);
+
+    await expect(running).rejects.toThrow("turn/start timed out");
+    expect(process.signals).toContain("SIGTERM");
+    await server.close();
+  });
+
+  test("waits for an in-progress reset to escalate before shutdown completes", async () => {
+    const { process, server } = await initialize(30_000, false);
+    const running = server.run({ prompt: "stubborn", effort: null, sessionId: null });
+    await until(() => byMethod(process, "thread/start").length === 1);
+    process.stdin.emit("error", new Error("write EPIPE"));
+    await expect(running).rejects.toThrow("EPIPE");
+
+    let closed = false;
+    const closing = server.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(closed).toBe(false);
+    await closing;
+    expect(process.signals).toEqual(expect.arrayContaining(["SIGTERM", "SIGKILL"]));
   });
 });

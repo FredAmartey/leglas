@@ -201,6 +201,61 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test("cancels a persistent run before its synthetic child exists", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-start-cancel-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("Starting"));
+    await appendRequest(cwd, input("Next"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let startSignal: AbortSignal | null = null;
+    let finishCleanup: (() => void) | null = null;
+    const calls: ClaudeTurnInput[] = [];
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const appServer: CodexTurnRunner = {
+      warm: async () => {},
+      run: (turn, signal) => {
+        calls.push(turn);
+        if (calls.length > 1) {
+          const child = fakeChild();
+          children.push(child);
+          return Promise.resolve(child.child);
+        }
+        startSignal = signal ?? null;
+        return new Promise((_resolve, reject) => {
+          finishCleanup = () => reject(new Error("cancelled after cleanup"));
+        });
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => runner.snapshot().running && startSignal !== null);
+    expect(runner.cancel(runner.snapshot().requestId ?? undefined)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(runner.snapshot().stopping).toBe(true);
+    expect(calls).toHaveLength(1);
+
+    finishCleanup?.();
+    await until(() => !runner.snapshot().running);
+
+    expect(startSignal?.aborted).toBe(true);
+    expect(spawned.calls).toHaveLength(0);
+    expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
+    await tickUntil(clock, () => calls.length === 2);
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+    await runner.stop();
+  });
+
   test("runs Claude through the persistent Agent SDK transport", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-"));
     await saveAgentChoice(cwd, { agent: "claude", effort: "max" });

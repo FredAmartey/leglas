@@ -295,9 +295,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   let pendingNudges = 0;
   let stopPromise: Promise<void> | null = null;
   let active: {
-    child: RunnerChild;
+    child: RunnerChild | null;
     requestId: string;
     cancelled: boolean;
+    controller: AbortController;
     /** Settle the run as stopped without waiting for the child's streams. */
     abandon: () => void;
   } | null = null;
@@ -363,98 +364,148 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     lines: string[],
     observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
   ): Promise<ChildOutcome> => {
-    let child: RunnerChild;
     const persistent =
       resolved.agent === "codex"
         ? codexAppServer
         : resolved.agent === "claude"
           ? claudeAgentSession
           : null;
+    const controller = new AbortController();
+    const current = {
+      child: null as RunnerChild | null,
+      requestId: request.id,
+      cancelled: false,
+      controller,
+      abandon: () => {},
+    };
+    // Cancellation has to exist before an embedded transport starts. Warming,
+    // thread creation and turn startup all await vendor work before there is a
+    // synthetic child to signal, which previously made Stop a no-op here.
+    active = current;
+
+    const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
+    const startPersistent = async (): Promise<RunnerChild> => {
+      if (persistent === null) throw new Error("No persistent transport.");
+      const starting = persistent.run(
+        {
+          prompt: resolved.prompt,
+          effort: resolved.effort,
+          sessionId: resolved.sessionId,
+        },
+        controller.signal,
+      );
+      return new Promise<RunnerChild>((resolve, reject) => {
+        // A compliant transport rejects only after its startup cleanup ends.
+        // The grace path closes a transport that ignores its abort signal, so
+        // the queue never advances while a late process can still appear.
+        current.abandon = () => {
+          void persistent.close().catch(() => {}).then(() => reject(new Error("cancelled")));
+        };
+        void starting.then(
+          (child) => {
+            if (controller.signal.aborted) {
+              try {
+                child.kill("SIGKILL");
+              } catch {
+                // The transport already finished its own cancellation.
+              }
+              reject(new Error("cancelled"));
+              return;
+            }
+            resolve(child);
+          },
+          (error: unknown) => reject(error),
+        );
+      });
+    };
+
     try {
-      child =
-        persistent !== null
-          ? await persistent.run({
-              prompt: resolved.prompt,
-              effort: resolved.effort,
-              sessionId: resolved.sessionId,
-            })
-          : spawn(resolved.command, resolved.args, {
+      let child: RunnerChild;
+      try {
+        child =
+          persistent !== null
+            ? await startPersistent()
+            : spawn(resolved.command, resolved.args, {
+                cwd: options.cwd,
+                shell: false,
+                stdio: ["ignore", "pipe", "pipe"],
+              });
+      } catch (error) {
+        if (current.cancelled || stopped || controller.signal.aborted) return cancelled();
+        // A missing SDK, older Codex build or failed persistent handshake keeps
+        // the exact vendor CLI behavior Leglas shipped before this optimization.
+        if (persistent !== null) {
+          try {
+            child = spawn(resolved.command, resolved.args, {
               cwd: options.cwd,
               shell: false,
               stdio: ["ignore", "pipe", "pipe"],
             });
-    } catch (error) {
-      // A missing SDK, older Codex build or failed persistent handshake keeps
-      // the exact vendor CLI behavior Leglas shipped before this optimization.
-      if (persistent !== null) {
-        try {
-          child = spawn(resolved.command, resolved.args, {
-            cwd: options.cwd,
-            shell: false,
-            stdio: ["ignore", "pipe", "pipe"],
-          });
-        } catch (fallbackError) {
+          } catch (fallbackError) {
+            return {
+              ok: false,
+              error:
+                fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+            };
+          }
+        } else {
           return {
             ok: false,
-            error:
-              fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+            error: error instanceof Error ? error.message : String(error),
           };
         }
-      } else {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
       }
-    }
 
-    const current = {
-      child,
-      requestId: request.id,
-      cancelled: false,
-      abandon: () => {},
-    };
-    active = current;
-
-    const stdoutFlush = lineReader(child.stdout, (line) => {
-      rememberLine(lines, line);
-      const sessionId = sessionFrom(resolved.agent, line);
-      if (sessionId !== null) observed.sessionId = sessionId;
-      const retry = retryFrom(resolved.agent, line);
-      if (retry !== null) {
-        observed.retry = retry;
-        if (active === current) state = { ...state, waiting: retry };
+      current.child = child;
+      if (current.cancelled || stopped || controller.signal.aborted) {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // The run is already classified as cancelled below.
+        }
+        return cancelled();
       }
-      const activity = activityFrom(resolved.agent, line, options.cwd);
-      if (activity !== null) {
-        if (activity.startsWith("editing")) observed.edited = true;
-        // Work resuming ends the wait: the backoff is over the moment the
-        // agent says anything else.
-        if (active === current) state = { ...state, activity, waiting: null };
-      }
-    });
-    const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
 
-    return new Promise<ChildOutcome>((resolve) => {
-      let settled = false;
-      const settle = (outcome: ChildOutcome) => {
-        if (settled) return;
-        settled = true;
-        stdoutFlush();
-        stderrFlush();
-        resolve(outcome);
-      };
-      current.abandon = () => settle({ ok: false, error: "cancelled" });
-
-      child.once("error", (error) => settle({ ok: false, error: error.message }));
-      child.once("close", (code, signal) => {
-        if (current.cancelled) return settle({ ok: false, error: "cancelled" });
-        if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
-        settle({ ok: true, code: code ?? 0 });
+      const stdoutFlush = lineReader(child.stdout, (line) => {
+        rememberLine(lines, line);
+        const sessionId = sessionFrom(resolved.agent, line);
+        if (sessionId !== null) observed.sessionId = sessionId;
+        const retry = retryFrom(resolved.agent, line);
+        if (retry !== null) {
+          observed.retry = retry;
+          if (active === current) state = { ...state, waiting: retry };
+        }
+        const activity = activityFrom(resolved.agent, line, options.cwd);
+        if (activity !== null) {
+          if (activity.startsWith("editing")) observed.edited = true;
+          // Work resuming ends the wait: the backoff is over the moment the
+          // agent says anything else.
+          if (active === current) state = { ...state, activity, waiting: null };
+        }
       });
-    }).finally(() => {
+      const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
+
+      return await new Promise<ChildOutcome>((resolve) => {
+        let settled = false;
+        const settle = (outcome: ChildOutcome) => {
+          if (settled) return;
+          settled = true;
+          stdoutFlush();
+          stderrFlush();
+          resolve(outcome);
+        };
+        current.abandon = () => settle(cancelled());
+
+        child.once("error", (error) => settle({ ok: false, error: error.message }));
+        child.once("close", (code, signal) => {
+          if (current.cancelled) return settle(cancelled());
+          if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
+          settle({ ok: true, code: code ?? 0 });
+        });
+      });
+    } finally {
       if (active === current) active = null;
-    });
+    }
   };
 
   /** The previews file as it stands, or null before it exists. */
@@ -655,8 +706,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // The card stops claiming the run is live the moment the stop is asked
     // for, rather than whenever the child gets around to going.
     state = { ...state, stopping: true, waiting: null };
+    current.controller.abort();
     try {
-      current.child.kill("SIGTERM");
+      current.child?.kill("SIGTERM");
     } catch {
       // The close or error event still settles the run if the process raced us.
     }
@@ -664,7 +716,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // Already settled: the child went, and this run is somebody else's now.
       if (active !== current) return;
       try {
-        current.child.kill("SIGKILL");
+        current.child?.kill("SIGKILL");
       } catch {
         // Nothing left to signal; the run is settled below either way.
       }

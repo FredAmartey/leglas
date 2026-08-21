@@ -25,7 +25,7 @@ import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } fro
 import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 import { paintSample, renderedSignature, twinsOf, visualSample } from "./rendered.js";
-import { scanQueue } from "./scan.js";
+import { forgetSignature, scanQueue } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
 import { TOAST_TTL } from "./toasts.js";
@@ -147,6 +147,8 @@ function tagTone(tag: string) {
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
+/** One render size makes duplicate verdicts independent of the visible stage. */
+const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
 
 /**
  * The rail's foot before it is first measured. The real height moves with the
@@ -1260,8 +1262,6 @@ export function Shell({
     }
   });
 
-  const readyDocuments = useRef(new WeakSet<Document>());
-
   const readRendered = (title: string, frame: HTMLIFrameElement) => {
     // Cross-origin panes are unreadable by design; a branch preview or a
     // deployed URL simply goes uncompared.
@@ -1328,6 +1328,8 @@ export function Shell({
     });
   };
 
+  const readyDocuments = useRef(new WeakSet<Document>());
+
   /** Commit a successful navigation once for each real iframe document. */
   const markPreviewReady = (title: string, frame: HTMLIFrameElement) => {
     st.markLoaded(title);
@@ -1335,21 +1337,21 @@ export function Shell({
       current[title] ? { ...current, [title]: false } : current,
     );
 
+    applyOverlayPref(frame, !st.prefs.showDevOverlays);
+
     let doc: Document | null = null;
     try {
       doc = frame.contentDocument;
     } catch {
-      // Cross-origin previews can be loaded but cannot be inspected.
+      // Cross-origin previews have no signature to invalidate.
     }
     if (doc === null || readyDocuments.current.has(doc)) return;
     readyDocuments.current.add(doc);
 
-    // A client-rendered app draws after load, so read once the frame has had
-    // a chance to paint rather than at the navigation event itself.
-    applyOverlayPref(frame, !st.prefs.showDevOverlays);
-    window.setTimeout(() => {
-      scheduleRenderedRead(title, frame);
-    }, 600);
+    // Duplicate signatures come only from the fixed-size scanner below. A new
+    // document invalidates its old canonical verdict so recovery, reload and
+    // navigation cannot leave a stale duplicate badge behind.
+    setSignatures((current) => forgetSignature(current, title));
   };
 
   const markPreviewReadyRef = useRef(markPreviewReady);
@@ -1384,9 +1386,10 @@ export function Shell({
    *
    * Signatures used to come only from panes the user had opened, so "Same as"
    * appeared one click at a time, after the judgment it exists to protect.
-   * Unopened previews are read here instead: one hidden off-stage frame walks
-   * them sequentially, records each signature, and unmounts. One at a time
-   * keeps the cost to a single extra app instance, briefly, per direction.
+   * Every same-origin preview is read here: one hidden off-stage frame walks
+   * them sequentially at a fixed size, records each signature, and unmounts.
+   * One at a time keeps the cost to a single extra app instance, briefly, per
+   * direction while ensuring stage dimensions never affect the verdict.
    *
    * The frame is parked off-viewport rather than display:none, because a
    * hidden document lays out nothing and reads as empty. Proxied previews
@@ -1399,7 +1402,7 @@ export function Shell({
       ? previews
       : previews.filter((preview) => !needsDevServer(preview))
     : [];
-  const scanning = scanQueue(scannable, signatures, mounted)[0] ?? null;
+  const scanning = scanQueue(scannable, signatures)[0] ?? null;
 
   /**
    * Whether a row's duplicate verdict is still being earned. Verdicts are
@@ -1427,9 +1430,8 @@ export function Shell({
   }, [scanning]);
 
   const onScanLoad = (title: string, frame: HTMLIFrameElement) => {
-    // The stage reads panes with the overlay preference applied, and a hidden
-    // badge leaves the text. The scan has to read through the same lens or
-    // one page would produce two signatures depending on who read it.
+    // A hidden badge leaves the text, so every canonical read applies the same
+    // overlay preference before measuring.
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
       let readable = false;
@@ -1772,7 +1774,7 @@ export function Shell({
                   </span>
                 ) : twins[title] ? (
                   <Tip
-                    label={`Rendered structure, layout, visual styles, media and vector geometry match ${twins[title]?.join(", ")} at this viewport.`}
+                    label={`Rendered structure, layout, visual styles, media and vector geometry match ${twins[title]?.join(", ")} in a 1280 × 800 comparison.`}
                   >
                     <span
                       className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
@@ -3240,7 +3242,12 @@ export function Shell({
           key={scanning}
           onLoad={(event) => onScanLoad(scanning, event.currentTarget)}
           src={st.urlFor(scanning)}
-          style={{ height: 800, left: -2400, top: 0, width: 1280 }}
+          style={{
+            height: DUPLICATE_VIEWPORT.height,
+            left: -2400,
+            top: 0,
+            width: DUPLICATE_VIEWPORT.width,
+          }}
           tabIndex={-1}
           title="Off-stage duplicate scan"
         />

@@ -39,7 +39,7 @@ export type CodexTurnInput = {
 export type CodexTurnRunner = {
   /** Complete the app-server handshake before a request reaches the queue. */
   warm(): Promise<void>;
-  run(input: CodexTurnInput): Promise<RunnerChild>;
+  run(input: CodexTurnInput, signal?: AbortSignal): Promise<RunnerChild>;
   close(): Promise<void>;
 };
 
@@ -77,6 +77,7 @@ class CodexTurnChild implements RunnerChild {
   readonly stderr = new PassThrough();
   private readonly events = new EventEmitter();
   private ended = false;
+  private terminal: { code: number | null; signal: NodeJS.Signals | null } | null = null;
 
   constructor(private readonly interrupt: (signal: NodeJS.Signals) => void) {}
 
@@ -91,6 +92,16 @@ class CodexTurnChild implements RunnerChild {
       | ((error: Error) => void)
       | ((code: number | null, signal: NodeJS.Signals | null) => void),
   ): RunnerChild {
+    if (event === "close" && this.terminal !== null) {
+      const terminal = this.terminal;
+      queueMicrotask(() => {
+        (listener as (code: number | null, signal: NodeJS.Signals | null) => void)(
+          terminal.code,
+          terminal.signal,
+        );
+      });
+      return this;
+    }
     this.events.once(event, listener);
     return this;
   }
@@ -112,6 +123,7 @@ class CodexTurnChild implements RunnerChild {
   ): void {
     if (this.ended) return;
     this.ended = true;
+    this.terminal = { code, signal };
     if (error !== null) this.stderr.write(`${error}\n`);
     this.stdout.end();
     this.stderr.end();
@@ -128,14 +140,17 @@ class PersistentCodexAppServer implements CodexTurnRunner {
   private loadedThreadId: string | null = null;
   private stderr: string[] = [];
   private closed = false;
+  private resetting: Promise<void> | null = null;
 
   constructor(
     private readonly cwd: string,
     private readonly spawn: CodexAppServerSpawn,
+    private readonly requestTimeoutMs: number,
   ) {}
 
   warm(): Promise<void> {
     if (this.closed) return Promise.reject(new Error("Codex app-server is closed."));
+    if (this.resetting !== null) return this.resetting.then(() => this.warm());
     if (this.ready !== null) return this.ready;
 
     let process: AppServerProcess;
@@ -155,6 +170,9 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       this.stderr.push(line);
       if (this.stderr.length > 20) this.stderr.shift();
     });
+    process.stdin.once("error", (error: Error) => {
+      void this.resetProcess(process, error);
+    });
     process.once("error", (error) => this.failProcess(process, error));
     process.once("close", (code, signal) => {
       const reason = signal === null ? `exit ${code ?? 0}` : `signal ${signal}`;
@@ -168,27 +186,42 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       .then(() => {
         this.notify("initialized", {});
       })
-      .catch((error) => {
-        if (this.process === process) {
-          this.process = null;
-          this.ready = null;
-          process.kill("SIGTERM");
-        }
+      .catch(async (error: unknown) => {
+        await this.resetProcess(
+          process,
+          error instanceof Error ? error : new Error(String(error)),
+        );
         throw error;
       });
     return this.ready;
   }
 
-  async run(input: CodexTurnInput): Promise<RunnerChild> {
-    await this.warm();
-    if (this.active !== null) throw new Error("Codex app-server already has an active turn.");
-
-    const threadId = await this.thread(input.sessionId);
-    const child = new CodexTurnChild((signal) => this.interrupt(signal));
-    this.active = { child, threadId, turnId: null };
-    child.line({ type: "thread.started", thread_id: threadId });
+  async run(input: CodexTurnInput, signal?: AbortSignal): Promise<RunnerChild> {
+    let process: AppServerProcess | null = null;
+    let child: CodexTurnChild | null = null;
+    let turnSubmitted = false;
+    let abortReset: Promise<void> | null = null;
+    const onAbort = () => {
+      const current = this.process;
+      if (current !== null) {
+        abortReset = this.resetProcess(current, new Error("Codex app-server start cancelled."));
+      }
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+      if (signal?.aborted) throw new Error("cancelled");
+      await this.warm();
+      if (signal?.aborted) throw new Error("cancelled");
+      if (this.active !== null) throw new Error("Codex app-server already has an active turn.");
+
+      process = this.process;
+      const threadId = await this.thread(input.sessionId);
+      if (signal?.aborted) throw new Error("cancelled");
+      child = new CodexTurnChild((turnSignal) => this.interrupt(turnSignal));
+      this.active = { child, threadId, turnId: null };
+      child.line({ type: "thread.started", thread_id: threadId });
+      turnSubmitted = true;
       const response = record(
         await this.requestRaw("turn/start", {
           threadId,
@@ -211,27 +244,30 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       if (this.active?.child === child) this.active.turnId = turnId;
       return child;
     } catch (error) {
-      if (this.active?.child === child) this.active = null;
-      child.finish(1, null, error instanceof Error ? error.message : String(error));
-      throw error;
+      const failure = error instanceof Error ? error : new Error(String(error));
+      // Once turn/start has been written, a missing response is ambiguous: the
+      // app-server may already be editing. Do not expose failure to the CLI
+      // fallback until that process is gone.
+      if (signal?.aborted || turnSubmitted) {
+        const current = process ?? this.process;
+        if (current !== null) await (abortReset ?? this.resetProcess(current, failure));
+      }
+      if (child !== null && this.active?.child === child) this.active = null;
+      child?.finish(1, null, failure.message);
+      throw signal?.aborted ? new Error("cancelled") : failure;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 
   async close(): Promise<void> {
     this.closed = true;
     const process = this.process;
-    if (process === null) return;
-
-    process.kill("SIGTERM");
-    await Promise.race([
-      new Promise<void>((resolve) => process.once("close", () => resolve())),
-      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-    ]);
-    if (this.process === process) {
-      process.kill("SIGKILL");
-      this.process = null;
-      this.ready = null;
+    if (process === null) {
+      await this.resetting;
+      return;
     }
+    await this.resetProcess(process, new Error("Codex app-server is closing."));
   }
 
   private async thread(sessionId: string | null): Promise<string> {
@@ -383,7 +419,7 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Codex app-server ${method} timed out.`));
-      }, REQUEST_TIMEOUT_MS);
+      }, this.requestTimeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
       try {
@@ -397,15 +433,61 @@ class PersistentCodexAppServer implements CodexTurnRunner {
   }
 
   private notify(method: string, params: JsonRecord): void {
-    this.process?.stdin.write(`${JSON.stringify({ method, params })}\n`);
+    this.write({ method, params });
   }
 
   private respond(id: number, result: JsonRecord): void {
-    this.process?.stdin.write(`${JSON.stringify({ id, result })}\n`);
+    this.write({ id, result });
   }
 
   private respondError(id: number, code: number, message: string): void {
-    this.process?.stdin.write(`${JSON.stringify({ id, error: { code, message } })}\n`);
+    this.write({ id, error: { code, message } });
+  }
+
+  private write(message: JsonRecord): void {
+    const process = this.process;
+    if (process === null) return;
+    try {
+      process.stdin.write(`${JSON.stringify(message)}\n`);
+    } catch (error) {
+      void this.resetProcess(
+        process,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
+  private resetProcess(process: AppServerProcess, error: Error): Promise<void> {
+    if (this.resetting !== null) return this.resetting;
+    if (this.process !== process) return Promise.resolve();
+    this.failProcess(process, error);
+
+    const closing = this.terminate(process).finally(() => {
+      if (this.resetting === closing) this.resetting = null;
+    });
+    this.resetting = closing;
+    return closing;
+  }
+
+  private async terminate(process: AppServerProcess): Promise<void> {
+    let closed = false;
+    const ended = new Promise<void>((resolve) => {
+      process.once("close", () => {
+        closed = true;
+        resolve();
+      });
+    });
+    process.kill("SIGTERM");
+    await Promise.race([
+      ended,
+      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+    if (closed) return;
+    process.kill("SIGKILL");
+    await Promise.race([
+      ended,
+      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
   }
 
   private failProcess(process: AppServerProcess, error: Error): void {
@@ -451,6 +533,7 @@ const defaultSpawn: CodexAppServerSpawn = (command, args, options) =>
 export function createCodexAppServer(
   cwd: string,
   spawn: CodexAppServerSpawn = defaultSpawn,
+  requestTimeoutMs = REQUEST_TIMEOUT_MS,
 ): CodexTurnRunner {
-  return new PersistentCodexAppServer(cwd, spawn);
+  return new PersistentCodexAppServer(cwd, spawn, requestTimeoutMs);
 }
