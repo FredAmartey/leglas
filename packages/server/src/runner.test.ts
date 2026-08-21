@@ -7,6 +7,8 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
+import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import { appendRequest, readRequests } from "./requests.js";
 import { startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
@@ -162,6 +164,172 @@ describe("startRunner", () => {
     clock.tick();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
+    await runner.stop();
+  });
+
+  test("falls back to codex exec when the persistent app-server is unavailable", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-app-server-fallback-"));
+    await saveAgentChoice(cwd, { agent: "codex", effort: "high" });
+    await appendRequest(cwd, input("Fallback"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const appServer: CodexTurnRunner = {
+      warm: async () => {
+        throw new Error("unsupported");
+      },
+      run: async () => {
+        throw new Error("unsupported");
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.calls.length === 1);
+    expect(spawned.calls[0]?.[0]).toBe("codex");
+    expect(spawned.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(["exec", "--json", "model_reasoning_effort=high"]),
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+  });
+
+  test("cancels a persistent run before its synthetic child exists", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-start-cancel-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("Starting"));
+    await appendRequest(cwd, input("Next"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let startSignal: AbortSignal | null = null;
+    let finishCleanup: (() => void) | null = null;
+    const calls: ClaudeTurnInput[] = [];
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const appServer: CodexTurnRunner = {
+      warm: async () => {},
+      run: (turn, signal) => {
+        calls.push(turn);
+        if (calls.length > 1) {
+          const child = fakeChild();
+          children.push(child);
+          return Promise.resolve(child.child);
+        }
+        startSignal = signal ?? null;
+        return new Promise((_resolve, reject) => {
+          finishCleanup = () => reject(new Error("cancelled after cleanup"));
+        });
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => runner.snapshot().running && startSignal !== null);
+    expect(runner.cancel(runner.snapshot().requestId ?? undefined)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(runner.snapshot().stopping).toBe(true);
+    expect(calls).toHaveLength(1);
+
+    finishCleanup?.();
+    await until(() => !runner.snapshot().running);
+
+    expect(startSignal?.aborted).toBe(true);
+    expect(spawned.calls).toHaveLength(0);
+    expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
+    await tickUntil(clock, () => calls.length === 2);
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 1);
+    await runner.stop();
+  });
+
+  test("runs Claude through the persistent Agent SDK transport", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-"));
+    await saveAgentChoice(cwd, { agent: "claude", effort: "max" });
+    await appendRequest(cwd, input("Persistent"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const calls: ClaudeTurnInput[] = [];
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: ClaudeTurnRunner = {
+      warm: vi.fn(async () => {}),
+      run: async (turn) => {
+        calls.push(turn);
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      close: vi.fn(async () => {}),
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      claudeAgentSession: sdk,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => calls.length === 1);
+    expect(calls[0]).toEqual({
+      prompt: "prompt for Persistent",
+      effort: "max",
+      sessionId: null,
+    });
+    expect(spawned.calls).toHaveLength(0);
+    children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "claude_sdk_1" })}\n`,
+    );
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+    expect(sdk.close).toHaveBeenCalledOnce();
+  });
+
+  test("falls back to claude -p when the Agent SDK is unavailable", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-fallback-"));
+    await saveAgentChoice(cwd, { agent: "claude", effort: "xhigh" });
+    await appendRequest(cwd, input("Fallback"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const sdk: ClaudeTurnRunner = {
+      warm: async () => {
+        throw new Error("SDK unavailable");
+      },
+      run: async () => {
+        throw new Error("SDK unavailable");
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      claudeAgentSession: sdk,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.calls.length === 1);
+    expect(spawned.calls[0]?.[0]).toBe("claude");
+    expect(spawned.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(["-p", "prompt for Fallback", "--effort", "xhigh"]),
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
   });
 
@@ -365,7 +533,7 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("a nudge starts a queued request without waiting for the poll", async () => {
+  test("a nudge starts immediately and survives a tick already in flight", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-nudge-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const clock = manualClock();
@@ -388,22 +556,32 @@ describe("startRunner", () => {
     await until(() => spawned.calls.length === 1);
     expect(spawned.calls[0]?.[1][1]).toBe("prompt for Now");
 
-    // While a run is live a nudge is swallowed whole: the tick in flight
-    // already owns the queue, so nothing can overlap it.
+    // While a run is live the nudge is remembered, but nothing overlaps the
+    // active child.
     await appendRequest(cwd, input("Later"));
+    runner.nudge();
+    await appendRequest(cwd, input("Last"));
     runner.nudge();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(1);
 
     spawned.children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 1);
+    // No manual clock tick: the remembered nudge starts the queued successor
+    // as soon as the first tick settles instead of waiting up to two seconds.
+    await until(() => spawned.calls.length === 2);
+    expect(spawned.calls[1]?.[1][1]).toBe("prompt for Later");
+    spawned.children[1]?.close(0);
+    await until(() => spawned.calls.length === 3);
+    expect(spawned.calls[2]?.[1][1]).toBe("prompt for Last");
+    spawned.children[2]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
 
     // Stopped means stopped: a late nudge must not restart anything, even
     // with work still queued.
     runner.nudge();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(spawned.calls).toHaveLength(1);
+    expect(spawned.calls).toHaveLength(3);
   });
 
   test("cancels the active child with SIGTERM and treats the request as failed", async () => {

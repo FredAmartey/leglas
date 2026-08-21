@@ -301,6 +301,7 @@ export default {
 | `devServer`      | no            | Defaults to `http://localhost:3000`                                     |
 | `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                            |
 | `installCommand` | no            | Defaults to `npm install`                                               |
+| `scanPreviews`   | no            | Set `false` to skip background duplicate scans for expensive apps      |
 
 A broken config never stops the server. Leglas starts anyway and the
 interface reports what to fix, so you are not hunting through a stack

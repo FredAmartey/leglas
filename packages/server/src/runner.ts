@@ -4,6 +4,14 @@ import { join } from "node:path";
 
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
+import {
+  createClaudeAgentSession,
+  type ClaudeTurnRunner,
+} from "./claude-agent-session.js";
+import {
+  createCodexAppServer,
+  type CodexTurnRunner,
+} from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
@@ -13,6 +21,7 @@ import {
   retryFrom,
   sessionFrom,
   type AgentChoice,
+  type AgentEffort,
   type SavedAgentChoice,
 } from "./agents.js";
 import {
@@ -88,6 +97,10 @@ export type RunnerOptions = {
   cwd: string;
   externallyAttached: () => boolean;
   spawn?: RunnerSpawn;
+  /** Injected by app-server tests; null keeps the legacy Codex CLI path. */
+  codexAppServer?: CodexTurnRunner | null;
+  /** Injected by Agent SDK tests; null keeps the legacy Claude CLI path. */
+  claudeAgentSession?: ClaudeTurnRunner | null;
   setInterval?: (callback: () => void, milliseconds: number) => unknown;
   clearInterval?: (handle: unknown) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
@@ -105,6 +118,8 @@ export type RunningAgent = {
   stop(): Promise<void>;
   snapshot(): RunnerState;
   cancel(id?: string): boolean;
+  /** Warm the selected embedded transport without blocking the selection API. */
+  prepare(agent: AgentChoice): void;
   /** Look at the queue now instead of on the next poll. */
   nudge(): void;
 };
@@ -114,6 +129,9 @@ type ResolvedCommand = {
   name: string;
   command: string;
   args: string[];
+  prompt: string;
+  effort: AgentEffort | null;
+  sessionId: string | null;
   /** True when the argv continues a saved session instead of starting cold. */
   resumed: boolean;
 };
@@ -144,7 +162,15 @@ function resolveCommand(
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
     if (!parsed.ok) return null;
-    return { agent: "custom", name: "Custom", ...commandFor(parsed.template, prompt), resumed: false };
+    return {
+      agent: "custom",
+      name: "Custom",
+      ...commandFor(parsed.template, prompt),
+      prompt,
+      effort: null,
+      sessionId: null,
+      resumed: false,
+    };
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
@@ -156,6 +182,9 @@ function resolveCommand(
       name: adapter.name,
       command: adapter.binary,
       args: [...adapter.resumeArgs(sessionId, prompt, choice.effort), ...allow],
+      prompt,
+      effort: choice.effort,
+      sessionId,
       resumed: true,
     };
   }
@@ -164,6 +193,9 @@ function resolveCommand(
     name: adapter.name,
     command: adapter.binary,
     args: [...adapter.args(prompt, choice.effort), ...allow],
+    prompt,
+    effort: choice.effort,
+    sessionId: null,
     resumed: false,
   };
 }
@@ -203,6 +235,36 @@ function defaultSpawn(
  */
 export function startRunner(options: RunnerOptions): RunningAgent {
   const spawn = options.spawn ?? defaultSpawn;
+  const codexAppServer =
+    options.codexAppServer === undefined
+      ? options.spawn === undefined
+        ? createCodexAppServer(options.cwd)
+        : null
+      : options.codexAppServer;
+  const claudeAgentSession =
+    options.claudeAgentSession === undefined
+      ? options.spawn === undefined
+        ? createClaudeAgentSession(
+            options.cwd,
+            options.leglasCommand === undefined
+              ? null
+              : registrationCommand(options.leglasCommand),
+          )
+        : null
+      : options.claudeAgentSession;
+  // Only the saved vendor is warmed at startup. Selection changes call
+  // prepare() too, paying the new vendor's process and handshake while the
+  // user composes; an already-warm transport stays ready for a quick switch
+  // back until this Leglas server shuts down.
+  const prepare = (agent: AgentChoice): void => {
+    if (agent === "codex") void codexAppServer?.warm().catch(() => {});
+    if (agent === "claude") void claudeAgentSession?.warm().catch(() => {});
+  };
+  void readAgentChoice(options.cwd)
+    .then((choice) => {
+      if (choice.agent !== null) prepare(choice.agent);
+    })
+    .catch(() => {});
   const setEvery = options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
@@ -226,11 +288,17 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
   let stopped = false;
   let ticking: Promise<void> | null = null;
+  // Requests can land while the previous tick is removing its completed queue
+  // entry. Count those nudges rather than dropping or coalescing them: each
+  // accepted queue addition deserves one immediate successor tick, without
+  // ever overlapping the active agent.
+  let pendingNudges = 0;
   let stopPromise: Promise<void> | null = null;
   let active: {
-    child: RunnerChild;
+    child: RunnerChild | null;
     requestId: string;
     cancelled: boolean;
+    controller: AbortController;
     /** Settle the run as stopped without waiting for the child's streams. */
     abandon: () => void;
   } | null = null;
@@ -290,73 +358,154 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     for (const line of lines) console.error(`  ${line}`);
   };
 
-  const runChild = (
+  const runChild = async (
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
     observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
   ): Promise<ChildOutcome> => {
-    let child: RunnerChild;
-    try {
-      child = spawn(resolved.command, resolved.args, {
-        cwd: options.cwd,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
-      return Promise.resolve({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
+    const persistent =
+      resolved.agent === "codex"
+        ? codexAppServer
+        : resolved.agent === "claude"
+          ? claudeAgentSession
+          : null;
+    const controller = new AbortController();
     const current = {
-      child,
+      child: null as RunnerChild | null,
       requestId: request.id,
       cancelled: false,
+      controller,
       abandon: () => {},
     };
+    // Cancellation has to exist before an embedded transport starts. Warming,
+    // thread creation and turn startup all await vendor work before there is a
+    // synthetic child to signal, which previously made Stop a no-op here.
     active = current;
 
-    const stdoutFlush = lineReader(child.stdout, (line) => {
-      rememberLine(lines, line);
-      const sessionId = sessionFrom(resolved.agent, line);
-      if (sessionId !== null) observed.sessionId = sessionId;
-      const retry = retryFrom(resolved.agent, line);
-      if (retry !== null) {
-        observed.retry = retry;
-        if (active === current) state = { ...state, waiting: retry };
-      }
-      const activity = activityFrom(resolved.agent, line, options.cwd);
-      if (activity !== null) {
-        if (activity.startsWith("editing")) observed.edited = true;
-        // Work resuming ends the wait: the backoff is over the moment the
-        // agent says anything else.
-        if (active === current) state = { ...state, activity, waiting: null };
-      }
-    });
-    const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
-
-    return new Promise<ChildOutcome>((resolve) => {
-      let settled = false;
-      const settle = (outcome: ChildOutcome) => {
-        if (settled) return;
-        settled = true;
-        stdoutFlush();
-        stderrFlush();
-        resolve(outcome);
-      };
-      current.abandon = () => settle({ ok: false, error: "cancelled" });
-
-      child.once("error", (error) => settle({ ok: false, error: error.message }));
-      child.once("close", (code, signal) => {
-        if (current.cancelled) return settle({ ok: false, error: "cancelled" });
-        if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
-        settle({ ok: true, code: code ?? 0 });
+    const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
+    const startPersistent = async (): Promise<RunnerChild> => {
+      if (persistent === null) throw new Error("No persistent transport.");
+      const starting = persistent.run(
+        {
+          prompt: resolved.prompt,
+          effort: resolved.effort,
+          sessionId: resolved.sessionId,
+        },
+        controller.signal,
+      );
+      return new Promise<RunnerChild>((resolve, reject) => {
+        // A compliant transport rejects only after its startup cleanup ends.
+        // The grace path closes a transport that ignores its abort signal, so
+        // the queue never advances while a late process can still appear.
+        current.abandon = () => {
+          void persistent.close().catch(() => {}).then(() => reject(new Error("cancelled")));
+        };
+        void starting.then(
+          (child) => {
+            if (controller.signal.aborted) {
+              try {
+                child.kill("SIGKILL");
+              } catch {
+                // The transport already finished its own cancellation.
+              }
+              reject(new Error("cancelled"));
+              return;
+            }
+            resolve(child);
+          },
+          (error: unknown) => reject(error),
+        );
       });
-    }).finally(() => {
+    };
+
+    try {
+      let child: RunnerChild;
+      try {
+        child =
+          persistent !== null
+            ? await startPersistent()
+            : spawn(resolved.command, resolved.args, {
+                cwd: options.cwd,
+                shell: false,
+                stdio: ["ignore", "pipe", "pipe"],
+              });
+      } catch (error) {
+        if (current.cancelled || stopped || controller.signal.aborted) return cancelled();
+        // A missing SDK, older Codex build or failed persistent handshake keeps
+        // the exact vendor CLI behavior Leglas shipped before this optimization.
+        if (persistent !== null) {
+          try {
+            child = spawn(resolved.command, resolved.args, {
+              cwd: options.cwd,
+              shell: false,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+          } catch (fallbackError) {
+            return {
+              ok: false,
+              error:
+                fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+            };
+          }
+        } else {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+
+      current.child = child;
+      if (current.cancelled || stopped || controller.signal.aborted) {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // The run is already classified as cancelled below.
+        }
+        return cancelled();
+      }
+
+      const stdoutFlush = lineReader(child.stdout, (line) => {
+        rememberLine(lines, line);
+        const sessionId = sessionFrom(resolved.agent, line);
+        if (sessionId !== null) observed.sessionId = sessionId;
+        const retry = retryFrom(resolved.agent, line);
+        if (retry !== null) {
+          observed.retry = retry;
+          if (active === current) state = { ...state, waiting: retry };
+        }
+        const activity = activityFrom(resolved.agent, line, options.cwd);
+        if (activity !== null) {
+          if (activity.startsWith("editing")) observed.edited = true;
+          // Work resuming ends the wait: the backoff is over the moment the
+          // agent says anything else.
+          if (active === current) state = { ...state, activity, waiting: null };
+        }
+      });
+      const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
+
+      return await new Promise<ChildOutcome>((resolve) => {
+        let settled = false;
+        const settle = (outcome: ChildOutcome) => {
+          if (settled) return;
+          settled = true;
+          stdoutFlush();
+          stderrFlush();
+          resolve(outcome);
+        };
+        current.abandon = () => settle(cancelled());
+
+        child.once("error", (error) => settle({ ok: false, error: error.message }));
+        child.once("close", (code, signal) => {
+          if (current.cancelled) return settle(cancelled());
+          if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
+          settle({ ok: true, code: code ?? 0 });
+        });
+      });
+    } finally {
       if (active === current) active = null;
-    });
+    }
   };
 
   /** The previews file as it stands, or null before it exists. */
@@ -520,8 +669,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     if (request !== null && !stopped) await handle(request, choice);
   };
 
-  const schedule = () => {
-    if (stopped || ticking !== null) return;
+  const schedule = (remember = false) => {
+    if (stopped) return;
+    if (ticking !== null) {
+      if (remember) pendingNudges += 1;
+      return;
+    }
     const task = tick();
     ticking = task;
     void task
@@ -530,10 +683,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       )
       .finally(() => {
         if (ticking === task) ticking = null;
+        if (pendingNudges > 0 && !stopped) {
+          pendingNudges -= 1;
+          schedule();
+        }
       });
   };
 
-  const timer = setEvery(schedule, POLL_MS);
+  const timer = setEvery(() => schedule(), POLL_MS);
   schedule();
 
   const cancel = (id?: string): boolean => {
@@ -549,8 +706,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // The card stops claiming the run is live the moment the stop is asked
     // for, rather than whenever the child gets around to going.
     state = { ...state, stopping: true, waiting: null };
+    current.controller.abort();
     try {
-      current.child.kill("SIGTERM");
+      current.child?.kill("SIGTERM");
     } catch {
       // The close or error event still settles the run if the process raced us.
     }
@@ -558,7 +716,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // Already settled: the child went, and this run is somebody else's now.
       if (active !== current) return;
       try {
-        current.child.kill("SIGKILL");
+        current.child?.kill("SIGKILL");
       } catch {
         // Nothing left to signal; the run is settled below either way.
       }
@@ -574,6 +732,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     cancel();
     stopPromise = Promise.resolve(ticking)
       .catch(() => {})
+      .then(() =>
+        Promise.all([
+          codexAppServer?.close(),
+          claudeAgentSession?.close(),
+        ]),
+      )
       .then(() => {});
     return stopPromise;
   };
@@ -582,8 +746,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stop,
     snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
-    // schedule already refuses to overlap a tick in flight, so a nudge during
-    // a run costs nothing and a nudge between runs starts the next one now.
-    nudge: schedule,
+    prepare,
+    // A nudge during a tick is latched and checked as soon as that tick
+    // settles; a nudge between ticks starts immediately. Neither can overlap
+    // the active agent.
+    nudge: () => schedule(true),
   };
 }

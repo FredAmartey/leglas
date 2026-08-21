@@ -16,6 +16,32 @@ describe("normalizeConfig", () => {
     expect(result.config?.devServer).toBe(DEFAULT_DEV_SERVER);
   });
 
+  test("scans unopened previews by default", () => {
+    const result = normalizeConfig({ previews: [{ title: "App", url: "/" }] });
+
+    expect(result.config?.scanPreviews).toBe(true);
+  });
+
+  test("lets expensive apps disable unopened preview scans", () => {
+    const result = normalizeConfig({
+      scanPreviews: false,
+      previews: [{ title: "App", url: "/" }],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.config?.scanPreviews).toBe(false);
+  });
+
+  test("rejects a non-boolean preview scan setting", () => {
+    const result = normalizeConfig({
+      scanPreviews: "no",
+      previews: [{ title: "App", url: "/" }],
+    });
+
+    expect(result.errors).toContain("scanPreviews must be a boolean.");
+    expect(result.config).toBeNull();
+  });
+
   test("treats a missing config as one preview of the app root", () => {
     const result = normalizeConfig(undefined);
 

@@ -3,9 +3,15 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { run, type RunDeps } from "./run.js";
+
+const inspectDevServer = vi.hoisted(() => vi.fn());
+vi.mock("./dev-server-owner.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./dev-server-owner.js")>();
+  return { ...actual, inspectLocalDevServer: inspectDevServer };
+});
 
 const stopping: Array<() => Promise<void>> = [];
 const origins: http.Server[] = [];
@@ -21,6 +27,10 @@ afterEach(async () => {
         }),
     ),
   );
+});
+
+beforeEach(() => {
+  inspectDevServer.mockResolvedValue([]);
 });
 
 function startOrigin(): Promise<number> {
@@ -50,7 +60,10 @@ function projectWith(config: string): string {
   return dir;
 }
 
-async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {}) {
+async function boot(
+  cwd: string,
+  options: Partial<Parameters<typeof run>[0]> = {},
+) {
   const { deps, opened, output } = harness();
   const result = await run(
     { port: 0, userPort: undefined, configPath: undefined, open: true, json: false, cwd, ...options },
@@ -145,6 +158,25 @@ describe("run", () => {
     const { output } = await boot(dir);
 
     expect(output).toContain("leglas.config.ts");
+  });
+
+  test("warns without blocking when a local dev server belongs to another project", async () => {
+    const port = await startOrigin();
+    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`);
+
+    inspectDevServer.mockResolvedValueOnce([
+      { pid: 42, cwd: "/work/other-app" },
+    ]);
+    const { output, result } = await boot(dir, { open: false });
+    const config = (await (
+      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
+    ).json()) as { warnings: string[] };
+
+    expect(output).toContain(`Port ${port} appears to be served from other-app`);
+    expect(config.warnings).toEqual([
+      expect.stringContaining("outside this project"),
+    ]);
+    expect(result.exitCode).toBe(0);
   });
 });
 

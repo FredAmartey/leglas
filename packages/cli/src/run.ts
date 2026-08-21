@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -19,6 +20,10 @@ import {
 } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
+import {
+  devServerOwnerWarning,
+  inspectLocalDevServer,
+} from "./dev-server-owner.js";
 
 /**
  * Locate the built interface. The published package is self-contained, with
@@ -190,10 +195,21 @@ export async function run(
   }
 
   const config = merged === null ? null : { ...merged, previews };
+  const configWarnings: string[] = [];
+  const projectRoot = await realpath(loaded.path === null ? options.cwd : dirname(loaded.path)).catch(
+    () => resolve(loaded.path === null ? options.cwd : dirname(loaded.path)),
+  );
+  const ownerWarning =
+    needsApp && app === null
+      ? inspectLocalDevServer(devServer)
+          .then((owners) => devServerOwnerWarning(devServer, projectRoot, owners))
+          .catch(() => null)
+      : Promise.resolve(null);
 
-  const server = await startServer({
+  const serverPromise = startServer({
     config,
     configErrors: [...loaded.errors, ...local.errors, ...worktreeErrors],
+    configWarnings,
     fileMounts,
     shellDir: findShellDir(),
     // The config file identifies the project when there is one; otherwise the
@@ -203,6 +219,8 @@ export async function run(
     leglasCommand: embeddedLeglasCommand(),
     ...(options.port === undefined ? {} : { port: options.port }),
   });
+  const [server, warning] = await Promise.all([serverPromise, ownerWarning]);
+  if (warning !== null) configWarnings.push(warning);
 
   const url = `${server.url}${LEGLAS_PREFIX}`;
   const previewCount = config?.previews.length ?? 0;
@@ -224,6 +242,7 @@ export async function run(
         previews: previewCount,
         config: loaded.path,
         errors: loaded.errors,
+        warnings: configWarnings,
       }),
     );
   } else {
@@ -243,6 +262,11 @@ export async function run(
       deps.log("");
       for (const error of [...loaded.errors, ...worktreeErrors]) deps.log(`  ! ${error}`);
       deps.log("  Fix the config and reload; Leglas will pick it up on restart.");
+    }
+
+    if (configWarnings.length > 0) {
+      deps.log("");
+      for (const warning of configWarnings) deps.log(`  ! ${warning}`);
     }
 
     if (!health.reachable && needsApp) {
