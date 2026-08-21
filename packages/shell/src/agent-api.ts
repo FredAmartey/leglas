@@ -1,4 +1,4 @@
-import type { AgentOption } from "./request-status.js";
+import type { AgentEffort, AgentOption } from "./request-status.js";
 
 export type AgentFetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -6,19 +6,23 @@ export type AgentsPayload = {
   agents: AgentOption[];
   choice: string | null;
   customRun: string | null;
+  effort: AgentEffort | null;
 };
 
 const browserFetch: AgentFetcher = (input, init) => fetch(input, init);
 
-export async function readAgents(fetcher: AgentFetcher = browserFetch): Promise<AgentsPayload> {
-  const response = await fetcher("/leglas/api/agents");
+export async function readAgents(
+  refresh = false,
+  fetcher: AgentFetcher = browserFetch,
+): Promise<AgentsPayload> {
+  const response = await fetcher(`/leglas/api/agents${refresh ? "?refresh=1" : ""}`);
   if (!response.ok) throw new Error("Leglas refused the agent request.");
   return response.json() as Promise<AgentsPayload>;
 }
 
 async function post(
   path: string,
-  body: Record<string, string> | null,
+  body: Record<string, string | null> | null,
   fetcher: AgentFetcher,
 ): Promise<void> {
   const response = await fetcher(path, {
@@ -41,6 +45,14 @@ export function chooseAgent(
   fetcher: AgentFetcher = browserFetch,
 ): Promise<void> {
   return post("/leglas/api/agent", run === undefined ? { agent } : { agent, run }, fetcher);
+}
+
+export function chooseAgentEffort(
+  agent: string,
+  effort: AgentEffort | null,
+  fetcher: AgentFetcher = browserFetch,
+): Promise<void> {
+  return post("/leglas/api/agent", { agent, effort }, fetcher);
 }
 
 export function cancelAgentRun(

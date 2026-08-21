@@ -7,6 +7,7 @@ import { parseTemplate } from "./agent-command.js";
 import {
   KNOWN_AGENTS,
   detectAgents,
+  isAgentEffort,
   readAgentChoice,
   saveAgentChoice,
   type DetectedAgent,
@@ -370,10 +371,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   /**
    * Agent detection asks every vendor CLI for its login status, which costs
-   * about a second, so only the first request ever waits for it. After that
-   * the endpoint answers from here instantly and refreshes behind the
-   * response once the answer is old, so signing in shows up on the next look
-   * without any request paying the probe.
+   * about a second, so ordinary reads use a short cache. The picker can ask
+   * for a fresh answer when it opens; that request waits for the real probe so
+   * a newly installed or newly signed-in CLI appears on this look, not the
+   * next one.
    */
   let agentsCache: { at: number; agents: DetectedAgent[] } | null = null;
   let agentsInflight: Promise<DetectedAgent[]> | null = null;
@@ -389,10 +390,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     return agentsInflight;
   };
-  const currentAgents = (): Promise<DetectedAgent[]> => {
-    if (agentsCache === null) return probeAgents();
-    if (Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
-      void probeAgents().catch(() => {});
+  const currentAgents = (refresh = false): Promise<DetectedAgent[]> => {
+    if (refresh || agentsCache === null || Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
+      return probeAgents();
     }
     return Promise.resolve(agentsCache.agents);
   };
@@ -400,6 +400,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const server = http.createServer((req, res) => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
+    const query = new URLSearchParams(url.includes("?") ? url.slice(url.indexOf("?") + 1) : "");
 
     if (
       req.method === "POST" &&
@@ -622,11 +623,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/agents` && req.method === "GET") {
-      return void Promise.all([currentAgents(), readAgentChoice(cwd)]).then(([agents, choice]) =>
+      return void Promise.all([
+        currentAgents(query.get("refresh") === "1"),
+        readAgentChoice(cwd),
+      ]).then(([agents, choice]) =>
         sendJson(res, 200, {
           agents,
           choice: choice.agent,
           customRun: choice.run,
+          effort: choice.effort,
         }),
       );
     }
@@ -648,9 +653,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
-        let parsed: { agent?: unknown; run?: unknown };
+        let parsed: { agent?: unknown; effort?: unknown; run?: unknown };
         try {
-          parsed = JSON.parse(body || "{}") as { agent?: unknown; run?: unknown };
+          parsed = JSON.parse(body || "{}") as {
+            agent?: unknown;
+            effort?: unknown;
+            run?: unknown;
+          };
         } catch {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
@@ -661,8 +670,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (parsed.run !== undefined && typeof parsed.run !== "string") {
           return sendJson(res, 400, { ok: false, error: "The custom run command must be a string." });
         }
+        const effort =
+          parsed.effort === null || isAgentEffort(parsed.effort) ? parsed.effort : undefined;
+        if (parsed.effort !== undefined && effort === undefined) {
+          return sendJson(res, 400, { ok: false, error: "Effort must be a supported level or null." });
+        }
 
         if (parsed.agent === "custom") {
+          if (effort !== undefined) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: "Custom agents manage effort in their own command.",
+            });
+          }
           if (typeof parsed.run !== "string") {
             return sendJson(res, 400, { ok: false, error: "A custom agent needs a run command." });
           }
@@ -674,7 +694,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           );
         }
 
-        return void saveAgentChoice(cwd, { agent: parsed.agent }).then(
+        if (
+          effort !== undefined &&
+          effort !== null &&
+          !(KNOWN_AGENTS[parsed.agent].efforts as readonly string[]).includes(effort)
+        ) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `${KNOWN_AGENTS[parsed.agent].name} does not expose an effort override.`,
+          });
+        }
+
+        return void saveAgentChoice(cwd, {
+          agent: parsed.agent,
+          ...(effort === undefined ? {} : { effort }),
+        }).then(
           () => sendJson(res, 200, { ok: true }),
           () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
         );

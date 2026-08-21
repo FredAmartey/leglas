@@ -474,9 +474,9 @@ describe("startServer", () => {
       detect: async () => {
         probes += 1;
         return [
-          { id: "claude", name: "Claude", available: true, auth: "ok" },
-          { id: "codex", name: "Codex", available: true, auth: "signed-out" },
-          { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
+          { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "medium", "high", "xhigh", "max"] },
+          { id: "codex", name: "Codex", available: true, auth: "signed-out", efforts: ["low", "medium", "high", "xhigh", "max"] },
+          { id: "cursor", name: "Cursor", available: false, auth: "unknown", efforts: [] },
         ];
       },
     });
@@ -485,14 +485,16 @@ describe("startServer", () => {
       agents: { id: string; name: string; available: boolean; auth: string }[];
       choice: string | null;
       customRun: string | null;
+      effort: string | null;
     };
     expect(initial.agents).toEqual([
-      { id: "claude", name: "Claude", available: true, auth: "ok" },
-      { id: "codex", name: "Codex", available: true, auth: "signed-out" },
-      { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
+      { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "codex", name: "Codex", available: true, auth: "signed-out", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "cursor", name: "Cursor", available: false, auth: "unknown", efforts: [] },
     ]);
     expect(initial.choice).toBeNull();
     expect(initial.customRun).toBeNull();
+    expect(initial.effort).toBeNull();
 
     const customRun = "my-agent -p {prompt}";
     const saved = await fetch(`${server.url}/leglas/api/agent`, {
@@ -508,19 +510,25 @@ describe("startServer", () => {
     await fetch(`${server.url}/leglas/api/agent`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ agent: "codex" }),
+      body: JSON.stringify({ agent: "codex", effort: "high" }),
     });
     const known = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
-    expect(known).toMatchObject({ choice: "codex", customRun });
+    expect(known).toMatchObject({ choice: "codex", customRun, effort: "high" });
     // Three reads, one probe: the login answer is served from the cache.
     expect(probes).toBe(1);
+
+    await fetch(`${server.url}/leglas/api/agents?refresh=1`);
+    expect(probes).toBe(2);
   });
 
   test.each([
     { agent: "unknown" },
     { agent: "custom" },
     { agent: "custom", run: "node --file={prompt}" },
+    { agent: "custom", run: "node {prompt}", effort: "high" },
     { agent: "codex", run: 42 },
+    { agent: "codex", effort: "extreme" },
+    { agent: "cursor", effort: "high" },
   ])("refuses an invalid agent choice: %j", async (choice) => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 

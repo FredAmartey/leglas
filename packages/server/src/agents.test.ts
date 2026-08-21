@@ -1,11 +1,13 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
+  AGENT_EFFORTS,
   KNOWN_AGENTS,
   activityFrom,
+  agentSearchPath,
   detectAgents,
   execProbe,
   readAgentChoice,
@@ -83,7 +85,7 @@ test("codex is told it may run outside a git repository", () => {
   expect(KNOWN_AGENTS.codex.args("make it warmer")).toContain("workspace-write");
 });
 
-test("codex can inspect the live preview without changing the user's quality settings", () => {
+test("agent defaults do not override the user's quality settings", () => {
   for (const argv of [
     KNOWN_AGENTS.codex.args("make it warmer"),
     KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
@@ -92,6 +94,46 @@ test("codex can inspect the live preview without changing the user's quality set
     expect(argv).toContain("sandbox_workspace_write.network_access=true");
     expect(argv.join(" ")).not.toMatch(/model_reasoning_effort|--model|-m /);
   }
+});
+
+test("adds an explicit effort only when the user chooses one", () => {
+  expect(KNOWN_AGENTS.claude.args("make it warmer", "high")).toEqual(
+    expect.arrayContaining(["--effort", "high"]),
+  );
+  for (const argv of [
+    KNOWN_AGENTS.codex.args("make it warmer", "xhigh"),
+    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer", "xhigh"),
+    KNOWN_AGENTS.codex.terminalArgs("make it warmer", "xhigh"),
+  ]) {
+    expect(argv).toEqual(expect.arrayContaining(["-c", "model_reasoning_effort=xhigh"]));
+  }
+});
+
+test("searches conventional user install directories beyond a service PATH", () => {
+  const entries = agentSearchPath(
+    { HOME: "/Users/example", PATH: "/usr/bin:/bin" },
+    "darwin",
+  ).split(delimiter);
+
+  expect(entries).toEqual(
+    expect.arrayContaining([
+      "/usr/bin",
+      "/bin",
+      "/Users/example/.local/bin",
+      "/Users/example/.npm-global/bin",
+      "/opt/homebrew/bin",
+      "/Applications/Codex.app/Contents/Resources",
+    ]),
+  );
+  expect(new Set(entries).size).toBe(entries.length);
+});
+
+test("finds CLIs installed inside an NVM-managed Node version", () => {
+  const home = mkdtempSync(join(tmpdir(), "leglas-agent-home-"));
+  const bin = join(home, ".nvm", "versions", "node", "v24.7.0", "bin");
+  mkdirSync(bin, { recursive: true });
+
+  expect(agentSearchPath({ HOME: home, PATH: "/usr/bin" }).split(delimiter)).toContain(bin);
 });
 
 test("detectAgents probes binaries and logins through the injected hooks", async () => {
@@ -113,9 +155,9 @@ test("detectAgents probes binaries and logins through the injected hooks", async
   // No probe for the missing binary: there is nothing to ask.
   expect(probed).toEqual(["claude auth status", "codex login status"]);
   expect(agents).toEqual([
-    { id: "claude", name: "Claude", available: true, auth: "ok" },
-    { id: "codex", name: "Codex", available: true, auth: "signed-out" },
-    { id: "cursor", name: "Cursor", available: false, auth: "unknown" },
+    { id: "claude", name: "Claude", available: true, auth: "ok", efforts: AGENT_EFFORTS },
+    { id: "codex", name: "Codex", available: true, auth: "signed-out", efforts: AGENT_EFFORTS },
+    { id: "cursor", name: "Cursor", available: false, auth: "unknown", efforts: [] },
   ]);
 });
 
@@ -317,16 +359,46 @@ test("agent choice preserves the saved run template and unknown config fields", 
   mkdirSync(join(cwd, ".leglas"));
   writeFileSync(
     join(cwd, ".leglas/watch.json"),
-    JSON.stringify({ run: "my-agent {prompt}", future: { enabled: true } }),
+    JSON.stringify({
+      run: "my-agent {prompt}",
+      efforts: { codex: "high", futureAgent: "ultra" },
+      future: { enabled: true },
+    }),
   );
 
   await saveAgentChoice(cwd, { agent: "codex" });
 
-  expect(await readAgentChoice(cwd)).toEqual({ agent: "codex", run: "my-agent {prompt}" });
+  expect(await readAgentChoice(cwd)).toEqual({
+    agent: "codex",
+    effort: "high",
+    run: "my-agent {prompt}",
+  });
   expect(JSON.parse(readFileSync(join(cwd, ".leglas/watch.json"), "utf8"))).toEqual({
     run: "my-agent {prompt}",
+    efforts: { codex: "high", futureAgent: "ultra" },
     future: { enabled: true },
     agent: "codex",
+  });
+});
+
+test("remembers effort separately for each built-in agent", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-effort-"));
+
+  await saveAgentChoice(cwd, { agent: "claude", effort: "low" });
+  await saveAgentChoice(cwd, { agent: "codex", effort: "xhigh" });
+  await saveAgentChoice(cwd, { agent: "claude" });
+
+  expect(await readAgentChoice(cwd)).toEqual({ agent: "claude", effort: "low", run: null });
+  expect(JSON.parse(readFileSync(join(cwd, ".leglas/watch.json"), "utf8"))).toEqual({
+    agent: "claude",
+    efforts: { claude: "low", codex: "xhigh" },
+  });
+
+  await saveAgentChoice(cwd, { agent: "claude", effort: null });
+  expect(await readAgentChoice(cwd)).toEqual({ agent: "claude", effort: null, run: null });
+  expect(JSON.parse(readFileSync(join(cwd, ".leglas/watch.json"), "utf8"))).toEqual({
+    agent: "claude",
+    efforts: { codex: "xhigh" },
   });
 });
 
@@ -337,6 +409,7 @@ test("a custom choice stores its validated template for the runner", async () =>
 
   expect(await readAgentChoice(cwd)).toEqual({
     agent: "custom",
+    effort: null,
     run: "my-agent -p {prompt}",
   });
 });
@@ -346,5 +419,5 @@ test("an inherited object key is not accepted as a built-in agent id", async () 
   mkdirSync(join(cwd, ".leglas"));
   writeFileSync(join(cwd, ".leglas/watch.json"), JSON.stringify({ agent: "toString" }));
 
-  expect(await readAgentChoice(cwd)).toEqual({ agent: null, run: null });
+  expect(await readAgentChoice(cwd)).toEqual({ agent: null, effort: null, run: null });
 });
