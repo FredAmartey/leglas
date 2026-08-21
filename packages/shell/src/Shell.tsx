@@ -37,17 +37,20 @@ import {
   formatElapsed,
   requestCard,
   waitingLabel,
+  type AgentEffort,
   type AgentStatus,
   type RequestStatus,
 } from "./request-status.js";
 import {
   cancelAgentRun,
   chooseAgent,
+  chooseAgentEffort,
   dismissFailedRequest,
   readAgents,
   retryFailedRequest,
   type AgentsPayload,
 } from "./agent-api.js";
+import { McpConnectDialog } from "./McpConnectDialog.js";
 
 /**
  * A tip that is only there when there is something to say.
@@ -143,19 +146,6 @@ const LOAD_TIMEOUT_MS = 15_000;
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
 
-/**
- * What "connect another agent" hands out. The MCP server is the entry point
- * for agents Leglas cannot spawn: IDE panels and chat hosts get the tools,
- * and working the queue through them parks the embedded runner the same way
- * a terminal watcher does.
- */
-const CONNECT_CLAUDE = "claude mcp add leglas -- npx leglas-mcp";
-const CONNECT_MCP_JSON = `{
-  "mcpServers": {
-    "leglas": { "command": "npx", "args": ["leglas-mcp"] }
-  }
-}`;
-
 const IDLE_AGENT: AgentStatus = {
   attached: false,
   running: false,
@@ -170,6 +160,15 @@ const EMPTY_AGENTS: AgentsPayload = {
   agents: [],
   choice: null,
   customRun: null,
+  effort: null,
+};
+
+const EFFORT_LABELS: Record<AgentEffort, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Maximum",
 };
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
@@ -392,6 +391,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const splitRef = useRef<(() => void) | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [deletePrompt, setDeletePrompt] = useState<DeletePrompt | null>(null);
+  const [mcpConnectOpen, setMcpConnectOpen] = useState(false);
   const [deletingRemoved, setDeletingRemoved] = useState(false);
   // Stable, so the window key listener attaches once rather than on every
   // render of the shell.
@@ -412,7 +412,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     onToggleNote,
     // While the keymap is on screen it is the subject, not a way to drive what
     // is behind it. ? still closes it.
-    suspended: helpOpen || deletePrompt !== null,
+    suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
   });
   const closeDeletePrompt = () => {
     if (!deletingRemoved) setDeletePrompt(null);
@@ -481,18 +481,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
+  const [savingEffort, setSavingEffort] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
-  // Non-null while the menu is showing the custom-command editor; holds the
-  // draft template. Any CLI with a {prompt} slot is a valid agent here.
-  const [customDraft, setCustomDraft] = useState<string | null>(null);
-  // The menu's third face: how to hand an agent we cannot spawn (an IDE
-  // panel, an MCP host) the Leglas tools instead.
-  const [connectOpen, setConnectOpen] = useState(false);
   const [requestAction, setRequestAction] = useState<"cancel" | "retry" | "dismiss" | null>(null);
   const widgetButtonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const agentMenuRef = useRef<HTMLDivElement | null>(null);
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const mcpConnectTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Toasts stack on top of the rail's foot, whose height now moves with the
   // status card, so they follow a measurement instead of a constant.
@@ -849,7 +845,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   const [agentsTick, refreshAgents] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
     let cancelled = false;
-    void readAgents()
+    void readAgents(agentsTick > 0)
       .then((payload) => {
         if (cancelled) return;
         setAgentState((current) =>
@@ -913,6 +909,14 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     st.prefs.agentPickerDismissed,
     agentState.customRun,
   );
+  const selectedAgent =
+    chip.kind === "chosen"
+      ? agentState.agents.find((agent) => agent.id === chip.id && agent.available)
+      : undefined;
+  const selectedEffort =
+    agentState.effort !== null && selectedAgent?.efforts.includes(agentState.effort)
+      ? agentState.effort
+      : null;
   /**
    * Where the direction being changed came from, said without being asked.
    *
@@ -992,13 +996,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
   useEffect(() => {
     if (chip.kind === "none") setAgentMenuOpen(false);
   }, [chip.kind]);
-  // The editor never outlives the menu that opened it.
-  useEffect(() => {
-    if (!agentMenuOpen) {
-      setCustomDraft(null);
-      setConnectOpen(false);
-    }
-  }, [agentMenuOpen]);
   // Same dismissal contract as the tools popover: Escape, clicking away, or
   // the window losing focus all put the menu back without ceremony.
   useEffect(() => {
@@ -1026,10 +1023,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [agentMenuOpen]);
-  const pickAgent = (agent: string, run?: string) => {
-    if (pickingAgent !== null) return;
+  const pickAgent = (agent: string) => {
+    if (pickingAgent !== null || savingEffort) return;
     setPickingAgent(agent);
-    void chooseAgent(agent, run)
+    void chooseAgent(agent)
       .then(() => {
         refreshAgents();
         setAgentMenuOpen(false);
@@ -1037,15 +1034,30 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       .catch(() => {
         st.notify({
           kind: "agent-choice",
-          message:
-            agent === "custom"
-              ? "That command could not be saved. Nothing changed."
-              : "That agent could not be selected. No run started.",
+          message: "That agent could not be selected. No run started.",
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
       })
       .finally(() => setPickingAgent(null));
+  };
+  const pickEffort = (effort: AgentEffort | null) => {
+    if (selectedAgent === undefined || savingEffort || pickingAgent !== null) return;
+    const previous = agentState.effort;
+    setSavingEffort(true);
+    setAgentState((current) => ({ ...current, effort }));
+    void chooseAgentEffort(selectedAgent.id, effort)
+      .then(() => refreshAgents())
+      .catch(() => {
+        setAgentState((current) => ({ ...current, effort: previous }));
+        st.notify({
+          kind: "agent-choice",
+          message: "Effort could not be saved. Agent settings did not change.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() => setSavingEffort(false));
   };
   const cancelRequest = (id: string | null) => {
     if (requestAction !== null) return;
@@ -1076,19 +1088,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
         });
       })
       .finally(() => setRequestAction(null));
-  };
-  const copyConnect = (label: string, snippet: string) => {
-    void copyText(snippet).then((outcome) => {
-      st.notify({
-        kind: "agent-connect",
-        message:
-          outcome === "copied"
-            ? `${label} copied.`
-            : "Your browser blocked the clipboard. The README carries the same snippet.",
-        tone: outcome === "copied" ? "success" : "danger",
-        ttl: TOAST_TTL.plain,
-      });
-    });
   };
   const dismissRequest = (id: string) => {
     if (requestAction !== null) return;
@@ -2392,9 +2391,15 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                   </button>
                 </Tip>
                 {chip.kind === "none" ? (
-                  <span className="min-w-0 truncate px-1.5 text-[10px] leading-snug text-[#84848C]">
-                    Enter queues it for <span className="font-medium">npx leglas requests</span>
-                  </span>
+                  <button
+                    className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[10px] leading-none text-[#84848C] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#D1D5DB]"
+                    onClick={() => setMcpConnectOpen(true)}
+                    ref={mcpConnectTriggerRef}
+                    type="button"
+                  >
+                    <PIcon d={P.link} size={12} />
+                    <span className="truncate">Connect agent via MCP…</span>
+                  </button>
                 ) : (
                   /* An inline select beside the send it configures: the menu
                      hangs off the chip itself, sized to its options, the way
@@ -2403,7 +2408,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                     <div
                       aria-hidden={!agentMenuOpen}
                       aria-label="Who runs your changes"
-                      className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-36 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                      className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-48 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
                         agentMenuOpen
                           ? "translate-y-0 scale-100 opacity-100"
                           : "pointer-events-none translate-y-1 scale-95 opacity-0"
@@ -2413,192 +2418,122 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       role="dialog"
                       tabIndex={-1}
                     >
-                      {customDraft !== null ? (
-                        /* Any CLI is an agent: a command with a {prompt} slot
-                           is the whole contract, so nobody is boxed into the
-                           three names we happen to know. */
-                        <div className="w-60 p-1">
-                          <label
-                            className="block px-1 pb-1 text-[10px] leading-snug text-[#84848C]"
-                            htmlFor="leglas-custom-run"
-                          >
-                            The command that runs your agent.
-                          </label>
-                          <input
-                            className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 font-mono text-[11px] text-white transition-colors placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
-                            id="leglas-custom-run"
-                            onChange={(event) => setCustomDraft(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key !== "Enter") return;
-                              event.preventDefault();
-                              if (customDraft.trim() !== "" && pickingAgent === null) {
-                                pickAgent("custom", customDraft.trim());
+                      {agentState.agents
+                        .filter((agent) => agent.available)
+                        .map((agent) => {
+                          const active = chip.kind === "chosen" && agent.id === chip.id;
+                          return (
+                            <button
+                              className={ROW_BUTTON}
+                              disabled={pickingAgent !== null || savingEffort}
+                              key={agent.id}
+                              onClick={() =>
+                                active ? setAgentMenuOpen(false) : pickAgent(agent.id)
                               }
-                            }}
-                            placeholder="npx my-agent"
-                            value={customDraft}
-                          />
-                          {/* No syntax to learn: the request rides along at
-                              the end on its own. The placeholder is only for
-                              the command that wants it somewhere else. */}
-                          <p className="px-1 pt-1 text-[9px] leading-snug text-[#84848C]/80">
-                            Your request is added at the end. Put{" "}
-                            <span className="font-mono">{"{prompt}"}</span> where it should go
-                            instead, if needed.
-                          </p>
-                          <div className="flex items-center justify-between pt-1.5">
-                            <button
-                              className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                              onClick={() => setCustomDraft(null)}
                               type="button"
                             >
-                              Back
-                            </button>
-                            <button
-                              className="rounded px-1.5 py-0.5 text-[11px] text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                              disabled={customDraft.trim() === "" || pickingAgent !== null}
-                              onClick={() => pickAgent("custom", customDraft.trim())}
-                              type="button"
-                            >
-                              {pickingAgent === "custom" ? "Saving…" : "Save"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : connectOpen ? (
-                        /* For the agent Leglas cannot spawn: an IDE panel, a
-                           chat host. One paste gives it the Leglas tools over
-                           MCP, and working the queue through them parks the
-                           embedded runner exactly like a terminal watcher. */
-                        <div className="w-64 p-1">
-                          <p className="px-1 pb-1 text-[10px] leading-snug text-[#84848C]">
-                            Give your agent the Leglas tools. Copy the one your
-                            agent understands:
-                          </p>
-                          <button
-                            className={ROW_BUTTON}
-                            onClick={() => copyConnect("The Claude Code command", CONNECT_CLAUDE)}
-                            type="button"
-                          >
-                            <span className="truncate">Claude Code command</span>
-                            <PIcon d={P.copy} size={12} />
-                          </button>
-                          <button
-                            className={ROW_BUTTON}
-                            onClick={() => copyConnect("The mcp.json entry", CONNECT_MCP_JSON)}
-                            type="button"
-                          >
-                            <span className="truncate">mcp.json for everything else</span>
-                            <PIcon d={P.copy} size={12} />
-                          </button>
-                          <p className="px-1 pt-1 text-[9px] leading-snug text-[#84848C]/80">
-                            Then ask it to handle your Leglas change requests.
-                            While it works, the built-in runner stays out of
-                            its way.
-                          </p>
-                          <div className="flex items-center justify-between pt-1.5">
-                            <button
-                              className="rounded px-1 text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                              onClick={() => setConnectOpen(false)}
-                              type="button"
-                            >
-                              Back
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {agentState.agents
-                            .filter((agent) => agent.available)
-                            .map((agent) => {
-                              const active = chip.kind === "chosen" && agent.id === chip.id;
-                              return (
-                                <button
-                                  className={ROW_BUTTON}
-                                  disabled={pickingAgent !== null}
-                                  key={agent.id}
-                                  onClick={() =>
-                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
-                                  }
-                                  type="button"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <BrandMark id={agent.id} />
-                                    <span className="truncate">{agent.name}</span>
-                                  </span>
-                                  {pickingAgent === agent.id ? (
-                                    <span
-                                      aria-label="selecting"
-                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                                    />
-                                  ) : agent.auth === "signed-out" ? (
-                                    /* Caught before the run instead of after
-                                       it: the CLI itself says its login is
-                                       gone, and hiding the row would only
-                                       hide the fix. */
-                                    <span className="text-[10px] text-amber-400/80">
-                                      signed out
-                                    </span>
-                                  ) : (
-                                    active && <span aria-label="current choice">✓</span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          <button
-                            className={`${ROW_BUTTON} ${chip.kind === "chosen" && chip.id === "custom" ? "" : "text-[#84848C]"}`}
-                            disabled={pickingAgent !== null}
-                            onClick={() => setCustomDraft(agentState.customRun ?? "")}
-                            type="button"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <BrandMark id="custom" />
-                              <span className="truncate">
-                                {chip.kind === "chosen" && chip.id === "custom"
-                                  ? chip.name
-                                  : "Add your own…"}
+                              <span className="flex min-w-0 items-center gap-2">
+                                <BrandMark id={agent.id} />
+                                <span className="truncate">{agent.name}</span>
                               </span>
-                            </span>
-                            {chip.kind === "chosen" && chip.id === "custom" && (
-                              <span aria-label="current choice">✓</span>
-                            )}
-                          </button>
-                          <button
-                            className={`${ROW_BUTTON} text-[#84848C]`}
-                            onClick={() => setConnectOpen(true)}
-                            type="button"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <PIcon d={P.link} size={14} />
-                              <span className="truncate">Connect another agent…</span>
-                            </span>
-                          </button>
-                          {agentState.choice === null && (
-                            <button
-                              className={`${ROW_BUTTON} text-[#84848C]`}
-                              onClick={() => {
-                                st.setPrefs((prefs) => ({
-                                  ...prefs,
-                                  agentPickerDismissed: true,
-                                }));
-                                setAgentMenuOpen(false);
-                              }}
-                              type="button"
-                            >
-                              <span>I&apos;ll run my own</span>
-                              {chip.kind === "manual" && (
-                                <span aria-label="current choice">✓</span>
+                              {pickingAgent === agent.id ? (
+                                <span
+                                  aria-label="selecting"
+                                  className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                                />
+                              ) : agent.auth === "signed-out" ? (
+                                /* Caught before the run instead of after
+                                   it: the CLI itself says its login is
+                                   gone, and hiding the row would only
+                                   hide the fix. */
+                                <span className="text-[10px] text-amber-400/80">
+                                  signed out
+                                </span>
+                              ) : (
+                                active && <span aria-label="current choice">✓</span>
                               )}
                             </button>
+                          );
+                        })}
+                      {chip.kind === "chosen" && chip.id === "custom" ? (
+                        <button
+                          className={ROW_BUTTON}
+                          onClick={() => setAgentMenuOpen(false)}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <BrandMark id="custom" />
+                            <span className="truncate">{chip.name}</span>
+                          </span>
+                          <span aria-label="current choice">✓</span>
+                        </button>
+                      ) : null}
+                      {agentState.choice === null && (
+                        <button
+                          className={`${ROW_BUTTON} text-[#84848C]`}
+                          onClick={() => {
+                            st.setPrefs((prefs) => ({
+                              ...prefs,
+                              agentPickerDismissed: true,
+                            }));
+                            setAgentMenuOpen(false);
+                          }}
+                          type="button"
+                        >
+                          <span>I&apos;ll run my own</span>
+                          {chip.kind === "manual" && (
+                            <span aria-label="current choice">✓</span>
                           )}
-                          {/* The consent sentence belongs to the first choice
-                              only; once one is made, this is just a select. */}
-                          {agentState.choice === null && (
-                            <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
-                              Runs in this project with write access, like in your terminal.
-                            </p>
-                          )}
-                        </>
+                        </button>
                       )}
+                      {/* The consent sentence belongs to the first choice
+                          only; once one is made, this is just a select. */}
+                      {agentState.choice === null && (
+                        <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
+                          Runs in this project with write access, like in your terminal.
+                        </p>
+                      )}
+                      {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
+                        <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
+                          <label className="flex min-h-7 items-center justify-between gap-3">
+                            <span className="text-[10px] font-medium text-[#84848C]">Effort</span>
+                            <select
+                              aria-busy={savingEffort}
+                              aria-label={`${selectedAgent.name} effort`}
+                              className="min-h-7 rounded-md border border-[#303038] bg-[#17171B] px-2 text-[10px] text-[#D1D5DB] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
+                              disabled={savingEffort || pickingAgent !== null}
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                pickEffort(value === "" ? null : (value as AgentEffort));
+                              }}
+                              value={selectedEffort ?? ""}
+                            >
+                              <option value="">Agent default</option>
+                              {selectedAgent.efforts.map((effort) => (
+                                <option key={effort} value={effort}>
+                                  {EFFORT_LABELS[effort]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
+                      <div className="mt-1 border-t border-[#232328] pt-1">
+                        <button
+                          className={`${ROW_BUTTON} text-[#84848C]`}
+                          onClick={() => {
+                            setAgentMenuOpen(false);
+                            setMcpConnectOpen(true);
+                          }}
+                          ref={mcpConnectTriggerRef}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <PIcon d={P.link} size={14} />
+                            <span className="truncate">Connect agent via MCP…</span>
+                          </span>
+                        </button>
+                      </div>
                     </div>
                     <button
                       aria-expanded={agentMenuOpen}
@@ -2616,7 +2551,7 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
                       {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
                       <span className="truncate">
                         {chip.kind === "chosen"
-                          ? chip.name
+                          ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
                           : chip.kind === "manual"
                             ? "I'll run my own"
                             : "Choose an agent"}
@@ -3179,6 +3114,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       )}
 
       {helpOpen ? <HelpOverlay mac={IS_MAC} onClose={closeHelp} /> : null}
+      {mcpConnectOpen ? (
+        <McpConnectDialog
+          connected={requestSnapshot.agent.attached}
+          fallbackFocusRef={chip.kind === "none" ? mcpConnectTriggerRef : agentTriggerRef}
+          onClose={() => setMcpConnectOpen(false)}
+        />
+      ) : null}
       {deletePrompt !== null ? (
         <DeleteRemovedDialog
           busy={deletingRemoved}

@@ -96,7 +96,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("startRunner", () => {
   test("runs requests in queue order and never overlaps children", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-order-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
+    await saveAgentChoice(cwd, { agent: "claude", effort: "high" });
     await appendRequest(cwd, input("First"));
     await appendRequest(cwd, input("Second"));
     const clock = manualClock();
@@ -112,6 +112,7 @@ describe("startRunner", () => {
     await until(() => spawned.calls.length === 1);
     expect(spawned.calls[0]?.[0]).toBe("claude");
     expect(spawned.calls[0]?.[1][1]).toBe("prompt for First");
+    expect(spawned.calls[0]?.[1]).toEqual(expect.arrayContaining(["--effort", "high"]));
     expect(spawned.calls[0]?.[2]).toEqual({
       cwd,
       shell: false,

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   cancelAgentRun,
   chooseAgent,
+  chooseAgentEffort,
   dismissFailedRequest,
   readAgents,
   retryFailedRequest,
@@ -25,16 +26,25 @@ describe("embedded agent API", () => {
   test("reads the complete agent picker state", async () => {
     const payload = {
       agents: [
-        { id: "claude", name: "Claude", available: true },
-        { id: "codex", name: "Codex", available: false },
+        { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "high"] },
+        { id: "codex", name: "Codex", available: false, auth: "unknown", efforts: ["low", "high"] },
       ],
       choice: null,
       customRun: null,
+      effort: null,
     };
     const recorded = recorder(payload);
 
-    await expect(readAgents(recorded.fetcher)).resolves.toEqual(payload);
+    await expect(readAgents(false, recorded.fetcher)).resolves.toEqual(payload);
     expect(recorded.calls).toEqual([{ input: "/leglas/api/agents" }]);
+  });
+
+  test("can ask for a fresh detection when the picker opens", async () => {
+    const recorded = recorder({ agents: [], choice: null, customRun: null, effort: null });
+
+    await readAgents(true, recorded.fetcher);
+
+    expect(recorded.calls).toEqual([{ input: "/leglas/api/agents?refresh=1" }]);
   });
 
   test("posts the picked adapter as JSON, with the template when custom", async () => {
@@ -62,6 +72,18 @@ describe("embedded agent API", () => {
           body: JSON.stringify({ agent: "claude" }),
         },
       },
+    ]);
+  });
+
+  test("saves an effort override or returns to the agent default", async () => {
+    const recorded = recorder();
+
+    await chooseAgentEffort("codex", "high", recorded.fetcher);
+    await chooseAgentEffort("codex", null, recorded.fetcher);
+
+    expect(recorded.calls.map((call) => call.init?.body)).toEqual([
+      JSON.stringify({ agent: "codex", effort: "high" }),
+      JSON.stringify({ agent: "codex", effort: null }),
     ]);
   });
 

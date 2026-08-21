@@ -8,6 +8,7 @@ import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
   activityFrom,
+  agentEnvironment,
   readAgentChoice,
   retryFrom,
   sessionFrom,
@@ -154,7 +155,7 @@ function resolveCommand(
       agent: choice.agent,
       name: adapter.name,
       command: adapter.binary,
-      args: [...adapter.resumeArgs(sessionId, prompt), ...allow],
+      args: [...adapter.resumeArgs(sessionId, prompt, choice.effort), ...allow],
       resumed: true,
     };
   }
@@ -162,7 +163,7 @@ function resolveCommand(
     agent: choice.agent,
     name: adapter.name,
     command: adapter.binary,
-    args: [...adapter.args(prompt), ...allow],
+    args: [...adapter.args(prompt, choice.effort), ...allow],
     resumed: false,
   };
 }
@@ -190,7 +191,7 @@ function defaultSpawn(
   args: string[],
   options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"] },
 ): RunnerChild {
-  return nodeSpawn(command, args, options) as RunnerChild;
+  return nodeSpawn(command, args, { ...options, env: agentEnvironment() }) as RunnerChild;
 }
 
 /**

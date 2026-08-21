@@ -66,12 +66,15 @@ and sessions that clean up after themselves.
   precise request for your agent, file path included. The composer
   carries its own agent picker, the way every chat you already use
   carries a model picker: the CLIs found on your machine (Claude Code,
-  Codex, Cursor) are one click away next to the send button, each asked
-  for its login status so a signed-out CLI says so before a run instead
-  of failing one. Not on that list? Type the command that runs your
-  agent once, in the same menu, and Leglas hands it each request; or
-  connect an agent Leglas can't spawn (an IDE panel, an MCP host) with
-  the copy-paste MCP wiring behind "Connect another agent". Each run
+  Codex, Cursor) are one click away next to the send button. Leglas checks
+  your shell path and the conventional per-user install locations, then asks
+  each CLI for its login status so a signed-out agent says so before a run
+  instead of failing one. Claude Code and Codex can optionally override effort
+  for this project, remembered separately for each agent; `Agent default`
+  leaves the CLI's own setting untouched. To
+  work from an IDE panel or chat host, choose
+  "Connect agent via MCP" for the exact setup and a live confirmation
+  once the agent uses a Leglas tool. Each run
   reports in a card above the field: who is working, what file they
   are touching, how long it has been, a stop button while it runs and
   retry when it fails. Your agent, your subscription, no keys.
@@ -206,6 +209,13 @@ editing, a cancel if you change your mind, a retry when a run goes
 wrong. `npx leglas watch` in another terminal is the same loop with the
 agent's own output in view, and it needs no flag once an agent has been
 picked in the interface.
+
+To use a CLI that is not in the picker, keep the custom command explicit
+in the terminal:
+
+```sh
+npx leglas watch --run "my-agent {prompt}"
+```
 
 ### MCP server
 

@@ -36,6 +36,7 @@ const option = (id: string, available = true): AgentOption => ({
   name: id === "claude" ? "Claude" : "Codex",
   available,
   auth: "ok",
+  efforts: [],
 });
 
 describe("composerAgent", () => {

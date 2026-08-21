@@ -11,6 +11,28 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **Agent choice now reflects what is actually installed.** Leglas checks the
+  inherited `PATH` plus conventional per-user CLI locations, so a detached
+  server finds the same Claude Code, Codex and Cursor commands as the user's
+  terminal. Opening the picker requests a fresh detection instead of waiting
+  for a stale cache to expire. Claude Code and Codex also gain an optional
+  effort selector from Low through Maximum, remembered separately for each
+  agent; `Agent default` passes no override and keeps the CLI's own setting.
+  (`leglas`)
+- **MCP connection is now a complete, verifiable flow.** The agent picker has
+  one clearly named `Connect agent via MCP` path instead of mixing a custom
+  command editor with a nested copy panel. A focused dialog distinguishes
+  Claude Code from Codex, Cursor, and other MCP clients, shows the exact setup,
+  confirms a copy
+  beside the control, explains the next step and reports once an MCP agent has
+  used a Leglas tool. The same path stays visible when no local agent is
+  installed. Custom commands remain available through `leglas watch --run`
+  without occupying the primary picker. (`leglas`)
+
 ## 0.5.0 (2026-08-20)
 
 This is a minor rather than a patch because the public API surface moved:

@@ -1,8 +1,26 @@
 export { DEFAULT_DEV_SERVER, DEFAULT_INSTALL_COMMAND, normalizeConfig } from "./config.js";
 export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate, tokenize } from "./agent-command.js";
 export type { TemplateResult, WatchTemplate } from "./agent-command.js";
-export { KNOWN_AGENTS, activityFrom, detectAgents, readAgentChoice, retryFrom, saveAgentChoice } from "./agents.js";
-export type { AgentChoice, AgentChoiceInput, DetectedAgent, KnownAgentId, SavedAgentChoice } from "./agents.js";
+export {
+  AGENT_EFFORTS,
+  KNOWN_AGENTS,
+  activityFrom,
+  agentEnvironment,
+  agentSearchPath,
+  detectAgents,
+  isAgentEffort,
+  readAgentChoice,
+  retryFrom,
+  saveAgentChoice,
+} from "./agents.js";
+export type {
+  AgentChoice,
+  AgentChoiceInput,
+  AgentEffort,
+  DetectedAgent,
+  KnownAgentId,
+  SavedAgentChoice,
+} from "./agents.js";
 export { classifyDirection } from "./classify.js";
 export type { DeclaredChange, Placement } from "./classify.js";
 export { CONFIG_BASENAMES, findConfigFile } from "./find-config.js";

@@ -159,6 +159,22 @@ describe("runWatch", () => {
     expect(lines).toContain(`Watching for change requests. Each one runs: ${command}`);
   });
 
+  test.each([
+    ["claude", "high", "claude -p {prompt} --permission-mode acceptEdits --effort high"],
+    [
+      "codex",
+      "xhigh",
+      "codex exec -c sandbox_workspace_write.network_access=true -c model_reasoning_effort=xhigh -s workspace-write --skip-git-repo-check {prompt}",
+    ],
+  ])("includes the saved effort in the %s terminal template", async (agent, effort, command) => {
+    const root = cwd();
+    writeWatchConfig(root, { agent, efforts: { [agent]: effort } });
+
+    const lines = await startAndStop(root);
+
+    expect(lines).toContain(`Watching for change requests. Each one runs: ${command}`);
+  });
+
   test("does not write a synthesized command back to the shared config", async () => {
     const root = cwd();
     const config = { agent: "codex", future: { enabled: true } };

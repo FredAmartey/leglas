@@ -46,7 +46,11 @@ export type AgentOption = {
   available: boolean;
   /** The CLI's own answer about its login; unknown never blocks anything. */
   auth: "ok" | "signed-out" | "unknown";
+  /** Levels this CLI has a verified non-interactive flag for. */
+  efforts: readonly AgentEffort[];
 };
+
+export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * What the chip in the composer says: who Enter sends to.

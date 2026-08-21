@@ -116,7 +116,7 @@ export async function runWatch(
     const adapter = KNOWN_AGENTS[saved.agent];
     template = {
       command: adapter.binary,
-      args: adapter.terminalArgs(PROMPT_TOKEN),
+      args: adapter.terminalArgs(PROMPT_TOKEN, saved.effort),
     };
     shownCommand = [template.command, ...template.args].join(" ");
     synthesizedAgent = adapter.name;

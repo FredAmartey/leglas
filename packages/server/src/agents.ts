@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, readdirSync } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
@@ -17,12 +17,20 @@ export type AgentAuth = "ok" | "signed-out" | "unknown";
 
 type ProbeResult = { code: number; stdout: string };
 
+export const AGENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type AgentEffort = (typeof AGENT_EFFORTS)[number];
+
+const effortFlag = (effort: AgentEffort | null): string[] =>
+  effort === null ? [] : ["--effort", effort];
+const codexEffortConfig = (effort: AgentEffort | null): string[] =>
+  effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`];
+
 /**
  * The embedded runner edits a live application. Workspace-write remains the
  * filesystem boundary, while loopback/network access lets Codex inspect the
  * dev server that is already running instead of trying and failing to boot a
- * second one. This deliberately says nothing about model or reasoning effort:
- * those stay the user's choice.
+ * second one. Model stays with the user's agent; reasoning effort is only
+ * overridden when they explicitly choose one in Leglas.
  */
 const CODEX_WORKSPACE_CONFIG = [
   "-c",
@@ -40,7 +48,8 @@ export const KNOWN_AGENTS = {
   claude: {
     name: "Claude",
     binary: "claude",
-    args: (prompt: string): string[] => [
+    efforts: AGENT_EFFORTS,
+    args: (prompt: string, effort: AgentEffort | null = null): string[] => [
       "-p",
       prompt,
       "--output-format",
@@ -48,14 +57,20 @@ export const KNOWN_AGENTS = {
       "--verbose",
       "--permission-mode",
       "acceptEdits",
+      ...effortFlag(effort),
     ],
-    terminalArgs: (prompt: string): string[] => [
+    terminalArgs: (prompt: string, effort: AgentEffort | null = null): string[] => [
       "-p",
       prompt,
       "--permission-mode",
       "acceptEdits",
+      ...effortFlag(effort),
     ],
-    resumeArgs: (sessionId: string, prompt: string): string[] => [
+    resumeArgs: (
+      sessionId: string,
+      prompt: string,
+      effort: AgentEffort | null = null,
+    ): string[] => [
       "-p",
       "--resume",
       sessionId,
@@ -65,6 +80,7 @@ export const KNOWN_AGENTS = {
       "--verbose",
       "--permission-mode",
       "acceptEdits",
+      ...effortFlag(effort),
     ],
     // Non-interactive Claude cannot approve a Bash call: acceptEdits covers
     // files, so a command the prompt requires is refused every time with
@@ -92,6 +108,7 @@ export const KNOWN_AGENTS = {
   codex: {
     name: "Codex",
     binary: "codex",
+    efforts: AGENT_EFFORTS,
     // `--skip-git-repo-check` is what lets Codex run at all in a project the
     // user never put under version control: without it codex-cli refuses
     // before it reaches a model, with "Not inside a trusted directory and
@@ -100,18 +117,20 @@ export const KNOWN_AGENTS = {
     // moves that precondition and only that: `-s workspace-write` still
     // confines writes to the project, so the sandbox boundary is unchanged,
     // and in a git repository the flag does nothing at all.
-    args: (prompt: string): string[] => [
+    args: (prompt: string, effort: AgentEffort | null = null): string[] => [
       "exec",
       "--json",
       ...CODEX_WORKSPACE_CONFIG,
+      ...codexEffortConfig(effort),
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
       prompt,
     ],
-    terminalArgs: (prompt: string): string[] => [
+    terminalArgs: (prompt: string, effort: AgentEffort | null = null): string[] => [
       "exec",
       ...CODEX_WORKSPACE_CONFIG,
+      ...codexEffortConfig(effort),
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
@@ -120,12 +139,17 @@ export const KNOWN_AGENTS = {
     // No sandbox flag here: `codex exec resume` refuses it and inherits the
     // session's own sandbox, which the first turn set to workspace-write. The
     // repository check is per invocation, so resume needs the flag of its own.
-    resumeArgs: (sessionId: string, prompt: string): string[] => [
+    resumeArgs: (
+      sessionId: string,
+      prompt: string,
+      effort: AgentEffort | null = null,
+    ): string[] => [
       "exec",
       "resume",
       sessionId,
       "--json",
       ...CODEX_WORKSPACE_CONFIG,
+      ...codexEffortConfig(effort),
       "--skip-git-repo-check",
       prompt,
     ],
@@ -141,8 +165,14 @@ export const KNOWN_AGENTS = {
   cursor: {
     name: "Cursor",
     binary: "cursor-agent",
-    args: (prompt: string): string[] => ["-p", prompt, "--output-format", "stream-json"],
-    terminalArgs: (prompt: string): string[] => ["-p", prompt],
+    efforts: [] as readonly AgentEffort[],
+    args: (prompt: string, _effort: AgentEffort | null = null): string[] => [
+      "-p",
+      prompt,
+      "--output-format",
+      "stream-json",
+    ],
+    terminalArgs: (prompt: string, _effort: AgentEffort | null = null): string[] => ["-p", prompt],
     authArgs: ["status"],
     // UNVERIFIED: cursor-agent was not available on the build machine. The
     // reading is deliberately loose, and anything ambiguous stays unknown.
@@ -162,15 +192,18 @@ export type DetectedAgent = {
   name: string;
   available: boolean;
   auth: AgentAuth;
+  efforts: readonly AgentEffort[];
 };
 
 export type SavedAgentChoice = {
   agent: AgentChoice | null;
+  effort: AgentEffort | null;
   run: string | null;
 };
 
 export type AgentChoiceInput = {
   agent: AgentChoice;
+  effort?: AgentEffort | null;
   run?: string;
 };
 
@@ -204,7 +237,11 @@ export function execProbe(
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(binary, [...args], { shell: false, stdio: ["ignore", "pipe", "ignore"] });
+      child = spawn(binary, [...args], {
+        env: agentEnvironment(),
+        shell: false,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
     } catch {
       return resolve(null);
     }
@@ -228,8 +265,75 @@ export function execProbe(
   });
 }
 
+/**
+ * The places agent CLIs commonly install themselves outside a service's PATH.
+ *
+ * A terminal normally inherits additions from .zprofile, .bashrc or a version
+ * manager. A detached Leglas server does not, which made a CLI available in
+ * the user's terminal disappear from the picker and then fail to spawn. Keep
+ * the inherited PATH first, then add only conventional per-user and system
+ * bin directories. Detection and execution both use this exact environment.
+ */
+export function agentSearchPath(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const home = env.HOME ?? env.USERPROFILE ?? "";
+  const npmPrefix = env.NPM_CONFIG_PREFIX;
+  const versionBins = (root: string, suffix: readonly string[]): string[] => {
+    try {
+      return readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(root, entry.name, ...suffix));
+    } catch {
+      return [];
+    }
+  };
+  const candidates = [
+    ...(env.PATH ?? "").split(delimiter),
+    env.PNPM_HOME,
+    env.NVM_BIN,
+    env.BUN_INSTALL === undefined ? undefined : join(env.BUN_INSTALL, "bin"),
+    env.CARGO_HOME === undefined ? undefined : join(env.CARGO_HOME, "bin"),
+    npmPrefix === undefined
+      ? undefined
+      : platform === "win32"
+        ? npmPrefix
+        : join(npmPrefix, "bin"),
+    home === "" ? undefined : join(home, ".local", "bin"),
+    home === "" ? undefined : join(home, ".npm-global", "bin"),
+    home === "" ? undefined : join(home, ".bun", "bin"),
+    home === "" ? undefined : join(home, ".cargo", "bin"),
+    home === "" ? undefined : join(home, ".volta", "bin"),
+    home === "" ? undefined : join(home, ".asdf", "shims"),
+    home === "" ? undefined : join(home, ".local", "share", "mise", "shims"),
+    home === "" ? undefined : join(home, ".local", "share", "pnpm"),
+    home === "" ? undefined : join(home, "Library", "pnpm"),
+    ...(home === ""
+      ? []
+      : versionBins(join(home, ".nvm", "versions", "node"), ["bin"])),
+    ...(home === ""
+      ? []
+      : versionBins(join(home, ".local", "share", "fnm", "node-versions"), [
+          "installation",
+          "bin",
+        ])),
+    platform === "win32" ? env.APPDATA : undefined,
+    platform === "darwin" ? "/opt/homebrew/bin" : undefined,
+    platform === "darwin" ? "/usr/local/bin" : undefined,
+    platform === "darwin" ? "/Applications/Codex.app/Contents/Resources" : undefined,
+    platform === "darwin" ? "/Applications/Codex++.app/Contents/Resources" : undefined,
+  ].filter((entry): entry is string => typeof entry === "string" && entry !== "");
+
+  return [...new Set(candidates)].join(delimiter);
+}
+
+export function agentEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...env, PATH: agentSearchPath(env) };
+}
+
 async function pathLookup(binary: string): Promise<boolean> {
-  const entries = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry !== "");
+  const entries = agentSearchPath().split(delimiter).filter((entry) => entry !== "");
   const extensions =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry !== "")
@@ -262,13 +366,22 @@ export async function detectAgents(
   return Promise.all(
     entries.map(async ([id, adapter]) => {
       const available = await lookup(adapter.binary).catch(() => false);
-      if (!available) return { id, name: adapter.name, available, auth: "unknown" as const };
+      if (!available) {
+        return {
+          id,
+          name: adapter.name,
+          available,
+          auth: "unknown" as const,
+          efforts: adapter.efforts,
+        };
+      }
       const result = await probe(adapter.binary, adapter.authArgs).catch(() => null);
       return {
         id,
         name: adapter.name,
         available,
         auth: result === null ? ("unknown" as const) : adapter.authVerdict(result),
+        efforts: adapter.efforts,
       };
     }),
   );
@@ -435,6 +548,10 @@ function isAgentChoice(value: unknown): value is AgentChoice {
   return value === "custom" || (typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value));
 }
 
+export function isAgentEffort(value: unknown): value is AgentEffort {
+  return typeof value === "string" && (AGENT_EFFORTS as readonly string[]).includes(value);
+}
+
 async function readWatchConfig(cwd: string): Promise<Record<string, unknown>> {
   try {
     const parsed = JSON.parse(await readFile(join(cwd, WATCH_PATH), "utf8")) as unknown;
@@ -446,8 +563,14 @@ async function readWatchConfig(cwd: string): Promise<Record<string, unknown>> {
 
 export async function readAgentChoice(cwd: string): Promise<SavedAgentChoice> {
   const config = await readWatchConfig(cwd);
+  const agent = isAgentChoice(config.agent) ? config.agent : null;
+  const efforts = record(config.efforts);
   return {
-    agent: isAgentChoice(config.agent) ? config.agent : null,
+    agent,
+    effort:
+      agent !== null && agent !== "custom" && isAgentEffort(efforts?.[agent])
+        ? efforts[agent]
+        : null,
     run: typeof config.run === "string" && config.run !== "" ? config.run : null,
   };
 }
@@ -456,6 +579,13 @@ export async function readAgentChoice(cwd: string): Promise<SavedAgentChoice> {
 export async function saveAgentChoice(cwd: string, choice: AgentChoiceInput): Promise<void> {
   const config = await readWatchConfig(cwd);
   config.agent = choice.agent;
+  if (choice.agent !== "custom" && choice.effort !== undefined) {
+    const efforts = record(config.efforts) ?? {};
+    if (choice.effort === null) delete efforts[choice.agent];
+    else efforts[choice.agent] = choice.effort;
+    if (Object.keys(efforts).length === 0) delete config.efforts;
+    else config.efforts = efforts;
+  }
   if (choice.run !== undefined) config.run = choice.run;
 
   const path = join(cwd, WATCH_PATH);
