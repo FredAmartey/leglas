@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  changingRequestTitles,
   composerAgent,
   formatElapsed,
   requestCard,
   waitingLabel,
+  workingRequestTitles,
   type AgentOption,
   type AgentStatus,
   type RequestFailure,
@@ -37,6 +39,20 @@ const option = (id: string, available = true): AgentOption => ({
   available,
   auth: "ok",
   efforts: [],
+});
+
+describe("request direction activity", () => {
+  test("separates queued changes from work an agent has picked up", () => {
+    const requests = [
+      request("queued", "queued", "Queued"),
+      request("picked", "picked-up", "Picked"),
+      request("running", "running", "Running"),
+      request("failed", "failed", "Failed"),
+    ];
+
+    expect(changingRequestTitles(requests)).toEqual(["Queued", "Picked", "Running"]);
+    expect([...workingRequestTitles(requests)]).toEqual(["Picked", "Running"]);
+  });
 });
 
 describe("composerAgent", () => {

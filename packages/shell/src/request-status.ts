@@ -50,6 +50,30 @@ export type AgentOption = {
   efforts: readonly AgentEffort[];
 };
 
+/** Directions whose source may change before their current request settles. */
+export function changingRequestTitles(requests: readonly RequestStatus[]): string[] {
+  return [
+    ...new Set(
+      requests
+        .filter((request) =>
+          request.status === "queued" ||
+          request.status === "picked-up" ||
+          request.status === "running",
+        )
+        .map((request) => request.title),
+    ),
+  ];
+}
+
+/** Directions an agent has actually picked up, excluding work still queued. */
+export function workingRequestTitles(requests: readonly RequestStatus[]): Set<string> {
+  return new Set(
+    requests
+      .filter((request) => request.status === "picked-up" || request.status === "running")
+      .map((request) => request.title),
+  );
+}
+
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**

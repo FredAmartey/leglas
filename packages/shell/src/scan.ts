@@ -1,41 +1,85 @@
 import type { Preview } from "./types.js";
 
-/** Remove one stale verdict while preserving every unrelated preview. */
-export function forgetSignature(
-  signatures: Readonly<Record<string, string | null>>,
-  title: string,
+export type PreviewScan =
+  | { url: string; status: "complete"; signature: string | null }
+  | { url: string; status: "failed" };
+
+export type PreviewScans = Readonly<Record<string, PreviewScan>>;
+export type PreviewScanOutcome =
+  | { status: "complete"; signature: string | null }
+  | { status: "failed" };
+
+function currentScan(preview: Preview, scans: PreviewScans): PreviewScan | null {
+  const scan = scans[preview.title];
+  return scan?.url === preview.url ? scan : null;
+}
+
+/** Remove stale verdicts before a document is replaced or edited. */
+export function forgetScans(
+  scans: PreviewScans,
+  titles: Iterable<string>,
+): Record<string, PreviewScan> {
+  let next: Record<string, PreviewScan> | null = null;
+  for (const title of titles) {
+    if (!(title in scans)) continue;
+    next ??= { ...scans };
+    delete next[title];
+  }
+  return next ?? scans;
+}
+
+/** Record one scan only against the URL whose document produced it. */
+export function recordScan(
+  scans: PreviewScans,
+  preview: Preview,
+  outcome: PreviewScanOutcome,
+): Record<string, PreviewScan> {
+  const record: PreviewScan =
+    outcome.status === "complete"
+      ? { url: preview.url, status: "complete", signature: outcome.signature }
+      : { url: preview.url, status: "failed" };
+  const current = scans[preview.title];
+  const sameOutcome =
+    (current?.status === "failed" && record.status === "failed") ||
+    (current?.status === "complete" &&
+      record.status === "complete" &&
+      current.signature === record.signature);
+  if (
+    current?.url === record.url &&
+    sameOutcome
+  ) {
+    return scans;
+  }
+  return { ...scans, [preview.title]: record };
+}
+
+/** Complete duplicate signatures for the current title and URL pairs only. */
+export function scanSignatures(
+  previews: readonly Preview[],
+  scans: PreviewScans,
 ): Record<string, string | null> {
-  if (!(title in signatures)) return signatures;
-  const next = { ...signatures };
-  delete next[title];
-  return next;
+  const signatures: Record<string, string | null> = {};
+  for (const preview of previews) {
+    const scan = currentScan(preview, scans);
+    if (scan?.status === "complete") signatures[preview.title] = scan.signature;
+  }
+  return signatures;
 }
 
 /**
  * Which previews still need a background read for the duplicate check.
  *
- * Signatures used to come only from panes the user had opened, so the "Same
- * as" tag trickled in one click at a time and the warning arrived after the
- * judgment it was meant to protect. Every readable preview is now read off
- * stage at one fixed viewport, one at a time, so the verdict is both complete
- * and independent of the visible stage size.
- *
- * Only previews this page can read qualify: a relative url renders
- * same-origin through the proxy or a file mount, while an absolute url is
- * another origin whose document is sealed, and those go uncompared exactly as
- * before. Previews with a recorded signature are done, even when the record
- * is null: null means "drew nothing worth comparing", and rereading it every
- * cycle would scan forever.
+ * Only previews this page can read qualify. A result belongs to one exact URL,
+ * so replacing a direction in place queues its new document even when the
+ * title stays the same. Failed reads stop retrying for this page load without
+ * pretending they produced a comparable signature.
  */
 export function scanQueue(
   previews: readonly Preview[],
-  signatures: Readonly<Record<string, string | null>>,
-): string[] {
-  return previews
-    .filter((preview) => {
-      if (!preview.url.startsWith("/")) return false;
-      if (preview.title in signatures) return false;
-      return true;
-    })
-    .map((preview) => preview.title);
+  scans: PreviewScans,
+): Preview[] {
+  return previews.filter((preview) => {
+    if (!preview.url.startsWith("/")) return false;
+    return currentScan(preview, scans) === null;
+  });
 }

@@ -16,6 +16,11 @@ import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
 import { absoluteUrl, referenceText } from "./reference.js";
+import {
+  markPreviewLoaded,
+  previewIsLoaded,
+  resetPreviewLoaded,
+} from "./preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
 import type { Preview } from "./types.js";
 
@@ -103,7 +108,7 @@ export function useShellState({
   /** Which control just copied, so the tick lands on that one and not its twin. */
   const [copied, setCopied] = useState<{ kind: CopyKind; title: string } | null>(null);
   const [resizing, setResizing] = useState(false);
-  const [loaded, setLoaded] = useState<Record<string, boolean>>({});
+  const [loaded, setLoaded] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   /**
    * A field the keyboard has asked for, which the shell focuses once the rail
@@ -524,12 +529,14 @@ export function useShellState({
     handle.addEventListener("pointercancel", stop);
   };
 
-  const markLoaded = (title: string) =>
-    setLoaded((current) => (current[title] ? current : { ...current, [title]: true }));
+  const markLoaded = (title: string, identity: string) =>
+    setLoaded((current) => markPreviewLoaded(current, title, identity));
+
+  const isLoaded = (title: string, identity: string) => previewIsLoaded(loaded, title, identity);
 
   /** Drop a pane's loaded flag so its skeleton shows again on a forced reload. */
   const resetLoaded = (title: string) =>
-    setLoaded((current) => (current[title] ? { ...current, [title]: false } : current));
+    setLoaded((current) => resetPreviewLoaded(current, title));
 
   const panes = nested ? [active] : titles.filter((title) => mounted.includes(title));
 
@@ -544,6 +551,7 @@ export function useShellState({
     focusing,
     hiddenCount: prefs.hidden.length,
     hide,
+    isLoaded,
     loaded,
     markLoaded,
     matches,
