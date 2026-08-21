@@ -33,6 +33,20 @@ because most reach only one of the three.
   installed. Custom commands remain available through `leglas watch --run`
   without occupying the primary picker. (`leglas`)
 
+### Fixed
+
+- **The interface stays responsive with a rail full of directions.** Every
+  live surface polls: the config for directions an agent registered, the
+  queue for what a run is doing, health for whether the dev server still
+  answers. Each one used to start a read on every tick whether or not the
+  last had come back. A browser allows six connections per origin, and Leglas
+  is a single origin shared with every preview iframe proxying the app, so a
+  project with several directions open could spend that budget and leave the
+  polls queueing behind each other. Nothing reported an error: the server
+  answered in single-digit milliseconds while a click sat there for minutes.
+  Each loop now keeps one read in flight at a time, and abandons one that
+  outlives its deadline so the connection comes back. (`leglas`)
+
 ## 0.5.0 (2026-08-20)
 
 This is a minor rather than a patch because the public API surface moved:
@@ -98,6 +112,15 @@ This is a minor rather than a patch because the public API surface moved:
   CLI is signed out, its command is gone, Codex refused the directory. The
   agent's own output stays in the terminal running Leglas rather than being
   piped into the browser. (`leglas`)
+- **A new direction reaches the rail instead of stopping at the last step.**
+  Claude runs non-interactively under Leglas, where it can accept file edits
+  but has nobody to approve a command, so the `leglas add` that puts a new
+  direction on the rail was refused every time. The run built the whole
+  direction, explained that it could not register it, and exited cleanly;
+  Leglas read that as success and dropped the request, so the card vanished
+  and nothing appeared. The runner now permits exactly that one command, and
+  a run that finishes without registering is recorded as a failure with its
+  reason rather than disappearing as though it had worked. (`leglas`)
 - **A run waiting on an overloaded provider says so.** Claude retries a 529
   ten times over roughly 200 seconds without a word; the card now reads
   "provider is overloaded · retry 4 of 10" instead of a spinner. Leglas does
