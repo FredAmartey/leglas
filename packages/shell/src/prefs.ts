@@ -15,8 +15,6 @@ export const VIEWPORTS = [
 ] as const;
 
 export type Prefs = {
-  /** The one-time embedded-agent offer stays gone after the user declines it. */
-  agentPickerDismissed: boolean;
   collapsed: boolean;
   /** Family roots whose variants are folded away in the rail. */
   collapsedFamilies: string[];
@@ -57,7 +55,6 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
-  agentPickerDismissed: false,
   collapsed: false,
   collapsedFamilies: [],
   deleted: [],
@@ -99,10 +96,6 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
     );
     const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
     return {
-      agentPickerDismissed:
-        typeof saved.agentPickerDismissed === "boolean"
-          ? saved.agentPickerDismissed
-          : DEFAULT_PREFS.agentPickerDismissed,
       collapsed: Boolean(parsed.collapsed),
       collapsedFamilies: (Array.isArray(parsed.collapsedFamilies)
         ? parsed.collapsedFamilies

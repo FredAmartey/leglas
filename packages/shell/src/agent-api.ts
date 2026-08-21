@@ -10,12 +10,34 @@ export type AgentsPayload = {
 };
 
 const browserFetch: AgentFetcher = (input, init) => fetch(input, init);
+const AGENT_READ_TIMEOUT_MS = 5_000;
+const AGENT_ACTION_TIMEOUT_MS = 10_000;
+
+async function request(
+  path: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  fetcher: AgentFetcher,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(path, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function readAgents(
   refresh = false,
   fetcher: AgentFetcher = browserFetch,
 ): Promise<AgentsPayload> {
-  const response = await fetcher(`/leglas/api/agents${refresh ? "?refresh=1" : ""}`);
+  const response = await request(
+    `/leglas/api/agents${refresh ? "?refresh=1" : ""}`,
+    undefined,
+    AGENT_READ_TIMEOUT_MS,
+    fetcher,
+  );
   if (!response.ok) throw new Error("Leglas refused the agent request.");
   return response.json() as Promise<AgentsPayload>;
 }
@@ -25,15 +47,20 @@ async function post(
   body: Record<string, string | null> | null,
   fetcher: AgentFetcher,
 ): Promise<void> {
-  const response = await fetcher(path, {
-    method: "POST",
-    ...(body === null
-      ? {}
-      : {
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-  });
+  const response = await request(
+    path,
+    {
+      method: "POST",
+      ...(body === null
+        ? {}
+        : {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+    },
+    AGENT_ACTION_TIMEOUT_MS,
+    fetcher,
+  );
   if (!response.ok) throw new Error("Leglas refused the agent request.");
   const result = (await response.json()) as { ok?: unknown };
   if (result.ok !== true) throw new Error("Leglas refused the agent request.");

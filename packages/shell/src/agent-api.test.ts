@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   cancelAgentRun,
@@ -13,7 +13,13 @@ import {
 function recorder(body: unknown = { ok: true }, status = 200) {
   const calls: { input: string; init?: RequestInit }[] = [];
   const fetcher: AgentFetcher = async (input, init) => {
-    calls.push({ input, ...(init === undefined ? {} : { init }) });
+    if (init === undefined) calls.push({ input });
+    else {
+      const { signal: _signal, ...recorded } = init;
+      calls.push(
+        Object.keys(recorded).length === 0 ? { input } : { input, init: recorded },
+      );
+    }
     return new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
@@ -85,6 +91,46 @@ describe("embedded agent API", () => {
       JSON.stringify({ agent: "codex", effort: "high" }),
       JSON.stringify({ agent: "codex", effort: null }),
     ]);
+  });
+
+  test("stops waiting when a local agent action never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher: AgentFetcher = (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      const assertion = expect(chooseAgent("claude", undefined, fetcher)).rejects.toThrow(
+        "aborted",
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("stops waiting when agent detection never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher: AgentFetcher = (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      const assertion = expect(readAgents(true, fetcher)).rejects.toThrow("aborted");
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("names the request being stopped when it knows one", async () => {

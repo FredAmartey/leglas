@@ -971,7 +971,6 @@ export function Shell({
   const chip = composerAgent(
     agentState.choice,
     agentState.agents,
-    st.prefs.agentPickerDismissed,
     agentState.customRun,
   );
   const selectedAgent =
@@ -1040,9 +1039,7 @@ export function Shell({
         : card.kind === "queued"
           ? card.attended
             ? "your agent picks it up next"
-            : chip.kind === "manual"
-              ? "waiting for your own agent"
-              : "pick who runs your changes"
+            : "pick who runs your changes"
           : card.kind === "failed"
             ? (card.reason ?? card.title)
             : card.kind === "stopped"
@@ -1090,16 +1087,27 @@ export function Shell({
   }, [agentMenuOpen]);
   const pickAgent = (agent: string) => {
     if (pickingAgent !== null || savingEffort) return;
+    const name = agentState.agents.find((option) => option.id === agent)?.name ?? "Agent";
     setPickingAgent(agent);
     void chooseAgent(agent)
       .then(() => {
         refreshAgents();
         setAgentMenuOpen(false);
       })
-      .catch(() => {
+      .catch(async () => {
+        try {
+          const current = await readAgents(true);
+          setAgentState(current);
+          if (current.choice === agent) {
+            setAgentMenuOpen(false);
+            return;
+          }
+        } catch {
+          // The original error is more useful than a failed recovery read.
+        }
         st.notify({
           kind: "agent-choice",
-          message: "That agent could not be selected. No run started.",
+          message: `${name} wasn’t selected. Try again.`,
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
@@ -2707,31 +2715,6 @@ export function Shell({
                           <span aria-label="current choice">✓</span>
                         </button>
                       ) : null}
-                      {agentState.choice === null && (
-                        <button
-                          className={`${ROW_BUTTON} text-[#84848C]`}
-                          onClick={() => {
-                            st.setPrefs((prefs) => ({
-                              ...prefs,
-                              agentPickerDismissed: true,
-                            }));
-                            setAgentMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <span>I&apos;ll run my own</span>
-                          {chip.kind === "manual" && (
-                            <span aria-label="current choice">✓</span>
-                          )}
-                        </button>
-                      )}
-                      {/* The consent sentence belongs to the first choice
-                          only; once one is made, this is just a select. */}
-                      {agentState.choice === null && (
-                        <p className="mt-1 max-w-48 border-t border-[#232328] px-1 pb-0.5 pt-1.5 text-[10px] leading-snug text-[#84848C]">
-                          Runs in this project with write access, like in your terminal.
-                        </p>
-                      )}
                       {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
                         <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
                           <label className="flex min-h-7 items-center justify-between gap-3">
@@ -2791,9 +2774,7 @@ export function Shell({
                       <span className="truncate">
                         {chip.kind === "chosen"
                           ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
-                          : chip.kind === "manual"
-                            ? "I'll run my own"
-                            : "Choose an agent"}
+                          : "Choose an agent"}
                       </span>
                       {chosenSignedOut && (
                         <span
