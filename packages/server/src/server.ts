@@ -78,6 +78,8 @@ export type ServerOptions = {
   /** Null when the config failed validation; errors are served instead. */
   config: LeglasConfig | null;
   configErrors?: string[];
+  /** Advisory startup findings that should not prevent the interface from loading. */
+  configWarnings?: string[];
   port?: number;
   /** Built shell to serve at the prefix. Null serves a placeholder instead. */
   shellDir?: string | null;
@@ -352,6 +354,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const {
     config,
     configErrors = [],
+    configWarnings = [],
     shellDir = null,
     project = "",
     cwd = process.cwd(),
@@ -454,6 +457,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               scanPreviews: config?.scanPreviews ?? true,
               previews: boot,
               errors,
+              warnings: configWarnings,
             });
           }
           const localTitles = new Set(local.map((preview) => preview.title));
@@ -475,6 +479,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             scanPreviews: config?.scanPreviews ?? true,
             previews: [...currentBoot, ...fresh],
             errors,
+            warnings: configWarnings,
           });
         })
         .catch(() =>
@@ -484,6 +489,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             scanPreviews: config?.scanPreviews ?? true,
             previews: boot,
             errors,
+            warnings: configWarnings,
           }),
         );
     }

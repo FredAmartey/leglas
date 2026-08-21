@@ -27,7 +27,7 @@ export function previewFrameIsReady(frame: HTMLIFrameElement): boolean {
  * Own one iframe navigation from mount to ready, failure, timeout or cleanup.
  *
  * The native listener covers ordinary navigation, the immediate readiness
- * check covers a cached load that completed before the listener attached, and
+ * check covers a cached load that completed before the listener attached and
  * the timeout performs one last readiness check before declaring failure.
  */
 export function watchPreviewFrame({

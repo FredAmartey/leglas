@@ -252,7 +252,7 @@ function sampleIndices(elements: readonly Element[]): number[] {
   for (let index = 0; index < EDGE_SAMPLE; index += 1) add(index);
   for (let index = Math.max(0, elements.length - EDGE_SAMPLE); index < elements.length; index += 1) add(index);
 
-  // Interactive, media, and vector elements carry disproportionate design
+  // Interactive, media and vector elements carry disproportionate design
   // meaning. Include them and their immediate layout ancestors before filling
   // the remaining budget evenly across a large document.
   for (let index = 0; index < elements.length && selected.size < MAX_VISUAL_ELEMENTS; index += 1) {
@@ -342,7 +342,7 @@ function pseudoSample(
  * A bounded fingerprint of the rendered design at the current viewport.
  *
  * It captures layout, computed visual styles, pseudo-elements, vector paths,
- * media sources, and interaction structure. Animation identity is recorded,
+ * media sources and interaction structure. Animation identity is recorded,
  * while the volatile frame of a running animation is not, so two identical
  * previews loaded milliseconds apart still agree.
  */

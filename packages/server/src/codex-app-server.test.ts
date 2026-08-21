@@ -86,7 +86,7 @@ async function initialize() {
 }
 
 describe("Codex app-server transport", () => {
-  test("warms once, streams a turn, and reuses its loaded thread", async () => {
+  test("warms once, streams a turn and reuses its loaded thread", async () => {
     const { process, server, spawned } = await initialize();
     await expect(server.warm()).resolves.toBeUndefined();
     expect(spawned.processes).toHaveLength(1);

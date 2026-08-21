@@ -125,7 +125,7 @@ describe("paint in the signature", () => {
     expect(renderedSignature(TEXT, TAGS, [], visual)).toBe(renderedSignature(TEXT, TAGS, [], visual));
   });
 
-  test("pseudo-elements, vector geometry, and media sources affect the verdict", () => {
+  test("pseudo-elements, vector geometry and media sources affect the verdict", () => {
     const base = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:10px}}", "PATH{d:M0 0L1 1}", "IMG{src:a.webp}"]);
     const changed = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:20px}}", "PATH{d:M0 0L2 2}", "IMG{src:b.webp}"]);
 

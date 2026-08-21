@@ -110,6 +110,7 @@ export function App() {
       previews={load.config.previews}
       project={load.config.project}
       scanPreviews={load.config.scanPreviews ?? true}
+      warnings={load.config.warnings ?? []}
     />
   );
 }

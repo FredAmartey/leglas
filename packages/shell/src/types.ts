@@ -32,4 +32,5 @@ export type ConfigPayload = {
   scanPreviews?: boolean;
   previews: Preview[];
   errors: string[];
+  warnings?: string[];
 };

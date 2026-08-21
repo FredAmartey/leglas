@@ -17,19 +17,25 @@ because most reach only one of the three.
 
 - **Embedded Claude runs now use one persistent Agent SDK session.** Leglas
   prewarms the selected Claude agent, keeps its native process and context
-  alive across bounded turns, applies the user's chosen effort per turn, and
+  alive across bounded turns, applies the user's chosen effort per turn and
   maps stop to the SDK interrupt. Claude's model, project/user settings, tools
   and edit permissions remain authoritative. If the optional SDK cannot load
   or initialize, Leglas falls back to the existing `claude -p` path. (`leglas`)
 - **Embedded Codex runs stay warm between requests.** Leglas now prewarms one
   Codex app-server process, starts and resumes threads through its streamed
-  protocol, and maps cancellation to a turn interrupt. The selected model,
+  protocol and maps cancellation to a turn interrupt. The selected model,
   effort, project instructions, tools, workspace-write boundary and live
   preview access are unchanged. Older Codex builds or a failed app-server
   handshake fall back to the existing `codex exec` path. (`leglas`)
 
 ### Fixed
 
+- **A reachable localhost port no longer silently passes as the intended app.**
+  At startup, Leglas checks the working directory of a local port's listening
+  process. If it sits outside the configured project, the CLI and interface
+  name the likely mismatch and point to `devServer` or `--user-port` without
+  blocking previews. Unsupported systems and unavailable process details stay
+  on the existing best-effort path. (`leglas`)
 - **A newly queued request starts immediately even as the previous run is
   finishing.** A request arriving during the final queue write of an active
   runner used to lose its immediate wake-up and wait for the two-second poll.

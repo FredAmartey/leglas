@@ -398,10 +398,12 @@ export function Shell({
   previews,
   project,
   scanPreviews = true,
+  warnings = [],
 }: {
   previews: Preview[];
   project: string;
   scanPreviews?: boolean;
+  warnings?: readonly string[];
 }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const requestRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1770,7 +1772,7 @@ export function Shell({
                   </span>
                 ) : twins[title] ? (
                   <Tip
-                    label={`Rendered structure, layout, visual styles, media, and vector geometry match ${twins[title]?.join(", ")} at this viewport.`}
+                    label={`Rendered structure, layout, visual styles, media and vector geometry match ${twins[title]?.join(", ")} at this viewport.`}
                   >
                     <span
                       className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
@@ -2016,6 +2018,22 @@ export function Shell({
               />
             </div>
           </div>
+
+          {warnings.length > 0 && (
+            <section
+              aria-label="Preview warning"
+              className="mx-3 mb-1 mt-1 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2.5 py-2"
+            >
+              <p className="text-xs font-medium text-amber-300/90">
+                Preview may be from another project
+              </p>
+              {warnings.map((warning) => (
+                <p className="mt-0.5 text-[11px] leading-snug text-[#9CA3AF]" key={warning}>
+                  {warning}
+                </p>
+              ))}
+            </section>
+          )}
 
           {needsApp && !health.reachable && (
             <div className="mx-3 mb-1 mt-1 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2.5 py-2">

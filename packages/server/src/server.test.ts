@@ -1150,6 +1150,22 @@ describe("startServer", () => {
     expect(body.previews).toEqual([]);
   });
 
+  test("serves startup warnings without treating the config as invalid", async () => {
+    const server = await start({
+      config: configFor(await startOrigin()),
+      configWarnings: ["Port 3000 may belong to another project."],
+      port: 0,
+    });
+
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      errors: string[];
+      warnings: string[];
+    };
+
+    expect(body.errors).toEqual([]);
+    expect(body.warnings).toEqual(["Port 3000 may belong to another project."]);
+  });
+
   test("does not report stale config when the boot config is untouched", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-config-stale-"));
     writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
