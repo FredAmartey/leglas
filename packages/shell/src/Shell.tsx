@@ -1117,9 +1117,6 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
       })
       .finally(() => setRequestAction(null));
   };
-  const loadedRef = useRef(st.loaded);
-  loadedRef.current = st.loaded;
-
   useEffect(() => {
     let cancelled = false;
     const poll = (signal: AbortSignal) =>
@@ -1154,8 +1151,13 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     });
     setReloadTick((current) => {
       const next = { ...current };
-      for (const title of Object.keys(loadedRef.current)) {
-        if (appPanes.has(title)) next[title] = (next[title] ?? 0) + 1;
+      // Every app-backed pane, not only the ones that ever reported loaded.
+      // A pane whose first navigation failed never reported anything, so
+      // keying off that skipped exactly the pane most in need of a remount:
+      // the line above clears its error, and without this it sits there
+      // showing the dead page with nothing left to say it is broken.
+      for (const title of appPanes) {
+        next[title] = (next[title] ?? 0) + 1;
       }
       return next;
     });
