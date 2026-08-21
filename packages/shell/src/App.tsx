@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Mark } from "./kit.js";
+import { startPoll, wasAborted } from "./poll.js";
 import { Shell } from "./Shell.js";
 import type { ConfigPayload } from "./types.js";
 
@@ -28,45 +29,53 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const read = () =>
-      fetch("/leglas/api/config").then((response) => {
+    const read = (signal: AbortSignal) =>
+      fetch("/leglas/api/config", { signal }).then((response) => {
         if (!response.ok) throw new Error(`the server answered ${response.status}`);
         return response.json() as Promise<ConfigPayload>;
       });
 
-    void read()
-      .then((config) => {
-        if (!cancelled) setLoad({ status: "ready", config });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setLoad({
-          status: "failed",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-
     // An agent registers directions while this is open, so the config is
     // polled and new previews appear as they are added. Updates only apply on
-    // a changed payload, so the steady state re-renders nothing, and a failed
-    // poll changes nothing: transient server hiccups are the health banner's
-    // story, not a reason to blank the rail.
-    const timer = setInterval(() => {
-      void read()
-        .then((config) => {
-          if (cancelled) return;
-          setLoad((current) => {
-            if (current.status !== "ready") return current;
-            if (JSON.stringify(current.config) === JSON.stringify(config)) return current;
-            return { status: "ready", config };
-          });
-        })
-        .catch(() => undefined);
-    }, 3000);
+    // a changed payload, so the steady state re-renders nothing, and a failure
+    // once the rail is up changes nothing: transient server hiccups are the
+    // health banner's story, not a reason to blank it. A failure before that
+    // is the difference between a started interface and none, so it shows.
+    const stop = startPoll(
+      (signal) =>
+        read(signal)
+          .then((config) => {
+            if (cancelled) return;
+            setLoad((current) =>
+              current.status === "ready" &&
+              JSON.stringify(current.config) === JSON.stringify(config)
+                ? current
+                : { status: "ready", config },
+            );
+          })
+          .catch((error: unknown) => {
+            if (cancelled) return;
+            setLoad((current) =>
+              current.status === "ready"
+                ? current
+                : {
+                    status: "failed",
+                    // An abandoned read is the poll's own deadline, not
+                    // anything the server said, and its wording is internal.
+                    message: wasAborted(error)
+                      ? "it did not answer in time"
+                      : error instanceof Error
+                        ? error.message
+                        : String(error),
+                  },
+            );
+          }),
+      { everyMs: 3000 },
+    );
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, []);
 

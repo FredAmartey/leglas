@@ -18,6 +18,7 @@ import {
 import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
+import { startPoll } from "./poll.js";
 import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
@@ -30,7 +31,13 @@ import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
 import type { Anchor } from "./anchor.js";
-import { addNote, deleteNotes, readNotes, type Annotation } from "./annotations-api.js";
+import {
+  addNote,
+  deleteNotes,
+  readNotes,
+  type Annotation,
+  type NoteFetcher,
+} from "./annotations-api.js";
 import type { Preview } from "./types.js";
 import {
   composerAgent,
@@ -865,39 +872,45 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
     // reset by a remount while the torn-down run's fetch is still in flight,
     // and that response must not land.
     let cancelled = false;
-    const poll = () =>
-      Promise.all([
-        fetch("/leglas/api/requests")
-          .then(
-            (response) =>
-              response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
-          )
-          .then((payload) => {
-            if (cancelled) return;
-            const next = {
-              requests: payload.requests,
-              agent: payload.agent ?? IDLE_AGENT,
-            };
-            setRequestSnapshot((current) =>
-              JSON.stringify(current) === JSON.stringify(next) ? current : next,
-            );
-          }),
-        // Read on the same beat as the queue, because the two move together:
-        // a change made in place forgets the notes it answered, and a poll
-        // that only watched the queue would leave pins on a design that no
-        // longer has the problem they describe.
-        readNotes().then((fresh) => {
+    const poll = async (signal: AbortSignal) => {
+      const signalled: NoteFetcher = (input, init) => fetch(input, { ...init, signal });
+      await fetch("/leglas/api/requests", { signal })
+        .then(
+          (response) =>
+            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
+        )
+        .then((payload) => {
+          if (cancelled) return;
+          const next = {
+            requests: payload.requests,
+            agent: payload.agent ?? IDLE_AGENT,
+          };
+          setRequestSnapshot((current) =>
+            JSON.stringify(current) === JSON.stringify(next) ? current : next,
+          );
+        })
+        // Caught per read rather than around the pair: these are two reads on
+        // one beat, and one of them failing is no reason to skip the other.
+        .catch(() => {});
+      // Read on the same beat as the queue, because the two move together: a
+      // change made in place forgets the notes it answered, and a poll that
+      // only watched the queue would leave pins on a design that no longer
+      // has the problem they describe. After it rather than beside it, so the
+      // beat costs one socket instead of two and the previews keep the rest;
+      // both are local JSON, so the extra round trip is not a visible one.
+      await readNotes(signalled)
+        .then((fresh) => {
           if (cancelled) return;
           setNotes((current) =>
             JSON.stringify(current) === JSON.stringify(fresh) ? current : fresh,
           );
-        }),
-      ]).catch(() => {});
-    const timer = window.setInterval(() => void poll(), 2000);
-    void poll();
+        })
+        .catch(() => {});
+    };
+    const stop = startPoll(poll, { everyMs: 2000 });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, [requestsTick]);
   // Two independent readings of one snapshot: the chip says who Enter sends
@@ -1109,8 +1122,8 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
 
   useEffect(() => {
     let cancelled = false;
-    const poll = () =>
-      fetch("/leglas/api/health")
+    const poll = (signal: AbortSignal) =>
+      fetch("/leglas/api/health", { signal })
         .then((response) => response.json() as Promise<{ reachable: boolean }>)
         .then(({ reachable }) => {
           if (!cancelled) setHealth((current) => nextHealthState(current, reachable));
@@ -1119,11 +1132,10 @@ export function Shell({ previews, project }: { previews: Preview[]; project: str
           // Leglas itself is unreachable; that is not the dev server's fault
           // and the page will fail visibly enough on its own.
         });
-    const timer = window.setInterval(poll, 3000);
-    void poll();
+    const stop = startPoll(poll, { everyMs: 3000 });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, []);
 
