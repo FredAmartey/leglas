@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import { appendRequest, readRequests } from "./requests.js";
@@ -194,6 +195,83 @@ describe("startRunner", () => {
     expect(spawned.calls[0]?.[0]).toBe("codex");
     expect(spawned.calls[0]?.[1]).toEqual(
       expect.arrayContaining(["exec", "--json", "model_reasoning_effort=high"]),
+    );
+    spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+  });
+
+  test("runs Claude through the persistent Agent SDK transport", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-"));
+    await saveAgentChoice(cwd, { agent: "claude", effort: "max" });
+    await appendRequest(cwd, input("Persistent"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const calls: ClaudeTurnInput[] = [];
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: ClaudeTurnRunner = {
+      warm: vi.fn(async () => {}),
+      run: async (turn) => {
+        calls.push(turn);
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      close: vi.fn(async () => {}),
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      claudeAgentSession: sdk,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => calls.length === 1);
+    expect(calls[0]).toEqual({
+      prompt: "prompt for Persistent",
+      effort: "max",
+      sessionId: null,
+    });
+    expect(spawned.calls).toHaveLength(0);
+    children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "claude_sdk_1" })}\n`,
+    );
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+    expect(sdk.close).toHaveBeenCalledOnce();
+  });
+
+  test("falls back to claude -p when the Agent SDK is unavailable", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-fallback-"));
+    await saveAgentChoice(cwd, { agent: "claude", effort: "xhigh" });
+    await appendRequest(cwd, input("Fallback"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const sdk: ClaudeTurnRunner = {
+      warm: async () => {
+        throw new Error("SDK unavailable");
+      },
+      run: async () => {
+        throw new Error("SDK unavailable");
+      },
+      close: async () => {},
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      claudeAgentSession: sdk,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => spawned.calls.length === 1);
+    expect(spawned.calls[0]?.[0]).toBe("claude");
+    expect(spawned.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(["-p", "prompt for Fallback", "--effort", "xhigh"]),
     );
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 0);

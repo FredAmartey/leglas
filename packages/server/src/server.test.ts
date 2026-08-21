@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { LeglasConfig } from "./config.js";
 import { appendRequest, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
@@ -46,7 +47,11 @@ function configFor(port: number, previews: LeglasConfig["previews"] = []): Legla
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
   // Server tests exercise HTTP behavior, not the installed Codex binary.
-  const server = await startServer({ codexAppServer: null, ...options });
+  const server = await startServer({
+    codexAppServer: null,
+    claudeAgentSession: null,
+    ...options,
+  });
   running.push(server);
   return server;
 }
@@ -520,6 +525,32 @@ describe("startServer", () => {
 
     await fetch(`${server.url}/leglas/api/agents?refresh=1`);
     expect(probes).toBe(2);
+  });
+
+  test("warms Claude as soon as it is selected", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-"));
+    const warm = vi.fn(async () => {});
+    const claudeAgentSession: ClaudeTurnRunner = {
+      warm,
+      run: async () => {
+        throw new Error("not used");
+      },
+      close: async () => {},
+    };
+    const server = await start({
+      config: configFor(await startOrigin()),
+      port: 0,
+      cwd,
+      claudeAgentSession,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/agent`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "claude", effort: "high" }),
+    });
+    expect(response.status).toBe(200);
+    expect(warm).toHaveBeenCalledOnce();
   });
 
   test("serves stale agent state while routine authentication refreshes in the background", async () => {

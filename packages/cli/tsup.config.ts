@@ -17,6 +17,10 @@ export default defineConfig({
   target: "node24",
   clean: true,
   splitting: false,
+  // The SDK resolves its platform-native Claude binary at runtime. Keep that
+  // package boundary intact so its optional platform dependency remains
+  // discoverable after Leglas is packed and installed.
+  external: ["@anthropic-ai/claude-agent-sdk"],
   noExternal: [/@leglas\//],
   onSuccess: async () => {
     const here = dirname(fileURLToPath(import.meta.url));

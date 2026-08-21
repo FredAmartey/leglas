@@ -4,6 +4,7 @@ import net from "node:net";
 import { extname, join, normalize, relative } from "node:path";
 
 import { parseTemplate } from "./agent-command.js";
+import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import {
   KNOWN_AGENTS,
@@ -107,6 +108,8 @@ export type ServerOptions = {
   detect?: () => Promise<DetectedAgent[]>;
   /** Persistent Codex transport; null disables it (notably in unit tests). */
   codexAppServer?: CodexTurnRunner | null;
+  /** Persistent Claude transport; null disables it (notably in unit tests). */
+  claudeAgentSession?: ClaudeTurnRunner | null;
 };
 
 export type RunningServer = {
@@ -733,7 +736,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           agent: parsed.agent,
           ...(effort === undefined ? {} : { effort }),
         }).then(
-          () => sendJson(res, 200, { ok: true }),
+          () => {
+            runner?.prepare(parsed.agent as KnownAgentId);
+            sendJson(res, 200, { ok: true });
+          },
           () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
         );
       });
@@ -1083,6 +1089,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ...(options.codexAppServer === undefined
       ? {}
       : { codexAppServer: options.codexAppServer }),
+    ...(options.claudeAgentSession === undefined
+      ? {}
+      : { claudeAgentSession: options.claudeAgentSession }),
   });
 
   let closePromise: Promise<void> | null = null;

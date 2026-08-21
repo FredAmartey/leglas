@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
 import {
+  createClaudeAgentSession,
+  type ClaudeTurnRunner,
+} from "./claude-agent-session.js";
+import {
   createCodexAppServer,
   type CodexTurnRunner,
 } from "./codex-app-server.js";
@@ -95,6 +99,8 @@ export type RunnerOptions = {
   spawn?: RunnerSpawn;
   /** Injected by app-server tests; null keeps the legacy Codex CLI path. */
   codexAppServer?: CodexTurnRunner | null;
+  /** Injected by Agent SDK tests; null keeps the legacy Claude CLI path. */
+  claudeAgentSession?: ClaudeTurnRunner | null;
   setInterval?: (callback: () => void, milliseconds: number) => unknown;
   clearInterval?: (handle: unknown) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
@@ -112,6 +118,8 @@ export type RunningAgent = {
   stop(): Promise<void>;
   snapshot(): RunnerState;
   cancel(id?: string): boolean;
+  /** Warm the selected embedded transport without blocking the selection API. */
+  prepare(agent: AgentChoice): void;
   /** Look at the queue now instead of on the next poll. */
   nudge(): void;
 };
@@ -233,10 +241,30 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         ? createCodexAppServer(options.cwd)
         : null
       : options.codexAppServer;
-  // Pay the process and protocol handshake while the user is still looking at
-  // the interface. If this Codex version has no app-server, runChild falls
-  // back to the existing exec path without changing the request.
-  void codexAppServer?.warm().catch(() => {});
+  const claudeAgentSession =
+    options.claudeAgentSession === undefined
+      ? options.spawn === undefined
+        ? createClaudeAgentSession(
+            options.cwd,
+            options.leglasCommand === undefined
+              ? null
+              : registrationCommand(options.leglasCommand),
+          )
+        : null
+      : options.claudeAgentSession;
+  // Only the saved vendor is warmed at startup. Selection changes call
+  // prepare() too, paying the new vendor's process and handshake while the
+  // user composes; an already-warm transport stays ready for a quick switch
+  // back until this Leglas server shuts down.
+  const prepare = (agent: AgentChoice): void => {
+    if (agent === "codex") void codexAppServer?.warm().catch(() => {});
+    if (agent === "claude") void claudeAgentSession?.warm().catch(() => {});
+  };
+  void readAgentChoice(options.cwd)
+    .then((choice) => {
+      if (choice.agent !== null) prepare(choice.agent);
+    })
+    .catch(() => {});
   const setEvery = options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
@@ -336,10 +364,16 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
   ): Promise<ChildOutcome> => {
     let child: RunnerChild;
+    const persistent =
+      resolved.agent === "codex"
+        ? codexAppServer
+        : resolved.agent === "claude"
+          ? claudeAgentSession
+          : null;
     try {
       child =
-        resolved.agent === "codex" && codexAppServer !== null
-          ? await codexAppServer.run({
+        persistent !== null
+          ? await persistent.run({
               prompt: resolved.prompt,
               effort: resolved.effort,
               sessionId: resolved.sessionId,
@@ -350,9 +384,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
               stdio: ["ignore", "pipe", "pipe"],
             });
     } catch (error) {
-      // Older Codex builds and a failed app-server handshake retain the exact
-      // CLI behavior Leglas shipped before this optimization.
-      if (resolved.agent === "codex" && codexAppServer !== null) {
+      // A missing SDK, older Codex build or failed persistent handshake keeps
+      // the exact vendor CLI behavior Leglas shipped before this optimization.
+      if (persistent !== null) {
         try {
           child = spawn(resolved.command, resolved.args, {
             cwd: options.cwd,
@@ -646,7 +680,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     cancel();
     stopPromise = Promise.resolve(ticking)
       .catch(() => {})
-      .then(() => codexAppServer?.close())
+      .then(() =>
+        Promise.all([
+          codexAppServer?.close(),
+          claudeAgentSession?.close(),
+        ]),
+      )
       .then(() => {});
     return stopPromise;
   };
@@ -655,6 +694,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stop,
     snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
+    prepare,
     // A nudge during a tick is latched and checked as soon as that tick
     // settles; a nudge between ticks starts immediately. Neither can overlap
     // the active agent.

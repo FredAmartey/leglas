@@ -15,9 +15,15 @@ because most reach only one of the three.
 
 ### Changed
 
+- **Embedded Claude runs now use one persistent Agent SDK session.** Leglas
+  prewarms the selected Claude agent, keeps its native process and context
+  alive across bounded turns, applies the user's chosen effort per turn, and
+  maps stop to the SDK interrupt. Claude's model, project/user settings, tools
+  and edit permissions remain authoritative. If the optional SDK cannot load
+  or initialize, Leglas falls back to the existing `claude -p` path. (`leglas`)
 - **Embedded Codex runs stay warm between requests.** Leglas now prewarms one
   Codex app-server process, starts and resumes threads through its streamed
-  protocol and maps cancellation to a turn interrupt. The selected model,
+  protocol, and maps cancellation to a turn interrupt. The selected model,
   effort, project instructions, tools, workspace-write boundary and live
   preview access are unchanged. Older Codex builds or a failed app-server
   handshake fall back to the existing `codex exec` path. (`leglas`)

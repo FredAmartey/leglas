@@ -1,0 +1,369 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
+import { agentEnvironment, type AgentEffort } from "./agents.js";
+import type { RunnerChild } from "./runner.js";
+
+type ClaudeMessage = Record<string, unknown> & {
+  type?: unknown;
+  subtype?: unknown;
+  session_id?: unknown;
+  is_error?: unknown;
+};
+
+export type ClaudeSdkOptions = {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  permissionMode: "acceptEdits";
+  settingSources: ["user", "project", "local"];
+  persistSession: true;
+  allowedTools?: string[];
+};
+
+export type ClaudeSdkQuery = AsyncIterable<ClaudeMessage> & {
+  applyFlagSettings(settings: { effortLevel: AgentEffort | null }): Promise<void>;
+  interrupt(): Promise<unknown>;
+  close(): void;
+};
+
+export type ClaudeWarmQuery = {
+  query(prompt: AsyncIterable<ClaudeMessage>): ClaudeSdkQuery;
+  close(): void;
+};
+
+export type ClaudeSdkStartup = (params: {
+  options: ClaudeSdkOptions;
+  initializeTimeoutMs: number;
+}) => Promise<ClaudeWarmQuery>;
+
+export type ClaudeTurnInput = {
+  prompt: string;
+  effort: AgentEffort | null;
+  /** Null starts a fresh conversation; a value continues that session. */
+  sessionId: string | null;
+};
+
+export type ClaudeTurnRunner = {
+  /** Spawn Claude Code and complete the SDK initialize handshake. */
+  warm(): Promise<void>;
+  run(input: ClaudeTurnInput): Promise<RunnerChild>;
+  close(): Promise<void>;
+};
+
+const INITIALIZE_TIMEOUT_MS = 30_000;
+
+const defaultStartup: ClaudeSdkStartup = async (params) => {
+  // Type-only coupling is deliberate: if the optional SDK cannot load, warm()
+  // rejects and the runner retains the installed `claude -p` fallback instead
+  // of making the whole Leglas server fail at module import time.
+  const sdk = await import("@anthropic-ai/claude-agent-sdk");
+  return sdk.startup(params) as unknown as ClaudeWarmQuery;
+};
+
+class InputQueue implements AsyncIterable<ClaudeMessage> {
+  private readonly queued: ClaudeMessage[] = [];
+  private readonly readers: Array<(result: IteratorResult<ClaudeMessage>) => void> = [];
+  private ended = false;
+
+  push(message: ClaudeMessage): void {
+    if (this.ended) throw new Error("Claude input is closed.");
+    const reader = this.readers.shift();
+    if (reader === undefined) this.queued.push(message);
+    else reader({ value: message, done: false });
+  }
+
+  close(): void {
+    if (this.ended) return;
+    this.ended = true;
+    for (const reader of this.readers.splice(0)) {
+      reader({ value: undefined, done: true });
+    }
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {
+    return {
+      next: () => {
+        const message = this.queued.shift();
+        if (message !== undefined) {
+          return Promise.resolve({ value: message, done: false });
+        }
+        if (this.ended) {
+          return Promise.resolve({ value: undefined, done: true });
+        }
+        return new Promise((resolve) => this.readers.push(resolve));
+      },
+    };
+  }
+}
+
+/** One SDK turn exposed through the child-process surface the queue runner uses. */
+class ClaudeTurnChild implements RunnerChild {
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  private readonly events = new EventEmitter();
+  private ended = false;
+
+  constructor(private readonly interrupt: (signal: NodeJS.Signals) => void) {}
+
+  once(event: "error", listener: (error: Error) => void): RunnerChild;
+  once(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): RunnerChild;
+  once(
+    event: "error" | "close",
+    listener:
+      | ((error: Error) => void)
+      | ((code: number | null, signal: NodeJS.Signals | null) => void),
+  ): RunnerChild {
+    this.events.once(event, listener);
+    return this;
+  }
+
+  kill(signal: NodeJS.Signals): boolean {
+    if (this.ended) return false;
+    this.interrupt(signal);
+    return true;
+  }
+
+  line(message: ClaudeMessage): void {
+    if (!this.ended) this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+
+  finish(
+    code: number | null,
+    signal: NodeJS.Signals | null = null,
+    error: string | null = null,
+  ): void {
+    if (this.ended) return;
+    this.ended = true;
+    if (error !== null) this.stderr.write(`${error}\n`);
+    this.stdout.end();
+    this.stderr.end();
+    queueMicrotask(() => this.events.emit("close", code, signal));
+  }
+}
+
+/**
+ * One long-lived Agent SDK streaming-input session.
+ *
+ * startup() pays the native CLI spawn and initialize handshake while Leglas is
+ * idle. The first request consumes that warm handle; later requests enqueue a
+ * user message into the same process. A result message ends only the synthetic
+ * child for that turn, not Claude itself.
+ */
+class PersistentClaudeSession implements ClaudeTurnRunner {
+  private warmQuery: ClaudeWarmQuery | null = null;
+  private warming: Promise<void> | null = null;
+  private query: ClaudeSdkQuery | null = null;
+  private input: InputQueue | null = null;
+  private pump: Promise<void> | null = null;
+  private active: ClaudeTurnChild | null = null;
+  private loadedSessionId: string | null = null;
+  private appliedEffort: AgentEffort | null = null;
+  private closed = false;
+
+  constructor(
+    private readonly cwd: string,
+    private readonly allowedCommand: string | null,
+    private readonly startup: ClaudeSdkStartup,
+  ) {}
+
+  warm(): Promise<void> {
+    if (this.closed) return Promise.reject(new Error("Claude Agent SDK is closed."));
+    if (this.query !== null || this.warmQuery !== null) return Promise.resolve();
+    if (this.warming !== null) return this.warming;
+
+    const warming = this.startup({
+      options: {
+        cwd: this.cwd,
+        env: agentEnvironment(),
+        permissionMode: "acceptEdits",
+        settingSources: ["user", "project", "local"],
+        persistSession: true,
+        ...(this.allowedCommand === null
+          ? {}
+          : { allowedTools: [`Bash(${this.allowedCommand} *)`] }),
+      },
+      initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
+    })
+      .then((warmQuery) => {
+        if (this.closed) warmQuery.close();
+        else this.warmQuery = warmQuery;
+      })
+      .finally(() => {
+        if (this.warming === warming) this.warming = null;
+      });
+    this.warming = warming;
+    return warming;
+  }
+
+  async run(input: ClaudeTurnInput): Promise<RunnerChild> {
+    if (this.closed) throw new Error("Claude Agent SDK is closed.");
+    if (this.active !== null) throw new Error("Claude already has an active turn.");
+
+    // The runner deliberately starts fresh after its bounded session cap. A
+    // null session id therefore rotates the process instead of quietly
+    // carrying old context into what the caller believes is a clean turn.
+    if (this.query !== null && input.sessionId === null) await this.resetQuery();
+
+    if (this.query === null) {
+      // A saved session with no matching live SDK process is still supported
+      // by the existing `claude --resume` path. Throw before consuming a fresh
+      // warm handle so the runner can use that fallback without duplication.
+      if (input.sessionId !== null) {
+        throw new Error("Claude session is not loaded in the persistent process.");
+      }
+      await this.startQuery();
+    } else if (
+      input.sessionId !== null &&
+      this.loadedSessionId !== null &&
+      input.sessionId !== this.loadedSessionId
+    ) {
+      throw new Error("A different Claude session is loaded in the persistent process.");
+    }
+
+    const query = this.query;
+    const queue = this.input;
+    if (query === null || queue === null) throw new Error("Claude Agent SDK did not start.");
+
+    const child = new ClaudeTurnChild((signal) => this.interrupt(query, child, signal));
+    this.active = child;
+    try {
+      // null clears only the SDK's flag layer and falls back to the user's own
+      // Claude setting. No model is supplied, so their selected model remains
+      // authoritative too.
+      if (input.effort !== this.appliedEffort) {
+        await query.applyFlagSettings({ effortLevel: input.effort });
+        this.appliedEffort = input.effort;
+      }
+      queue.push({
+        type: "user",
+        message: { role: "user", content: input.prompt },
+        parent_tool_use_id: null,
+        origin: { kind: "human" },
+      });
+      return child;
+    } catch (error) {
+      if (this.active === child) this.active = null;
+      child.finish(1, null, error instanceof Error ? error.message : String(error));
+      await this.resetQuery();
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    this.warmQuery?.close();
+    this.warmQuery = null;
+    await this.resetQuery();
+    await this.warming?.catch(() => {});
+  }
+
+  private async startQuery(): Promise<void> {
+    await this.warm();
+    const warmQuery = this.warmQuery;
+    if (warmQuery === null) throw new Error("Claude Agent SDK did not warm.");
+
+    const input = new InputQueue();
+    const query = warmQuery.query(input);
+    this.warmQuery = null;
+    this.input = input;
+    this.query = query;
+    this.loadedSessionId = null;
+    this.appliedEffort = null;
+    this.pump = this.read(query);
+  }
+
+  private async read(query: ClaudeSdkQuery): Promise<void> {
+    let endedNormally = false;
+    try {
+      for await (const message of query) {
+        if (typeof message.session_id === "string" && message.session_id !== "") {
+          this.loadedSessionId = message.session_id;
+        }
+
+        const child = this.active;
+        if (child === null) continue;
+        child.line(message);
+        if (message.type === "result") {
+          if (this.active === child) this.active = null;
+          const success = message.subtype === "success" && message.is_error !== true;
+          child.finish(success ? 0 : 1);
+        }
+      }
+      endedNormally = true;
+    } catch (error) {
+      if (this.query === query) {
+        const child = this.active;
+        this.active = null;
+        child?.finish(1, null, error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (this.query === query) {
+        const child = this.active;
+        this.active = null;
+        if (child !== null) {
+          child.finish(
+            1,
+            null,
+            endedNormally ? "Claude Agent SDK ended before the turn completed." : null,
+          );
+        }
+        this.query = null;
+        this.input = null;
+        this.pump = null;
+        this.loadedSessionId = null;
+        this.appliedEffort = null;
+      }
+    }
+  }
+
+  private interrupt(
+    query: ClaudeSdkQuery,
+    child: ClaudeTurnChild,
+    signal: NodeJS.Signals,
+  ): void {
+    if (this.active !== child || this.query !== query) return;
+    if (signal === "SIGKILL") {
+      this.active = null;
+      child.finish(null, signal);
+      void this.resetQuery();
+      return;
+    }
+    void query.interrupt().catch((error) => {
+      if (this.active !== child) return;
+      this.active = null;
+      child.finish(1, null, error instanceof Error ? error.message : String(error));
+      void this.resetQuery();
+    });
+  }
+
+  private async resetQuery(): Promise<void> {
+    const query = this.query;
+    const input = this.input;
+    const pump = this.pump;
+    this.query = null;
+    this.input = null;
+    this.pump = null;
+    this.loadedSessionId = null;
+    this.appliedEffort = null;
+    input?.close();
+    query?.close();
+    if (pump !== null) {
+      await Promise.race([
+        pump.catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+      ]);
+    }
+  }
+}
+
+export function createClaudeAgentSession(
+  cwd: string,
+  allowedCommand: string | null = null,
+  startup: ClaudeSdkStartup = defaultStartup,
+): ClaudeTurnRunner {
+  return new PersistentClaudeSession(cwd, allowedCommand, startup);
+}
