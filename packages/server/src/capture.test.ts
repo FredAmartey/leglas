@@ -79,7 +79,10 @@ class FakePage implements CdpPage {
       return { data: Buffer.from("png-data").toString("base64") } as T;
     }
     if (method === "Runtime.evaluate") {
-      if (String(params.expression).startsWith("document.fonts")) {
+      // Only the locator is counted. The readiness waits evaluate too, and
+      // counting those would hand the first note the second answer.
+      const expression = String(params.expression);
+      if (expression.startsWith("document.fonts") || expression.includes("requestAnimationFrame")) {
         return { result: { value: true } } as T;
       }
       this.locatorCalls += 1;

@@ -218,7 +218,21 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       2_000,
       undefined,
     ).catch(() => {});
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    // Two animation frames, which is a painted frame plus the one after it.
+    // A flat wait here cost 300ms of every capture and still guaranteed
+    // nothing; this waits for the thing that actually matters and returns as
+    // soon as it happens. Bounded, because a page that never paints (a
+    // background tab, a broken rAF shim) must not hold the capture.
+    await bounded(
+      page.send("Runtime.evaluate", {
+        expression:
+          "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))",
+        awaitPromise: true,
+        returnByValue: true,
+      }),
+      1_000,
+      undefined,
+    ).catch(() => {});
 
     const metrics = await page.send<{
       cssContentSize?: { width: number; height: number };

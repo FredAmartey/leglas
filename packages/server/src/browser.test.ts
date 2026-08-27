@@ -209,6 +209,35 @@ describe("findBrowser", () => {
     ).toBe("/opt/chrome/chrome");
   });
 
+  test("prefers a headless shell over a desktop browser on the same machine", () => {
+    const shell =
+      "/Users/u/Library/Caches/ms-playwright/chromium_headless_shell-1234/" +
+      "chrome-headless-shell-mac-arm64/chrome-headless-shell";
+    const desktop = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    // Same engine, same picture, a fraction of the weight, so the shell wins
+    // when the machine happens to have one.
+    expect(
+      findBrowser({
+        env: {},
+        platform: "darwin",
+        home: "/Users/u",
+        exists: (path) => path === shell || path === desktop,
+        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
+      }),
+    ).toBe(shell);
+
+    // An explicit choice still outranks it.
+    expect(
+      findBrowser({
+        env: { LEGLAS_BROWSER: desktop },
+        platform: "darwin",
+        home: "/Users/u",
+        exists: (path) => path === shell || path === desktop,
+        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
+      }),
+    ).toBe(desktop);
+  });
+
   test("returns null when no supported browser exists", () => {
     expect(
       findBrowser({
