@@ -238,6 +238,11 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     await bounded(
       page.send("Runtime.evaluate", {
         expression: `(async () => {
+          // The page stops itself before the caller's deadline can. Without
+          // this the outer bound could win mid-finish() and the screenshot
+          // would be taken while the animations it just told to settle were
+          // still moving, which is the exact non-determinism this removes.
+          const until = Date.now() + 1500;
           const frame = () =>
             new Promise((next) => requestAnimationFrame(() => requestAnimationFrame(next)));
           const finite = () => {
@@ -252,7 +257,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
             }
           };
           let quiet = 0;
-          for (let pass = 0; pass < 12 && quiet < 2; pass += 1) {
+          for (let pass = 0; pass < 12 && quiet < 2 && Date.now() < until; pass += 1) {
             await frame();
             const running = finite();
             if (running.length === 0) {

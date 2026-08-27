@@ -517,6 +517,18 @@ export async function launchBrowser(
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
+        // A browser that has not answered in this long is wedged, not slow.
+        // Rejecting only this command left the socket believed good, so every
+        // capture queued behind it paid its own full timeout in turn while the
+        // pool went on handing the same dead browser out. Closing the socket
+        // makes the next acquire retire it and launch a replacement.
+        socketClosed = true;
+        rejectPending();
+        try {
+          socket.close();
+        } catch {
+          // Already gone; the close listener has done this anyway.
+        }
         reject(new Error(`The browser did not answer ${method}.`));
       }, commandTimeoutMs);
       timer.unref?.();

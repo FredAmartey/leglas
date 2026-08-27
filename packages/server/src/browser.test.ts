@@ -422,6 +422,35 @@ describe("launchBrowser", () => {
     await browser.close();
   });
 
+  test("a command that never comes back retires the browser rather than the command", async () => {
+    // A socket that is open but silent used to leave the pool believing the
+    // browser was good, so every capture queued behind it paid its own full
+    // timeout in turn.
+    const harness = launchHarness();
+    harness.socket.onSend = (message) => {
+      const id = message.id as number;
+      if (message.method === "Target.createTarget") {
+        queueMicrotask(() => harness.socket.answer({ id, result: { targetId: "target" } }));
+      } else if (message.method === "Target.attachToTarget") {
+        queueMicrotask(() => harness.socket.answer({ id, result: { sessionId: "session" } }));
+      }
+      // Anything else is swallowed: the socket is alive and says nothing.
+    };
+    const browser = await launchBrowser("/browser", {
+      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      connect: async () => harness.socket,
+      commandTimeoutMs: 10,
+    });
+
+    await expect(
+      browser.withPage((page) => page.send("Runtime.evaluate", { expression: "wait" })),
+    ).rejects.toThrow("did not answer");
+    // The browser now reports itself unusable, so the pool retires it.
+    expect(browser.closed).toBe(true);
+    harness.process.emit("close", 1, null);
+    await browser.close();
+  });
+
   test("times out and kills a browser that never exposes CDP", async () => {
     const process = fakeProcess(false);
     await expect(
@@ -568,6 +597,35 @@ describe("createBrowserPool", () => {
     // With the last one done, the timer may arm and the browser may retire.
     expect(idle).not.toBeNull();
     await pool.close();
+  });
+
+  test("closing while a launch is still in flight closes what the launch returns", async () => {
+    // The pool reads `closed` synchronously before awaiting, so a close that
+    // lands mid-launch is honoured by the launch's own continuation rather
+    // than by close(). Correct, and subtle enough to be worth pinning.
+    const launched = fakeBrowser();
+    let finishLaunch!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finishLaunch = resolve;
+    });
+    const pool = createBrowserPool({
+      find: () => "/browser",
+      launch: async () => {
+        await pending;
+        return launched;
+      },
+    });
+
+    const acquiring = pool.acquire();
+    const closing = pool.close();
+    finishLaunch();
+
+    await expect(acquiring).resolves.toBeNull();
+    await closing;
+    // The browser that arrived after the close is not left running.
+    await vi.waitFor(() => expect(launched.closes).toBe(1));
+    // And the pool stays closed rather than launching another.
+    expect(await pool.acquire()).toBeNull();
   });
 
   test("reports no browser and retries a failed launch on the next acquire", async () => {

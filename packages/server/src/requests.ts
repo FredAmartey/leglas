@@ -228,7 +228,18 @@ function capturedBlock(captured: Captured | null): string {
     lines.push("Reference images the user attached, which show what they mean:");
     for (const reference of references) lines.push(`  ${reference.file}`);
   }
+  if (captured.errors.length > 0) {
+    lines.push(
+      `On load it logged ${captured.errors.length} console ${captured.errors.length === 1 ? "error" : "errors"}:`,
+    );
+    for (const error of captured.errors) lines.push(`  - ${error}`);
+  }
+  if (captured.skipped !== null) {
+    lines.push(`(${captured.skipped} Use the live preview instead.)`);
+  }
   if (captured.attachments.length > 0) {
+    // Last, so the block ends on the thing to do rather than on evidence.
+    //
     // Said as files on purpose. Only some ways in carry the pictures
     // themselves: the embedded Codex and the embedded Claude session hand
     // them to the model directly, while a Claude CLI fallback, Cursor, a
@@ -239,16 +250,6 @@ function capturedBlock(captured: Captured | null): string {
     lines.push(
       "Each path above is a file in this project. Open every one and look at it before changing anything.",
     );
-  }
-
-  if (captured.errors.length > 0) {
-    lines.push(
-      `On load it logged ${captured.errors.length} console ${captured.errors.length === 1 ? "error" : "errors"}:`,
-    );
-    for (const error of captured.errors) lines.push(`  - ${error}`);
-  }
-  if (captured.skipped !== null) {
-    lines.push(`(${captured.skipped} Use the live preview instead.)`);
   }
   return `\n\n${lines.join("\n")}`;
 }
