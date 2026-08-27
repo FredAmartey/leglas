@@ -226,3 +226,8 @@ const shutdown = async () => {
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+// Closing the terminal window sends this, and it is the most ordinary way a
+// dev tool ends. Without a handler Node exits immediately, so the shutdown
+// never runs and a browser Leglas launched for a capture is orphaned, holding
+// its memory for the life of the machine.
+process.on("SIGHUP", shutdown);

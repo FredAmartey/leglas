@@ -13,9 +13,9 @@ because most reach only one of the three.
 
 ## 0.7.0 (2026-08-26)
 
-Embedded agents stay warm. The public surface did not move, so this could
-have been a patch; it is a minor because how every run starts changed
-underneath, and because `leglas` gained an optional dependency.
+Every change request carries what the user sees, and embedded agents warm up
+when you mean it. A minor: how every run starts changed underneath, `leglas`
+gained an optional dependency, and the public surface moved.
 
 ### Added
 
@@ -59,23 +59,72 @@ underneath, and because `leglas` gained an optional dependency.
 - The Claude Code allowance a composed request carries covers `leglas show` as
   well as `leglas add`. (`leglas`)
 
-- **Embedded Claude runs now use one persistent Agent SDK session.** Leglas
-  prewarms the selected Claude agent, keeps its native process and context
-  alive across bounded turns, applies the user's chosen effort per turn and
-  maps stop to the SDK interrupt. Claude's model, project/user settings, tools
-  and edit permissions remain authoritative. If the optional SDK cannot load
+- **Embedded Claude runs now use one persistent Agent SDK session, warmed
+  when you mean it.** Leglas starts the Claude process when the composer takes
+  focus or an agent is chosen, keeps its native process and context alive
+  across bounded turns, applies the user's chosen effort per turn and maps
+  stop to the SDK interrupt. Claude's model, project/user settings, tools
+  and edit permissions remain authoritative. Nothing is warmed at startup and
+  only one vendor is ever warm, because a warm session is Claude Code plus
+  every MCP server your settings configure: measured at 591MB across eight
+  processes on a machine with six of them, held for a session that may never
+  send a request. Five idle minutes let that process go, and the next time you
+  aim at the composer it comes back with the same conversation loaded, so a
+  follow-up still knows what came before. If the optional SDK cannot load
   or initialize, Leglas falls back to the existing `claude -p` path. The SDK
   is an optional dependency of `leglas`, so an install that cannot fetch it
   still gets a working Leglas. (`leglas`)
-- **Embedded Codex runs stay warm between requests.** Leglas now prewarms one
-  Codex app-server process, starts and resumes threads through its streamed
-  protocol and maps cancellation to a turn interrupt. The selected model,
-  effort, project instructions, tools, workspace-write boundary and live
-  preview access are unchanged. Older Codex builds or a failed app-server
-  handshake fall back to the existing `codex exec` path. (`leglas`)
+- **Embedded Codex runs stay warm between requests, on the same terms.**
+  Leglas warms one Codex app-server process on the same signals, starts and
+  resumes threads through its streamed protocol and maps cancellation to a
+  turn interrupt. The selected model, effort, project instructions, tools,
+  workspace-write boundary and live preview access are unchanged. It idles
+  out like Claude and picks its thread back up when it returns. Older Codex
+  builds or a failed app-server handshake fall back to the existing
+  `codex exec` path. (`leglas`)
+- **Cursor continues its chat between requests.** `cursor-agent` has no
+  persistent transport to hold open, so its process still starts per request,
+  but Leglas now records the session each run reports and resumes it on the
+  next one, which is the saving the other two get from a warm session: the
+  repository survey happens once instead of every time. (`leglas`)
 
 ### Fixed
 
+- **A screenshot browser no longer outlives the Leglas that started it.**
+  Closing the terminal window sends SIGHUP, which Node acts on by exiting at
+  once, so the shutdown never ran and the headless browser was reparented to
+  init: 114MB across two processes, invisible because it is headless, held
+  until the machine restarted. That signal is handled now. A Leglas killed
+  outright or crashing cannot run any handler, so each browser records the
+  process that launched it inside its own profile directory, and the next
+  Leglas kills the ones whose owner is gone. A browser belonging to a second
+  Leglas that is running right now is left alone, and a recorded process id
+  is only ever signalled when it is still the browser that profile belongs
+  to, because process ids are reused. (`leglas`)
+- **Flipping between directions no longer loads every one of them twice.**
+  The duplicate check reads each direction off stage once, but opening one
+  looked like its document had been replaced, so the direction just clicked
+  was read again in a hidden frame: every flip cost two loads of the app
+  instead of one. Ten flips against a Next dev server went from 25 page
+  compiles to 9. Asking for a variant no longer forgets the verdict of the
+  direction it was asked of either, since a variant is built beside it and
+  leaves it alone, and the check pauses while the tab is in the background.
+  (`leglas`)
+- **Requests the browser gave up on are dropped at the dev server too.** When
+  a preview unmounts or the duplicate check moves on, the proxy now ends the
+  matching upstream request instead of letting it run to completion into a
+  response nobody will read, holding a connection the whole time. (`leglas`)
+- **The interface no longer re-renders every three seconds.** The dev-server
+  health poll folded an unchanged answer into new state on every beat. A
+  direction's duplicate signature is also a short digest now, rather than the
+  megabyte of sampled layout it was read from. (`leglas`)
+- **Cursor says what it is doing.** Its activity was read as though its output
+  had Claude's shape, so every tool call read as nothing: a Cursor run showed
+  no file it was touching, and Leglas could not tell that it had edited
+  anything. Its own event shape is read now, and because those shapes are
+  taken from Cursor's documentation rather than checked against the CLI,
+  Leglas no longer reruns a failed Cursor request on its own: not being seen
+  to edit is not evidence that nothing was edited. (`leglas`)
 - **`leglas watch` could ignore a stop.** The watcher registered its stop
   handler after resolving the agent and writing the template, so a stop that
   arrived inside that window was never heard: the loop kept running and the

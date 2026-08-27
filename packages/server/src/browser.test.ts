@@ -7,6 +7,7 @@ import {
   NO_BROWSER,
   createBrowserPool,
   findBrowser,
+  reapOrphanedBrowsers,
   launchBrowser,
   type Browser,
   type CdpPage,
@@ -668,4 +669,109 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
     },
     20_000,
   );
+});
+
+describe("reapOrphanedBrowsers", () => {
+  const owned = (owner: number, browser: number) =>
+    JSON.stringify({ owner, browser });
+
+  test("kills a browser whose Leglas is gone and clears its directory", async () => {
+    // A Leglas that is SIGKILLed, crashes, or has its terminal window closed
+    // never runs its shutdown, so the browser it launched is reparented to
+    // init and holds its memory for the life of the machine. Measured at
+    // 114MB across two processes on macOS, and it happens per capture
+    // session, so a week of work leaves several.
+    const killed: number[] = [];
+    const removed: string[] = [];
+    const reaped = await reapOrphanedBrowsers({
+      tmpdir: "/tmp",
+      list: async () => ["leglas-browser-dead", "unrelated-dir"],
+      read: async () => owned(4242, 9001),
+      alive: (pid) => pid !== 4242,
+      commandOf: async () => "/chrome --headless=new --user-data-dir=/tmp/leglas-browser-dead",
+      kill: (pid) => void killed.push(pid),
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(1);
+    expect(killed).toEqual([9001]);
+    expect(removed).toEqual(["/tmp/leglas-browser-dead"]);
+  });
+
+  test("leaves a browser alone while its Leglas is still running", async () => {
+    // Two Leglas instances on one machine is ordinary. Reaping on directory
+    // name alone would kill the other one's browser mid-capture.
+    const killed: number[] = [];
+    const removed: string[] = [];
+    const reaped = await reapOrphanedBrowsers({
+      tmpdir: "/tmp",
+      list: async () => ["leglas-browser-live"],
+      read: async () => owned(777, 9002),
+      alive: () => true,
+      commandOf: async () => "/chrome --user-data-dir=/tmp/leglas-browser-live",
+      kill: (pid) => void killed.push(pid),
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(killed).toEqual([]);
+    expect(removed).toEqual([]);
+  });
+
+  test("refuses to kill a pid the system has handed to something else", async () => {
+    // Pids are recycled. The recorded number alone is not evidence; the
+    // process still has to be the browser that directory belongs to.
+    const killed: number[] = [];
+    const removed: string[] = [];
+    const reaped = await reapOrphanedBrowsers({
+      tmpdir: "/tmp",
+      list: async () => ["leglas-browser-recycled"],
+      read: async () => owned(4242, 9003),
+      alive: (pid) => pid !== 4242,
+      commandOf: async () => "/usr/bin/some-unrelated-daemon",
+      kill: (pid) => void killed.push(pid),
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(killed).toEqual([]);
+    // The directory is still stale, so it goes; only the kill is refused.
+    expect(removed).toEqual(["/tmp/leglas-browser-recycled"]);
+    expect(reaped).toBe(0);
+  });
+
+  test("clears a directory whose owner record is missing or unreadable", async () => {
+    const removed: string[] = [];
+    const reaped = await reapOrphanedBrowsers({
+      tmpdir: "/tmp",
+      list: async () => ["leglas-browser-halfborn"],
+      read: async () => {
+        throw new Error("ENOENT");
+      },
+      alive: () => false,
+      commandOf: async () => null,
+      kill: () => {
+        throw new Error("nothing should be killed");
+      },
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual(["/tmp/leglas-browser-halfborn"]);
+  });
+
+  test("survives a temp directory it cannot read", async () => {
+    await expect(
+      reapOrphanedBrowsers({
+        tmpdir: "/tmp",
+        list: async () => {
+          throw new Error("EACCES");
+        },
+        read: async () => null,
+        alive: () => false,
+        commandOf: async () => null,
+        kill: () => {},
+        remove: async () => {},
+      }),
+    ).resolves.toBe(0);
+  });
 });

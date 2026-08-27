@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
+import nodeProcess from "node:process";
 import { spawn as nodeSpawn } from "node:child_process";
 import { accessSync, constants, existsSync, readdirSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -382,6 +383,131 @@ function endpoint(
   });
 }
 
+/** Names the Leglas that launched a browser, written inside its own profile. */
+const OWNER_FILE = "leglas-owner.json";
+
+/** Every browser profile Leglas makes is named this way, and only Leglas's. */
+const PROFILE_PREFIX = "leglas-browser-";
+
+export type ReapDeps = {
+  tmpdir?: string;
+  list?: (path: string) => Promise<string[]>;
+  read?: (path: string) => Promise<string | null>;
+  /** Whether a pid still belongs to a running process. */
+  alive?: (pid: number) => boolean;
+  /** The command line of a pid, for proving it is still the browser we mean. */
+  commandOf?: (pid: number) => Promise<string | null>;
+  kill?: (pid: number) => void;
+  remove?: (path: string) => Promise<void>;
+};
+
+function livePid(pid: number): boolean {
+  try {
+    // Signal 0 checks for the process without touching it.
+    nodeProcess.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means it exists and belongs to someone else, which still counts.
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "EPERM"
+    );
+  }
+}
+
+function commandLine(pid: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = nodeSpawn("ps", ["-o", "command=", "-p", String(pid)], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (output.length < 4096) output += chunk.toString();
+    });
+    child.once("error", () => resolve(null));
+    child.once("close", () => resolve(output.trim() === "" ? null : output));
+  });
+}
+
+/**
+ * Kill browsers left behind by a Leglas that never got to shut down.
+ *
+ * The graceful paths already close the browser: the CLI handles SIGINT,
+ * SIGTERM and SIGHUP, and each runs the pool's own close. What none of them
+ * can cover is the process being killed outright, crashing, or losing its
+ * machine to a hard restart. The browser is then reparented to init and holds
+ * its memory for good, invisibly, because it is headless. Measured on macOS
+ * at 114MB across two processes per orphan, and it accrues once per session
+ * that ends badly.
+ *
+ * Each browser gets a profile directory of its own, and the pid of the Leglas
+ * that launched it is written inside. That is what separates an orphan from
+ * the browser of a second Leglas running right now, which must not be touched.
+ * Killing is refused unless the recorded pid is still a process whose command
+ * line names that exact profile, because pids are recycled and a stale number
+ * is not evidence. A directory whose owner is gone is removed either way.
+ */
+export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number> {
+  const root = deps.tmpdir ?? osTmpdir();
+  const list =
+    deps.list ??
+    (async (path: string) =>
+      (await readdir(path, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name));
+  const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
+  const alive = deps.alive ?? livePid;
+  const commandOf = deps.commandOf ?? commandLine;
+  const kill = deps.kill ?? ((pid: number) => nodeProcess.kill(pid, "SIGKILL"));
+  const remove = deps.remove ?? (async (path: string) => {
+    await rm(path, { recursive: true, force: true });
+  });
+
+  let names: string[];
+  try {
+    names = await list(root);
+  } catch {
+    // No readable temp directory is not a failure worth reporting; the next
+    // start will try again, and nothing depends on this having run.
+    return 0;
+  }
+
+  let reaped = 0;
+  for (const name of names) {
+    if (!name.startsWith(PROFILE_PREFIX)) continue;
+    const directory = join(root, name);
+
+    type OwnerRecord = { owner?: unknown; browser?: unknown };
+    let record: OwnerRecord | null = null;
+    try {
+      const raw = await read(join(directory, OWNER_FILE));
+      record = raw === null ? null : (JSON.parse(raw) as OwnerRecord);
+    } catch {
+      // A half-written profile from a launch that died mid-spawn. Nothing to
+      // kill, and the directory below still goes.
+    }
+
+    const owner = typeof record?.owner === "number" ? record.owner : null;
+    if (owner !== null && alive(owner)) continue;
+
+    const browser = typeof record?.browser === "number" ? record.browser : null;
+    if (browser !== null) {
+      const command = await commandOf(browser).catch(() => null);
+      if (command !== null && command.includes(directory)) {
+        try {
+          kill(browser);
+          reaped += 1;
+        } catch {
+          // Gone between the check and the signal, which is the outcome anyway.
+        }
+      }
+    }
+    await remove(directory).catch(() => {});
+  }
+  return reaped;
+}
+
 /** Launch Chromium and expose the small, serialized CDP surface captures use. */
 export async function launchBrowser(
   executable: string,
@@ -430,6 +556,19 @@ export async function launchBrowser(
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
+
+  // Who to blame for this browser, written where the reaper will look. Best
+  // effort on purpose: a profile that cannot be written is a browser that
+  // still works, and the only thing lost is the tidy-up after a hard kill.
+  void mkdir(userDataDir, { recursive: true })
+    .then(() =>
+      writeFile(
+        join(userDataDir, OWNER_FILE),
+        `${JSON.stringify({ owner: nodeProcess.pid, browser: process.pid ?? null })}\n`,
+        "utf8",
+      ),
+    )
+    .catch(() => {});
 
   let websocketUrl: string;
   try {

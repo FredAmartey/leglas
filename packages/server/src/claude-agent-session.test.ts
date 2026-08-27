@@ -104,7 +104,7 @@ describe("Claude Agent SDK transport", () => {
     // releases used to land a new process after the second release returned.
     // The last call wins: nothing is warm once release() settles.
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
     expect(sdk.calls).toHaveLength(1);
 
@@ -131,7 +131,7 @@ describe("Claude Agent SDK transport", () => {
     // composer takes focus. The release started first, but the warm is the
     // newer intent and its process is the one the coming request will use.
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
 
     const release = session.release();
@@ -153,9 +153,9 @@ describe("Claude Agent SDK transport", () => {
     // `claude --resume` CLI path, and every request after it did too, because
     // the persistent process never had the session the runner kept naming.
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
-    const first = await session.run({ prompt: "first", effort: null, sessionId: null });
+    const first = await session.run({ prompt: "first", effort: null, sessionId: null, images: [] });
     const warm = sdk.warms[0] as FakeWarmQuery;
     await nextInput(warm);
     const firstClosed = new Promise<number | null>((resolve) =>
@@ -172,7 +172,7 @@ describe("Claude Agent SDK transport", () => {
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[1]?.options.resume).toBe("claude_1");
 
-    const second = await session.run({ prompt: "second", effort: null, sessionId: "claude_1" });
+    const second = await session.run({ prompt: "second", effort: null, sessionId: "claude_1", images: [] });
     expect(sdk.calls).toHaveLength(2);
     const resumed = sdk.warms[1] as FakeWarmQuery;
     await expect(nextInput(resumed)).resolves.toMatchObject({
@@ -188,9 +188,9 @@ describe("Claude Agent SDK transport", () => {
 
   test("a run naming a session loads it even when nothing was warmed for it", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
 
-    await session.run({ prompt: "again", effort: null, sessionId: "claude_7" });
+    await session.run({ prompt: "again", effort: null, sessionId: "claude_7", images: [] });
     expect(sdk.calls).toHaveLength(1);
     expect(sdk.calls[0]?.options.resume).toBe("claude_7");
     await session.close();
@@ -198,10 +198,10 @@ describe("Claude Agent SDK transport", () => {
 
   test("a handle warmed fresh is replaced when the request continues a session", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
 
-    await session.run({ prompt: "continue", effort: null, sessionId: "claude_3" });
+    await session.run({ prompt: "continue", effort: null, sessionId: "claude_3", images: [] });
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[0]?.options).not.toHaveProperty("resume");
     expect((sdk.warms[0] as FakeWarmQuery).close).toHaveBeenCalledOnce();
@@ -214,10 +214,10 @@ describe("Claude Agent SDK transport", () => {
     // already loaded the old conversation would carry it into what the
     // runner believes is a clean turn.
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm("claude_3");
 
-    await session.run({ prompt: "fresh", effort: null, sessionId: null });
+    await session.run({ prompt: "fresh", effort: null, sessionId: null, images: [] });
     expect(sdk.calls).toHaveLength(2);
     expect((sdk.warms[0] as FakeWarmQuery).close).toHaveBeenCalledOnce();
     expect(sdk.calls[1]?.options).not.toHaveProperty("resume");
@@ -228,15 +228,15 @@ describe("Claude Agent SDK transport", () => {
     // The runner starts fresh after its turn cap or a failure. A live process
     // that resumed the old conversation must not receive that turn.
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
-    const resumed = await session.run({ prompt: "more", effort: null, sessionId: "claude_5" });
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
+    const resumed = await session.run({ prompt: "more", effort: null, sessionId: "claude_5", images: [] });
     const warm = sdk.warms[0] as FakeWarmQuery;
     await nextInput(warm);
     const resumedClosed = new Promise<void>((resolve) => resumed.once("close", () => resolve()));
     warm.output.emit({ type: "result", subtype: "success", session_id: "claude_5" });
     await resumedClosed;
 
-    await session.run({ prompt: "clean slate", effort: null, sessionId: null });
+    await session.run({ prompt: "clean slate", effort: null, sessionId: null, images: [] });
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[1]?.options).not.toHaveProperty("resume");
     expect(warm.output.close).toHaveBeenCalled();

@@ -78,8 +78,11 @@ and sessions that clean up after themselves.
   reports in a card above the field: who is working, what file they
   are touching, how long it has been, a stop button while it runs and
   retry when it fails. Your agent, your subscription, no keys. Claude
-  Code and Codex stay warm between requests, so a run after the first
-  goes straight to the change instead of reading the project again.
+  Code, Codex and Cursor pick the conversation back up between
+  requests, so a run after the first goes straight to the change
+  instead of reading the project again. Claude Code and Codex warm up
+  while you type and let their process go once you have left Leglas
+  alone for a few minutes, so an open window is not holding one.
   Prefer a terminal? `npx leglas watch` is the same loop with the
   agent's own output scrolling by. In Claude Code, the Leglas MCP
   server can also push each request straight into your open session as

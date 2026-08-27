@@ -18,7 +18,12 @@ import {
   removeCaptures,
   sniffImage,
 } from "./attachments.js";
-import { NO_BROWSER, createBrowserPool, type BrowserPool } from "./browser.js";
+import {
+  NO_BROWSER,
+  createBrowserPool,
+  reapOrphanedBrowsers,
+  type BrowserPool,
+} from "./browser.js";
 import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
@@ -405,6 +410,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detect = () => detectAgents(),
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
+  // Sweep up browsers left by a Leglas that was killed outright or crashed,
+  // which no shutdown handler can reach. Deliberately not awaited: it is
+  // tidying, and a slow temp directory must not hold up the interface. A
+  // browser belonging to another Leglas that is running right now is left
+  // alone; see reapOrphanedBrowsers.
+  if (options.pool === undefined) {
+    void reapOrphanedBrowsers().catch(() => {});
+  }
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
   // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
