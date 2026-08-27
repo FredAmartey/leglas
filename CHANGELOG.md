@@ -11,7 +11,18 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.7.0 (2026-08-26)
+
+Embedded agents stay warm. The public surface did not move, so this could
+have been a patch; it is a minor because how every run starts changed
+underneath, and because `leglas` gained an optional dependency.
+
+### Added
+
+- **A direction says when an agent is working on it.** Its row in the rail
+  carries a working badge while an agent has the request in hand, and not
+  before: a request that is only queued shows nothing on the row, so the
+  badge means work under way rather than work waiting. (`leglas`)
 
 ### Changed
 
@@ -20,7 +31,9 @@ because most reach only one of the three.
   alive across bounded turns, applies the user's chosen effort per turn and
   maps stop to the SDK interrupt. Claude's model, project/user settings, tools
   and edit permissions remain authoritative. If the optional SDK cannot load
-  or initialize, Leglas falls back to the existing `claude -p` path. (`leglas`)
+  or initialize, Leglas falls back to the existing `claude -p` path. The SDK
+  is an optional dependency of `leglas`, so an install that cannot fetch it
+  still gets a working Leglas. (`leglas`)
 - **Embedded Codex runs stay warm between requests.** Leglas now prewarms one
   Codex app-server process, starts and resumes threads through its streamed
   protocol and maps cancellation to a turn interrupt. The selected model,
@@ -46,6 +59,27 @@ because most reach only one of the three.
   has a truthful result, ordinary reads return it immediately and refresh an
   expired answer in the background; opening the picker still waits for the
   explicitly requested fresh result. (`leglas`)
+- **A preview's loading state belongs to the document that produced it.**
+  Readiness was keyed by title alone, so a load event from a frame that had
+  since been replaced, by an agent swapping the URL in place or a retry
+  remounting the same one, could finish the loader early, leave it stuck or
+  describe the wrong direction. It is now tracked by direction, URL and
+  reload generation together, and events from an older frame are ignored.
+  (`leglas`)
+- **The duplicate check reads the page it was asked about.** A scan's verdict
+  is recorded against the exact URL that produced it, so a direction whose
+  URL changed under the same title is read again rather than trusted. Scans
+  run one at a time, a read that failed is recorded as failed for this page
+  load instead of retrying forever or passing as a signature, and the check
+  waits on a direction with a request queued or running, since its source is
+  about to change. (`leglas`)
+- **Reading or choosing an agent cannot hang the picker.** Agent reads time
+  out after five seconds and selections after ten. A selection that times
+  out re-reads the server before reporting, so one accepted just before the
+  deadline stays selected; otherwise the picker names the agent that was not
+  selected and offers to try again. The chooser also stays available until
+  an agent is chosen: the "I'll run my own" dismissal is gone, since
+  `leglas watch` announces an external agent on its own. (`leglas`)
 
 ## 0.6.1 (2026-08-20)
 

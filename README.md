@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/rail-single.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and the selected one running as the real app filling the rest of the window" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/rail-single.jpg" width="900" alt="The Leglas interface: a rail of design directions on the left, one of them with a variant grouped under it, and the selected one running as the real app filling the rest of the window" />
 </p>
 
 <p align="center"><i>Every direction in the rail, the selected one running as your actual app. Arrow keys flip between them.</i></p>
@@ -46,7 +46,7 @@ and sessions that clean up after themselves.
 ## What you can do with Leglas
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/compare-artboards.jpg" width="900" alt="The Leglas interface: a rail of three design directions on the left, and two of them running side by side as the real app, each labelled with its name." />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/compare-artboards.jpg" width="900" alt="The Leglas interface: the rail on the left, and two directions running side by side as the real app, each labelled with its name and the width it is drawn at." />
 </p>
 
 <p align="center"><i>Two directions for the same page, running side by side as the actual app.</i></p>
@@ -77,13 +77,21 @@ and sessions that clean up after themselves.
   once the agent uses a Leglas tool. Each run
   reports in a card above the field: who is working, what file they
   are touching, how long it has been, a stop button while it runs and
-  retry when it fails. Your agent, your subscription, no keys.
+  retry when it fails. Your agent, your subscription, no keys. Claude
+  Code and Codex stay warm between requests, so a run after the first
+  goes straight to the change instead of reading the project again.
   Prefer a terminal? `npx leglas watch` is the same loop with the
   agent's own output scrolling by. In Claude Code, the Leglas MCP
   server can also push each request straight into your open session as
   a channel event (channels are a research preview: start Claude Code
   with `--dangerously-load-development-channels
   server:<your leglas server name>`).
+- A change makes a variant, not a rewrite. Ask for something on the
+  direction you are looking at and the result registers under it in the
+  rail, with the original still there to compare against. A chip beside
+  the send button switches to changing the direction itself, for when a
+  change really is a fix. Hover any direction to see what it was built
+  from and the change that was asked for, in the words that were typed.
 - Keep the winner with one command. Leglas moves it into your source
   tree and clears the exploration away.
 - No app yet or want plain HTML comparisons? Some people want exactly that, and it works fine. Same comparison, no dev server.
@@ -99,6 +107,9 @@ npx leglas
 Leglas starts on port 4100, proxies your app, and opens
 `http://localhost:4100/leglas`. With no configuration you get a single
 preview of your app root. Add a config file to compare more than one thing.
+If that port turns out to be served from outside your project, Leglas
+says so and points at `devServer` and `--user-port` rather than quietly
+proxying the wrong app.
 
 It works with whatever you're building in. Leglas never imports or
 executes your framework, so the target can be Next, Vite, Remix,
@@ -176,7 +187,9 @@ Asking for a change works from the interface too. Type what you want
 changed into the field under the rail (or press `R`) and Leglas composes a
 prompt naming the direction and the file behind it, copies it to your
 clipboard, and queues it. The direction it means is the one highlighted
-directly above the field. Your agent drains the queue with `npx leglas requests --json` and clears
+directly above the field. By default the request asks for a new variant
+beside that direction; the chip next to the send button switches it to a
+change in place. Your agent drains the queue with `npx leglas requests --json` and clears
 it with `--clear`. Leglas runs no model of its own; your agent already
 knows your conventions and your taste.
 
@@ -193,19 +206,19 @@ those to trust first, because the design moves under them by design. One
 whose element has since gone turns amber rather than pointing confidently
 at the wrong thing.
 
-The line under the field is the whole status: whether anything is
-listening, what you have queued, and when it has been picked up.
+The card above the field is the whole status: what you have queued, who
+has taken it and for how long, and what went wrong when a run fails.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-idle.png" width="290" alt="The change field reading: Enter queues it for npx leglas requests" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-queued.png" width="290" alt="The change field reading: one change queued for your agent" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-pickedup.png" width="290" alt="The change field reading: Your agent is on it" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-idle.png" width="290" alt="The change field, empty, with its agent picker reading Choose an agent" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-queued.png" width="290" alt="A card above the change field reading: Change queued, pick who runs your changes" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-pickedup.png" width="290" alt="A card above the change field reading: Codex is on it, editing .leglas/variants/hero/deepink.tsx, 1m 19s, with a stop button" />
 </p>
 
 <p align="center"><i>Nothing waiting, then a request queued, then an agent that has taken it.</i></p>
 
-Pick an agent once and the same line shows it working: which file it is
-editing, a cancel if you change your mind, a retry when a run goes
+Pick an agent once and the same card shows it working: which file it is
+editing, a stop if you change your mind, a retry when a run goes
 wrong. `npx leglas watch` in another terminal is the same loop with the
 agent's own output in view, and it needs no flag once an agent has been
 picked in the interface.
@@ -298,6 +311,7 @@ export default {
 | `branch`         | no            | Preview a git branch instead of the running dev server                  |
 | `file`           | no            | An HTML file served by Leglas itself, instead of `url`                  |
 | `basedOn`        | no            | Title of the direction this is a variant of; the rail groups the family |
+| `askedFor`       | no            | The change that was asked for, in the words that were typed             |
 | `devServer`      | no            | Defaults to `http://localhost:3000`                                     |
 | `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                            |
 | `installCommand` | no            | Defaults to `npm install`                                               |
@@ -333,8 +347,8 @@ that is what the tools popover's "Scale each side to fit" switch is for.
 
 Arrows move between directions, `1` to `9` jump straight to one, `R` asks
 for a change to the one you are on, `A` annotates the design itself,
-`Cmd K` (`Ctrl K` elsewhere) searches and `B` collapses the rail. Press `?`
-for the whole keymap.
+`Cmd K` (`Ctrl K` elsewhere) searches, `T` opens the tools popover and `B`
+collapses the rail. Press `?` for the whole keymap.
 
 A small tools widget floats over the stage and can be dragged to any
 corner, because a floating control has a habit of sitting exactly where
@@ -349,36 +363,52 @@ the preview frame, never by altering what the proxy forwards.
 ## Command line
 
 ```text
-leglas init                Prepare a project and teach its agents
-leglas [options]           Start the server and open the interface
-leglas new <surface>       Scaffold a branch point for a surface
-leglas explore <surface>   Brief an agent's exploration of a surface
-leglas classify            Decide where a direction should live
-leglas add --title T --url U   Register a preview on this machine
-leglas list                Show every preview, shared and local
-leglas show <title>        Everything Leglas knows about one direction
-leglas requests            Collect change requests made from the interface
-leglas keep <title>        Keep a winner and end the exploration
+Usage
+  leglas init                Prepare a project and teach its agents
+  leglas [options]           Start the server and open the interface
+  leglas new <surface>       Scaffold a branch point for a surface
+  leglas explore <surface>   Brief an agent's exploration of a surface
+  leglas classify            Decide where a direction should live
+  leglas add --title T --url U   Register a preview on this machine
+  leglas list                Show every preview, shared and local
+  leglas show <title>        Everything Leglas knows about one direction
+  leglas requests            Show change requests made from the interface
+  leglas watch --run "<cmd>" Hand each request to your agent as it arrives
+  leglas keep <title> --to <path>  Keep a winner and end the exploration
 
-  --user-port <port>   Port your dev server is on
-  --port <port>        Port for Leglas (default 4100, next free if taken)
-  --config <path>      Use this config file instead of searching upward
+Options
+  --user-port <port>   Port your dev server is on (default: from config, or 3000)
+  --port <port>        Port for Leglas itself (default: 4100, next free if taken)
+  --config <path>      Config file to use instead of searching upward
   --no-open            Do not open the browser
-  --json               Print one machine-readable envelope
+  --json               Print a single machine-readable envelope
+  -h, --help           Show this
+  -v, --version        Show the version
 
-  --print              (new) Print the scaffold instead of writing it
-  --from <path>        (new) Use an existing component as the baseline
-  --count <n>          (explore) How many directions, default 3
-  --based-on <title>     (explore) Variants of an existing direction instead of new ones
-  --based-on <title>     (add) The direction this preview is a variant of; groups the family
-  --asked-for <text>     (add) The change that was asked for, in the words that were typed
-  --change <path>      (classify) A file the direction creates or wires up
-  --rewrite <path>     (classify) An existing file whose behaviour must change
-  --note <text>        (add) Second line under the title
-  --tag <text>         (add) Repeatable
-  --branch <name>      (add) Back the preview with a checkout of this branch
-  --file <path>        (add) An HTML file served by Leglas itself
-  --to <path>          (keep) Where the winner should live
+Options for new
+  --print              Print the scaffold instead of writing it
+  --from <path>        Use an existing component as the baseline
+
+Options for explore
+  --count <n>          How many directions (default 3)
+  --based-on <title>     Variants of an existing direction instead of new ones
+
+Options for watch
+  --run <command>      Your agent, with {prompt} where the request goes, for
+                       example "claude -p {prompt}". Remembered after first use
+  --port <port>        Port Leglas itself is on (default: 4100)
+
+Options for classify
+  --change <path>      A file the direction creates or wires up (repeatable)
+  --rewrite <path>     An existing file whose behaviour it must change (repeatable)
+
+Options for add
+  --note <text>        Second line under the title
+  --tag <text>         Repeatable
+  --branch <name>      Back the preview with a checkout of this git branch
+  --file <path>        Preview a plain HTML file served by Leglas itself
+  --based-on <title>   The direction this is a variant of; groups the family
+  --asked-for <text>   The change that was asked for, in the words that were typed
 ```
 
 `leglas.config.ts` is the shared description of a project: commit it and a
@@ -455,9 +485,9 @@ cross-origin previews, which the browser will not let it read.
 
 ## Limitations
 
-- Leglas shows directions; it does not create them. Comparing existing
-  routes costs nothing, but a new direction is still code you or your
-  agent writes.
+- Leglas runs no model of its own. Comparing existing routes costs
+  nothing, but a new direction is still code your agent writes; Leglas
+  hands it the request and shows the result.
 - The duplicate check compares rendered markup only, and only when the
   server renders some. Two previews that differ solely in a script are
   reported as identical, and in a fully client-rendered app the check
@@ -488,9 +518,12 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 
 Two packages are published, both unscoped: `leglas`, which bundles the
 server and the built interface, and `leglas-mcp`. Releases are
-tag-driven: bump both versions, push a `v<version>` tag, and CI runs the
-suite and publishes through npm trusted publishing. No npm token exists
-anywhere in the project.
+tag-driven: set the same version in both packages and `plugin.json`, turn
+the changelog's Unreleased section into that version, push a `v<version>`
+tag, and CI runs the suite and publishes through npm trusted publishing.
+A tag that disagrees with the manifests is refused, and so is a patch tag
+when `api-surface.txt` has moved since the previous one. No npm token
+exists anywhere in the project.
 
 ## License
 
