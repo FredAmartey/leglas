@@ -33,7 +33,14 @@ export type ParseResult =
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "classify"; changes: ClassifyChange[]; json: boolean }
   | { kind: "list"; json: boolean }
-  | { kind: "show"; title: string; json: boolean }
+  | {
+      kind: "show";
+      title: string;
+      json: boolean;
+      screenshot: boolean;
+      width: number | null;
+      port: number | null;
+    }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "watch"; run: string | undefined; port: number | undefined }
   | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
@@ -45,6 +52,8 @@ export type ParseResult =
 
 const VALUE_FLAGS = new Set(["--port", "--user-port", "--config"]);
 const BOOLEAN_FLAGS = new Set(["--no-open", "--json"]);
+const MIN_SHOW_WIDTH = 320;
+const MAX_SHOW_WIDTH = 3840;
 
 function parsePort(flag: string, raw: string): number | { error: string } {
   if (!/^\d+$/.test(raw)) {
@@ -387,9 +396,47 @@ export function parseArgs(argv: string[]): ParseResult {
     const rest = argv.slice(1);
     let title: string | undefined;
     let json = false;
-    for (const argument of rest) {
+    let screenshot = false;
+    let width: number | null = null;
+    let port: number | null = null;
+    for (let index = 0; index < rest.length; index += 1) {
+      const argument = rest[index] as string;
       if (argument === "--json") {
         json = true;
+        continue;
+      }
+      if (argument === "--screenshot") {
+        screenshot = true;
+        continue;
+      }
+      if (
+        argument === "--width" ||
+        argument.startsWith("--width=") ||
+        argument === "--port" ||
+        argument.startsWith("--port=")
+      ) {
+        const equals = argument.indexOf("=");
+        const flag = equals === -1 ? argument : argument.slice(0, equals);
+        const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+        if (raw === undefined || raw === "") {
+          return { kind: "error", message: `${flag} needs a value.` };
+        }
+        if (flag === "--port") {
+          const parsed = parsePort(flag, raw);
+          if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
+          port = parsed;
+          continue;
+        }
+        if (!/^\d+$/.test(raw)) {
+          return { kind: "error", message: `--width needs a number, received ${JSON.stringify(raw)}.` };
+        }
+        width = Number(raw);
+        if (width < MIN_SHOW_WIDTH || width > MAX_SHOW_WIDTH) {
+          return {
+            kind: "error",
+            message: `--width must be between ${MIN_SHOW_WIDTH} and ${MAX_SHOW_WIDTH}, received ${width}.`,
+          };
+        }
         continue;
       }
       if (argument.startsWith("-")) {
@@ -406,7 +453,13 @@ export function parseArgs(argv: string[]): ParseResult {
         message: 'leglas show needs a direction title, for example: npx leglas show "Aurora" --json',
       };
     }
-    return { kind: "show", title, json };
+    if (width !== null && !screenshot) {
+      return { kind: "error", message: "leglas show --width needs --screenshot." };
+    }
+    if (port !== null && !screenshot) {
+      return { kind: "error", message: "leglas show --port needs --screenshot." };
+    }
+    return { kind: "show", title, json, screenshot, width, port };
   }
 
   const options: RunOptions = {

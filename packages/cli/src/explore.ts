@@ -59,6 +59,8 @@ export function planExplore(surface: string, count: number, basedOn: string | nu
     `renders, not the set at the end. The interface picks a registration up ` +
     `within seconds, so whoever asked watches the set fill in:\n\n` +
     `${register}\n\n` +
+    `After each registration, \`npx leglas show "<name>" --screenshot\` shows ` +
+    `you what landed; look before building the next one.\n\n` +
     `The title and note are what the user judges from in the rail, so name ` +
     `each one for its idea rather than numbering it.`;
 

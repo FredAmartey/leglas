@@ -347,6 +347,54 @@ describe("add --asked-for", () => {
   });
 });
 
+describe("the show command", () => {
+  test("takes a screenshot width and explicit server port", () => {
+    const result = parseArgs([
+      "show",
+      "Aurora",
+      "--screenshot",
+      "--width",
+      "390",
+      "--port=4200",
+      "--json",
+    ]);
+
+    expect(result).toEqual({
+      kind: "show",
+      title: "Aurora",
+      json: true,
+      screenshot: true,
+      width: 390,
+      port: 4200,
+    });
+  });
+
+  test("keeps metadata-only show as the default", () => {
+    const result = parseArgs(["show", "Aurora"]);
+
+    expect(result).toMatchObject({ screenshot: false, width: null, port: null });
+  });
+
+  test("width and port only make sense with a screenshot", () => {
+    expect(parseArgs(["show", "Aurora", "--width", "390"])).toEqual({
+      kind: "error",
+      message: "leglas show --width needs --screenshot.",
+    });
+    expect(parseArgs(["show", "Aurora", "--port", "4100"])).toEqual({
+      kind: "error",
+      message: "leglas show --port needs --screenshot.",
+    });
+  });
+
+  test("refuses widths outside the capture range", () => {
+    for (const width of ["319", "3841", "wide"]) {
+      expect(parseArgs(["show", "Aurora", "--screenshot", "--width", width]).kind).toBe(
+        "error",
+      );
+    }
+  });
+});
+
 describe("watch", () => {
   test("takes the agent command as one argument", () => {
     const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);

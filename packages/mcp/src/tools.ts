@@ -1,6 +1,11 @@
+import { readFile } from "node:fs/promises";
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { resolve } from "node:path";
+
 import {
+  isOwnCapture,
   run,
   runAdd,
   runClassify,
@@ -132,7 +137,8 @@ export function registerLeglasTools(
         "Register a design direction on this machine so it appears in the rail. " +
         "The rail picks it up within seconds, so when building a set register " +
         "each direction as it lands rather than the whole set at the end. " +
-        "Use branch for a direction that lives on its own git branch.",
+        "Use branch for a direction that lives on its own git branch. " +
+        "Then call show with screenshot: true to look at what you registered.",
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),
         url: z.string().min(1).optional()
@@ -179,16 +185,63 @@ export function registerLeglasTools(
         "Everything Leglas knows about one direction: its full entry, the source file behind " +
         "it, the variants based on it, the directions it is being compared against, and any " +
         "change requests still pending on it. Call this when handed a direction's reference " +
-        "block.",
+        "block. With screenshot: true, Leglas also renders the direction with a headless " +
+        "browser and returns the image, so you can see what you built. Do this after registering " +
+        "a direction and before saying it is done; width 390 shows the phone layout.",
       inputSchema: {
         title: z
           .string()
           .min(1)
           .describe("The direction's title as the config spells it, not a renamed display name."),
+        screenshot: z.boolean().optional(),
+        width: z.number().int().min(320).max(3840).optional(),
       },
     },
-    async ({ title }) =>
-      inProject(project, (cwd, deps) => runShow({ title, json: true, cwd }, deps)),
+    async ({ title, screenshot, width }) => {
+      const located = await project.locate();
+      if (!located.ok) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: located.reason }) }],
+          isError: true,
+        };
+      }
+      const result = await capture((deps) =>
+        runShow(
+          {
+            title,
+            json: true,
+            screenshot: screenshot ?? false,
+            width: width ?? null,
+            port: null,
+            cwd: located.directory,
+          },
+          deps,
+        ),
+      );
+      if (screenshot !== true || result.isError === true) return result;
+      const text = result.content.find((entry) => entry.type === "text");
+      if (text === undefined || text.type !== "text") return result;
+      try {
+        const envelope = JSON.parse(text.text) as { screenshot?: { file?: unknown } };
+        const file = envelope.screenshot?.file;
+        // The path comes back over a loopback socket, which a stale record
+        // can point at something that is not Leglas. Only a real file inside
+        // this project's captures is read and handed to the host.
+        if (typeof file !== "string" || !(await isOwnCapture(located.directory, file))) {
+          return result;
+        }
+        const image = await readFile(resolve(located.directory, file));
+        return {
+          ...result,
+          content: [
+            ...result.content,
+            { type: "image" as const, data: image.toString("base64"), mimeType: "image/png" },
+          ],
+        };
+      } catch {
+        return result;
+      }
+    },
   );
 
   server.registerTool(

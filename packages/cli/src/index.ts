@@ -15,8 +15,27 @@ export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate } from
 export { runWatch } from "./run-watch.js";
 export type { TemplateResult, WatchTemplate } from "./watch.js";
 export type { WatchDeps } from "./run-watch.js";
-export { DEFAULT_PORT, LEGLAS_PREFIX, readRequests } from "@leglas/server";
-export type { Failure, FailureCode, PendingRequest, RequestStatus } from "@leglas/server";
+export {
+  CAPTURES_DIR,
+  DEFAULT_PORT,
+  LEGLAS_PREFIX,
+  NO_BROWSER,
+  REFERENCES_DIR,
+  SERVER_INFO_PATH,
+  findBrowser,
+  isOwnCapture,
+  readRequests,
+  readServerInfo,
+} from "@leglas/server";
+export type {
+  Attachment,
+  AttachmentKind,
+  Failure,
+  FailureCode,
+  PendingRequest,
+  RequestStatus,
+  ServerInfo,
+} from "@leglas/server";
 export { runClassify } from "./run-classify.js";
 export { run } from "./run.js";
 export type { ParseResult, RunOptions } from "./args.js";
