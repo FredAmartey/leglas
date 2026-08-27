@@ -95,12 +95,14 @@ gained an optional dependency, and the public surface moved.
   once, so the shutdown never ran and the headless browser was reparented to
   init: 114MB across two processes, invisible because it is headless, held
   until the machine restarted. That signal is handled now. A Leglas killed
-  outright or crashing cannot run any handler, so each browser records the
-  process that launched it inside its own profile directory, and the next
-  Leglas kills the ones whose owner is gone. A browser belonging to a second
-  Leglas that is running right now is left alone, and a recorded process id
-  is only ever signalled when it is still the browser that profile belongs
-  to, because process ids are reused. (`leglas`)
+  outright or crashing cannot run any handler, so each browser also records
+  who launched it and how to reach it, in a profile directory only its own
+  user can read, and the next Leglas closes the ones whose owner is gone by
+  asking them over their own debugging endpoint. Nothing is signalled by
+  process id, since a process id is reused and the browser that answers a
+  token is the one that minted it. A browser belonging to a second Leglas
+  running right now is left alone, and so is a profile belonging to another
+  user of the machine. (`leglas`)
 - **Flipping between directions no longer loads every one of them twice.**
   The duplicate check reads each direction off stage once, but opening one
   looked like its document had been replaced, so the direction just clicked
