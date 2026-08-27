@@ -191,9 +191,10 @@ edit the hero. The supporting commands:
   where switching is instant.
 - `npx leglas show "Aurora" --json` answers for one direction: its entry, the
   source file behind it, the variants based on it, what it is being compared
-  against, and anything still pending on it. Copying a direction from the
-  rail hands over a block that ends in this command, so an agent given the
-  block can go and get the rest.
+  against, and anything still pending on it. Add `--screenshot` and it
+  renders the direction too, so an agent can look at what it built. Copying
+  a direction from the rail hands over a block that ends in this command, so
+  an agent given the block can go and get the rest.
 - `npx leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
   into real source and ends the exploration.
 
@@ -228,7 +229,7 @@ has taken it and for how long, and what went wrong when a run fails.
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-idle.png" width="290" alt="The change field, empty, with its agent picker reading Choose an agent" />
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-queued.png" width="290" alt="A card above the change field reading: Change queued, pick who runs your changes" />
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-pickedup.png" width="290" alt="A card above the change field reading: Codex is on it, editing .leglas/variants/hero/deepink.tsx, 1m 19s, with a stop button" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/field-pickedup.png" width="290" alt="A card above the change field reading: Codex is on it, editing .leglas/variants/hero/poster.tsx, 56s, with a stop button" />
 </p>
 
 <p align="center"><i>Nothing waiting, then a request queued, then an agent that has taken it.</i></p>
@@ -425,6 +426,11 @@ Options for add
   --file <path>        Preview a plain HTML file served by Leglas itself
   --based-on <title>   The direction this is a variant of; groups the family
   --asked-for <text>   The change that was asked for, in the words that were typed
+
+Options for show
+  --screenshot         Render the direction and write a PNG
+  --width <n>          Capture width from 320 to 3840 (needs --screenshot)
+  --port <port>        Running Leglas port (needs --screenshot)
 ```
 
 `leglas.config.ts` is the shared description of a project: commit it and a
