@@ -132,6 +132,12 @@ gained an optional dependency, and the public surface moved.
   arrived inside that window was never heard: the loop kept running and the
   caller waited on it for good. A stop that lands during startup now stops it.
   (`leglas`)
+- **A malformed request body no longer takes the server down with it.** Every
+  route that reads one now refuses anything that is not a JSON object. `null`
+  is valid JSON, and reading a field off it threw where nothing was waiting to
+  catch it, which on Node's terms ends the process: the interface, the queue's
+  own writer and whatever run was under way, from four characters sent by
+  anything that could reach loopback. (`leglas`)
 
 - **A reachable localhost port no longer silently passes as the intended app.**
   At startup, Leglas checks the working directory of a local port's listening

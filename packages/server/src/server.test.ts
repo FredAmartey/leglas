@@ -2081,3 +2081,48 @@ describe("what a capture may resolve", () => {
     ]);
   });
 });
+
+/**
+ * Every route that takes a body reads fields straight off what it parsed, and
+ * `null` is valid JSON. Four characters were enough to throw inside a listener
+ * whose rejection nothing was waiting for, which on Node's default terms takes
+ * the process down: the interface, the queue's own writer and whatever run was
+ * under way, from a client that only had to reach loopback.
+ */
+describe("a body that is not an object", () => {
+  const ROUTES = [
+    "/api/previews/delete",
+    "/api/request",
+    "/api/agent",
+    "/api/watch",
+    "/api/requests/cancel",
+    "/api/requests/retry",
+    "/api/requests/dismiss",
+    "/api/annotations",
+    "/api/annotations/delete",
+    "/api/renames",
+  ] as const;
+
+  test("is refused by every route that takes one, and none of them fall over", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-json-body-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+
+    for (const route of ROUTES) {
+      for (const nonsense of ["null", '"a string"', "[]", "7", "true"]) {
+        const answer = await fetch(`${server.url}/leglas${route}`, {
+          body: nonsense,
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+        expect(answer.status, `${route} answering ${nonsense}`).toBe(400);
+      }
+    }
+
+    // Still up, which is the whole point.
+    expect((await fetch(`${server.url}/leglas/api/requests`)).status).toBe(200);
+  });
+});
