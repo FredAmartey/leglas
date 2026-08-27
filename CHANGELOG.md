@@ -11,7 +11,7 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## 0.7.0 (2026-08-26)
+## 0.7.0 (2026-08-27)
 
 Every change request carries what the user sees, and embedded agents warm up
 when you mean it. A minor: how every run starts changed underneath, `leglas`
