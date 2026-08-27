@@ -39,6 +39,19 @@ import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
+import { ReferenceStrip } from "./ReferenceStrip.js";
+import { uploadReference } from "./references-api.js";
+import {
+  REFERENCE_CAP,
+  REFERENCE_TYPES,
+  admit,
+  carriesFiles,
+  displayName as referenceName,
+  referenceIds,
+  refusalMessage,
+  sendBlocker,
+  type ReferenceDraft,
+} from "./references.js";
 import type { Anchor } from "./anchor.js";
 import {
   addNote,
@@ -510,6 +523,84 @@ export function Shell({
     field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
   }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
+  /**
+   * Reference images riding with the next change.
+   *
+   * Uploaded as they arrive rather than when the request is sent, so the
+   * send only names ids and the strip can be honest about which ones landed.
+   * The drafts carry everything the strip draws; the File objects wait in a
+   * ref for a retry, since a draft that failed still has the bytes to try
+   * again with.
+   */
+  const [references, setReferences] = useState<ReferenceDraft[]>([]);
+  const referenceFiles = useRef(new Map<string, File>());
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
+  // A drag is counted in and out rather than flagged, because entering a
+  // child fires leave on the parent, and a single boolean flickers every time
+  // the pointer crosses the field.
+  const [dropping, setDropping] = useState(false);
+  const dropDepth = useRef(0);
+  const uploadReferenceDraft = useCallback((key: string, file: File) => {
+    referenceFiles.current.set(key, file);
+    setReferences((current) =>
+      current.map((draft) =>
+        draft.key === key ? { ...draft, status: "uploading", id: null } : draft,
+      ),
+    );
+    void uploadReference(file)
+      .then(({ id }) =>
+        setReferences((current) =>
+          current.map((draft) => (draft.key === key ? { ...draft, status: "ready", id } : draft)),
+        ),
+      )
+      .catch(() =>
+        setReferences((current) =>
+          current.map((draft) =>
+            draft.key === key ? { ...draft, status: "failed", id: null } : draft,
+          ),
+        ),
+      );
+  }, []);
+  const attachReferences = (files: readonly File[]) => {
+    if (st.active === null || sending) return;
+    const { accepted, refused } = admit(references, files);
+    const message = refusalMessage(refused);
+    if (message !== null) {
+      st.notify({ kind: "reference", message, tone: "info", ttl: TOAST_TTL.action });
+    }
+    if (accepted.length === 0) return;
+    const drafts = accepted.map(
+      (file): ReferenceDraft => ({
+        key: crypto.randomUUID(),
+        name: referenceName(file.name),
+        type: file.type,
+        bytes: file.size,
+        url: URL.createObjectURL(file),
+        status: "uploading",
+        id: null,
+      }),
+    );
+    setReferences((current) => [...current, ...drafts]);
+    drafts.forEach((draft, index) => {
+      const file = accepted[index];
+      if (file !== undefined) uploadReferenceDraft(draft.key, file);
+    });
+  };
+  const removeReference = (key: string) => {
+    referenceFiles.current.delete(key);
+    const leaving = references.find((draft) => draft.key === key);
+    if (leaving !== undefined) URL.revokeObjectURL(leaving.url);
+    setReferences((current) => current.filter((draft) => draft.key !== key));
+  };
+  const retryReference = (key: string) => {
+    const file = referenceFiles.current.get(key);
+    if (file !== undefined) uploadReferenceDraft(key, file);
+  };
+  const clearReferences = () => {
+    referenceFiles.current.clear();
+    for (const draft of references) URL.revokeObjectURL(draft.url);
+    setReferences([]);
+  };
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
   const [savingEffort, setSavingEffort] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -807,6 +898,21 @@ export function Shell({
     stageWidth: stage.width,
     viewport: st.prefs.viewport,
   });
+
+  /**
+   * What the active design is actually drawn at, for the capture that rides
+   * with a request. A preset is that preset. Otherwise the stage's own width
+   * is what a lone pane gets, and a split gives each pane half of it, unless
+   * the split is scaled, in which case the design keeps its own width and
+   * only the frame shrinks. Null until the stage has been measured; the
+   * server picks a sensible default then.
+   */
+  const drawnWidth =
+    st.prefs.viewport !== null
+      ? Math.round(st.prefs.viewport)
+      : stage.width <= 0
+        ? null
+        : Math.round(splitting && !scaling ? (stage.width - 1) / 2 : stage.width);
 
   const widgetAnchor = widgetDrag
     ? (() => {
@@ -2410,11 +2516,39 @@ export function Shell({
               // alone are a request. Nothing at all still is not.
               if ((!value && activeNotes.length === 0) || !title || sending) return;
               const name = st.displayName(title);
+              // An image still uploading lands in a moment; one that failed
+              // needs a decision, because sending without it would quietly
+              // drop the thing that was attached on purpose.
+              const blocker = sendBlocker(references);
+              if (blocker !== null) {
+                st.notify({
+                  kind: "request",
+                  message:
+                    blocker === "uploading"
+                      ? "Still uploading an image. Try again in a moment."
+                      : "One image did not upload. Retry it or remove it, then send.",
+                  tone: "info",
+                  ttl: TOAST_TTL.action,
+                });
+                return;
+              }
+              const attached = referenceIds(references);
               setSending(true);
               void fetch("/leglas/api/request", {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ title, intent: value, mode }),
+                body: JSON.stringify({
+                  title,
+                  intent: value,
+                  mode,
+                  // The width the design is drawn at, so the agent sees the
+                  // layout being judged rather than a default one.
+                  ...(drawnWidth === null ? {} : { width: drawnWidth }),
+                  // The other pane, when there is one: "the other one" in the
+                  // words typed means it, and the agent should see it too.
+                  ...(splitting && compare !== null && compare !== title ? { compare } : {}),
+                  ...(attached.length === 0 ? {} : { references: attached }),
+                }),
               })
                 .then(
                   (response) =>
@@ -2422,6 +2556,7 @@ export function Shell({
                       ok: boolean;
                       prompt?: string;
                       duplicate?: boolean;
+                      error?: string;
                     }>,
                 )
                 .then((result) => {
@@ -2439,8 +2574,22 @@ export function Shell({
                     });
                     return;
                   }
+                  // A refusal with a reason (an image pruned while the
+                  // composer sat open) keeps the words and the thumbnails:
+                  // the reason says what to do with them.
+                  if (!result.ok && typeof result.error === "string") {
+                    setSending(false);
+                    st.notify({
+                      kind: "request",
+                      message: result.error,
+                      tone: "danger",
+                      ttl: TOAST_TTL.action,
+                    });
+                    return;
+                  }
                   if (!result.ok || !result.prompt) throw new Error("refused");
                   setIntent("");
+                  clearReferences();
                   // The send is over once the queue has the request; the
                   // clipboard is a bonus that must not hold the field. A
                   // browser sitting on a permission prompt never settles its
@@ -2485,7 +2634,43 @@ export function Shell({
             {/* One surface, like every composer people already know: what to
                 change on top, who runs it and the send below, inside the same
                 border. The field takes the focus ring for the whole object. */}
-            <div className="rounded-md border border-[#232328] bg-[#2E2E2E]/40 transition-colors focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40">
+            <div
+              className={`rounded-md border bg-[#2E2E2E]/40 transition-colors ${
+                dropping
+                  ? "border-[#7C9CFF]/70 ring-1 ring-[#7C9CFF]/40"
+                  : "border-[#232328] focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40"
+              }`}
+              onDragEnter={(event) => {
+                if (!carriesFiles(event.dataTransfer.types)) return;
+                event.preventDefault();
+                dropDepth.current += 1;
+                setDropping(true);
+              }}
+              onDragLeave={(event) => {
+                if (!carriesFiles(event.dataTransfer.types)) return;
+                dropDepth.current = Math.max(0, dropDepth.current - 1);
+                if (dropDepth.current === 0) setDropping(false);
+              }}
+              onDragOver={(event) => {
+                if (!carriesFiles(event.dataTransfer.types)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(event) => {
+                if (!carriesFiles(event.dataTransfer.types)) return;
+                event.preventDefault();
+                dropDepth.current = 0;
+                setDropping(false);
+                // Every dropped file goes through admission, so a PDF or an
+                // SVG is refused with a reason rather than ignored.
+                attachReferences(Array.from(event.dataTransfer.files));
+              }}
+            >
+              <ReferenceStrip
+                drafts={references}
+                onRemove={removeReference}
+                onRetry={retryReference}
+              />
               {/* Enter sends and Shift+Enter breaks the line, the contract
                   every chat composer has already taught. */}
               <textarea
@@ -2503,16 +2688,30 @@ export function Shell({
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
+                onPaste={(event) => {
+                  const files = Array.from(event.clipboardData.files);
+                  if (files.length === 0) return;
+                  // A pasted image is the request. The text a browser puts
+                  // beside it is a filename nobody typed.
+                  event.preventDefault();
+                  attachReferences(files);
+                }}
                 placeholder={
                   st.active === null
                     ? "No direction to change yet"
-                    : activeNotes.length > 0
-                      ? `Send ${
-                          activeNotes.length === 1
-                            ? "the annotation"
-                            : `${activeNotes.length} annotations`
-                        }, or add words…`
-                      : `Change ${st.displayName(st.active)}…`
+                    : dropping
+                      ? "Drop the image here"
+                      : references.length > 0 && activeNotes.length === 0
+                        ? `Say what to take from the ${
+                            references.length === 1 ? "image" : "images"
+                          }…`
+                        : activeNotes.length > 0
+                          ? `Send ${
+                              activeNotes.length === 1
+                                ? "the annotation"
+                                : `${activeNotes.length} annotations`
+                            }, or add words…`
+                          : `Change ${st.displayName(st.active)}…`
                 }
                 ref={requestRef}
                 rows={1}
@@ -2571,6 +2770,60 @@ export function Shell({
                       </svg>
                     )}
                     {mode === "variant" ? "as a variant" : "in place"}
+                  </button>
+                </Tip>
+                {/* Showing beats describing: a screenshot of the thing the
+                    words are about, or of the thing they should become. Paste
+                    and drop do the same job; this is the way in for anyone who
+                    does neither. */}
+                <input
+                  accept={REFERENCE_TYPES.join(",")}
+                  className="sr-only"
+                  multiple
+                  onChange={(event) => {
+                    attachReferences(Array.from(event.currentTarget.files ?? []));
+                    // Cleared so the same file can be chosen again after a
+                    // remove; a file input only fires when its value changes.
+                    event.currentTarget.value = "";
+                  }}
+                  ref={referenceInputRef}
+                  tabIndex={-1}
+                  type="file"
+                />
+                <Tip
+                  label={
+                    <>
+                      <span className="block">Attach a reference image</span>
+                      <span className="block text-[#9CA3AF]">Paste or drop one, too</span>
+                    </>
+                  }
+                >
+                  <button
+                    aria-label={
+                      references.length > 0
+                        ? `Attach another image, ${references.length} attached`
+                        : "Attach a reference image"
+                    }
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
+                    disabled={!st.active || sending || references.length >= REFERENCE_CAP}
+                    onClick={() => referenceInputRef.current?.click()}
+                    type="button"
+                  >
+                    <svg
+                      aria-hidden
+                      fill="none"
+                      height="11"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.7"
+                      viewBox="0 0 16 16"
+                      width="11"
+                    >
+                      <rect height="10.5" rx="1.8" width="12.5" x="1.75" y="2.75" />
+                      <circle cx="5.6" cy="6.3" r="1.1" />
+                      <path d="m14.25 10.4-3.1-3.1a1 1 0 0 0-1.4 0L4.5 12.5" />
+                    </svg>
                   </button>
                 </Tip>
                 {/* The way in that is not a keystroke, and the count that says
@@ -2842,7 +3095,21 @@ export function Shell({
             </div>
           </form>
 
-          {activeOrigin === null ? null : (
+          {sending ? (
+            /* The send takes a second or two now: Leglas loads the direction
+               in a headless browser so the agent sees what the user sees. Said
+               in words, because a field that goes quiet for two seconds reads
+               as a hang. It takes the provenance line's slot rather than
+               stacking under it. */
+            <div className="px-3 pb-2">
+              <p
+                aria-live="polite"
+                className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
+              >
+                Capturing the design for your agent…
+              </p>
+            </div>
+          ) : activeOrigin === null ? null : (
             <div className="px-3 pb-2">
               <p
                 className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
