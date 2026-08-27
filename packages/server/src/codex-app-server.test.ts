@@ -92,7 +92,12 @@ describe("Codex app-server transport", () => {
     await expect(server.warm()).resolves.toBeUndefined();
     expect(spawned.processes).toHaveLength(1);
 
-    const firstRun = server.run({ prompt: "first prompt", effort: "high", sessionId: null });
+    const firstRun = server.run({
+      prompt: "first prompt",
+      effort: "high",
+      sessionId: null,
+      images: ["/project/frame.png", "/project/note-1.png"],
+    });
     await until(() => byMethod(process, "thread/start").length === 1);
     const threadStart = byMethod(process, "thread/start")[0] as Message;
     expect(threadStart.params).toMatchObject({
@@ -107,7 +112,11 @@ describe("Codex app-server transport", () => {
     const firstTurn = byMethod(process, "turn/start")[0] as Message;
     expect(firstTurn.params).toMatchObject({
       threadId: "th_1",
-      input: [{ type: "text", text: "first prompt" }],
+      input: [
+        { type: "text", text: "first prompt" },
+        { type: "localImage", path: "/project/frame.png" },
+        { type: "localImage", path: "/project/note-1.png" },
+      ],
       effort: "high",
       approvalPolicy: "never",
       sandboxPolicy: { type: "workspaceWrite", networkAccess: true },
@@ -149,7 +158,7 @@ describe("Codex app-server transport", () => {
     expect(firstLines.join("")).toContain('"type":"command_execution"');
     expect(firstLines.join("")).toContain('"type":"file_change"');
 
-    const secondRun = server.run({ prompt: "second prompt", effort: null, sessionId: "th_1" });
+    const secondRun = server.run({ prompt: "second prompt", effort: null, sessionId: "th_1", images: [] });
     await until(() => byMethod(process, "turn/start").length === 2);
     expect(byMethod(process, "thread/start")).toHaveLength(1);
     expect(byMethod(process, "thread/resume")).toHaveLength(0);
@@ -171,7 +180,7 @@ describe("Codex app-server transport", () => {
 
   test("resumes a stored thread after a new app-server process", async () => {
     const { process, server } = await initialize();
-    const running = server.run({ prompt: "continue", effort: "max", sessionId: "stored_1" });
+    const running = server.run({ prompt: "continue", effort: "max", sessionId: "stored_1", images: [] });
     await until(() => byMethod(process, "thread/resume").length === 1);
     const resume = byMethod(process, "thread/resume")[0] as Message;
     process.send({ id: resume.id, result: { thread: { id: "stored_1" } } });
@@ -194,7 +203,7 @@ describe("Codex app-server transport", () => {
 
   test("maps cancellation to turn/interrupt", async () => {
     const { process, server } = await initialize();
-    const running = server.run({ prompt: "keep going", effort: null, sessionId: null });
+    const running = server.run({ prompt: "keep going", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
     const thread = byMethod(process, "thread/start")[0] as Message;
     process.send({ id: thread.id, result: { thread: { id: "th_cancel" } } });
@@ -224,7 +233,7 @@ describe("Codex app-server transport", () => {
 
   test("replays an immediate completion to a late close listener", async () => {
     const { process, server } = await initialize();
-    const running = server.run({ prompt: "quick", effort: null, sessionId: null });
+    const running = server.run({ prompt: "quick", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
     const thread = byMethod(process, "thread/start")[0] as Message;
     process.send({ id: thread.id, result: { thread: { id: "th_quick" } } });
@@ -253,7 +262,7 @@ describe("Codex app-server transport", () => {
 
   test("fails pending requests instead of crashing on an asynchronous stdin error", async () => {
     const { process, server } = await initialize();
-    const running = server.run({ prompt: "pipe", effort: null, sessionId: null });
+    const running = server.run({ prompt: "pipe", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
 
     process.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
@@ -265,7 +274,7 @@ describe("Codex app-server transport", () => {
 
   test("terminates an ambiguously accepted turn before reporting its timeout", async () => {
     const { process, server } = await initialize(10);
-    const running = server.run({ prompt: "timeout", effort: null, sessionId: null });
+    const running = server.run({ prompt: "timeout", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
     const thread = byMethod(process, "thread/start")[0] as Message;
     process.send({ id: thread.id, result: { thread: { id: "th_timeout" } } });
@@ -278,7 +287,7 @@ describe("Codex app-server transport", () => {
 
   test("waits for an in-progress reset to escalate before shutdown completes", async () => {
     const { process, server } = await initialize(30_000, false);
-    const running = server.run({ prompt: "stubborn", effort: null, sessionId: null });
+    const running = server.run({ prompt: "stubborn", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
     process.stdin.emit("error", new Error("write EPIPE"));
     await expect(running).rejects.toThrow("EPIPE");

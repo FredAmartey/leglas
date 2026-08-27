@@ -1,3 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -97,7 +101,7 @@ async function nextInput(warm: FakeWarmQuery): Promise<Message> {
 describe("Claude Agent SDK transport", () => {
   test("warms once and keeps multiple turns in one SDK process", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", "npx leglas register", sdk.startup);
+    const session = createClaudeAgentSession("/project", ["npx leglas register"], sdk.startup);
     await session.warm();
     await session.warm();
     expect(sdk.calls).toHaveLength(1);
@@ -116,7 +120,7 @@ describe("Claude Agent SDK transport", () => {
     expect(sdk.calls[0]?.options.abortController).toBeInstanceOf(AbortController);
 
     const warm = sdk.warms[0] as FakeWarmQuery;
-    const first = await session.run({ prompt: "first prompt", effort: "high", sessionId: null });
+    const first = await session.run({ prompt: "first prompt", effort: "high", sessionId: null, images: [] });
     expect(warm.output.applied).toEqual([{ effortLevel: "high" }]);
     await expect(nextInput(warm)).resolves.toMatchObject({
       type: "user",
@@ -152,6 +156,7 @@ describe("Claude Agent SDK transport", () => {
       prompt: "second prompt",
       effort: null,
       sessionId: "claude_1",
+      images: [],
     });
     expect(warm.query).toHaveBeenCalledTimes(1);
     expect(warm.output.applied).toEqual([
@@ -175,10 +180,49 @@ describe("Claude Agent SDK transport", () => {
     expect(warm.output.close).toHaveBeenCalledOnce();
   });
 
+  test("hands readable bounded images to Claude as base64 content blocks", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-claude-images-"));
+    const image = join(cwd, "frame.png");
+    const tooLarge = join(cwd, "large.jpg");
+    writeFileSync(image, Buffer.from("image bytes"));
+    writeFileSync(tooLarge, Buffer.alloc(5_000_001));
+    const sdk = harness();
+    const session = createClaudeAgentSession(cwd, [], sdk.startup);
+    const child = await session.run({
+      prompt: "look at these",
+      effort: null,
+      sessionId: null,
+      images: [image, tooLarge, join(cwd, "missing.webp"), join(cwd, "not-an-image.txt")],
+    });
+    const warm = sdk.warms[0] as FakeWarmQuery;
+    const input = await nextInput(warm);
+    const message = input.message as { content: Record<string, any>[] };
+    expect(message.content).toEqual([
+      { type: "text", text: "look at these" },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: Buffer.from("image bytes").toString("base64"),
+        },
+      },
+    ]);
+    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    warm.output.emit({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: "claude_images",
+    });
+    await closed;
+    await session.close();
+  });
+
   test("rotates to a fresh process when the caller starts a fresh session", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
-    const first = await session.run({ prompt: "first", effort: "max", sessionId: null });
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
+    const first = await session.run({ prompt: "first", effort: "max", sessionId: null, images: [] });
     const firstWarm = sdk.warms[0] as FakeWarmQuery;
     const firstClosed = new Promise<void>((resolve) => first.once("close", () => resolve()));
     firstWarm.output.emit({
@@ -189,7 +233,7 @@ describe("Claude Agent SDK transport", () => {
     });
     await firstClosed;
 
-    const second = await session.run({ prompt: "fresh", effort: "xhigh", sessionId: null });
+    const second = await session.run({ prompt: "fresh", effort: "xhigh", sessionId: null, images: [] });
     expect(firstWarm.output.close).toHaveBeenCalledOnce();
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.warms[1]?.output.applied).toEqual([{ effortLevel: "xhigh" }]);
@@ -206,10 +250,10 @@ describe("Claude Agent SDK transport", () => {
 
   test("leaves a stored session to the CLI resume fallback", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
     await expect(
-      session.run({ prompt: "continue", effort: "high", sessionId: "stored_1" }),
+      session.run({ prompt: "continue", effort: "high", sessionId: "stored_1", images: [] }),
     ).rejects.toThrow("not loaded");
     expect(sdk.warms[0]?.query).not.toHaveBeenCalled();
     await session.close();
@@ -217,8 +261,8 @@ describe("Claude Agent SDK transport", () => {
 
   test("maps a polite stop to the SDK interrupt without killing the session", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
-    const child = await session.run({ prompt: "keep going", effort: null, sessionId: null });
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
+    const child = await session.run({ prompt: "keep going", effort: null, sessionId: null, images: [] });
     const warm = sdk.warms[0] as FakeWarmQuery;
     expect(child.kill("SIGTERM")).toBe(true);
     expect(warm.output.interrupt).toHaveBeenCalledOnce();
@@ -237,8 +281,8 @@ describe("Claude Agent SDK transport", () => {
 
   test("reports SDK error results as failed turns", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
-    const child = await session.run({ prompt: "fail", effort: "high", sessionId: null });
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
+    const child = await session.run({ prompt: "fail", effort: "high", sessionId: null, images: [] });
     const closed = new Promise<number | null>((resolve) =>
       child.once("close", (code) => resolve(code)),
     );
@@ -255,9 +299,9 @@ describe("Claude Agent SDK transport", () => {
 
   test("replays a result that arrives before the close listener is attached", async () => {
     const sdk = harness();
-    const session = createClaudeAgentSession("/project", null, sdk.startup);
+    const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
-    const running = session.run({ prompt: "quick", effort: null, sessionId: null });
+    const running = session.run({ prompt: "quick", effort: null, sessionId: null, images: [] });
     const warm = sdk.warms[0] as FakeWarmQuery;
     await until(() => warm.input !== null);
     await expect(nextInput(warm)).resolves.toMatchObject({
@@ -289,7 +333,7 @@ describe("Claude Agent SDK transport", () => {
           { once: true },
         );
       });
-    const session = createClaudeAgentSession("/project", null, startup);
+    const session = createClaudeAgentSession("/project", [], startup);
     const warming = session.warm();
     await until(() => controller !== null);
 
@@ -305,8 +349,8 @@ describe("Claude Agent SDK transport", () => {
       queries.push(query);
       return new FakeWarmQuery(query);
     };
-    const session = createClaudeAgentSession("/project", null, startup);
-    const first = await session.run({ prompt: "first", effort: null, sessionId: null });
+    const session = createClaudeAgentSession("/project", [], startup);
+    const first = await session.run({ prompt: "first", effort: null, sessionId: null, images: [] });
     const firstClosed = new Promise<void>((resolve) => first.once("close", () => resolve()));
     queries[0]?.emit({
       type: "result",
@@ -318,12 +362,12 @@ describe("Claude Agent SDK transport", () => {
 
     const controller = new AbortController();
     const rotating = session.run(
-      { prompt: "cancel", effort: null, sessionId: null },
+      { prompt: "cancel", effort: null, sessionId: null, images: [] },
       controller.signal,
     );
     await until(() => (queries[0]?.close.mock.calls.length ?? 0) === 1);
     controller.abort();
-    const nextRun = session.run({ prompt: "next", effort: null, sessionId: null });
+    const nextRun = session.run({ prompt: "next", effort: null, sessionId: null, images: [] });
 
     await expect(rotating).rejects.toThrow("cancelled");
     const next = await nextRun;
