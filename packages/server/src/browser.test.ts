@@ -430,8 +430,26 @@ describe("launchBrowser", () => {
         connect: async () => new FakeSocket(),
         startTimeoutMs: 5,
       }),
-    ).rejects.toThrow("did not start");
+    ).rejects.toThrow("did not expose its debugging endpoint");
     expect(process.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  test("a startup failure carries what the browser itself said", async () => {
+    // Without this the only report was "The browser did not start", which on
+    // someone else's machine says nothing. The browser is the one party that
+    // knows why, and its own words were being discarded.
+    const process = fakeProcess(false);
+    queueMicrotask(() => {
+      process.stderr.write("Failed to move to new namespace\n");
+      process.stderr.write("No usable sandbox!\n");
+      process.emit("close", 1, null);
+    });
+    await expect(
+      launchBrowser("/browser", {
+        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        connect: async () => new FakeSocket(),
+      }),
+    ).rejects.toThrow("No usable sandbox");
   });
 
   test("includes the early exit code in a startup failure", async () => {

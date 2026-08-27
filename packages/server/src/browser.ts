@@ -275,6 +275,18 @@ export type LaunchOptions = {
   commandTimeoutMs?: number;
 };
 
+/**
+ * How long a browser has to expose its debugging endpoint.
+ *
+ * Ten seconds is plenty for a browser that has been run before and was not
+ * enough on a cold continuous-integration runner, where the first Chrome
+ * start of the machine's life pays for a cold page cache and a profile that
+ * does not exist yet. This is the deadline for something going wrong, not a
+ * wait anybody sits through: a capture is abandoned by its own shorter
+ * deadline long before this fires.
+ */
+const START_TIMEOUT_MS = 30_000;
+
 type PendingCommand = {
   resolve(value: unknown): void;
   reject(error: Error): void;
@@ -319,12 +331,25 @@ async function connectWebSocket(url: string): Promise<CdpSocket> {
   };
 }
 
+/**
+ * Wait for the browser to say where its debugging endpoint is.
+ *
+ * Whatever it printed on the way there is kept, and a failure carries the
+ * last of it. Without that this reported "The browser did not start." and
+ * nothing else, which on someone else's machine is a dead end: the one party
+ * that knows why is the browser, and its own words were being thrown away.
+ */
 function endpoint(
   process: BrowserProcess,
   timeoutMs: number,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const said: string[] = [];
+    const because = () => {
+      const tail = said.filter((line) => line.trim() !== "").slice(-3).join(" / ");
+      return tail === "" ? "" : ` It said: ${tail}`;
+    };
     const finish = (value: string | Error) => {
       if (settled) return;
       settled = true;
@@ -333,18 +358,25 @@ function endpoint(
       else reject(value);
     };
     const inspect = (line: string) => {
+      if (said.length < 40) said.push(line);
       const match = /DevTools listening on (ws:\/\/\S+)/.exec(line);
       if (match?.[1] !== undefined) finish(match[1]);
     };
     if (process.stdout !== null) lines(process.stdout, inspect);
     if (process.stderr !== null) lines(process.stderr, inspect);
-    process.once("error", () => finish(new Error("The browser did not start.")));
+    process.once("error", (error) =>
+      finish(new Error(`The browser did not start: ${error.message}.${because()}`)),
+    );
     process.once("close", (code) =>
-      finish(new Error(`The browser did not start (exit code ${code ?? "unknown"}).`)),
+      finish(new Error(`The browser did not start (exit code ${code ?? "unknown"}).${because()}`)),
     );
     const timer = setTimeout(() => {
       process.kill("SIGKILL");
-      finish(new Error("The browser did not start."));
+      finish(
+        new Error(
+          `The browser did not expose its debugging endpoint within ${Math.round(timeoutMs / 1000)}s.${because()}`,
+        ),
+      );
     }, timeoutMs);
     timer.unref?.();
   });
@@ -401,7 +433,7 @@ export async function launchBrowser(
 
   let websocketUrl: string;
   try {
-    websocketUrl = await endpoint(process, options.startTimeoutMs ?? 10_000);
+    websocketUrl = await endpoint(process, options.startTimeoutMs ?? START_TIMEOUT_MS);
   } catch (error) {
     await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
     throw error;
