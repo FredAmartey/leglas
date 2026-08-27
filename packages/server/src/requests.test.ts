@@ -144,7 +144,11 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain("note-1.png  what note 1 points at, with room around it");
     expect(prompt).toContain('Alongside it on screen is "Ledger"');
     expect(prompt).toContain("Reference images the user attached");
-    expect(prompt).toContain("Look at every image before changing anything.");
+    // Named as files, because only some ways in carry the pictures
+    // themselves and every one of them can open a path.
+    expect(prompt).toContain(
+      "Each path above is a file in this project. Open every one and look at it before changing anything.",
+    );
     expect(prompt).toContain("On load it logged 2 console errors:");
     expect(prompt).toContain("(The design could not be captured in time. Use the live preview instead.)");
     expect(prompt.indexOf("What to change")).toBeLessThan(prompt.indexOf("What it looks like"));
@@ -616,3 +620,32 @@ describe("attachments read back from the queue", () => {
     expect(read?.attachments).toEqual([attachment(".leglas/captures/abc123/frame.png")]);
   });
 });
+
+describe("agents that receive paths rather than attachments", () => {
+  test("every capture is named as a file, so a path-only agent can still open it", () => {
+    const captured = {
+      attachments: [
+        { kind: "frame" as const, file: ".leglas/captures/r1/frame.png", width: 1440, height: 900, viewport: 1440 },
+        { kind: "reference" as const, file: ".leglas/captures/r1/reference-1.png", width: 800, height: 600 },
+      ],
+      errors: [],
+      cut: false,
+      skipped: null,
+    };
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "replace",
+      [],
+      "npx -y leglas",
+      captured,
+    );
+
+    // Cursor, a custom command and `leglas watch` get this text and nothing
+    // else, so the paths and the instruction have to carry the whole job.
+    expect(prompt).toContain(".leglas/captures/r1/frame.png");
+    expect(prompt).toContain(".leglas/captures/r1/reference-1.png");
+    expect(prompt).toContain("Open every one and look at it");
+  });
+});
+

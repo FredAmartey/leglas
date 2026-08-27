@@ -228,7 +228,18 @@ function capturedBlock(captured: Captured | null): string {
     lines.push("Reference images the user attached, which show what they mean:");
     for (const reference of references) lines.push(`  ${reference.file}`);
   }
-  if (captured.attachments.length > 0) lines.push("Look at every image before changing anything.");
+  if (captured.attachments.length > 0) {
+    // Said as files on purpose. Only some ways in carry the pictures
+    // themselves: the embedded Codex and the embedded Claude session hand
+    // them to the model directly, while a Claude CLI fallback, Cursor, a
+    // custom command and `leglas watch` get this text and nothing else. Every
+    // one of them can open a file, so the instruction that works everywhere
+    // is the one that names them as files. An agent that also received them
+    // attached has lost nothing by being told where they live.
+    lines.push(
+      "Each path above is a file in this project. Open every one and look at it before changing anything.",
+    );
+  }
 
   if (captured.errors.length > 0) {
     lines.push(

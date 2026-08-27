@@ -29,7 +29,8 @@ underneath, and because `leglas` gained an optional dependency.
   each one is, and console errors logged on load ride along as text. The
   embedded Claude session receives the images as content blocks, the embedded
   Codex app-server as `localImage` inputs, and a cold Codex run gets `-i` per
-  image. With no browser on the machine the request still goes, with one
+  image. Every other way in, a Claude CLI fallback, Cursor, a custom command
+  and `leglas watch`, gets the paths in the prompt and is told to open them. With no browser on the machine the request still goes, with one
   sentence saying why nothing was captured. Captures leave with their request
   and orphans are pruned at boot. (`leglas`)
 - **Reference images in the composer.** Paste, drop or attach up to four PNG,
