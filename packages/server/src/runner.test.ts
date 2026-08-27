@@ -96,6 +96,31 @@ const tickUntil = async (
 afterEach(() => vi.restoreAllMocks());
 
 describe("startRunner", () => {
+  test("reports state changes through the optional onChange hook", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-change-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Observed"));
+    const clock = manualClock();
+    const spawned = spawner();
+    const onChange = vi.fn();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      onChange,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => runner.snapshot().running);
+    expect(onChange).toHaveBeenCalledOnce();
+
+    spawned.children[0]?.close(0);
+    await until(() => !runner.snapshot().running);
+    expect(onChange).toHaveBeenCalledTimes(2);
+    await runner.stop();
+  });
+
   test("runs requests in queue order and never overlaps children", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-order-"));
     await saveAgentChoice(cwd, { agent: "claude", effort: "high" });

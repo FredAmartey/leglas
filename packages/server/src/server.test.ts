@@ -11,6 +11,7 @@ import { CAPTURES_DIR, REFERENCES_DIR } from "./attachments.js";
 import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./browser.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { LeglasConfig } from "./config.js";
+import type { LiveChange, LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
@@ -51,6 +52,37 @@ function startOrigin(): Promise<number> {
 function configFor(port: number, previews: LeglasConfig["previews"] = []): LeglasConfig {
   return { devServer: `http://127.0.0.1:${port}`, previews };
 }
+
+type FakeLiveHub = LiveHub & {
+  readonly changes: LiveChange[];
+  setListening(value: number): void;
+  close: ReturnType<typeof vi.fn>;
+};
+
+function fakeLiveHub(initialListening = 0): FakeLiveHub {
+  let listening = initialListening;
+  const changes: LiveChange[] = [];
+  return {
+    changes,
+    nudge: (change) => changes.push(change),
+    upgrade: () => false,
+    close: vi.fn(async () => {}),
+    get listening() {
+      return listening;
+    },
+    setListening: (value) => {
+      listening = value;
+    },
+  };
+}
+
+const eventually = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
+  const deadline = Date.now() + 3000;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error("condition never held");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+};
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
   // Server tests exercise HTTP behavior, not the installed Codex binary.
@@ -1982,6 +2014,142 @@ describe("startServer", () => {
     };
 
     expect(body.reachable).toBe(false);
+  });
+
+  test("coalesces request-file writes into one requests nudge", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-requests-"));
+    mkdirSync(join(cwd, ".leglas"));
+    const live = fakeLiveHub();
+    await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
+
+    const path = join(cwd, ".leglas/requests.json");
+    writeFileSync(path, '{"requests":[]}\n');
+    writeFileSync(path, '{"requests":[]}\n ');
+
+    // Only that a write reaches the wire, and only ever as "requests".
+    // How many nudges two back-to-back writes produce depends on when the
+    // operating system delivers the watch events, not on this code, and
+    // asserting a count here measured that instead and failed on a loaded
+    // machine. The coalescing itself is proven against a driven clock in
+    // live.test.ts, where it is a property rather than a race.
+    await eventually(() => live.changes.length >= 1);
+    expect(new Set(live.changes)).toEqual(new Set(["requests"]));
+  });
+
+  test("routes annotation changes through requests, never a fourth kind", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-annotations-"));
+    mkdirSync(join(cwd, ".leglas"));
+    const live = fakeLiveHub();
+    await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
+
+    writeFileSync(join(cwd, ".leglas/annotations.json"), '{"annotations":[]}\n');
+
+    await eventually(() => live.changes.length === 1);
+    expect(live.changes).toEqual(["requests"]);
+  });
+
+  test("nudges config when the late-created previews registry changes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-previews-"));
+    const live = fakeLiveHub();
+    await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    writeFileSync(join(cwd, ".leglas/previews.json"), '{"previews":[]}\n');
+
+    await eventually(() => live.changes.includes("config"));
+    expect(live.changes).toEqual(["config"]);
+  });
+
+  test("nudges config when the resolved config file changes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-config-"));
+    const configPath = join(cwd, "leglas.config.json");
+    writeFileSync(configPath, "{}\n");
+    const live = fakeLiveHub();
+    await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    writeFileSync(configPath, '{"previews":[]}\n');
+
+    await eventually(() => live.changes.includes("config"));
+    expect(live.changes).toEqual(["config"]);
+  });
+
+  test("passes runner state changes to the requests channel", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-runner-"));
+    await saveAgentChoice(cwd, {
+      agent: "custom",
+      run: 'node -e "setInterval(() => {}, 1000)" {prompt}',
+    });
+    await appendRequest(cwd, {
+      title: "Aurora",
+      url: "/",
+      intent: "warmer",
+      target: null,
+      prompt: "make it warmer",
+    });
+    const live = fakeLiveHub();
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
+
+    await eventually(async () => {
+      const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+        agent: { running: boolean };
+      };
+      return body.agent.running;
+    });
+    expect(live.changes).toContain("requests");
+  });
+
+  test("nudges health once when reachability flips, not on steady probes", async () => {
+    const nativeSetInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, "setInterval").mockImplementation(
+      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
+        nativeSetInterval(callback, milliseconds === 3000 ? 10 : milliseconds, ...args)) as typeof setInterval,
+    );
+    const target = http.createServer();
+    await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
+    origins.push(target);
+    const targetPort = (target.address() as AddressInfo).port;
+    const live = fakeLiveHub(1);
+    await start({ config: configFor(targetPort), port: 0, live });
+
+    // The first probe establishes the baseline and emits nothing.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(live.changes).toEqual([]);
+
+    target.closeAllConnections();
+    await new Promise<void>((done) => target.close(() => done()));
+    origins.splice(origins.indexOf(target), 1);
+    await eventually(() => live.changes.filter((change) => change === "health").length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(live.changes).toEqual(["health"]);
+  });
+
+  test("does not probe health with no live listeners", async () => {
+    const nativeSetInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, "setInterval").mockImplementation(
+      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
+        nativeSetInterval(callback, milliseconds === 3000 ? 10 : milliseconds, ...args)) as typeof setInterval,
+    );
+    let connections = 0;
+    const target = http.createServer();
+    target.on("connection", () => {
+      connections += 1;
+    });
+    await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
+    origins.push(target);
+    const live = fakeLiveHub(0);
+    const server = await start({
+      config: configFor((target.address() as AddressInfo).port),
+      port: 0,
+      live,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(connections).toBe(0);
+    expect(live.changes).toEqual([]);
+
+    await server.close();
+    expect(live.close).toHaveBeenCalledOnce();
   });
 
   test("proxies any route the tool does not own", async () => {
