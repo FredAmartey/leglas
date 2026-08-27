@@ -1,9 +1,25 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import { extname, join, normalize, relative } from "node:path";
 
 import { parseTemplate } from "./agent-command.js";
+import {
+  CAPTURES_DIR,
+  LOAD_SHARE,
+  REFERENCES_DIR,
+  attachRequest,
+  previewUrl,
+  pruneCaptures,
+  pruneReferences,
+  rehomeCaptures,
+  rehomeText,
+  removeCaptures,
+  sniffImage,
+} from "./attachments.js";
+import { NO_BROWSER, createBrowserPool, type BrowserPool } from "./browser.js";
+import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import {
@@ -31,12 +47,14 @@ import {
   appendRequest,
   composeRequest,
   isTerminal,
+  newRequestId,
   readRequests,
   removeRequest,
   type PendingRequest,
   type RequestMode,
 } from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
+import { removeServerInfo, writeServerInfo } from "./server-info.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -45,6 +63,7 @@ export const DEFAULT_PORT = 4100;
 
 /** Ports tried before giving up, so a few stale instances do not block startup. */
 const PORT_ATTEMPTS = 20;
+const REFERENCE_MAX_BYTES = 10_000_000;
 
 /**
  * How long a watch heartbeat counts for. Watch beats every 2s, so this is three
@@ -112,6 +131,8 @@ export type ServerOptions = {
   codexAppServer?: CodexTurnRunner | null;
   /** Persistent Claude transport; null disables it (notably in unit tests). */
   claudeAgentSession?: ClaudeTurnRunner | null;
+  /** Warm screenshot browser, injectable so HTTP tests never launch a desktop browser. */
+  pool?: BrowserPool;
 };
 
 export type RunningServer = {
@@ -127,6 +148,27 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
     "cache-control": "no-store",
   });
   res.end(payload);
+}
+
+/** How long one `show --screenshot` may take, and how much of that the load may use. */
+const CAPTURE_DEADLINE_MS = 15_000;
+const CAPTURE_LOAD_MS = Math.floor(CAPTURE_DEADLINE_MS * LOAD_SHARE);
+
+function captureSlug(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "direction";
+}
+
+function referenceName(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  const safe = [...raw]
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x20 && code <= 0x7e && character !== "/" && character !== "\\";
+    })
+    .join("")
+    .trim()
+    .slice(0, 80);
+  return safe || "image";
 }
 
 function isKnownAgent(value: unknown): value is KnownAgentId {
@@ -362,6 +404,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
   } = options;
+  const browserPool = options.pool ?? createBrowserPool();
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
   // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
@@ -415,6 +458,35 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
     return Promise.resolve(agentsCache.agents);
+  };
+
+  /**
+   * Resolve against the same live registry the rail polls, by the same rule.
+   *
+   * A direction added after boot joins only when it is a plain URL. A branch
+   * needs its checkout and a file needs its mount, both built at boot, so a
+   * fresh one has no address this server can render: capturing it would
+   * load the main app at its route, or nothing at all, and call the result
+   * the direction. The rail already holds those back until the restart the
+   * CLI asks for, and so does this.
+   */
+  const livePreviews = async () => {
+    const localRead = await readLocalPreviews(cwd).catch(() => null);
+    const local = localRead?.errors.length === 0 ? localRead.previews : [];
+    const localTitles = new Set(local.map((entry) => entry.title));
+    const bootConfig = config?.previews ?? [];
+    const boot =
+      localRead === null || localRead.errors.length > 0
+        ? bootConfig
+        : bootConfig.filter(
+            (entry) => entry.local !== true || localTitles.has(entry.title),
+          );
+    const known = new Set(boot.map((entry) => entry.title));
+    const fresh = local.filter(
+      (entry) =>
+        !known.has(entry.title) && entry.branch === undefined && entry.file === undefined,
+    );
+    return [...boot, ...fresh];
   };
 
   // Start the only blocking discovery before the browser asks for it. This
@@ -543,17 +615,85 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
+    if (path === `${LEGLAS_PREFIX}/api/references` && req.method === "POST") {
+      const declaredLength = req.headers["content-length"];
+      if (typeof declaredLength === "string" && Number(declaredLength) > REFERENCE_MAX_BYTES) {
+        return sendJson(res, 413, { ok: false, error: "That image is over 10MB." });
+      }
+
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      let refused = false;
+      req.on("data", (chunk: Buffer | string) => {
+        if (refused) return;
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytes += buffer.length;
+        if (bytes > REFERENCE_MAX_BYTES) {
+          refused = true;
+          req.pause();
+          res.once("finish", () => req.socket.destroy());
+          sendJson(res, 413, { ok: false, error: "That image is over 10MB." });
+          return;
+        }
+        chunks.push(buffer);
+      });
+      return void req.once("end", async () => {
+        if (refused) return;
+        if (bytes === 0) {
+          return sendJson(res, 400, { ok: false, error: "The upload was empty." });
+        }
+
+        const body = Buffer.concat(chunks, bytes);
+        const image = sniffImage(body);
+        if (image === null) {
+          return sendJson(res, 415, {
+            ok: false,
+            error: "Only PNG, JPEG, WebP and GIF images can be attached.",
+          });
+        }
+
+        const id = newRequestId();
+        const file = `${REFERENCES_DIR}/${id}.${image.kind}`;
+        try {
+          await mkdir(join(cwd, REFERENCES_DIR), { recursive: true });
+          await writeFile(join(cwd, file), body);
+          // The moment something new arrives is the moment to let go of what
+          // was pasted an hour ago and never sent.
+          void pruneReferences(cwd).catch(() => {});
+          return sendJson(res, 200, {
+            ok: true,
+            reference: {
+              id,
+              file,
+              name: referenceName(req.headers["x-leglas-filename"]),
+              width: image.width,
+              height: image.height,
+              bytes,
+            },
+          });
+        } catch {
+          return sendJson(res, 500, {
+            ok: false,
+            error: "The image could not be attached.",
+          });
+        }
+      });
+    }
+
     if (path === `${LEGLAS_PREFIX}/api/request` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { title?: string; intent?: string; mode?: unknown };
+        let parsed: {
+          title?: string;
+          intent?: string;
+          mode?: unknown;
+          width?: unknown;
+          compare?: unknown;
+          references?: unknown;
+        };
         try {
-          parsed = JSON.parse(body || "{}") as {
-            title?: string;
-            intent?: string;
-            mode?: unknown;
-          };
+          parsed = JSON.parse(body || "{}") as typeof parsed;
         } catch {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
@@ -569,21 +709,45 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
         const mode: RequestMode = parsed.mode === "replace" ? "replace" : "variant";
+        if (
+          parsed.references !== undefined &&
+          (!Array.isArray(parsed.references) ||
+            parsed.references.some(
+              (reference) =>
+                typeof reference !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(reference),
+            ))
+        ) {
+          return sendJson(res, 400, { ok: false, error: "references must be uploaded image ids." });
+        }
+        const references = (parsed.references ?? []) as string[];
+        // A reference that is no longer there was pasted over an hour ago and
+        // pruned. Dropping it silently would send the agent a request the
+        // user did not make, and clear a thumbnail that never travelled.
+        if (references.length > 0) {
+          const present = new Set(
+            (await readdir(join(cwd, REFERENCES_DIR)).catch(() => [] as string[])).map((name) =>
+              name.slice(0, name.indexOf(".") === -1 ? name.length : name.indexOf(".")),
+            ),
+          );
+          const gone = references.filter((id) => !present.has(id));
+          if (gone.length > 0) {
+            return sendJson(res, 410, {
+              ok: false,
+              error:
+                gone.length === 1
+                  ? "An attached image is gone: it was pasted over an hour ago and never sent. Attach it again."
+                  : "Some attached images are gone: they were pasted over an hour ago and never sent. Attach them again.",
+            });
+          }
+        }
+        const width =
+          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+            ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
+            : 1440;
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
-        const localRead = await readLocalPreviews(cwd).catch(() => null);
-        const local = localRead?.errors.length === 0 ? localRead.previews : [];
-        const localTitles = new Set(local.map((entry) => entry.title));
-        const bootConfig = config?.previews ?? [];
-        const boot =
-          localRead === null || localRead.errors.length > 0
-            ? bootConfig
-            : bootConfig.filter(
-                (entry) => entry.local !== true || localTitles.has(entry.title),
-              );
-        const preview = [...boot, ...local].find(
-          (entry) => entry.title === parsed.title,
-        );
+        const previews = await livePreviews();
+        const preview = previews.find((entry) => entry.title === parsed.title);
         if (!preview) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
@@ -613,6 +777,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           const before = [...(entry.notes ?? [])].sort().join(",");
           return before === notes.map((note) => note.id).sort().join(",");
         };
+        const compare =
+          typeof parsed.compare === "string" && parsed.compare !== preview.title
+            ? previews.find((entry) => entry.title === parsed.compare) ?? null
+            : null;
+        // The images are part of what was asked. "Make it like the other
+        // one" against a different other one, or with a different picture
+        // attached, is a different request wearing the same words. Judged
+        // from what was asked, not from what got captured: a capture can
+        // fail and a repeat is still a repeat.
+        const sameContext = (entry: PendingRequest) =>
+          (entry.compare ?? null) === (compare?.title ?? null) &&
+          [...(entry.references ?? [])].sort().join(",") === [...references].sort().join(",");
         if (
           live.some(
             (entry) =>
@@ -622,7 +798,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               // one forks the direction and the other rewrites it. Only a
               // genuine repeat is refused.
               (entry.mode ?? "replace") === mode &&
-              sameNotes(entry),
+              sameNotes(entry) &&
+              sameContext(entry),
           )
         ) {
           return sendJson(res, 409, {
@@ -632,26 +809,181 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const composed = composeRequest(preview, intent, mode, notes, leglasCommand);
-        void appendRequest(cwd, {
-          title: preview.title,
-          url: preview.url,
+        const address = server.address();
+        const requestPort =
+          typeof address === "object" && address !== null ? address.port : options.port ?? DEFAULT_PORT;
+        const id = newRequestId();
+        const captured = await attachRequest(
+          cwd,
+          id,
+          {
+            origin: `http://127.0.0.1:${requestPort}`,
+            preview,
+            width,
+            notes,
+            compare,
+            references,
+          },
+          { pool: browserPool },
+        );
+        const composed = composeRequest(
+          preview,
           intent,
-          // The ids travel with the request so a change made in place can
-          // forget the notes it answered. A fork leaves them where they are:
-          // the direction they point at was not touched.
-          ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
-          ...composed,
-        })
-          .then(() => {
-            // The runner polls every two seconds, but the queue just grew in
-            // this very process: no reason to make the user watch that gap.
-            runner?.nudge();
-            sendJson(res, 200, { ok: true, ...composed });
-          })
+          mode,
+          notes,
+          leglasCommand,
+          captured,
+        );
+        try {
+          await appendRequest(
+            cwd,
+            {
+              title: preview.title,
+              url: preview.url,
+              intent,
+              // The ids travel with the request so a change made in place can
+              // forget the notes it answered. A fork leaves them where they are:
+              // the direction they point at was not touched.
+              ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
+              ...(captured.attachments.length === 0
+                ? {}
+                : { attachments: captured.attachments }),
+              ...(captured.skipped === null ? {} : { captureNote: captured.skipped }),
+              ...(compare === null ? {} : { compare: compare.title }),
+              ...(references.length === 0 ? {} : { references }),
+              ...composed,
+            },
+            id,
+          );
+          // The runner polls every two seconds, but the queue just grew in
+          // this very process: no reason to make the user watch that gap.
+          runner?.nudge();
+          return sendJson(res, 200, {
+            ok: true,
+            ...composed,
+            attachments: captured.attachments,
+          });
+        } catch {
           // The prompt is still useful even if the queue could not be written,
-          // so the copy path keeps working when the disk does not.
-          .catch(() => sendJson(res, 200, { ok: true, ...composed, queued: false }));
+          // so the copy path keeps working when the disk does not. The files
+          // it names stay for the same reason; the next boot prunes them once
+          // no request claims them.
+          return sendJson(res, 200, {
+            ok: true,
+            ...composed,
+            attachments: captured.attachments,
+            queued: false,
+          });
+        }
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/capture` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Capture must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let parsed: { title?: unknown; width?: unknown; note?: unknown };
+        try {
+          parsed = JSON.parse(body || "{}") as typeof parsed;
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.title !== "string" || parsed.title === "") {
+          return sendJson(res, 400, { ok: false, error: "Capture needs a direction title." });
+        }
+        if (parsed.note !== undefined && typeof parsed.note !== "string") {
+          return sendJson(res, 400, { ok: false, error: "The note id must be a string." });
+        }
+        const preview = (await livePreviews()).find((entry) => entry.title === parsed.title);
+        if (preview === undefined) {
+          return sendJson(res, 404, { ok: false, error: "No such direction." });
+        }
+        const width =
+          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+            ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
+            : 1440;
+        const browser = await browserPool.acquire();
+        if (browser === null) {
+          return sendJson(res, 503, {
+            ok: false,
+            error: browserPool.reason() ?? NO_BROWSER,
+          });
+        }
+        const annotations =
+          typeof parsed.note === "string"
+            ? (await readAnnotations(cwd).catch(() => [])).filter(
+                (entry) => entry.id === parsed.note && entry.title === preview.title,
+              )
+            : [];
+        const address = server.address();
+        const capturePort =
+          typeof address === "object" && address !== null ? address.port : options.port ?? DEFAULT_PORT;
+        const controller = new AbortController();
+        const timeoutMarker = Symbol("capture timeout");
+        let timedOut!: () => void;
+        const timeout = new Promise<typeof timeoutMarker>((resolve) => {
+          timedOut = () => resolve(timeoutMarker);
+        });
+        const timer = setTimeout(() => {
+          timedOut();
+          controller.abort();
+        }, CAPTURE_DEADLINE_MS);
+        timer.unref?.();
+        try {
+          const work = capturePage(
+            browser,
+            {
+              url: previewUrl(`http://127.0.0.1:${capturePort}`, preview),
+              width,
+              ...(annotations.length === 0
+                ? {}
+                : {
+                    focuses: annotations.map((entry) => ({
+                      selector: entry.anchor.selector,
+                      text: entry.anchor.text,
+                      tag: entry.anchor.tag,
+                      ...(entry.anchor.region === undefined ? {} : { region: entry.anchor.region }),
+                      rect: entry.anchor.rect,
+                    })),
+                  }),
+              timeoutMs: CAPTURE_LOAD_MS,
+              signal: controller.signal,
+            } as Parameters<typeof capturePage>[1] & { signal: AbortSignal },
+          );
+          const result = await Promise.race([work, timeout]);
+          if (result === timeoutMarker) {
+            return sendJson(res, 504, { ok: false, error: "The page did not load in time." });
+          }
+          clearTimeout(timer);
+          const crop = annotations.length > 0 ? result.crops[0] : null;
+          const shot = crop?.shot ?? result.frame;
+          const noteSuffix =
+            typeof parsed.note === "string"
+              ? `-${parsed.note.replace(/[^A-Za-z0-9_-]+/g, "-")}`
+              : "";
+          const name = `${captureSlug(preview.title)}-${result.frame.width}${noteSuffix}.png`;
+          const relativeFile = `${CAPTURES_DIR}/show/${name}`;
+          await mkdir(join(cwd, CAPTURES_DIR, "show"), { recursive: true });
+          await writeFile(join(cwd, relativeFile), shot.png);
+          return sendJson(res, 200, {
+            ok: true,
+            file: relativeFile,
+            width: shot.width,
+            height: shot.height,
+            viewport: result.frame.width,
+            errors: result.errors,
+            cut: result.cut,
+          });
+        } catch (error) {
+          clearTimeout(timer);
+          return sendJson(res, 502, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
     }
 
@@ -874,20 +1206,41 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
 
         try {
+          const retryId = newRequestId();
+          const attachments = await rehomeCaptures(
+            cwd,
+            request.id,
+            retryId,
+            request.attachments ?? [],
+          ).catch(() => []);
           if (!(await removeRequest(cwd, request.id))) {
             return sendJson(res, 404, { ok: false, error: "No such request." });
           }
-          await appendRequest(cwd, {
-            title: request.title,
-            url: request.url,
-            intent: request.intent,
-            target: request.target,
-            prompt: request.prompt,
-            // The stored prompt already carries the mode's instructions; the
-            // field travels with it so the queue keeps saying which kind of
-            // change this is.
-            ...(request.mode === undefined ? {} : { mode: request.mode }),
-          });
+          await appendRequest(
+            cwd,
+            {
+              title: request.title,
+              url: request.url,
+              intent: request.intent,
+              target: request.target,
+              // The prompt names the captures by path, and the embedded pipes
+              // are not its only readers: watch, a custom command and
+              // `requests --json` all hand the text over as it stands.
+              prompt:
+                attachments.length === 0
+                  ? request.prompt
+                  : rehomeText(request.prompt, request.id, retryId),
+              // The stored prompt already carries the mode's instructions;
+              // its notes and visual context travel with the retry too.
+              ...(request.mode === undefined ? {} : { mode: request.mode }),
+              ...(request.notes === undefined ? {} : { notes: request.notes }),
+              ...(attachments.length === 0 ? {} : { attachments }),
+              ...(request.captureNote === undefined ? {} : { captureNote: request.captureNote }),
+              ...(request.compare === undefined ? {} : { compare: request.compare }),
+              ...(request.references === undefined ? {} : { references: request.references }),
+            },
+            retryId,
+          );
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.
           runner?.nudge();
@@ -1034,8 +1387,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/health`) {
+      // The directory is part of the answer so a command in another process
+      // can tell this server from one serving a different project on a port
+      // it happened to find.
       return void probe(target).then((reachable) =>
-        sendJson(res, 200, { devServer: target, reachable }),
+        sendJson(res, 200, { devServer: target, reachable, cwd }),
       );
     }
 
@@ -1088,6 +1444,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
+  await pruneCaptures(
+    cwd,
+    (await readRequests(cwd).catch(() => [])).map((request) => request.id),
+  ).catch(() => {});
+  await writeServerInfo(cwd, {
+    port,
+    url: `http://localhost:${port}`,
+    pid: process.pid,
+  }).catch(() => {});
   runner = startRunner({
     cwd,
     externallyAttached,
@@ -1107,15 +1472,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://localhost:${port}`,
     close: () => {
       if (closePromise !== null) return closePromise;
-      closePromise = runner.stop().then(
-        () =>
+      closePromise = Promise.all([runner.stop(), browserPool.close()])
+        .then(
+          () =>
           new Promise<void>((done) => {
             for (const socket of sockets) socket.destroy();
             sockets.clear();
             server.closeAllConnections();
             server.close(() => done());
           }),
-      );
+        )
+        .then(() => removeServerInfo(cwd, { port, pid: process.pid }).catch(() => {}));
       return closePromise;
     },
   };
