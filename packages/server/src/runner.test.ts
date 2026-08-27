@@ -1153,10 +1153,12 @@ describe("warm transports", () => {
 
     await until(() => children.length === 1);
     children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 0);
-    await settle();
+    // Wait on the release itself, not on the queue emptying. The request is
+    // removed before the run's tail finishes, so a fixed pause after it is a
+    // guess about how fast the machine is, and a slow one fails the guess.
+    await until(() => appServer.release.mock.calls.length > 0);
+    expect((await readRequests(cwd)).length).toBe(0);
     expect(sdk.release).not.toHaveBeenCalled();
-    expect(appServer.release).toHaveBeenCalled();
     await runner.stop();
   });
 
