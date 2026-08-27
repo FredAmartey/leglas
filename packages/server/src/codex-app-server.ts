@@ -38,9 +38,17 @@ export type CodexTurnInput = {
 };
 
 export type CodexTurnRunner = {
-  /** Complete the app-server handshake before a request reaches the queue. */
-  warm(): Promise<void>;
+  /**
+   * Complete the app-server handshake before a request reaches the queue.
+   * The session id is accepted for symmetry with Claude and ignored: a Codex
+   * thread is resumed by the run itself, through `thread/resume`, so a fresh
+   * process picks a conversation up without loading anything in advance.
+   */
+  warm(sessionId?: string | null): Promise<void>;
   run(input: CodexTurnInput, signal?: AbortSignal): Promise<RunnerChild>;
+  /** End the app-server process but keep the transport, so a later warm() works. */
+  release(): Promise<void>;
+  /** End the process and the transport for good. */
   close(): Promise<void>;
 };
 
@@ -149,9 +157,24 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     private readonly requestTimeoutMs: number,
   ) {}
 
-  warm(): Promise<void> {
+  /**
+   * Counts every ask for a warm process. The runner fires warm() and
+   * release() without awaiting either, so the two race in both directions:
+   * a release must outlast a warm that was queued behind its reset, and must
+   * stand down for a warm asked for after it began. A warm queued behind a
+   * reset restarts through start() rather than warm(), so waiting its turn
+   * does not read as a fresh ask.
+   */
+  private generation = 0;
+
+  warm(_sessionId: string | null = null): Promise<void> {
+    this.generation += 1;
+    return this.start();
+  }
+
+  private start(): Promise<void> {
     if (this.closed) return Promise.reject(new Error("Codex app-server is closed."));
-    if (this.resetting !== null) return this.resetting.then(() => this.warm());
+    if (this.resetting !== null) return this.resetting.then(() => this.start());
     if (this.ready !== null) return this.ready;
 
     let process: AppServerProcess;
@@ -264,14 +287,35 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     }
   }
 
+  /**
+   * Let the app-server process go without ending the transport.
+   *
+   * The runner calls this once nothing has asked for Codex in a while; the
+   * next warm() spawns and handshakes again. A thread id the runner still
+   * holds is resumed by the new process through `thread/resume`.
+   */
+  async release(): Promise<void> {
+    // The runner fires warm() and release() without awaiting them, so a
+    // warm() queued behind an earlier reset can install a new process after
+    // that reset settles. The last call wins: keep going until nothing is
+    // running and nothing is being reset, unless a newer warm has been asked
+    // for since, which is the newer intent and owns whatever comes up next.
+    const asOf = this.generation;
+    for (;;) {
+      if (this.generation !== asOf) return;
+      const process = this.process;
+      if (process !== null) {
+        await this.resetProcess(process, new Error("Codex app-server released while idle."));
+        continue;
+      }
+      if (this.resetting === null) return;
+      await this.resetting;
+    }
+  }
+
   async close(): Promise<void> {
     this.closed = true;
-    const process = this.process;
-    if (process === null) {
-      await this.resetting;
-      return;
-    }
-    await this.resetProcess(process, new Error("Codex app-server is closing."));
+    await this.release();
   }
 
   private async thread(sessionId: string | null): Promise<string> {

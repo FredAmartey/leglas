@@ -11,7 +11,7 @@ import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.j
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import { appendRequest, readRequests } from "./requests.js";
-import { startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
+import { IDLE_RELEASE_MS, startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
 
 const input = (title: string) => ({
   title,
@@ -888,6 +888,358 @@ describe("startRunner", () => {
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).not.toContain("--resume");
     spawned.children[1]?.close(0);
+    await runner.stop();
+  });
+});
+
+test("never reruns a vendor whose edits Leglas cannot see", async () => {
+  // Cursor resumes, so a resumed run can fail; but its edits are labelled
+  // from documented shapes rather than read against the real CLI, so "did
+  // not edit" is not evidence. Rerunning on it could apply a half-finished
+  // change twice. The failure card and its Retry stay the way back.
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-unverified-rerun-"));
+  await saveAgentChoice(cwd, { agent: "cursor" });
+  await appendRequest(cwd, input("First"));
+  const clock = manualClock();
+  const spawned = spawner();
+  const runner = startRunner({
+    cwd,
+    externallyAttached: () => false,
+    spawn: spawned.spawn,
+    setInterval: clock.setInterval,
+    clearInterval: clock.clearInterval,
+  });
+
+  // First run is cold and names the session Cursor reports.
+  await until(() => spawned.calls.length === 1);
+  spawned.children[0]?.child.stdout.write(`${JSON.stringify({ session_id: "chat_1" })}\n`);
+  spawned.children[0]?.close(0);
+  await until(async () => (await readRequests(cwd)).length === 0);
+
+  // The next request resumes that chat, and fails without being seen to edit.
+  await appendRequest(cwd, input("Second"));
+  await tickUntil(clock, () => spawned.calls.length === 2);
+  expect(spawned.calls[1]?.[1]).toEqual(
+    expect.arrayContaining(["--resume", "chat_1"]),
+  );
+  spawned.children[1]?.close(1);
+  await until(async () => (await readRequests(cwd))[0]?.status === "failed");
+
+  clock.tick();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(spawned.calls).toHaveLength(2);
+  await runner.stop();
+});
+
+describe("warm transports", () => {
+  type Stub<T> = T & { warm: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+  const claudeStub = (): Stub<ClaudeTurnRunner> => ({
+    warm: vi.fn(async () => {}),
+    run: async () => {
+      throw new Error("not used");
+    },
+    release: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+  });
+  const codexStub = (): Stub<CodexTurnRunner> => ({
+    warm: vi.fn(async () => {}),
+    run: async () => {
+      throw new Error("not used");
+    },
+    release: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+  });
+  /** Records every deferred callback so a test can fire the idle release by hand. */
+  const deferrals = () => {
+    const scheduled: { callback: () => void; ms: number }[] = [];
+    return {
+      setTimeout: (callback: () => void, ms: number) => {
+        scheduled.push({ callback, ms });
+      },
+      /** How many idle clocks are armed and have not been fired. */
+      armed: () => scheduled.filter((entry) => entry.ms === IDLE_RELEASE_MS).length,
+      fireIdle: () => {
+        const due = scheduled.filter((entry) => entry.ms === IDLE_RELEASE_MS);
+        scheduled.length = 0;
+        for (const entry of due) entry.callback();
+        return due.length;
+      },
+    };
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  test("leaves every transport cold until something asks for it", async () => {
+    // A saved choice is not a request. Warming at boot spawned the vendor
+    // process, and with it every MCP server the user has configured, for a
+    // session that may never send anything.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cold-boot-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    const clock = manualClock();
+    const sdk = claudeStub();
+    const appServer = codexStub();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    clock.tick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(sdk.warm).not.toHaveBeenCalled();
+    expect(appServer.warm).not.toHaveBeenCalled();
+    await runner.stop();
+  });
+
+  test("warming one vendor lets go of the other", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-one-warm-"));
+    const clock = manualClock();
+    const sdk = claudeStub();
+    const appServer = codexStub();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    runner.prepare("codex");
+    await settle();
+    expect(appServer.warm).toHaveBeenCalledOnce();
+    expect(sdk.release).toHaveBeenCalledOnce();
+
+    runner.prepare("claude");
+    await settle();
+    expect(sdk.warm).toHaveBeenCalledOnce();
+    expect(appServer.release).toHaveBeenCalledOnce();
+    await runner.stop();
+  });
+
+  test("releases an idle transport and warms it again on the next ask", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-idle-release-"));
+    const clock = manualClock();
+    const later = deferrals();
+    const sdk = claudeStub();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: null,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      setTimeout: later.setTimeout,
+    });
+
+    runner.prepare("claude");
+    await settle();
+    expect(sdk.warm).toHaveBeenCalledOnce();
+
+    expect(later.fireIdle()).toBeGreaterThan(0);
+    await settle();
+    expect(sdk.release).toHaveBeenCalledOnce();
+    expect(sdk.close).not.toHaveBeenCalled();
+
+    runner.prepare("claude");
+    await settle();
+    expect(sdk.warm).toHaveBeenCalledTimes(2);
+    await runner.stop();
+  });
+
+  test("a superseded warm-up does not fire a stale release", async () => {
+    // Two asks in a row arm two clocks. Only the latest may release, or the
+    // composer's second focus would be undone by the first one's timer.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-stale-release-"));
+    const clock = manualClock();
+    const later = deferrals();
+    const sdk = claudeStub();
+    const idle: (() => void)[] = [];
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: null,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      setTimeout: (callback, ms) => {
+        if (ms === IDLE_RELEASE_MS) idle.push(callback);
+        else later.setTimeout(callback, ms);
+      },
+    });
+
+    runner.prepare("claude");
+    runner.prepare("claude");
+    await settle();
+    expect(idle).toHaveLength(2);
+    idle[0]?.();
+    await settle();
+    expect(sdk.release).not.toHaveBeenCalled();
+    idle[1]?.();
+    await settle();
+    expect(sdk.release).toHaveBeenCalledOnce();
+    await runner.stop();
+  });
+
+  test("a vendor kept warm through a switch is let go when its run ends", async () => {
+    // Switching to Codex while Claude is mid-run must not kill the run, but
+    // the moment it ends only the vendor last asked for stays warm. Waiting
+    // for the idle clock instead left both vendor trees resident for minutes.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-switch-mid-run-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Long"));
+    const clock = manualClock();
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: Stub<ClaudeTurnRunner> = {
+      warm: vi.fn(async () => {}),
+      run: async () => {
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      release: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const appServer = codexStub();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => children.length === 1);
+    runner.prepare("codex");
+    await settle();
+    expect(appServer.warm).toHaveBeenCalledOnce();
+    expect(sdk.release).not.toHaveBeenCalled();
+
+    children[0]?.close(0);
+    await until(() => sdk.release.mock.calls.length === 1);
+    expect(appServer.release).not.toHaveBeenCalled();
+    await runner.stop();
+  });
+
+  test("with nothing asked for since boot, the vendor that ran stays warm", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-ran-stays-warm-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Only"));
+    const clock = manualClock();
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: Stub<ClaudeTurnRunner> = {
+      warm: vi.fn(async () => {}),
+      run: async () => {
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      release: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const appServer = codexStub();
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => children.length === 1);
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await settle();
+    expect(sdk.release).not.toHaveBeenCalled();
+    expect(appServer.release).toHaveBeenCalled();
+    await runner.stop();
+  });
+
+  test("an ask warms the vendor for the conversation it will continue", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-warm-resume-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("First"));
+    const clock = manualClock();
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: Stub<ClaudeTurnRunner> = {
+      warm: vi.fn(async () => {}),
+      run: async () => {
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      release: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: null,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+    });
+
+    await until(() => children.length === 1);
+    children[0]?.child.stdout.write(
+      `${JSON.stringify({ type: "system", subtype: "init", session_id: "claude_sdk_9" })}\n`,
+    );
+    children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+
+    runner.prepare("claude");
+    await settle();
+    expect(sdk.warm).toHaveBeenLastCalledWith("claude_sdk_9");
+    await runner.stop();
+  });
+
+  test("the idle release waits out a run in flight", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-idle-busy-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Busy"));
+    const clock = manualClock();
+    const later = deferrals();
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const sdk: ClaudeTurnRunner = {
+      warm: vi.fn(async () => {}),
+      run: async () => {
+        const child = fakeChild();
+        children.push(child);
+        return child.child;
+      },
+      release: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    };
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      claudeAgentSession: sdk,
+      codexAppServer: null,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      setTimeout: later.setTimeout,
+    });
+
+    await until(() => children.length === 1);
+    expect(runner.snapshot().running).toBe(true);
+    later.fireIdle();
+    await settle();
+    expect(sdk.release).not.toHaveBeenCalled();
+
+    children[0]?.close(0);
+    // The run's end re-arms the clock, and the next idle window lets go. Wait
+    // on the clock itself: the queue file empties a beat before the run's
+    // tail has finished, and a read that lands mid-write sees it empty early.
+    await until(() => later.armed() > 0);
+    expect((await readRequests(cwd)).length).toBe(0);
+    expect(later.fireIdle()).toBeGreaterThan(0);
+    await settle();
+    expect(sdk.release).toHaveBeenCalledOnce();
     await runner.stop();
   });
 });

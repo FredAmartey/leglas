@@ -7,6 +7,7 @@ import {
   AGENT_EFFORTS,
   KNOWN_AGENTS,
   activityFrom,
+  activityVerified,
   agentSearchPath,
   detectAgents,
   execProbe,
@@ -249,7 +250,30 @@ test("sessionFrom reads each vendor's own id and nothing else", () => {
   ).toBeNull();
   expect(sessionFrom("claude", "not json")).toBeNull();
   expect(sessionFrom("custom", JSON.stringify({ session_id: "abc" }))).toBeNull();
-  expect(sessionFrom("cursor", JSON.stringify({ session_id: "abc" }))).toBeNull();
+  // Cursor names its session on every stream-json event, which is what
+  // `--resume` takes, so a second request continues the chat instead of
+  // surveying the repository again.
+  expect(sessionFrom("cursor", JSON.stringify({ session_id: "abc" }))).toBe("abc");
+});
+
+test("Cursor resumes a chat by its id", () => {
+  expect(KNOWN_AGENTS.cursor.resumeArgs("chat_1", "make it warmer")).toEqual([
+    "-p",
+    "--resume",
+    "chat_1",
+    "make it warmer",
+    "--output-format",
+    "stream-json",
+  ]);
+});
+
+test("only a vendor whose output Leglas has read reports edits it can act on", () => {
+  expect(activityVerified("claude")).toBe(true);
+  expect(activityVerified("codex")).toBe(true);
+  // cursor-agent was never available to check against, so its edits are
+  // labelled but not vouched for, and the runner will not rerun on them.
+  expect(activityVerified("cursor")).toBe(false);
+  expect(activityVerified("custom")).toBe(false);
 });
 
 test("each vendor's verdict reads its own CLI honestly", () => {
@@ -341,6 +365,48 @@ describe("activityFrom", () => {
     });
 
     expect(activityFrom("codex", line)).toBe("running npm test");
+  });
+
+  test("reads Cursor's own tool_call events, which are not Claude's shape", () => {
+    // Read as Claude's shape these produced nothing at all, so a Cursor run
+    // showed no activity and never looked like it had touched a file.
+    const write = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call_1",
+      tool_call: { writeToolCall: { args: { path: "src/Hero.tsx", fileText: "…" } } },
+      session_id: "s1",
+    });
+    const read = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: "call_2",
+      tool_call: { readToolCall: { args: { path: "src/Hero.tsx" } } },
+      session_id: "s1",
+    });
+
+    expect(activityFrom("cursor", write)).toBe("editing src/Hero.tsx");
+    expect(activityFrom("cursor", read)).toBe("reading src/Hero.tsx");
+  });
+
+  test("names a Cursor tool it does not know without guessing what it did", () => {
+    const line = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: { grepToolCall: { args: { pattern: "Hero" } } },
+    });
+
+    expect(activityFrom("cursor", line)).toBe("using grep");
+  });
+
+  test("shows the command a Cursor tool call is running", () => {
+    const line = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: { shellToolCall: { args: { command: "bash -lc 'npm test'" } } },
+    });
+
+    expect(activityFrom("cursor", line)).toBe("running npm test");
   });
 
   test("shows the command Claude's Bash tool is running", () => {

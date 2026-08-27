@@ -32,6 +32,13 @@ describe("nextHealthState", () => {
     expect(nextHealthState(down, false)).toEqual({ reachable: false, wasDown: true });
   });
 
+  test("hands back the same state when nothing changed, so a poll is not a render", () => {
+    // Every three seconds the health poll folds its answer in. A fresh object
+    // for an unchanged answer re-rendered the whole interface each time.
+    expect(nextHealthState(up, true)).toBe(up);
+    expect(nextHealthState(down, false)).toBe(down);
+  });
+
   test("treats the first successful check as ordinary, not a recovery", () => {
     // Starting optimistic means a normal boot never flashes a reload.
     expect(nextHealthState({ reachable: true, wasDown: false }, true).wasDown).toBe(false);

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   forgetScans,
   recordScan,
+  replacedPanes,
   scanQueue,
   scanSignatures,
   type PreviewScans,
@@ -85,5 +86,52 @@ describe("scan records", () => {
       Current: { url: "/", status: "complete", signature: "current" },
     });
     expect(forgetScans(scans, ["Missing"])).toBe(scans);
+  });
+});
+
+describe("replacedPanes", () => {
+  const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
+
+  test("a direction coming on stage keeps its verdict", () => {
+    // Flipping to a direction loads the same document the background read
+    // already measured. Rescanning it off stage doubled the cost of every flip.
+    const previous = new Map([["Wave", identity("Wave", 0)]]);
+    const current = new Map([["Dot grid", identity("Dot grid", 0)]]);
+
+    expect(replacedPanes(previous, current)).toEqual([]);
+  });
+
+  test("a pane reloaded in place is read again", () => {
+    const previous = new Map([["Wave", identity("Wave", 0)]]);
+    const current = new Map([["Wave", identity("Wave", 1)]]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
+  });
+
+  test("a pane whose url changed under the same title is read again", () => {
+    const previous = new Map([["Wave", "Wave /?v=a 0"]]);
+    const current = new Map([["Wave", "Wave /?v=b 0"]]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
+  });
+
+  test("leaving the stage and coming back changes nothing", () => {
+    const stage = new Map([["Wave", identity("Wave", 0)]]);
+
+    expect(replacedPanes(stage, new Map())).toEqual([]);
+    expect(replacedPanes(new Map(), stage)).toEqual([]);
+  });
+
+  test("only the replaced pane of a split is read again", () => {
+    const previous = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 0)],
+    ]);
+    const current = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 2)],
+    ]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Dot grid"]);
   });
 });

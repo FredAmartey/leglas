@@ -28,6 +28,7 @@ import { paintSample, renderedSignature, twinsOf, visualSample } from "./rendere
 import {
   forgetScans,
   recordScan,
+  replacedPanes,
   scanQueue,
   scanSignatures,
   type PreviewScan,
@@ -79,6 +80,7 @@ import {
   dismissFailedRequest,
   readAgents,
   retryFailedRequest,
+  warmAgent,
   type AgentsPayload,
 } from "./agent-api.js";
 import { McpConnectDialog } from "./McpConnectDialog.js";
@@ -169,6 +171,13 @@ function tagTone(tag: string) {
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * How often the composer taking focus is allowed to ask for a warm agent. The
+ * server keeps one warm for minutes after an ask, so a click-happy hand does
+ * not need to send more than one in a while.
+ */
+const WARM_THROTTLE_MS = 30_000;
 /** One render size makes duplicate verdicts independent of the visible stage. */
 const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
 
@@ -1079,6 +1088,19 @@ export function Shell({
     agentState.agents,
     agentState.customRun,
   );
+  // Focus on the composer is the first honest sign a request is coming, and
+  // the seconds spent typing it are where the agent's start-up cost hides.
+  // Nothing is warmed before this: a saved choice is not a request.
+  const lastWarmAsk = useRef(0);
+  const warmChosenAgent = () => {
+    if (chip.kind !== "chosen") return;
+    const now = Date.now();
+    if (now - lastWarmAsk.current < WARM_THROTTLE_MS) return;
+    lastWarmAsk.current = now;
+    void warmAgent().catch(() => {
+      // Only latency is lost; the request itself warms the agent on the way.
+    });
+  };
   const selectedAgent =
     chip.kind === "chosen"
       ? agentState.agents.find((agent) => agent.id === chip.id && agent.available)
@@ -1336,15 +1358,24 @@ export function Shell({
   // on screen and the only thing that works for a client-rendered app.
   const [scans, setScans] = useState<Record<string, PreviewScan>>({});
 
-  // A visible pane replacement invalidates its background verdict before the
-  // new document paints. URL changes are also rejected by scanSignatures, but
-  // an explicit retry of the same URL needs this generation-aware reset.
+  // A background read costs a full boot of the app, so it does not happen in
+  // a tab nobody is looking at. Hiding the tab mid-read drops the frame; the
+  // direction is read again on return.
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const onChange = () => setPageVisible(!document.hidden);
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+
+  // A visible pane replaced in place invalidates its background verdict
+  // before the new document paints. URL changes are also rejected by
+  // scanSignatures, but an explicit retry of the same URL needs this
+  // generation-aware reset. A direction merely coming on stage keeps its
+  // verdict: it is the document the background read already measured.
   const previousScanPanes = useRef(new Map<string, string>());
   useLayoutEffect(() => {
-    const previous = previousScanPanes.current;
-    const changed = [...mountedIdentities]
-      .filter(([title, identity]) => previous.get(title) !== identity)
-      .map(([title]) => title);
+    const changed = replacedPanes(previousScanPanes.current, mountedIdentities);
     if (changed.length > 0) setScans((current) => forgetScans(current, changed));
     previousScanPanes.current = new Map(mountedIdentities);
   }, [mountedIdentityKey]);
@@ -1560,23 +1591,25 @@ export function Shell({
   const workingTitles = workingRequestTitles(requestSnapshot.requests);
 
   // A result recorded before an edit began must not reappear when the queue
-  // settles. Clear affected directions once per live-work transition, while
-  // also hiding them synchronously in the render that first reports the work.
+  // settles. Clear the directions being edited once per live-work transition,
+  // while also hiding them synchronously in the render that first reports the
+  // work. Only those: a run with no direction named against it, which the
+  // queue poll can show for a beat between one request ending and the next,
+  // used to clear every verdict and read the whole rail again.
   useEffect(() => {
-    if (!scanBlocked) return;
-    setScans((current) =>
-      forgetScans(current, changingTitles.length > 0 ? changingTitles : Object.keys(current)),
-    );
-  }, [scanBlocked, changingTitlesKey]);
+    if (changingTitles.length === 0) return;
+    setScans((current) => forgetScans(current, changingTitles));
+  }, [changingTitlesKey]);
 
   const visibleReady = mounted.every((title) => paneLoaded(title));
-  const scansForDisplay = scanBlocked
-    ? forgetScans(scans, changingTitles.length > 0 ? changingTitles : Object.keys(scans))
-    : scans;
+  const scansForDisplay =
+    changingTitles.length > 0 ? forgetScans(scans, changingTitles) : scans;
   const signatures = scanSignatures(previews, scansForDisplay);
   const twins = twinsOf(signatures);
   const scanningPreview =
-    !scanBlocked && visibleReady ? (scanQueue(scannable, scansForDisplay)[0] ?? null) : null;
+    !scanBlocked && visibleReady && pageVisible
+      ? (scanQueue(scannable, scansForDisplay)[0] ?? null)
+      : null;
   const scanning = scanningPreview?.title ?? null;
   const scanKey =
     scanningPreview === null ? null : `${scanningPreview.title}\u0000${scanningPreview.url}`;
@@ -2681,7 +2714,13 @@ export function Shell({
                 }
                 className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={sending || !st.active}
-                onChange={(event) => setIntent(event.target.value)}
+                onChange={(event) => {
+                  // The first character is a second signal, for a composer
+                  // that kept focus across the idle window and never refocused.
+                  if (intent === "" && event.target.value !== "") warmChosenAgent();
+                  setIntent(event.target.value);
+                }}
+                onFocus={warmChosenAgent}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();

@@ -12,6 +12,12 @@ export type RequestStatus = {
    * is always wrong.
    */
   status: "queued" | "picked-up" | "running" | "failed" | "cancelled";
+  /**
+   * A variant is built beside the direction it was asked of and leaves it
+   * alone; a replace rewrites it. Absent on a payload from an older server,
+   * which is read as a replace, the cautious answer.
+   */
+  mode?: "variant" | "replace";
   failure?: RequestFailure | null;
 };
 
@@ -50,15 +56,23 @@ export type AgentOption = {
   efforts: readonly AgentEffort[];
 };
 
-/** Directions whose source may change before their current request settles. */
+/**
+ * Directions whose source may change before their current request settles.
+ *
+ * A fork is not one of them: the agent is told to leave the parent exactly as
+ * it is and build beside it. Counting the parent here forgot its duplicate
+ * verdict and read the page again after every fork, the default request.
+ */
 export function changingRequestTitles(requests: readonly RequestStatus[]): string[] {
   return [
     ...new Set(
       requests
-        .filter((request) =>
-          request.status === "queued" ||
-          request.status === "picked-up" ||
-          request.status === "running",
+        .filter(
+          (request) =>
+            request.mode !== "variant" &&
+            (request.status === "queued" ||
+              request.status === "picked-up" ||
+              request.status === "running"),
         )
         .map((request) => request.title),
     ),

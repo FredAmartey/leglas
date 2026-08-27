@@ -26,6 +26,10 @@ const MEANINGFUL_TEXT = 12;
  * deliberate colour variants of one direction were flagged as duplicates, which
  * they visibly are not. An accidental duplicate renders identical colours
  * along with identical words, so it stays caught.
+ *
+ * What comes back is a digest of all that, not the sample itself. Twins are
+ * found by equality alone, and the sample behind a real page runs past a
+ * megabyte; one of those was kept per direction for the life of the page.
  */
 export function renderedSignature(
   text: string,
@@ -35,7 +39,9 @@ export function renderedSignature(
 ): string | null {
   const normalised = text.replace(/\s+/g, " ").trim().toLowerCase();
   if (normalised.length < MEANINGFUL_TEXT) return null;
-  return `${tags.join(">")} ${normalised} ${paint.join("|")} ${visual.join("|")}`.trimEnd();
+  return shortHash(
+    `${tags.join(">")} ${normalised} ${paint.join("|")} ${visual.join("|")}`.trimEnd(),
+  );
 }
 
 /** The style values that carry a page's colour, per sampled element. */

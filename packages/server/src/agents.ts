@@ -92,6 +92,7 @@ export const KNOWN_AGENTS = {
       "--allowedTools",
       ...commands.map((command) => `Bash(${command} *)`),
     ],
+    activityVerified: true,
     // Every stream-json event names its session.
     sessionFrom: (event: Record<string, unknown>): string | null =>
       typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
@@ -165,6 +166,7 @@ export const KNOWN_AGENTS = {
       event.type === "thread.started" && typeof event.thread_id === "string"
         ? event.thread_id
         : null,
+    activityVerified: true,
     authArgs: ["login", "status"],
     // `codex login status` exits 0 when logged in and nonzero when not.
     authVerdict: (result: ProbeResult): AgentAuth =>
@@ -181,6 +183,24 @@ export const KNOWN_AGENTS = {
       "stream-json",
     ],
     terminalArgs: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => ["-p", prompt],
+    // `--resume [chatId]` is documented alongside `--continue` in the CLI
+    // parameter reference, and every stream-json event carries the
+    // `session_id` to feed it. Cursor exposes no persistent transport the way
+    // Claude and Codex do, so its process still starts per request; what this
+    // buys is the same thing a resumed turn buys them, skipping the repo
+    // survey the first turn already paid for.
+    //
+    // Images are accepted and ignored, like its other argument builders:
+    // `cursor-agent` documents no flag for them, and the capture paths reach
+    // it as text in the prompt either way.
+    resumeArgs: (
+      sessionId: string,
+      prompt: string,
+      _effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
+    ): string[] => ["-p", "--resume", sessionId, prompt, "--output-format", "stream-json"],
+    sessionFrom: (event: Record<string, unknown>): string | null =>
+      typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
     authArgs: ["status"],
     // UNVERIFIED: cursor-agent was not available on the build machine. The
     // reading is deliberately loose, and anything ambiguous stays unknown.
@@ -195,6 +215,20 @@ export const KNOWN_AGENTS = {
 
 export type KnownAgentId = keyof typeof KNOWN_AGENTS;
 export type AgentChoice = KnownAgentId | "custom";
+/**
+ * Whether Leglas can tell from a vendor's output that it edited a file.
+ *
+ * Only a vendor whose event shape has been read against the real CLI carries
+ * this. It gates the runner's one cold rerun after a dead session: rerunning
+ * a run that had already edited can stack half-applied changes, so a vendor
+ * whose edits Leglas cannot see is never rerun on its own.
+ */
+export function activityVerified(agent: AgentChoice): boolean {
+  if (agent === "custom") return false;
+  const adapter = KNOWN_AGENTS[agent];
+  return "activityVerified" in adapter && adapter.activityVerified === true;
+}
+
 export type DetectedAgent = {
   id: KnownAgentId;
   name: string;
@@ -480,6 +514,42 @@ function codexActivity(event: Record<string, unknown>, cwd: string): string | nu
   return path === null ? null : `editing ${path}`;
 }
 
+/**
+ * Cursor announces tool use in events of its own rather than inside the
+ * assistant message, which is where reading it as Claude's shape went wrong:
+ * every tool call read as nothing, so a Cursor run showed no activity at all
+ * and, worse, never looked like it had edited anything.
+ *
+ * The wrapper holds one key naming the tool (`readToolCall`, `writeToolCall`),
+ * so the name is taken from the key and only the two documented ones are
+ * claimed outright. Anything else is named without guessing what it did,
+ * which is why Cursor does not carry `activityVerified`.
+ */
+function cursorActivity(event: Record<string, unknown>, cwd: string): string | null {
+  if (event.type !== "tool_call") return null;
+  const wrapper = record(event.tool_call);
+  if (wrapper === null) return null;
+
+  const key = Object.keys(wrapper)[0];
+  if (key === undefined) return null;
+  const call = record(wrapper[key]);
+  const args = record(call?.args);
+  const tool = key.replace(/ToolCall$/, "");
+
+  if (tool === "write") {
+    const path = shownPath(args?.path, cwd);
+    return path === null ? "using write" : `editing ${path}`;
+  }
+  if (tool === "read") {
+    const path = shownPath(args?.path, cwd);
+    return path === null ? "using read" : `reading ${path}`;
+  }
+  const command = shownCommand(args?.command);
+  if (command !== null) return `running ${command}`;
+  const path = shownPath(args?.path, cwd);
+  return path === null ? `using ${tool}` : `using ${tool} on ${path}`;
+}
+
 /** Reduce one agent JSONL event to a short, user-facing activity label. */
 export function activityFrom(
   agent: AgentChoice,
@@ -496,9 +566,7 @@ export function activityFrom(
 
   if (agent === "claude") return claudeActivity(event, cwd);
   if (agent === "codex") return codexActivity(event, cwd);
-  // Cursor's stream-json mapping is unverified because cursor-agent was not
-  // available during this slice. Its documented shape matches Claude's.
-  if (agent === "cursor") return claudeActivity(event, cwd);
+  if (agent === "cursor") return cursorActivity(event, cwd);
   return null;
 }
 
@@ -508,7 +576,7 @@ export function activityFrom(
  * expose a resume surface report one; everyone else stays null and cold.
  */
 export function sessionFrom(agent: AgentChoice, line: string): string | null {
-  if (agent !== "claude" && agent !== "codex") return null;
+  if (agent === "custom") return null;
   let event: Record<string, unknown> | null;
   try {
     event = record(JSON.parse(line));

@@ -82,6 +82,17 @@ export function chooseAgentEffort(
   return post("/leglas/api/agent", { agent, effort }, fetcher);
 }
 
+/**
+ * Say a request is probably coming, so the chosen agent can be warmed now.
+ *
+ * Sent when the composer takes focus. The server keeps nothing warm at boot,
+ * and lets a warm agent go after a while; this is what brings it back in the
+ * seconds between the click and Enter.
+ */
+export function warmAgent(fetcher: AgentFetcher = browserFetch): Promise<void> {
+  return post("/leglas/api/agents/warm", null, fetcher);
+}
+
 export function cancelAgentRun(
   id?: string | null,
   fetcher: AgentFetcher = browserFetch,
