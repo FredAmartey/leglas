@@ -12,6 +12,7 @@ import { runAdd, runList, runRequests } from "./run-previews.js";
 import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
 import { run } from "./run.js";
+import { installShutdown } from "./shutdown.js";
 
 const HELP = `leglas - compare design directions inside your own running app
 
@@ -216,18 +217,7 @@ const result = await run(
   { open: openBrowser, log: (line) => process.stdout.write(`${line}\n`) },
 );
 
-let stopping = false;
-const shutdown = async () => {
-  if (stopping) return;
-  stopping = true;
+installShutdown(async () => {
   await result.stop();
   process.exit(0);
-};
-
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-// Closing the terminal window sends this, and it is the most ordinary way a
-// dev tool ends. Without a handler Node exits immediately, so the shutdown
-// never runs and a browser Leglas launched for a capture is orphaned, holding
-// its memory for the life of the machine.
-process.on("SIGHUP", shutdown);
+});
