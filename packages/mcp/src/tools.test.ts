@@ -1,4 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,13 +11,25 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test } from "vitest";
 
+import { writeServerInfo } from "../../server/src/server-info.js";
+
 import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
+const captureServers: http.Server[] = [];
 
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((tools) => tools.shutdown()));
+  await Promise.all(
+    captureServers.splice(0).map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections();
+          server.close(() => resolve());
+        }),
+    ),
+  );
 });
 
 function scratch(): string {
@@ -120,6 +134,53 @@ describe("the MCP face", () => {
     expect(isError).toBe(true);
     expect(envelope["ok"]).toBe(false);
     expect(String(envelope["error"])).toContain("No direction called");
+  });
+
+  test("show with a screenshot returns the PNG beside its JSON envelope", async () => {
+    const dir = scratch();
+    const image = Buffer.from("png from capture");
+    const file = ".leglas/captures/show/aurora-390.png";
+    mkdirSync(join(dir, ".leglas/captures/show"), { recursive: true });
+    writeFileSync(join(dir, file), image);
+    const captureServer = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.url === "/leglas/api/health") return res.end(JSON.stringify({ ok: true }));
+      return res.end(
+        JSON.stringify({
+          ok: true,
+          file,
+          width: 390,
+          height: 700,
+          viewport: 390,
+          errors: [],
+        }),
+      );
+    });
+    captureServers.push(captureServer);
+    await new Promise<void>((resolve) => captureServer.listen(0, "127.0.0.1", resolve));
+    const port = (captureServer.address() as AddressInfo).port;
+    await writeServerInfo(dir, { port, url: `http://localhost:${port}`, pid: process.pid });
+    const client = await connect(dir);
+    await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
+
+    const result = (await client.callTool({
+      name: "show",
+      arguments: { title: "Aurora", screenshot: true, width: 390 },
+    })) as {
+      content: Array<
+        | { type: "text"; text: string }
+        | { type: "image"; data: string; mimeType: string }
+      >;
+      isError?: boolean;
+    };
+
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0]?.type).toBe("text");
+    expect(result.content[1]).toEqual({
+      type: "image",
+      data: image.toString("base64"),
+      mimeType: "image/png",
+    });
   });
 
   test("add with a branch carries the warning about the missing devCommand", async () => {

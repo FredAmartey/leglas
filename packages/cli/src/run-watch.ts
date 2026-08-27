@@ -253,6 +253,15 @@ export async function runWatch(
     process.on("SIGTERM", stop);
     // The signal is the programmatic Ctrl-C, and tests are its main caller.
     options.signal?.addEventListener("abort", stop, { once: true });
+    // A signal that fired before this listener existed is still a stop.
+    //
+    // Everything above this promise is awaited work: resolving the agent,
+    // saving the template, writing the watch file. A caller watching for one
+    // of those to land can abort inside that window, and a listener added to
+    // an already-aborted signal is never called. The loop then ran with
+    // nobody left to stop it and this promise never settled, which is a
+    // watcher that ignores Ctrl-C and a caller that waits for good.
+    if (options.signal?.aborted === true) return stop();
     void tick();
   });
 }

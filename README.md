@@ -92,6 +92,17 @@ and sessions that clean up after themselves.
   the send button switches to changing the direction itself, for when a
   change really is a fix. Hover any direction to see what it was built
   from and the change that was asked for, in the words that were typed.
+- Your agent sees what you see. Every change you send carries a screenshot
+  of the direction at the width you are looking at, a crop of whatever you
+  pointed at with a note, the other pane when you are comparing, and any
+  image you pasted into the composer as a reference. Leglas renders them
+  with a Chrome, Chromium, Brave or Edge already on your machine, nothing
+  to install; with none found, the request says so and goes anyway. Agents
+  can look for themselves too: `npx leglas show "Aurora" --screenshot`
+  writes a PNG of a direction (`--width 390` for the phone layout) and the
+  MCP `show` tool returns the image. The instructions Leglas writes for
+  agents ask for one look after each change, so a broken layout gets fixed
+  before you see it.
 - Keep the winner with one command. Leglas moves it into your source
   tree and clears the exploration away.
 - No app yet or want plain HTML comparisons? Some people want exactly that, and it works fine. Same comparison, no dev server.

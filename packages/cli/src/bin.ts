@@ -61,6 +61,11 @@ Options for add
   --file <path>        Preview a plain HTML file served by Leglas itself
   --based-on <title>   The direction this is a variant of; groups the family
   --asked-for <text>   The change that was asked for, in the words that were typed
+
+Options for show
+  --screenshot         Render the direction and write a PNG
+  --width <n>          Capture width from 320 to 3840 (needs --screenshot)
+  --port <port>        Running Leglas port (needs --screenshot)
 `;
 
 function version(): string {
@@ -185,7 +190,14 @@ if (parsed.kind === "list") {
 
 if (parsed.kind === "show") {
   const outcome = await runShow(
-    { title: parsed.title, json: parsed.json, cwd: process.cwd() },
+    {
+      title: parsed.title,
+      json: parsed.json,
+      screenshot: parsed.screenshot,
+      width: parsed.width,
+      port: parsed.port,
+      cwd: process.cwd(),
+    },
     previewDeps,
   );
   process.exit(outcome.exitCode);

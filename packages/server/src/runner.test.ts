@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -259,7 +259,26 @@ describe("startRunner", () => {
   test("runs Claude through the persistent Agent SDK transport", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-"));
     await saveAgentChoice(cwd, { agent: "claude", effort: "max" });
-    await appendRequest(cwd, input("Persistent"));
+    // The id and the capture directory are the same fact: an attachment is
+    // only handed to a transport when it is a real file under its own
+    // request's directory, so the test writes one.
+    mkdirSync(join(cwd, ".leglas/captures/request"), { recursive: true });
+    writeFileSync(join(cwd, ".leglas/captures/request/frame.png"), "frame");
+    await appendRequest(
+      cwd,
+      {
+        ...input("Persistent"),
+        attachments: [
+          {
+            kind: "frame",
+            file: ".leglas/captures/request/frame.png",
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      "request",
+    );
     const clock = manualClock();
     const spawned = spawner();
     const calls: ClaudeTurnInput[] = [];
@@ -288,6 +307,7 @@ describe("startRunner", () => {
       prompt: "prompt for Persistent",
       effort: "max",
       sessionId: null,
+      images: [join(cwd, ".leglas/captures/request/frame.png")],
     });
     expect(spawned.calls).toHaveLength(0);
     children[0]?.child.stdout.write(
@@ -773,16 +793,20 @@ describe("startRunner", () => {
     const forkArgs = spawned.calls[0]?.[1] ?? [];
     const at = forkArgs.indexOf("--allowedTools");
     expect(at).toBeGreaterThan(-1);
-    expect(forkArgs[at + 1]).toBe("Bash(npx -y leglas add *)");
+    expect(forkArgs.slice(at + 1, at + 3)).toEqual([
+      "Bash(npx -y leglas show *)",
+      "Bash(npx -y leglas add *)",
+    ]);
 
     await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
 
-    // A change in place is told nothing needs re-registering, so it gets no
-    // Bash allowance either.
+    // A change in place needs only the screenshot command it is told to run.
     await tickUntil(clock, () => spawned.children.length === 2);
-    expect(spawned.calls[1]?.[1]).not.toContain("--allowedTools");
+    const tweakArgs = spawned.calls[1]?.[1] ?? [];
+    const tweakAt = tweakArgs.indexOf("--allowedTools");
+    expect(tweakArgs.slice(tweakAt + 1)).toEqual(["Bash(npx -y leglas show *)"]);
     spawned.children[1]?.close(0);
     await runner.stop();
   });
@@ -817,7 +841,10 @@ describe("startRunner", () => {
     expect(resumed).toContain("--resume");
     const at = resumed.indexOf("--allowedTools");
     expect(at).toBeGreaterThan(-1);
-    expect(resumed[at + 1]).toBe("Bash(npx -y leglas add *)");
+    expect(resumed.slice(at + 1, at + 3)).toEqual([
+      "Bash(npx -y leglas show *)",
+      "Bash(npx -y leglas add *)",
+    ]);
     await runner.stop();
   });
 

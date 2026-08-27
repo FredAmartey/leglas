@@ -1,7 +1,8 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
+import { isOwnCapture } from "./attachments.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
 import {
@@ -134,6 +135,7 @@ type ResolvedCommand = {
   sessionId: string | null;
   /** True when the argv continues a saved session instead of starting cold. */
   resumed: boolean;
+  images: readonly string[];
 };
 
 type ChildOutcome =
@@ -152,7 +154,8 @@ function resolveCommand(
   choice: SavedAgentChoice,
   prompt: string,
   sessionId: string | null = null,
-  registration: string | null = null,
+  allowedCommands: readonly string[] = [],
+  images: readonly string[] = [],
 ): ResolvedCommand | null {
   if (choice.agent === null) return null;
 
@@ -170,33 +173,38 @@ function resolveCommand(
       effort: null,
       sessionId: null,
       resumed: false,
+      images: [],
     };
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
   const allow =
-    registration !== null && "allowArgs" in adapter ? adapter.allowArgs(registration) : [];
+    allowedCommands.length > 0 && "allowArgs" in adapter
+      ? adapter.allowArgs(allowedCommands)
+      : [];
   if (sessionId !== null && "resumeArgs" in adapter) {
     return {
       agent: choice.agent,
       name: adapter.name,
       command: adapter.binary,
-      args: [...adapter.resumeArgs(sessionId, prompt, choice.effort), ...allow],
+      args: [...adapter.resumeArgs(sessionId, prompt, choice.effort, images), ...allow],
       prompt,
       effort: choice.effort,
       sessionId,
       resumed: true,
+      images,
     };
   }
   return {
     agent: choice.agent,
     name: adapter.name,
     command: adapter.binary,
-    args: [...adapter.args(prompt, choice.effort), ...allow],
+    args: [...adapter.args(prompt, choice.effort, images), ...allow],
     prompt,
     effort: choice.effort,
     sessionId: null,
     resumed: false,
+    images,
   };
 }
 
@@ -247,8 +255,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         ? createClaudeAgentSession(
             options.cwd,
             options.leglasCommand === undefined
-              ? null
-              : registrationCommand(options.leglasCommand),
+              ? []
+              : [
+                  `${options.leglasCommand} show`,
+                  registrationCommand(options.leglasCommand),
+                ],
           )
         : null
       : options.claudeAgentSession;
@@ -391,6 +402,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           prompt: resolved.prompt,
           effort: resolved.effort,
           sessionId: resolved.sessionId,
+          images: resolved.images,
         },
         controller.signal,
       );
@@ -516,15 +528,33 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     const session =
       choice.agent !== null ? (sessions.get(choice.agent) ?? null) : null;
     const continuable = session !== null && session.turns < SESSION_TURNS_CAP;
-    const registration =
-      request.mode === "variant" && options.leglasCommand !== undefined
-        ? registrationCommand(options.leglasCommand)
-        : null;
+    const allowedCommands =
+      options.leglasCommand === undefined
+        ? []
+        : [
+            `${options.leglasCommand} show`,
+            ...(request.mode === "variant"
+              ? [registrationCommand(options.leglasCommand)]
+              : []),
+          ];
+    // The queue read already keeps attachments inside the request's own
+    // directory by name. This is the same fence with the links resolved, at
+    // the point the path leaves Leglas for a transport that will read it.
+    const images = (
+      await Promise.all(
+        (request.attachments ?? []).map(async (attachment) =>
+          (await isOwnCapture(options.cwd, attachment.file))
+            ? resolve(options.cwd, attachment.file)
+            : null,
+        ),
+      )
+    ).filter((image): image is string => image !== null);
     let resolved = resolveCommand(
       choice,
       request.prompt,
       continuable ? session.id : null,
-      registration,
+      allowedCommands,
+      images,
     );
     if (resolved === null) return;
 
@@ -608,7 +638,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         !stopped
       ) {
         sessions.delete(resolved.agent);
-        const cold = resolveCommand(choice, request.prompt, null, registration);
+        const cold = resolveCommand(choice, request.prompt, null, allowedCommands, images);
         if (cold !== null) {
           resolved = cold;
           observed.sessionId = null;

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, readRequests, removeRequest, targetFor, variantSlot } from "./requests.js";
+import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, newRequestId, readRequests, removeRequest, targetFor, variantSlot } from "./requests.js";
+import type { Captured } from "./attachments.js";
 import type { Preview } from "./config.js";
 
 const preview = (title: string, url: string): Preview => ({
@@ -111,7 +112,47 @@ describe("composeRequest, as a variant", () => {
 
     expect(prompt).toContain("Request collection, direction discovery and the live-server check are already complete");
     expect(prompt).toContain("do not start or restart the app or Leglas");
-    expect(prompt).toContain("Use the existing live preview");
+    expect(prompt).toContain('npx -y leglas show "the title you registered" --screenshot');
+    expect(prompt).not.toContain("requests, list, show, help");
+  });
+
+  test("puts fresh captures, comparison, references and load evidence after the ask", () => {
+    const captured: Captured = {
+      attachments: [
+        { kind: "frame", file: ".leglas/captures/k3j9x1/frame.png", width: 1440, height: 4000, title: "Poster", viewport: 1440 },
+        { kind: "note", file: ".leglas/captures/k3j9x1/note-1.png", width: 640, height: 400, title: "Poster", note: "a", viewport: 1440 },
+        { kind: "compare", file: ".leglas/captures/k3j9x1/compare.png", width: 1440, height: 900, title: "Ledger", viewport: 1440 },
+        { kind: "reference", file: ".leglas/captures/k3j9x1/reference-1.png", width: 800, height: 600 },
+      ],
+      errors: ["TypeError: Cannot read properties of undefined", "Failed to load resource: 500"],
+      cut: true,
+      skipped: "The design could not be captured in time.",
+    };
+    const prompt = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "make it warmer",
+      "variant",
+      [],
+      "npx -y leglas",
+      captured,
+    ).prompt;
+
+    expect(prompt).toContain(
+      "What it looks like, from a fresh load at 1440px wide with nothing interacted with:",
+    );
+    expect(prompt).toContain("frame.png  the top 4000px of the page");
+    expect(prompt).toContain("note-1.png  what note 1 points at, with room around it");
+    expect(prompt).toContain('Alongside it on screen is "Ledger"');
+    expect(prompt).toContain("Reference images the user attached");
+    // Named as files, because only some ways in carry the pictures
+    // themselves and every one of them can open a path.
+    expect(prompt).toContain(
+      "Each path above is a file in this project. Open every one and look at it before changing anything.",
+    );
+    expect(prompt).toContain("On load it logged 2 console errors:");
+    expect(prompt).toContain("(The design could not be captured in time. Use the live preview instead.)");
+    expect(prompt.indexOf("What to change")).toBeLessThan(prompt.indexOf("What it looks like"));
+    expect(prompt.indexOf("What it looks like")).toBeLessThan(prompt.indexOf("Then register it"));
   });
 
   // A quote in the request would end the argument early and hand the shell
@@ -224,6 +265,8 @@ describe("composeRequest", () => {
       expect(prompt).toContain("no test run, no build");
       expect(prompt).toContain("checked visually in a live preview");
     }
+    expect(known).toContain('show "Aurora" --screenshot');
+    expect(unknown).toContain('show "Pricing v2" --screenshot');
   });
 
   test("tells the agent to change only this direction, not its siblings", () => {
@@ -255,6 +298,33 @@ describe("request lifecycle", () => {
     await appendRequest(root, input);
     const [request] = await readRequests(root);
     expect(request).toMatchObject({ title: "Aurora", id: expect.any(String), status: "queued" });
+  });
+
+  test("append accepts a preallocated id and ids stay URL-safe", async () => {
+    const root = cwd();
+    const id = newRequestId();
+    expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
+    await appendRequest(root, input, id);
+    expect((await readRequests(root))[0]?.id).toBe(id);
+  });
+
+  test("reads only attachments with a file and kind", async () => {
+    const root = cwd();
+    mkdirSync(join(root, ".leglas"));
+    writeFileSync(
+      join(root, ".leglas/requests.json"),
+      JSON.stringify({
+        requests: [
+          { ...input, id: "good", attachments: [{ kind: "frame", file: ".leglas/captures/good/frame.png", width: 10, height: 20 }], captureNote: "No browser." },
+          { ...input, id: "bad", attachments: [{ kind: "frame", width: 10 }] },
+        ],
+      }),
+    );
+
+    const [good, bad] = await readRequests(root);
+    expect(good?.attachments).toHaveLength(1);
+    expect(good?.captureNote).toBe("No browser.");
+    expect(bad?.attachments).toBeUndefined();
   });
 
   test("collect marks requests picked-up and persists", async () => {
@@ -346,6 +416,22 @@ describe("request lifecycle", () => {
     expect(await removeRequest(root, first?.id ?? "")).toBe(true);
 
     expect((await readRequests(root)).map((request) => request.title)).toEqual(["Ledger"]);
+  });
+
+  test("removing and clearing requests remove their capture directories", async () => {
+    const root = cwd();
+    await appendRequest(root, input, "first");
+    await appendRequest(root, { ...input, title: "Ledger" }, "second");
+    for (const id of ["first", "second"]) {
+      mkdirSync(join(root, ".leglas/captures", id), { recursive: true });
+      writeFileSync(join(root, ".leglas/captures", id, "frame.png"), id);
+    }
+
+    await removeRequest(root, "first");
+    expect(existsSync(join(root, ".leglas/captures/first"))).toBe(false);
+    await collectRequests(root);
+    await clearRequests(root);
+    expect(existsSync(join(root, ".leglas/captures/second"))).toBe(false);
   });
 
   test("removing an unknown id is a no-op, not an empty queue", async () => {
@@ -441,3 +527,125 @@ describe("terminal requests", () => {
     expect((await readRequests(root)).map((request) => request.title)).toEqual(["Waiting"]);
   });
 });
+
+describe("the look-once instruction", () => {
+  test("quotes the title the way --based-on does, so a quote in the name survives", () => {
+    const { prompt } = composeRequest(
+      preview('Say "hi"', "/?v-hero=hi"),
+      "louder",
+      "replace",
+      [],
+      "npx -y leglas",
+    );
+    expect(prompt).toContain('npx -y leglas show "Say \\"hi\\"" --screenshot');
+  });
+});
+
+describe("what the agent is told to run", () => {
+  test("a title with shell metacharacters is inert inside the show command", () => {
+    const { prompt } = composeRequest(
+      preview("Say $(whoami) `now`", "/?v-hero=x"),
+      "louder",
+      "replace",
+      [],
+      "npx -y leglas",
+    );
+    expect(prompt).toContain('npx -y leglas show "Say \\$(whoami) \\`now\\`" --screenshot');
+  });
+
+  test("the registration arguments are quoted the same way", () => {
+    const { prompt } = composeRequest(preview("Cost $5", "/?v-hero=cost"), "add a `code` sample", "variant");
+    expect(prompt).toContain('--based-on "Cost \\$5"');
+    expect(prompt).toContain('--asked-for "add a \\`code\\` sample"');
+  });
+
+  test("registration is not the end any more; the look comes after it", () => {
+    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
+    expect(prompt).not.toContain("last step; finish there");
+    expect(prompt).toContain("Register it before you look");
+    expect(prompt.indexOf("--based-on")).toBeLessThan(prompt.indexOf("look at it once"));
+  });
+});
+
+describe("ids that reach the filesystem", () => {
+  test("a hand-edited id that is not one Leglas minted reads back as its index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leglas-request-ids-"));
+    mkdirSync(join(root, ".leglas"));
+    const entry = { title: "Poster", url: "/", intent: "x", target: null, prompt: "x" };
+    writeFileSync(
+      join(root, ".leglas/requests.json"),
+      JSON.stringify({ requests: [{ ...entry, id: "../../src" }, { ...entry, id: "abc_-123" }] }),
+    );
+    expect((await readRequests(root)).map((request) => request.id)).toEqual(["0", "abc_-123"]);
+  });
+});
+
+describe("a variant of a file direction", () => {
+  test("is not asked to screenshot what cannot render until a restart", () => {
+    const { prompt } = composeRequest(
+      { title: "Hero", url: "/leglas/files/x/hero.html", note: undefined, tags: [], file: "pages/hero.html" },
+      "warmer",
+      "variant",
+    );
+    expect(prompt).toContain("Registering it is the last step; finish there.");
+    expect(prompt).toContain("joins the rail after Leglas restarts");
+    expect(prompt).not.toContain("--screenshot");
+  });
+});
+
+describe("attachments read back from the queue", () => {
+  test("only files inside the request's own capture directory survive the read", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leglas-request-attachments-"));
+    mkdirSync(join(root, ".leglas"));
+    const entry = { title: "Poster", url: "/", intent: "x", target: null, prompt: "x", id: "abc123" };
+    const attachment = (file: string, kind = "frame") => ({ kind, file, width: 1, height: 1 });
+    writeFileSync(
+      join(root, ".leglas/requests.json"),
+      JSON.stringify({
+        requests: [
+          {
+            ...entry,
+            attachments: [
+              attachment(".leglas/captures/abc123/frame.png"),
+              attachment(".leglas/captures/abc123/../../../Pictures/private.png"),
+              attachment("../../Pictures/private.png"),
+              attachment(".leglas/captures/other/frame.png"),
+              attachment(".leglas/captures/abc123/note-1.png", "poem"),
+            ],
+          },
+        ],
+      }),
+    );
+    const [read] = await readRequests(root);
+    expect(read?.attachments).toEqual([attachment(".leglas/captures/abc123/frame.png")]);
+  });
+});
+
+describe("agents that receive paths rather than attachments", () => {
+  test("every capture is named as a file, so a path-only agent can still open it", () => {
+    const captured = {
+      attachments: [
+        { kind: "frame" as const, file: ".leglas/captures/r1/frame.png", width: 1440, height: 900, viewport: 1440 },
+        { kind: "reference" as const, file: ".leglas/captures/r1/reference-1.png", width: 800, height: 600 },
+      ],
+      errors: [],
+      cut: false,
+      skipped: null,
+    };
+    const { prompt } = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "warmer",
+      "replace",
+      [],
+      "npx -y leglas",
+      captured,
+    );
+
+    // Cursor, a custom command and `leglas watch` get this text and nothing
+    // else, so the paths and the instruction have to carry the whole job.
+    expect(prompt).toContain(".leglas/captures/r1/frame.png");
+    expect(prompt).toContain(".leglas/captures/r1/reference-1.png");
+    expect(prompt).toContain("Open every one and look at it");
+  });
+});
+

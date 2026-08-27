@@ -1,5 +1,5 @@
 import http from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,13 +7,20 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
+import { CAPTURES_DIR, REFERENCES_DIR } from "./attachments.js";
+import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./browser.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { LeglasConfig } from "./config.js";
-import { appendRequest, readRequests } from "./requests.js";
+import { appendRequest, markFailed, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
+import { SERVER_INFO_PATH } from "./server-info.js";
 
 const running: RunningServer[] = [];
 const origins: http.Server[] = [];
+const TWO_BY_THREE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAC0lEQVR4nGNgwAkAABsAAco8Sg0AAAAASUVORK5CYII=",
+  "base64",
+);
 
 afterEach(async () => {
   await Promise.all(running.splice(0).map((server) => server.close()));
@@ -50,10 +57,57 @@ async function start(options: Parameters<typeof startServer>[0]): Promise<Runnin
   const server = await startServer({
     codexAppServer: null,
     claudeAgentSession: null,
+    pool: quietPool(),
     ...options,
   });
   running.push(server);
   return server;
+}
+
+function quietPool(reason = NO_BROWSER): BrowserPool {
+  return {
+    acquire: async () => null,
+    reason: () => reason,
+    close: async () => {},
+  };
+}
+
+function capturePool(loads = true): BrowserPool {
+  const listeners = new Map<string, Set<(params: any) => void>>();
+  const page: CdpPage = {
+    on: (method, listener) => {
+      const group = listeners.get(method) ?? new Set();
+      group.add(listener);
+      listeners.set(method, group);
+      return () => group.delete(listener);
+    },
+    send: async <T,>(method: string, params: Record<string, unknown> = {}) => {
+      if (method === "Page.navigate") {
+        if (loads) {
+          queueMicrotask(() => {
+            for (const listener of listeners.get("Page.loadEventFired") ?? []) listener({});
+          });
+        }
+      }
+      if (method === "Page.getLayoutMetrics") {
+        const width = Number((params as { width?: number }).width) || 390;
+        return { cssContentSize: { width, height: 600 } } as T;
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: Buffer.from("fake png").toString("base64") } as T;
+      }
+      if (method === "Runtime.evaluate") {
+        return { result: { value: null } } as T;
+      }
+      return {} as T;
+    },
+  };
+  const browser: Browser = {
+    closed: false,
+    close: async () => {},
+    withPage: async (work) => work(page),
+  };
+  return { acquire: async () => browser, reason: () => null, close: async () => {} };
 }
 
 function postWatchAs(server: RunningServer, host: string, origin = `http://${host}`): Promise<number> {
@@ -79,6 +133,49 @@ function postWatchAs(server: RunningServer, host: string, origin = `http://${hos
     );
     request.once("error", reject);
     request.end(payload);
+  });
+}
+
+function referenceFiles(cwd: string): string[] {
+  const directory = join(cwd, REFERENCES_DIR);
+  return existsSync(directory) ? readdirSync(directory).sort() : [];
+}
+
+function postRawReference(
+  server: RunningServer,
+  headers: http.OutgoingHttpHeaders,
+  chunks: readonly Buffer[] | null,
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const request = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: server.port,
+        path: "/leglas/api/references",
+        method: "POST",
+        headers,
+      },
+      (response) => {
+        const parts: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => parts.push(chunk));
+        response.once("end", () => {
+          settled = true;
+          if (!request.writableEnded) request.destroy();
+          const text = Buffer.concat(parts).toString("utf8");
+          resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) as unknown });
+        });
+      },
+    );
+    request.once("error", (error) => {
+      if (!settled) reject(error);
+    });
+    if (chunks === null) {
+      request.flushHeaders();
+      return;
+    }
+    for (const chunk of chunks) request.write(chunk);
+    request.end();
   });
 }
 
@@ -129,6 +226,414 @@ describe("startServer", () => {
     expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer" }]);
     const second = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof first;
     expect(second).toEqual(first);
+  });
+
+  test("uploads a PNG reference with its measured dimensions", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-upload-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: TWO_BY_THREE_PNG,
+    });
+    const body = (await response.json()) as {
+      ok: boolean;
+      reference: {
+        id: string;
+        file: string;
+        name: string;
+        width: number;
+        height: number;
+        bytes: number;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      ok: true,
+      reference: {
+        id: expect.stringMatching(/^[A-Za-z0-9_-]{1,32}$/),
+        file: expect.stringMatching(/^\.leglas\/references\/[A-Za-z0-9_-]+\.png$/),
+        name: "image",
+        width: 2,
+        height: 3,
+        bytes: 68,
+      },
+    });
+    expect(readFileSync(join(cwd, body.reference.file))).toEqual(TWO_BY_THREE_PNG);
+  });
+
+  test("refuses a non-image reference without writing it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-type-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: "not an image",
+    });
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: "Only PNG, JPEG, WebP and GIF images can be attached.",
+    });
+    expect(referenceFiles(cwd)).toEqual([]);
+  });
+
+  test("refuses a declared reference over 10MB before reading it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-length-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await postRawReference(
+      server,
+      { "content-length": "10000001" },
+      null,
+    );
+
+    expect(response).toEqual({
+      status: 413,
+      body: { ok: false, error: "That image is over 10MB." },
+    });
+    expect(referenceFiles(cwd)).toEqual([]);
+  });
+
+  test("stops a streamed reference as soon as it passes 10MB", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-stream-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await postRawReference(
+      server,
+      {},
+      [Buffer.alloc(5_000_000), Buffer.alloc(5_000_001)],
+    );
+
+    expect(response).toEqual({
+      status: 413,
+      body: { ok: false, error: "That image is over 10MB." },
+    });
+    expect(referenceFiles(cwd)).toEqual([]);
+  });
+
+  test("moves an uploaded reference into the request capture directory", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-request-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+    });
+    const uploaded = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      body: TWO_BY_THREE_PNG,
+    });
+    const uploadedBody = (await uploaded.json()) as {
+      reference: { id: string; file: string };
+    };
+
+    const response = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Poster",
+        intent: "use the attached proportions",
+        references: [uploadedBody.reference.id],
+      }),
+    });
+    const [queued] = await readRequests(cwd);
+
+    expect(response.status).toBe(200);
+    expect(queued?.attachments).toMatchObject([
+      {
+        kind: "reference",
+        file: `.leglas/captures/${queued.id}/reference-1.png`,
+        width: 2,
+        height: 3,
+      },
+    ]);
+    expect(readFileSync(join(cwd, CAPTURES_DIR, queued?.id ?? "", "reference-1.png"))).toEqual(
+      TWO_BY_THREE_PNG,
+    );
+    expect(existsSync(join(cwd, uploadedBody.reference.file))).toBe(false);
+  });
+
+  test("sanitises the uploaded reference display name", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-name-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+    const longName = `../caf\u00e9\\${"x".repeat(90)}.png`;
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      headers: { "x-leglas-filename": longName },
+      body: TWO_BY_THREE_PNG,
+    });
+    const body = (await response.json()) as { reference: { name: string } };
+
+    expect(response.status).toBe(200);
+    expect(body.reference.name).toBe(`..caf${"x".repeat(75)}`);
+    expect(body.reference.name).toHaveLength(80);
+  });
+
+  test("refuses an empty reference upload", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-empty-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      body: Buffer.alloc(0),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false, error: "The upload was empty." });
+    expect(referenceFiles(cwd)).toEqual([]);
+  });
+
+  test("falls back to image when the reference display name has no safe characters", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-name-empty-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      headers: { "x-leglas-filename": "\u00e9/\\" },
+      body: TWO_BY_THREE_PNG,
+    });
+    const body = (await response.json()) as { reference: { name: string } };
+
+    expect(response.status).toBe(200);
+    expect(body.reference.name).toBe("image");
+  });
+
+  test("a request moves attached references and records why a browser capture was skipped", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-captures-"));
+    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
+    const png = Buffer.alloc(24);
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+    png.writeUInt32BE(320, 16);
+    png.writeUInt32BE(200, 20);
+    writeFileSync(join(cwd, REFERENCES_DIR, "paste_1.png"), png);
+    const server = await start({
+      config: configFor(await startOrigin(), [
+        { title: "Poster", url: "/" },
+        { title: "Ledger", url: "/ledger" },
+      ]),
+      port: 0,
+      cwd,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Poster",
+        intent: "warmer",
+        width: 390,
+        compare: "Ledger",
+        references: ["paste_1"],
+      }),
+    });
+    const body = (await response.json()) as {
+      attachments: { kind: string; file: string }[];
+      prompt: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.attachments).toMatchObject([
+      { kind: "reference", file: expect.stringContaining("reference-1.png") },
+    ]);
+    expect(body.prompt).toContain("Reference images the user attached");
+    expect(body.prompt).toContain(NO_BROWSER);
+    const [queued] = await readRequests(cwd);
+    expect(queued?.attachments).toEqual(body.attachments);
+    expect(queued?.captureNote).toBe(NO_BROWSER);
+    expect(existsSync(join(cwd, REFERENCES_DIR, "paste_1.png"))).toBe(false);
+  });
+
+  test("rejects malformed reference ids before moving or queueing anything", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-reference-id-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster", intent: "warmer", references: ["../secret"] }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readRequests(cwd)).toEqual([]);
+  });
+
+  test("captures a direction through the shared browser pool", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-api-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster Print!", url: "/" }]),
+      pool: capturePool(),
+      port: 0,
+      cwd,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster Print!", width: 390 }),
+    });
+    const body = (await response.json()) as {
+      file: string;
+      width: number;
+      height: number;
+      viewport: number;
+      errors: string[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      file: ".leglas/captures/show/poster-print-390.png",
+      width: 390,
+      height: 600,
+      viewport: 390,
+      errors: [],
+    });
+    expect(readFileSync(join(cwd, body.file), "utf8")).toBe("fake png");
+  });
+
+  test("captures one note crop and names it in the show file", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-note-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      pool: capturePool(),
+      port: 0,
+      cwd,
+    });
+    const noteResponse = await fetch(`${server.url}/leglas/api/annotations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Poster",
+        note: "crop here",
+        anchor: {
+          selector: "#missing",
+          text: "Body",
+          tag: "p",
+          classes: [],
+          rect: { x: 10, y: 20, width: 40, height: 30 },
+          viewport: 390,
+        },
+      }),
+    });
+    const note = (await noteResponse.json()) as { annotation: { id: string } };
+
+    const response = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster", width: 390, note: note.annotation.id }),
+    });
+    const body = (await response.json()) as { file: string; width: number; height: number };
+
+    expect(response.status).toBe(200);
+    expect(body.file).toBe(
+      `.leglas/captures/show/poster-390-${note.annotation.id}.png`,
+    );
+    expect(body.width).toBe(640);
+    expect(body.height).toBe(400);
+  });
+
+  test("capture gives a bounded timeout when the page never loads", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-timeout-"));
+    const nativeSetTimeout = globalThis.setTimeout;
+    // The deadline fires first here; the load's own share is left real, so
+    // this is the abandonment path and nothing else.
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
+        nativeSetTimeout(callback, milliseconds === 15_000 ? 5 : milliseconds, ...args)) as typeof setTimeout,
+    );
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      pool: capturePool(false),
+      port: 0,
+      cwd,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster" }),
+    });
+
+    expect(response.status).toBe(504);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: "The page did not load in time.",
+    });
+  });
+
+  test("a page that rendered but never fired load is still captured", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-stalled-"));
+    const nativeSetTimeout = globalThis.setTimeout;
+    // The load's share of the deadline lapses at once; the deadline itself
+    // stays real, so the capture that follows has all the time it needs.
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
+        nativeSetTimeout(callback, milliseconds === 9_000 ? 5 : milliseconds, ...args)) as typeof setTimeout,
+    );
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      pool: capturePool(false),
+      port: 0,
+      cwd,
+    });
+
+    const response = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Poster" }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { file: string };
+    expect(existsSync(join(cwd, body.file))).toBe(true);
+  });
+
+  test("an upload lets go of references pasted an hour ago and never sent", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-references-prune-"));
+    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
+    const stale = join(cwd, REFERENCES_DIR, "stale.png");
+    writeFileSync(stale, TWO_BY_THREE_PNG);
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(stale, twoHoursAgo, twoHoursAgo);
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      body: TWO_BY_THREE_PNG,
+    });
+    expect(response.status).toBe(200);
+    // The prune runs off the response; give it a beat.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(existsSync(stale)).toBe(false);
+    expect(readdirSync(join(cwd, REFERENCES_DIR))).toHaveLength(1);
+  });
+
+  test("capture reports unknown directions and unavailable browsers", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-errors-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+    });
+    const send = (title: string) =>
+      fetch(`${server.url}/leglas/api/capture`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+    expect((await send("Missing")).status).toBe(404);
+    const unavailable = await send("Poster");
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({ ok: false, error: NO_BROWSER });
   });
 
   test("keeps a note, hands it back, and forgets it on request", async () => {
@@ -466,7 +971,8 @@ describe("startServer", () => {
       stopping: false,
       waiting: null,
     });
-    expect(existsSync(join(cwd, ".leglas"))).toBe(false);
+    // A running server always leaves its rendezvous record under .leglas.
+    expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(true);
   });
 
   test("reports available agents and round-trips the saved choice", async () => {
@@ -791,6 +1297,52 @@ describe("startServer", () => {
     expect(retried?.id).not.toBe(failed.id);
   });
 
+  test("a retry keeps the failed request's captures under its fresh id", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-captures-"));
+    await appendRequest(
+      cwd,
+      {
+        title: "Aurora",
+        url: "/",
+        intent: "warmer",
+        target: null,
+        prompt: "make it warmer\n  .leglas/captures/old-id/frame.png  the whole page",
+        attachments: [
+          {
+            kind: "frame",
+            file: ".leglas/captures/old-id/frame.png",
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      "old-id",
+    );
+    mkdirSync(join(cwd, CAPTURES_DIR, "old-id"), { recursive: true });
+    writeFileSync(join(cwd, CAPTURES_DIR, "old-id/frame.png"), "frame");
+    await markFailed(cwd, "old-id", { code: "agent-error", message: "failed" });
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "old-id" }),
+    });
+
+    expect(response.status).toBe(200);
+    const [retried] = await readRequests(cwd);
+    expect(retried?.id).not.toBe("old-id");
+    expect(retried?.attachments?.[0]?.file).toBe(
+      `.leglas/captures/${retried?.id}/frame.png`,
+    );
+    expect(readFileSync(join(cwd, retried?.attachments?.[0]?.file ?? ""), "utf8")).toBe("frame");
+    expect(existsSync(join(cwd, CAPTURES_DIR, "old-id"))).toBe(false);
+    // Watch, a custom command and `requests --json` read the prompt as text,
+    // so the paths in it have to follow the files.
+    expect(retried?.prompt).toContain(`.leglas/captures/${retried?.id}/frame.png`);
+    expect(retried?.prompt).not.toContain("old-id");
+  });
+
   test("refuses to retry a request that has not failed", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-pending-"));
     await appendRequest(cwd, {
@@ -955,10 +1507,26 @@ describe("startServer", () => {
   });
 
   test("reports the port and url it actually bound", async () => {
-    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-server-record-"));
+    const closePool = vi.fn(async () => {});
+    const server = await start({
+      config: configFor(await startOrigin()),
+      port: 0,
+      cwd,
+      pool: { ...quietPool(), close: closePool },
+    });
 
     expect(server.port).toBeGreaterThan(0);
     expect(server.url).toBe(`http://localhost:${server.port}`);
+    expect(JSON.parse(readFileSync(join(cwd, SERVER_INFO_PATH), "utf8"))).toMatchObject({
+      port: server.port,
+      url: server.url,
+      pid: process.pid,
+      startedAt: expect.any(String),
+    });
+    await server.close();
+    expect(closePool).toHaveBeenCalledOnce();
+    expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(false);
   });
 
   test("takes the next free port when the requested one is busy", async () => {
@@ -1383,5 +1951,92 @@ describe("mutation trust", () => {
     expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
     expect(isLoopbackAddress("192.168.1.44")).toBe(false);
     expect(isLoopbackAddress(undefined)).toBe(false);
+  });
+});
+
+describe("what a capture may resolve", () => {
+  test("a direction added from a file after boot is not captured, matching the rail", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-fresh-file-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+      pool: capturePool(),
+    });
+    // Registered while the server runs, the way an agent does it. A file
+    // needs the mount boot builds, so the rail holds it back until the
+    // restart, and a capture of it would render the wrong page.
+    mkdirSync(join(cwd, ".leglas"), { recursive: true });
+    writeFileSync(join(cwd, "fresh.html"), "<h1>fresh</h1>");
+    writeFileSync(
+      join(cwd, ".leglas", "previews.json"),
+      JSON.stringify({ previews: [{ title: "Fresh", file: "fresh.html" }, { title: "Live", url: "/live" }] }),
+    );
+
+    const fresh = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Fresh" }),
+    });
+    expect(fresh.status).toBe(404);
+
+    // A plain URL added the same way joins at once, as it does in the rail.
+    const live = await fetch(`${server.url}/leglas/api/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Live" }),
+    });
+    expect(live.status).toBe(200);
+  });
+
+  test("the same words against a different comparison or picture are not a duplicate", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-context-"));
+    // No browser on purpose: a repeat is a repeat of what was asked, and it
+    // has to be caught whether or not the capture behind it succeeded.
+    const server = await start({
+      config: configFor(await startOrigin(), [
+        { title: "Poster", url: "/" },
+        { title: "Ledger", url: "/ledger" },
+        { title: "Hero", url: "/hero" },
+      ]),
+      port: 0,
+      cwd,
+    });
+    const send = (body: Record<string, unknown>) =>
+      fetch(`${server.url}/leglas/api/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    expect((await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status).toBe(200);
+    // Exactly the same request, the retype-after-stop shape.
+    expect((await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status).toBe(409);
+    // The same words meaning a different other one.
+    expect((await send({ title: "Poster", intent: "like the other one", compare: "Hero" })).status).toBe(200);
+    // The same words with nothing alongside.
+    expect((await send({ title: "Poster", intent: "like the other one" })).status).toBe(200);
+    // A picture is part of the ask too, by identity rather than by count.
+    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
+    const paste = (id: string) => writeFileSync(join(cwd, REFERENCES_DIR, `${id}.png`), TWO_BY_THREE_PNG);
+    paste("r1");
+    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(200);
+    paste("r1");
+    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(409);
+    paste("r2");
+    expect((await send({ title: "Poster", intent: "like this", references: ["r2"] })).status).toBe(200);
+    // One that was pruned in the meantime refuses the send rather than
+    // quietly leaving the picture out.
+    const gone = await send({ title: "Poster", intent: "like that", references: ["r9"] });
+    expect(gone.status).toBe(410);
+    expect(((await gone.json()) as { error: string }).error).toContain("Attach it again");
+    const queued = await readRequests(cwd);
+    expect(queued.map((entry) => [entry.compare ?? null, entry.references ?? null])).toEqual([
+      ["Ledger", null],
+      ["Hero", null],
+      [null, null],
+      [null, ["r1"]],
+      [null, ["r2"]],
+    ]);
   });
 });

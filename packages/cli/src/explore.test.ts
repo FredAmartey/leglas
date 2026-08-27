@@ -62,6 +62,8 @@ describe("planExplore", () => {
 
     expect(text).toContain("the moment it renders");
     expect(text).toContain("not the set at the end");
+    expect(text).toContain('npx leglas show "<name>" --screenshot');
+    expect(text).toContain("look before building the next one");
   });
 
   test("both modes share the same file mechanics", () => {

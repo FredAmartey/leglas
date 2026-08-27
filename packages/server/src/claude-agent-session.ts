@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import { readFile, stat } from "node:fs/promises";
+import { extname } from "node:path";
 import { PassThrough } from "node:stream";
 
 import { agentEnvironment, type AgentEffort } from "./agents.js";
@@ -42,6 +44,7 @@ export type ClaudeTurnInput = {
   effort: AgentEffort | null;
   /** Null starts a fresh conversation; a value continues that session. */
   sessionId: string | null;
+  images: readonly string[];
 };
 
 export type ClaudeTurnRunner = {
@@ -52,6 +55,37 @@ export type ClaudeTurnRunner = {
 };
 
 const INITIALIZE_TIMEOUT_MS = 30_000;
+const IMAGE_MAX_BYTES = 5_000_000;
+
+function imageMediaType(path: string): string | null {
+  const extension = extname(path).toLowerCase();
+  if (extension === ".png") return "image/png";
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  return null;
+}
+
+/** Read only image shapes the Agent SDK accepts, bounded before loading bytes. */
+async function claudeContent(prompt: string, images: readonly string[]): Promise<unknown> {
+  if (images.length === 0) return prompt;
+  const blocks: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+  for (const path of images) {
+    const mediaType = imageMediaType(path);
+    if (mediaType === null) continue;
+    try {
+      if ((await stat(path)).size > IMAGE_MAX_BYTES) continue;
+      const data = await readFile(path);
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: data.toString("base64") },
+      });
+    } catch {
+      // A missing capture is skipped; the prompt still names it for diagnosis.
+    }
+  }
+  return blocks;
+}
 
 function waitForAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return work;
@@ -202,7 +236,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   constructor(
     private readonly cwd: string,
-    private readonly allowedCommand: string | null,
+    private readonly allowedCommands: readonly string[],
     private readonly startup: ClaudeSdkStartup,
   ) {}
 
@@ -221,9 +255,9 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
         permissionMode: "acceptEdits",
         settingSources: ["user", "project", "local"],
         persistSession: true,
-        ...(this.allowedCommand === null
+        ...(this.allowedCommands.length === 0
           ? {}
-          : { allowedTools: [`Bash(${this.allowedCommand} *)`] }),
+          : { allowedTools: this.allowedCommands.map((command) => `Bash(${command} *)`) }),
       },
       initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
     })
@@ -299,7 +333,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       if (signal?.aborted) throw new Error("cancelled");
       queue.push({
         type: "user",
-        message: { role: "user", content: input.prompt },
+        message: { role: "user", content: await claudeContent(input.prompt, input.images) },
         parent_tool_use_id: null,
         origin: { kind: "human" },
       });
@@ -438,8 +472,8 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
 export function createClaudeAgentSession(
   cwd: string,
-  allowedCommand: string | null = null,
+  allowedCommands: readonly string[] = [],
   startup: ClaudeSdkStartup = defaultStartup,
 ): ClaudeTurnRunner {
-  return new PersistentClaudeSession(cwd, allowedCommand, startup);
+  return new PersistentClaudeSession(cwd, allowedCommands, startup);
 }

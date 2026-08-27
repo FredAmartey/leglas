@@ -48,5 +48,8 @@ If it does not:
   envelope with a stable exit code.
 - `npx leglas requests --json` holds change requests the user typed
   into the interface, each naming the direction and the file behind it.
+- `npx leglas show "<title>" --screenshot` renders a direction with a
+  headless browser and writes the PNG. Read it after registering each
+  direction and fix anything visibly broken before saying it is done.
 - For agent hosts that cannot run shell commands, the `leglas-mcp`
   server exposes the same operations as MCP tools over stdio.

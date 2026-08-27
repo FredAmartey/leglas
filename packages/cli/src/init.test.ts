@@ -56,6 +56,11 @@ describe("planInit", () => {
     expect(contents.indexOf("make sure the interface is up")).toBeLessThan(
       contents.indexOf("Build one direction at a time"),
     );
+    expect(contents).toContain('npx leglas show "<title>" --screenshot');
+    expect(contents).toContain("--width 390");
+    expect(contents.indexOf("Register each direction as it lands")).toBeLessThan(
+      contents.indexOf("Then look at it"),
+    );
   });
 
   test("does not repeat setup for a request created by the running interface", () => {
@@ -71,6 +76,13 @@ describe("planInit", () => {
 
     expect(contents).toContain("npx leglas watch --run");
     expect(contents).toContain("{prompt}");
+  });
+
+  test("explains the images a request can carry", () => {
+    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
+
+    expect(contents).toContain(".leglas/captures/");
+    expect(contents).toContain("Look at them before changing anything.");
   });
 
   test("names the commands an agent needs", () => {

@@ -7,6 +7,17 @@
 
 export declare const AGENTS_MARKER_END = "<!-- leglas:end -->";
 export declare const AGENTS_MARKER_START = "<!-- leglas:start -->";
+export type Attachment = {
+    kind: AttachmentKind;
+    file: string;
+    width: number;
+    height: number;
+    title?: string;
+    note?: string;
+    viewport?: number;
+};
+export type AttachmentKind = "frame" | "note" | "compare" | "reference";
+export declare const CAPTURES_DIR = ".leglas/captures";
 export declare const DEFAULT_PORT = 4100;
 export type Failure = {
     code: FailureCode;
@@ -33,6 +44,7 @@ export type FailureCode =
  | "agent-error";
 export type Framework = "next" | "react";
 export declare const LEGLAS_PREFIX = "/leglas";
+export declare const NO_BROWSER: string;
 export type NewDeps = {
     log(line: string): void;
 };
@@ -75,6 +87,9 @@ export type ParseResult = {
     kind: "show";
     title: string;
     json: boolean;
+    screenshot: boolean;
+    width: number | null;
+    port: number | null;
 } | {
     kind: "requests";
     json: boolean;
@@ -128,7 +143,17 @@ export type PendingRequest = {
      * they point at is the one that was just rewritten.
      */
     notes?: readonly string[];
+    attachments?: readonly Attachment[];
+    captureNote?: string;
+    /**
+     * What was on screen beside the words: the compared direction and the
+     * reference ids that were attached. Kept as asked rather than as captured,
+     * because a duplicate is a repeat of the ask, and a capture can fail.
+     */
+    compare?: string;
+    references?: readonly string[];
 };
+export declare const REFERENCES_DIR = ".leglas/references";
 export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 export type RunDeps = {
     open(url: string): Promise<void>;
@@ -151,6 +176,12 @@ export type RunResult = {
     devServer: string;
     previewCount: number;
     stop(): Promise<void>;
+};
+export declare const SERVER_INFO_PATH = ".leglas/server.json";
+export type ServerInfo = {
+    port: number;
+    url: string;
+    pid: number;
 };
 export type ShowDirection = {
     title: string;
@@ -210,6 +241,8 @@ export declare function commandFor(template: WatchTemplate, prompt: string): {
     args: string[];
 };
 export declare function detectFramework(packageJson: string | null): Framework;
+export declare function findBrowser(search?: BrowserSearch): string | null;
+export declare function isOwnCapture(cwd: string, file: string): Promise<boolean>;
 export declare function nextRequest(requests: readonly PendingRequest[], failed: ReadonlySet<string>): PendingRequest | null;
 export declare function parseArgs(argv: string[]): ParseResult;
 export declare function parseTemplate(raw: string): TemplateResult;
@@ -237,6 +270,7 @@ export declare function planNew(options: {
 }): NewPlan;
 export declare function planShow({ title, previews, requests }: ShowInput): ShowPlan;
 export declare function readRequests(cwd: string): Promise<PendingRequest[]>;
+export declare function readServerInfo(cwd: string): Promise<ServerInfo | null>;
 export declare function run(options: RunOptions & {
     cwd: string;
 }, deps: RunDeps): Promise<RunResult>;
@@ -292,6 +326,9 @@ export declare function runRequests(options: {
 export declare function runShow(options: {
     title: string;
     json: boolean;
+    screenshot: boolean;
+    width: number | null;
+    port: number | null;
     cwd: string;
 }, deps: ShowDeps): Promise<{
     exitCode: number;

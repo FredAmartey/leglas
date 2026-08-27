@@ -49,7 +49,7 @@ export const KNOWN_AGENTS = {
     name: "Claude",
     binary: "claude",
     efforts: AGENT_EFFORTS,
-    args: (prompt: string, effort: AgentEffort | null = null): string[] => [
+    args: (prompt: string, effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
       "-p",
       prompt,
       "--output-format",
@@ -59,7 +59,7 @@ export const KNOWN_AGENTS = {
       "acceptEdits",
       ...effortFlag(effort),
     ],
-    terminalArgs: (prompt: string, effort: AgentEffort | null = null): string[] => [
+    terminalArgs: (prompt: string, effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
       "-p",
       prompt,
       "--permission-mode",
@@ -70,6 +70,7 @@ export const KNOWN_AGENTS = {
       sessionId: string,
       prompt: string,
       effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
     ): string[] => [
       "-p",
       "--resume",
@@ -87,7 +88,10 @@ export const KNOWN_AGENTS = {
     // nobody there to say yes. This allows exactly that command and nothing
     // wider. Codex needs no equivalent, because workspace-write already lets
     // it run commands.
-    allowArgs: (command: string): string[] => ["--allowedTools", `Bash(${command} *)`],
+    allowArgs: (commands: readonly string[]): string[] => [
+      "--allowedTools",
+      ...commands.map((command) => `Bash(${command} *)`),
+    ],
     // Every stream-json event names its session.
     sessionFrom: (event: Record<string, unknown>): string | null =>
       typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
@@ -117,7 +121,7 @@ export const KNOWN_AGENTS = {
     // moves that precondition and only that: `-s workspace-write` still
     // confines writes to the project, so the sandbox boundary is unchanged,
     // and in a git repository the flag does nothing at all.
-    args: (prompt: string, effort: AgentEffort | null = null): string[] => [
+    args: (prompt: string, effort: AgentEffort | null = null, images: readonly string[] = []): string[] => [
       "exec",
       "--json",
       ...CODEX_WORKSPACE_CONFIG,
@@ -125,15 +129,17 @@ export const KNOWN_AGENTS = {
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
+      ...images.flatMap((image) => ["-i", image]),
       prompt,
     ],
-    terminalArgs: (prompt: string, effort: AgentEffort | null = null): string[] => [
+    terminalArgs: (prompt: string, effort: AgentEffort | null = null, images: readonly string[] = []): string[] => [
       "exec",
       ...CODEX_WORKSPACE_CONFIG,
       ...codexEffortConfig(effort),
       "-s",
       "workspace-write",
       "--skip-git-repo-check",
+      ...images.flatMap((image) => ["-i", image]),
       prompt,
     ],
     // No sandbox flag here: `codex exec resume` refuses it and inherits the
@@ -143,6 +149,7 @@ export const KNOWN_AGENTS = {
       sessionId: string,
       prompt: string,
       effort: AgentEffort | null = null,
+      images: readonly string[] = [],
     ): string[] => [
       "exec",
       "resume",
@@ -151,6 +158,7 @@ export const KNOWN_AGENTS = {
       ...CODEX_WORKSPACE_CONFIG,
       ...codexEffortConfig(effort),
       "--skip-git-repo-check",
+      ...images.flatMap((image) => ["-i", image]),
       prompt,
     ],
     sessionFrom: (event: Record<string, unknown>): string | null =>
@@ -166,13 +174,13 @@ export const KNOWN_AGENTS = {
     name: "Cursor",
     binary: "cursor-agent",
     efforts: [] as readonly AgentEffort[],
-    args: (prompt: string, _effort: AgentEffort | null = null): string[] => [
+    args: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
       "-p",
       prompt,
       "--output-format",
       "stream-json",
     ],
-    terminalArgs: (prompt: string, _effort: AgentEffort | null = null): string[] => ["-p", prompt],
+    terminalArgs: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => ["-p", prompt],
     authArgs: ["status"],
     // UNVERIFIED: cursor-agent was not available on the build machine. The
     // reading is deliberately loose, and anything ambiguous stays unknown.

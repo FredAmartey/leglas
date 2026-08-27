@@ -66,6 +66,33 @@ describe("KNOWN_AGENTS", () => {
       "make it warmer",
     ]);
   });
+
+  test("puts every image before the Codex prompt on cold, resumed and terminal runs", () => {
+    const images = ["/project/frame.png", "/project/note-1.png"];
+    for (const argv of [
+      KNOWN_AGENTS.codex.args("make it warmer", null, images),
+      KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer", null, images),
+      KNOWN_AGENTS.codex.terminalArgs("make it warmer", null, images),
+    ]) {
+      expect(argv.slice(-5)).toEqual([
+        "-i",
+        "/project/frame.png",
+        "-i",
+        "/project/note-1.png",
+        "make it warmer",
+      ]);
+    }
+    expect(KNOWN_AGENTS.claude.args("make it warmer", null, images)).not.toContain("-i");
+    expect(KNOWN_AGENTS.cursor.args("make it warmer", null, images)).not.toContain("-i");
+  });
+
+  test("grants each exact Claude command as its own allowed tool", () => {
+    expect(KNOWN_AGENTS.claude.allowArgs(["npx leglas show", "npx leglas add"])).toEqual([
+      "--allowedTools",
+      "Bash(npx leglas show *)",
+      "Bash(npx leglas add *)",
+    ]);
+  });
 });
 
 test("codex is told it may run outside a git repository", () => {

@@ -34,6 +34,7 @@ export type CodexTurnInput = {
   effort: AgentEffort | null;
   /** Null starts a fresh conversation; a value continues that thread. */
   sessionId: string | null;
+  images: readonly string[];
 };
 
 export type CodexTurnRunner = {
@@ -225,7 +226,10 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       const response = record(
         await this.requestRaw("turn/start", {
           threadId,
-          input: [{ type: "text", text: input.prompt }],
+          input: [
+            { type: "text", text: input.prompt },
+            ...input.images.map((path) => ({ type: "localImage", path })),
+          ],
           cwd: this.cwd,
           approvalPolicy: "never",
           sandboxPolicy: {

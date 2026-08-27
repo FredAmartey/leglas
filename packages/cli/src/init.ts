@@ -70,12 +70,21 @@ When asked for design variations, alternatives, or "a few options":
    Register each direction as it lands, never the whole set at the end. To
    the user watching the rail, a batch at the end is minutes of nothing and
    then everything at once.
+6. Then look at it: \`npx leglas show "<title>" --screenshot\` renders the
+   direction with a headless browser and prints the PNG's path (\`--width 390\`
+   for the phone layout). Read the image and fix anything visibly broken
+   before moving on. This needs Chrome, Chromium, Brave or Edge on the
+   machine; without one the command says so.
 
 When the user asks to change one direction, check \`npx leglas requests --json\`
 first: they may have described it from the interface, and the request names the
 exact file. Acknowledge them with \`npx leglas requests --clear\` once done: it
 drops what you collected and reports anything the user typed while you worked,
 which is yours to collect and do next.
+
+A request can name images under \`.leglas/captures/\`: the direction as it
+renders, the spot each note points at, the direction it is compared with and
+reference images the user attached. Look at them before changing anything.
 
 If the user wants requests handled the moment they are typed, without relaying
 each one, tell them about \`npx leglas watch --run "claude -p {prompt}"\` (any
@@ -103,9 +112,9 @@ Useful to know:
   name, so use whichever they said.
 - \`npx leglas list\` shows every direction, shared and local.
 - \`npx leglas show "<title>" --json\` answers for one of them: the file behind it,
-  the variants based on it, what it is being compared against, and anything
-  they have asked for that is not done yet. Run it when handed a direction you
-  did not register yourself.
+  the variants based on it, what it is being compared against and anything
+  they have asked for that is not done yet. Add \`--screenshot\` to render a PNG
+  you can inspect. Run it when handed a direction you did not register yourself.
 - Every command accepts \`--json\` and prints one envelope with a stable exit
   code, so you can drive it without parsing prose.
 

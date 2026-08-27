@@ -3,6 +3,12 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import { describeAnnotations, type Annotation } from "./annotations.js";
+import {
+  capturedViewport,
+  removeCaptures,
+  type Attachment,
+  type Captured,
+} from "./attachments.js";
 import type { Preview } from "./config.js";
 import type { Failure, FailureCode } from "./failure.js";
 
@@ -84,6 +90,7 @@ export function composeRequest(
   mode: RequestMode,
   notes: readonly Annotation[] = [],
   leglasCommand = "npx -y leglas",
+  captured: Captured | null = null,
 ): ComposedRequest {
   // A file-backed preview names its own source; a URL has to be decoded.
   const target = preview.file ?? targetFor(preview.url);
@@ -103,8 +110,8 @@ export function composeRequest(
 
   const prompt =
     mode === "variant"
-      ? variantPrompt(preview, recorded, asked, target, leglasCommand)
-      : replacePrompt(preview, asked, target);
+      ? variantPrompt(preview, recorded, asked, target, leglasCommand, captured)
+      : replacePrompt(preview, asked, target, leglasCommand, captured);
 
   return { prompt, target, mode };
 }
@@ -151,12 +158,22 @@ function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
  * file is saved. Saying so is the single biggest speed lever this side of the
  * vendor, because the edit itself takes seconds.
  */
-const SCOPE =
-  `This request came from the running Leglas interface. Request collection, ` +
+function scope(leglasCommand: string, quotedTitle: string | null): string {
+  // A direction served from a file joins the rail after a restart, so there
+  // is nothing to render until then, and asking for a look would send the
+  // agent at a 404 it is told not to fix by restarting.
+  const look =
+    quotedTitle === null
+      ? `A file direction joins the rail after Leglas restarts, so there is ` +
+        `nothing to screenshot yet; finish once it is registered.`
+      : `When the change is made, look at it once: run \`${leglasCommand} show ` +
+        `${quotedTitle} --screenshot\` and read the PNG it writes. Fix anything visibly ` +
+        `broken, then finish.`;
+  return `This request came from the running Leglas interface. Request collection, ` +
   `direction discovery and the live-server check are already complete. Do not ` +
-  `run Leglas explore, requests, list, show, help or version commands, do not ` +
-  `inspect package caches, and do not start or restart the app or Leglas. Use ` +
-  `the existing live preview if visual inspection is useful.\n\n` +
+  `run Leglas explore, requests, list, help or version commands, do not ` +
+  `inspect package caches, and do not start or restart the app or Leglas. ` +
+  `${look}\n\n` +
   `This is a scoped design change: no test run, no build, and no survey of ` +
   `the rest of the project is needed. The result is checked visually in a ` +
   `live preview, not by tooling.\n\n` +
@@ -164,6 +181,91 @@ const SCOPE =
   `compared side by side, so changing a sibling destroys the comparison. Keep ` +
   `the change additive: do not rewrite shared components that other ` +
   `directions rely on.`;
+}
+
+/** The images and load evidence placed between the ask and the closing rules. */
+function capturedBlock(captured: Captured | null): string {
+  if (
+    captured === null ||
+    (captured.attachments.length === 0 && captured.errors.length === 0 && captured.skipped === null)
+  ) return "";
+
+  const lines: string[] = [];
+  const frames = captured.attachments.filter(
+    (attachment) => attachment.kind === "frame" || attachment.kind === "note",
+  );
+  const frame = frames.find((attachment) => attachment.kind === "frame");
+  if (frames.length > 0) {
+    const viewport =
+      frame?.viewport ?? frames.find((attachment) => attachment.viewport !== undefined)?.viewport ??
+      capturedViewport(captured) ?? 1440;
+    lines.push(
+      `What it looks like, from a fresh load at ${viewport}px wide with nothing interacted with:`,
+    );
+    for (const attachment of frames) {
+      if (attachment.kind === "frame") {
+        lines.push(
+          `  ${attachment.file}  ${captured.cut ? "the top 4000px of the page" : "the whole page"}`,
+        );
+        continue;
+      }
+      const number = /note-(\d+)\.png$/.exec(attachment.file)?.[1] ?? attachment.note ?? "?";
+      lines.push(`  ${attachment.file}  what note ${number} points at, with room around it`);
+    }
+  }
+
+  const comparison = captured.attachments.find((attachment) => attachment.kind === "compare");
+  if (comparison !== undefined) {
+    lines.push(
+      `Alongside it on screen is ${JSON.stringify(comparison.title ?? "the other direction")}, ` +
+        `the direction it is being compared with; "the other one" means it:`,
+      `  ${comparison.file}`,
+    );
+  }
+
+  const references = captured.attachments.filter((attachment) => attachment.kind === "reference");
+  if (references.length > 0) {
+    lines.push("Reference images the user attached, which show what they mean:");
+    for (const reference of references) lines.push(`  ${reference.file}`);
+  }
+  if (captured.errors.length > 0) {
+    lines.push(
+      `On load it logged ${captured.errors.length} console ${captured.errors.length === 1 ? "error" : "errors"}:`,
+    );
+    for (const error of captured.errors) lines.push(`  - ${error}`);
+  }
+  if (captured.skipped !== null) {
+    lines.push(`(${captured.skipped} Use the live preview instead.)`);
+  }
+  if (captured.attachments.length > 0) {
+    // Last, so the block ends on the thing to do rather than on evidence.
+    //
+    // Said as files on purpose. Only some ways in carry the pictures
+    // themselves: the embedded Codex and the embedded Claude session hand
+    // them to the model directly, while a Claude CLI fallback, Cursor, a
+    // custom command and `leglas watch` get this text and nothing else. Every
+    // one of them can open a file, so the instruction that works everywhere
+    // is the one that names them as files. An agent that also received them
+    // attached has lost nothing by being told where they live.
+    lines.push(
+      "Each path above is a file in this project. Open every one and look at it before changing anything.",
+    );
+  }
+  return `\n\n${lines.join("\n")}`;
+}
+
+/**
+ * A value as one double-quoted shell argument.
+ *
+ * JSON escaping keeps a quote from ending the argument, but inside double
+ * quotes a shell still expands `$(...)`, backticks and backslashes, and a
+ * title or a typed request can carry any of them. The prompt is run by a
+ * command the runner pre-approves, so the argument has to be inert as well
+ * as balanced. Plain text comes out exactly as JSON.stringify would.
+ */
+function shellArgument(value: string): string {
+  return `"${value.replace(/[\\"$`]/g, (character) => `\\${character}`)}"`;
+}
 
 /**
  * The exact command a fork's prompt tells the agent to run to register.
@@ -178,7 +280,13 @@ export function registrationCommand(leglasCommand: string): string {
   return `${leglasCommand} add`;
 }
 
-function replacePrompt(preview: Preview, asked: string, target: string | null): string {
+function replacePrompt(
+  preview: Preview,
+  asked: string,
+  target: string | null,
+  leglasCommand: string,
+  captured: Captured | null,
+): string {
   const where =
     target === null
       ? `The direction is titled "${preview.title}" and renders at ${preview.url}. Find what produces it.`
@@ -190,8 +298,8 @@ function replacePrompt(preview: Preview, asked: string, target: string | null): 
 
   return (
     `In this project, change only the "${preview.title}" design direction. ${where}\n\n` +
-    `${asked}\n\n` +
-    `${pace}${SCOPE} The direction is already registered, so nothing needs ` +
+    `${asked}${capturedBlock(captured)}\n\n` +
+    `${pace}${scope(leglasCommand, shellArgument(preview.title))} The direction is already registered, so nothing needs ` +
     `re-registering.`
   );
 }
@@ -218,10 +326,11 @@ function variantPrompt(
   asked: string,
   target: string | null,
   leglasCommand: string,
+  captured: Captured | null,
 ): string {
   const slot = variantSlot(preview.url);
-  const parent = JSON.stringify(preview.title);
-  const askedFor = JSON.stringify(recorded);
+  const parent = shellArgument(preview.title);
+  const askedFor = shellArgument(recorded);
   const add = registrationCommand(leglasCommand);
 
   const source =
@@ -258,14 +367,18 @@ function variantPrompt(
     `"${preview.title}" direction. Leave "${preview.title}" itself exactly as ` +
     `it is: it is the thing the new one will be compared against.\n\n` +
     `${source} ${make}\n\n` +
-    `${asked}\n\n` +
+    `${asked}${capturedBlock(captured)}\n\n` +
     `Then register it, which is what puts it on the rail:\n\n` +
     `${register}\n\n` +
     `Name it for its idea rather than numbering it, and keep the name short ` +
     `enough to read in a narrow rail. Pass --asked-for exactly as given above; ` +
-    `it is the user's own words and the interface shows them. Registering it ` +
-    `is the last step; finish there.\n\n` +
-    `${SCOPE}`
+    `it is the user's own words and the interface shows them. ` +
+    `${
+      preview.file !== undefined
+        ? "Registering it is the last step; finish there."
+        : "Register it before you look: the look is at the registered direction."
+    }\n\n` +
+    `${scope(leglasCommand, preview.file !== undefined ? null : '"the title you registered"')}`
   );
 }
 
@@ -284,6 +397,13 @@ export const REQUESTS_PATH = ".leglas/requests.json";
  * had been over for days, with no way to dismiss it.
  */
 export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
+
+/**
+ * The shape of an id Leglas minted. An id names a directory under
+ * `.leglas/captures/` that gets removed with its request, so a hand-edited
+ * queue must not be able to point that removal anywhere else.
+ */
+export const REQUEST_ID = /^[A-Za-z0-9_-]{1,32}$/;
 
 const TERMINAL: readonly RequestStatus[] = ["failed", "cancelled"];
 
@@ -314,6 +434,15 @@ export type PendingRequest = {
    * they point at is the one that was just rewritten.
    */
   notes?: readonly string[];
+  attachments?: readonly Attachment[];
+  captureNote?: string;
+  /**
+   * What was on screen beside the words: the compared direction and the
+   * reference ids that were attached. Kept as asked rather than as captured,
+   * because a duplicate is a repeat of the ask, and a capture can fail.
+   */
+  compare?: string;
+  references?: readonly string[];
 };
 
 const FAILURE_CODES: readonly FailureCode[] = [
@@ -342,7 +471,18 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
     const parsed = JSON.parse(raw) as { requests?: unknown };
     if (!Array.isArray(parsed.requests)) return [];
     return parsed.requests.map((request, index) => {
-      const { failure: rawFailure, ...entry } = request as Partial<PendingRequest>;
+      const source =
+        typeof request === "object" && request !== null
+          ? (request as Partial<PendingRequest> & { attachments?: unknown; captureNote?: unknown })
+          : {};
+      const {
+        failure: rawFailure,
+        attachments: rawAttachments,
+        captureNote: rawCaptureNote,
+        compare: rawCompare,
+        references: rawReferences,
+        ...entry
+      } = source;
       const status: RequestStatus =
         entry.status === "picked-up" ||
         entry.status === "failed" ||
@@ -354,12 +494,38 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
       // and a request with no reason reads better than one carrying a reason
       // nobody can trust.
       const failure = isTerminal(status) ? failureOf(rawFailure) : null;
+      const id = typeof entry.id === "string" && REQUEST_ID.test(entry.id) ? entry.id : String(index);
+      // An attachment is read into a transport and sent to a model, so a
+      // path from the queue file is trusted only when it is the one Leglas
+      // would have written: inside this request's own capture directory,
+      // one plain file name, nothing that could climb out.
+      const ownFile = new RegExp(`^\\.leglas/captures/${id}/[A-Za-z0-9][A-Za-z0-9_.-]*$`);
+      const attachments = Array.isArray(rawAttachments)
+        ? (rawAttachments.filter(
+            (attachment) =>
+              typeof attachment === "object" &&
+              attachment !== null &&
+              !Array.isArray(attachment) &&
+              typeof (attachment as Partial<Attachment>).file === "string" &&
+              ownFile.test((attachment as Attachment).file) &&
+              !(attachment as Attachment).file.includes("..") &&
+              ["frame", "note", "compare", "reference"].includes(
+                String((attachment as Partial<Attachment>).kind),
+              ),
+          ) as Attachment[])
+        : null;
       return {
         ...entry,
-        id: typeof entry.id === "string" ? entry.id : String(index),
+        id,
         status,
         mode: entry.mode === "variant" ? "variant" : "replace",
         ...(failure === null ? {} : { failure }),
+        ...(attachments === null || attachments.length === 0 ? {} : { attachments }),
+        ...(typeof rawCaptureNote === "string" ? { captureNote: rawCaptureNote } : {}),
+        ...(typeof rawCompare === "string" ? { compare: rawCompare } : {}),
+        ...(Array.isArray(rawReferences) && rawReferences.every((id) => typeof id === "string")
+          ? { references: rawReferences as string[] }
+          : {}),
       } as PendingRequest;
     });
   } catch {
@@ -378,11 +544,16 @@ async function writeQueue(cwd: string, requests: PendingRequest[]): Promise<void
 export async function appendRequest(
   cwd: string,
   request: Omit<PendingRequest, "id" | "status">,
+  id = newRequestId(),
 ): Promise<void> {
   await writeQueue(cwd, [
     ...(await readRequests(cwd)),
-    { ...request, id: randomBytes(6).toString("base64url"), status: "queued" },
+    { ...request, id, status: "queued" },
   ]);
+}
+
+export function newRequestId(): string {
+  return randomBytes(6).toString("base64url");
 }
 
 export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
@@ -459,6 +630,7 @@ export async function removeRequest(cwd: string, id: string): Promise<boolean> {
   const remaining = requests.filter((request) => request.id !== id);
   if (remaining.length === requests.length) return false;
   await writeQueue(cwd, remaining);
+  await removeCaptures(cwd, id).catch(() => {});
   return true;
 }
 
@@ -480,6 +652,13 @@ export async function clearRequests(cwd: string): Promise<{ cleared: number; pen
   const cleared = requests.length - pending.length;
   // Same reason collecting an empty queue writes nothing: acknowledging work
   // that was never there must not materialise .leglas/ in a fresh project.
-  if (cleared > 0) await writeQueue(cwd, pending);
+  if (cleared > 0) {
+    await writeQueue(cwd, pending);
+    await Promise.all(
+      requests
+        .filter((request) => request.status !== "queued")
+        .map((request) => removeCaptures(cwd, request.id).catch(() => {})),
+    );
+  }
   return { cleared, pending: pending.length };
 }

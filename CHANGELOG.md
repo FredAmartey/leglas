@@ -19,12 +19,45 @@ underneath, and because `leglas` gained an optional dependency.
 
 ### Added
 
+- **Every change request carries what the user sees.** Sending a change from
+  the interface renders the direction with a headless browser found on the
+  machine (Chrome, Chromium, Brave, Edge, Arc, or a Playwright or Puppeteer
+  cache; `LEGLAS_BROWSER` overrides) at the width the design is drawn at, and
+  files the PNG under `.leglas/captures/<request>/` beside a crop of each
+  note, the compared direction when the stage is split, and any reference
+  images attached in the composer. The prompt names every file and says what
+  each one is, and console errors logged on load ride along as text. The
+  embedded Claude session receives the images as content blocks, the embedded
+  Codex app-server as `localImage` inputs, and a cold Codex run gets `-i` per
+  image. Every other way in, a Claude CLI fallback, Cursor, a custom command
+  and `leglas watch`, gets the paths in the prompt and is told to open them. With no browser on the machine the request still goes, with one
+  sentence saying why nothing was captured. Captures leave with their request
+  and orphans are pruned at boot. (`leglas`)
+- **Reference images in the composer.** Paste, drop or attach up to four PNG,
+  JPEG, WebP or GIF images of 10MB or less to a change. They upload as they
+  are attached and ride with the request. (`leglas`)
+- **`leglas show <title> --screenshot`** renders a direction and prints the
+  PNG's path. `--width` picks the viewport, 320 to 3840, and `--port` names a
+  Leglas other than the one `.leglas/server.json` records. The MCP `show` tool
+  takes `screenshot: true` and returns the image. The agent instructions
+  `leglas init` writes, the explore brief and the skill now ask for one look
+  at each direction before it is called done, and a composed request asks the
+  agent to look once after the change. (`leglas`, `leglas-mcp`, plugin)
+- **`.leglas/server.json`** records the running server's port so a second
+  process can find it. Removed when the server stops, and only by the instance
+  that wrote it. `/leglas/api/health` also names the project directory it
+  serves, so a command pointed at the wrong Leglas is told so instead of
+  capturing someone else's direction. (`leglas`)
+
 - **A direction says when an agent is working on it.** Its row in the rail
   carries a working badge while an agent has the request in hand, and not
   before: a request that is only queued shows nothing on the row, so the
   badge means work under way rather than work waiting. (`leglas`)
 
 ### Changed
+
+- The Claude Code allowance a composed request carries covers `leglas show` as
+  well as `leglas add`. (`leglas`)
 
 - **Embedded Claude runs now use one persistent Agent SDK session.** Leglas
   prewarms the selected Claude agent, keeps its native process and context
@@ -42,6 +75,12 @@ underneath, and because `leglas` gained an optional dependency.
   handshake fall back to the existing `codex exec` path. (`leglas`)
 
 ### Fixed
+
+- **`leglas watch` could ignore a stop.** The watcher registered its stop
+  handler after resolving the agent and writing the template, so a stop that
+  arrived inside that window was never heard: the loop kept running and the
+  caller waited on it for good. A stop that lands during startup now stops it.
+  (`leglas`)
 
 - **A reachable localhost port no longer silently passes as the intended app.**
   At startup, Leglas checks the working directory of a local port's listening

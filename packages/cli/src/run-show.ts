@@ -1,9 +1,50 @@
-import { loadConfig, readLocalPreviews, readRenames, readRequests } from "@leglas/server";
+import { realpath } from "node:fs/promises";
+
+import {
+  DEFAULT_PORT,
+  loadConfig,
+  readLocalPreviews,
+  readRenames,
+  readRequests,
+  readServerInfo,
+} from "@leglas/server";
 
 import { resolveOrExplain } from "./resolve-title.js";
 import { planShow } from "./show.js";
 
-export type ShowDeps = { log(line: string): void; error(line: string): void };
+export type ShowDeps = {
+  log(line: string): void;
+  error(line: string): void;
+  fetch?: typeof fetch;
+};
+
+type Screenshot = {
+  file: string;
+  width: number;
+  height: number;
+  viewport: number;
+  errors: string[];
+  /** True when the page was taller than the frame and the PNG stops short. */
+  cut: boolean;
+};
+
+const NOT_RUNNING =
+  "Leglas is not running here. Start it with npx leglas, then try again.";
+
+/**
+ * Longer than the server's own deadline plus a cold browser launch, so a
+ * stalled capture is reported rather than sat on for good.
+ */
+const CAPTURE_WAIT_MS = 30_000;
+
+/** Two paths that name one directory, whatever symlinks sit in the way. */
+async function sameDirectory(left: string, right: string): Promise<boolean> {
+  const [a, b] = await Promise.all([
+    realpath(left).catch(() => left),
+    realpath(right).catch(() => right),
+  ]);
+  return a === b;
+}
 
 /**
  * Answer for one direction, for whoever was handed its reference block.
@@ -13,7 +54,14 @@ export type ShowDeps = { log(line: string): void; error(line: string): void };
  * the project knows it by.
  */
 export async function runShow(
-  options: { title: string; json: boolean; cwd: string },
+  options: {
+    title: string;
+    json: boolean;
+    screenshot: boolean;
+    width: number | null;
+    port: number | null;
+    cwd: string;
+  },
   deps: ShowDeps,
 ): Promise<{ exitCode: number }> {
   const loaded = await loadConfig(options.cwd);
@@ -46,16 +94,98 @@ export async function runShow(
     return { exitCode: 1 };
   }
 
+  const envelope: {
+    ok: true;
+    direction: typeof plan.direction;
+    variants: typeof plan.variants;
+    comparedWith: typeof plan.comparedWith;
+    requests: typeof plan.requests;
+    screenshot?: Screenshot;
+  } = {
+    ok: true,
+    direction: plan.direction,
+    variants: plan.variants,
+    comparedWith: plan.comparedWith,
+    requests: plan.requests,
+  };
+
+  if (options.screenshot) {
+    // An explicit port wins; then the record the running server wrote; then
+    // the default, since a record can be missing while a server is up (two
+    // servers on one project, the newer one gone first). The health probe
+    // below is what decides, whichever way the port was found.
+    const server = options.port === null ? await readServerInfo(options.cwd) : null;
+    const port = options.port ?? server?.port ?? DEFAULT_PORT;
+    const fail = (error: string) => {
+      if (options.json) deps.log(JSON.stringify({ ok: false, error }));
+      else deps.error(error);
+      return { exitCode: 1 };
+    };
+
+    const request = deps.fetch ?? fetch;
+    try {
+      const health = await request(`http://127.0.0.1:${port}/leglas/api/health`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (health.status !== 200) return fail(NOT_RUNNING);
+      // A stale record, or a port named by hand, can reach a Leglas that
+      // serves another project. It would capture a direction of the same
+      // name there and report a file that does not exist here.
+      const answered = (await health.json().catch(() => ({}))) as { cwd?: unknown };
+      if (typeof answered.cwd === "string" && !(await sameDirectory(answered.cwd, options.cwd))) {
+        return fail(
+          `The Leglas on port ${port} serves another project. Start one here with npx leglas, or name the right one with --port.`,
+        );
+      }
+    } catch {
+      return fail(NOT_RUNNING);
+    }
+
+    let response: Response;
+    try {
+      response = await request(`http://127.0.0.1:${port}/leglas/api/capture`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: resolved.title, width: options.width ?? 1440 }),
+        signal: AbortSignal.timeout(CAPTURE_WAIT_MS),
+      });
+    } catch (error) {
+      return fail(
+        error instanceof Error && error.name === "TimeoutError"
+          ? "The capture did not finish in time."
+          : NOT_RUNNING,
+      );
+    }
+    const captured = (await response.json().catch(() => ({}))) as Partial<Screenshot> & {
+      error?: unknown;
+    };
+    if (!response.ok) {
+      return fail(
+        typeof captured.error === "string"
+          ? captured.error
+          : "The direction could not be captured.",
+      );
+    }
+    if (
+      typeof captured.file !== "string" ||
+      typeof captured.width !== "number" ||
+      typeof captured.height !== "number" ||
+      typeof captured.viewport !== "number"
+    ) return fail("The direction could not be captured.");
+    envelope.screenshot = {
+      file: captured.file,
+      width: captured.width,
+      height: captured.height,
+      viewport: captured.viewport,
+      errors: Array.isArray(captured.errors)
+        ? captured.errors.filter((error): error is string => typeof error === "string")
+        : [],
+      cut: captured.cut === true,
+    };
+  }
+
   if (options.json) {
-    deps.log(
-      JSON.stringify({
-        ok: true,
-        direction: plan.direction,
-        variants: plan.variants,
-        comparedWith: plan.comparedWith,
-        requests: plan.requests,
-      }),
-    );
+    deps.log(JSON.stringify(envelope));
     return { exitCode: 0 };
   }
 
@@ -73,6 +203,17 @@ export async function runShow(
   }
   if (plan.comparedWith.length > 0) {
     deps.log(`  against     ${plan.comparedWith.join(", ")}`);
+  }
+  if (envelope.screenshot !== undefined) {
+    deps.log(`  screenshot  ${envelope.screenshot.file}`);
+    if (envelope.screenshot.cut) {
+      deps.log("              the top of the page only; it is taller than one capture");
+    }
+    if (envelope.screenshot.errors.length > 0) {
+      const count = envelope.screenshot.errors.length;
+      deps.log(`  console     ${count} ${count === 1 ? "error" : "errors"} on load`);
+      for (const error of envelope.screenshot.errors) deps.log(`    ${error}`);
+    }
   }
 
   if (plan.requests.length > 0) {
