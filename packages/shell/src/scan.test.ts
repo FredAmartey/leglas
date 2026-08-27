@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   forgetScans,
   recordScan,
+  replacedPanes,
   scanQueue,
   scanSignatures,
   type PreviewScans,
@@ -85,5 +86,95 @@ describe("scan records", () => {
       Current: { url: "/", status: "complete", signature: "current" },
     });
     expect(forgetScans(scans, ["Missing"])).toBe(scans);
+  });
+});
+
+describe("replacedPanes", () => {
+  const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
+
+  test("a direction coming on stage keeps its verdict", () => {
+    // Flipping to a direction loads the same document the background read
+    // already measured. Rescanning it off stage doubled the cost of every flip.
+    const previous = new Map([["Wave", identity("Wave", 0)]]);
+    const current = new Map([["Dot grid", identity("Dot grid", 0)]]);
+
+    expect(replacedPanes(previous, current)).toEqual([]);
+  });
+
+  test("a pane reloaded in place is read again", () => {
+    const previous = new Map([["Wave", identity("Wave", 0)]]);
+    const current = new Map([["Wave", identity("Wave", 1)]]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
+  });
+
+  test("a pane whose url changed under the same title is read again", () => {
+    const previous = new Map([["Wave", "Wave /?v=a 0"]]);
+    const current = new Map([["Wave", "Wave /?v=b 0"]]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
+  });
+
+  test("leaving the stage and coming back changes nothing", () => {
+    const stage = new Map([["Wave", identity("Wave", 0)]]);
+
+    expect(replacedPanes(stage, new Map())).toEqual([]);
+    expect(replacedPanes(new Map(), stage)).toEqual([]);
+  });
+
+  test("only the replaced pane of a split is read again", () => {
+    const previous = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 0)],
+    ]);
+    const current = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 2)],
+    ]);
+
+    expect(replacedPanes(previous, current)).toEqual(["Dot grid"]);
+  });
+});
+
+describe("replacedPanes across a dev-server recovery", () => {
+  const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
+
+  test("an off-stage direction reloaded by a recovery is read again", () => {
+    // When the dev server returns, every app-backed direction is reloaded,
+    // and most of them are off stage. Remembering only the mounted ones left
+    // those with no previous identity to differ from, so the reload was
+    // missed and a restart that changed the page could still be called a
+    // duplicate of what it used to be.
+    const before = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 0)],
+      ["Session", identity("Session", 0)],
+    ]);
+    const afterRecovery = new Map([
+      ["Wave", identity("Wave", 1)],
+      ["Dot grid", identity("Dot grid", 1)],
+      ["Session", identity("Session", 1)],
+    ]);
+
+    expect(replacedPanes(before, afterRecovery).toSorted()).toEqual([
+      "Dot grid",
+      "Session",
+      "Wave",
+    ]);
+  });
+
+  test("a direction the recovery did not touch keeps its verdict", () => {
+    // A file preview is served by Leglas itself and never went down with the
+    // app, so its generation does not move and its reading still stands.
+    const before = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Paper", identity("Paper", 0)],
+    ]);
+    const afterRecovery = new Map([
+      ["Wave", identity("Wave", 1)],
+      ["Paper", identity("Paper", 0)],
+    ]);
+
+    expect(replacedPanes(before, afterRecovery)).toEqual(["Wave"]);
   });
 });

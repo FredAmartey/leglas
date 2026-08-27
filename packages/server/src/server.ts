@@ -18,7 +18,12 @@ import {
   removeCaptures,
   sniffImage,
 } from "./attachments.js";
-import { NO_BROWSER, createBrowserPool, type BrowserPool } from "./browser.js";
+import {
+  NO_BROWSER,
+  createBrowserPool,
+  reapOrphanedBrowsers,
+  type BrowserPool,
+} from "./browser.js";
 import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
@@ -405,6 +410,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detect = () => detectAgents(),
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
+  // Sweep up browsers left by a Leglas that was killed outright or crashed,
+  // which no shutdown handler can reach. Deliberately not awaited: it is
+  // tidying, and a slow temp directory must not hold up the interface. A
+  // browser belonging to another Leglas that is running right now is left
+  // alone; see reapOrphanedBrowsers.
+  if (options.pool === undefined) {
+    void reapOrphanedBrowsers().catch(() => {});
+  }
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
   // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
@@ -987,6 +1000,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
+    // The composer taking focus is the earliest honest sign that a request is
+    // coming. Warming here, rather than at boot, is what keeps an idle Leglas
+    // from carrying a vendor process (and every MCP server it loads) for a
+    // session that never sends one.
+    if (path === `${LEGLAS_PREFIX}/api/agents/warm` && req.method === "POST") {
+      return void readAgentChoice(cwd).then(
+        (choice) => {
+          if (choice.agent !== null) runner?.prepare(choice.agent);
+          sendJson(res, 200, { ok: true });
+        },
+        () => sendJson(res, 200, { ok: true }),
+      );
+    }
+
     if (path === `${LEGLAS_PREFIX}/api/agents` && req.method === "GET") {
       return void Promise.all([
         currentAgents(query.get("refresh") === "1"),
@@ -1121,10 +1148,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, status, failure }) => ({
+          requests: requests.map(({ id, title, intent, mode, status, failure }) => ({
             id,
             title,
             intent,
+            // A fork leaves its parent's document alone; the interface keeps
+            // the parent's duplicate verdict on the strength of this.
+            mode,
             // The run in flight is the one thing the file cannot know. After
             // that the file is the record, including across a restart, and the
             // process-local failed set only covers a request whose verdict

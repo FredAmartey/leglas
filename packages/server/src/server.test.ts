@@ -222,8 +222,11 @@ describe("startServer", () => {
       body: JSON.stringify({ title: "Aurora", intent: "warmer" }),
     });
     expect(posted.status).toBe(200);
-    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as { requests: { id: string; status: string; intent: string }[] };
-    expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer" }]);
+    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as { requests: { id: string; status: string; intent: string; mode: string }[] };
+    // The mode travels with the status: a fork leaves its parent's document
+    // alone, and the interface needs to know that to leave the parent's
+    // duplicate verdict alone too.
+    expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" }]);
     const second = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof first;
     expect(second).toEqual(first);
   });
@@ -1057,6 +1060,44 @@ describe("startServer", () => {
     });
     expect(response.status).toBe(200);
     expect(warm).toHaveBeenCalledOnce();
+  });
+
+  test("the composer can ask for the saved agent to be warmed", async () => {
+    // Intent, not selection, is what pays for a vendor process: the shell
+    // asks here when the composer takes focus, and nothing is warmed at boot.
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-intent-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    const warm = vi.fn(async () => {});
+    const claudeAgentSession: ClaudeTurnRunner = {
+      warm,
+      run: async () => {
+        throw new Error("not used");
+      },
+      release: async () => {},
+      close: async () => {},
+    };
+    const server = await start({
+      config: configFor(await startOrigin()),
+      port: 0,
+      cwd,
+      claudeAgentSession,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(warm).not.toHaveBeenCalled();
+
+    const response = await fetch(`${server.url}/leglas/api/agents/warm`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).toEqual({ ok: true });
+    expect(warm).toHaveBeenCalledOnce();
+  });
+
+  test("warming with nothing chosen is a harmless no-op", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-none-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    const response = await fetch(`${server.url}/leglas/api/agents/warm`, { method: "POST" });
+    expect(response.status).toBe(200);
   });
 
   test("serves stale agent state while routine authentication refreshes in the background", async () => {

@@ -21,6 +21,8 @@ export type ClaudeSdkOptions = {
   settingSources: ["user", "project", "local"];
   persistSession: true;
   allowedTools?: string[];
+  /** A session to load into the process, so a released conversation continues. */
+  resume?: string;
 };
 
 export type ClaudeSdkQuery = AsyncIterable<ClaudeMessage> & {
@@ -48,9 +50,16 @@ export type ClaudeTurnInput = {
 };
 
 export type ClaudeTurnRunner = {
-  /** Spawn Claude Code and complete the SDK initialize handshake. */
-  warm(): Promise<void>;
+  /**
+   * Spawn Claude Code and complete the SDK initialize handshake. With a
+   * session id, the process loads that conversation, so a session released
+   * while idle carries on where it was instead of on the cold CLI path.
+   */
+  warm(sessionId?: string | null): Promise<void>;
   run(input: ClaudeTurnInput, signal?: AbortSignal): Promise<RunnerChild>;
+  /** End the native process but keep the transport, so a later warm() works. */
+  release(): Promise<void>;
+  /** End the process and the transport for good. */
   close(): Promise<void>;
 };
 
@@ -232,7 +241,17 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
   private active: ClaudeTurnChild | null = null;
   private loadedSessionId: string | null = null;
   private appliedEffort: AgentEffort | null = null;
+  /** The session the warm handle was started to resume; null for a fresh one. */
+  private warmedFor: string | null = null;
   private closed = false;
+  /**
+   * Counts every ask for a warm process. The runner fires warm() and
+   * release() without awaiting either, so the two race in both directions:
+   * a release must outlast a warm that started while it was settling, and
+   * must stand down for a warm asked for after it began. The generation a
+   * release captured at entry says which side of that it is on.
+   */
+  private generation = 0;
 
   constructor(
     private readonly cwd: string,
@@ -240,11 +259,20 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     private readonly startup: ClaudeSdkStartup,
   ) {}
 
-  warm(): Promise<void> {
+  warm(sessionId: string | null = null): Promise<void> {
+    this.generation += 1;
     if (this.closed) return Promise.reject(new Error("Claude Agent SDK is closed."));
-    if (this.query !== null || this.warmQuery !== null) return Promise.resolve();
-    if (this.warming !== null) return this.warming;
+    if (this.query !== null) return Promise.resolve();
+    if (this.warmQuery !== null || this.warming !== null) {
+      if (this.warmedFor === sessionId) return this.warming ?? Promise.resolve();
+      // A process cannot change which session it loaded, so a handle warmed
+      // for another conversation (or for a fresh one when this needs a
+      // resume) goes, and the right one starts. One spawn, which is what the
+      // ask would have cost anyway.
+      return this.resetQuery().then(() => this.warm(sessionId));
+    }
 
+    this.warmedFor = sessionId;
     const controller = new AbortController();
     this.processAbort = controller;
     const warming = this.startup({
@@ -258,6 +286,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
         ...(this.allowedCommands.length === 0
           ? {}
           : { allowedTools: this.allowedCommands.map((command) => `Bash(${command} *)`) }),
+        ...(sessionId === null ? {} : { resume: sessionId }),
       },
       initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
     })
@@ -300,13 +329,12 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       if (signal?.aborted) throw new Error("cancelled");
 
       if (this.query === null) {
-        // A saved session with no matching live SDK process is still supported
-        // by the existing `claude --resume` path. Throw before consuming a fresh
-        // warm handle so the runner can use that fallback without duplication.
-        if (input.sessionId !== null) {
-          throw new Error("Claude session is not loaded in the persistent process.");
-        }
-        await waitForAbort(this.startQuery(signal), signal);
+        // A saved session with no live process is loaded into a fresh one.
+        // Without this, the first request after an idle release fell to the
+        // `claude --resume` CLI path, and so did every request after it for
+        // the rest of the conversation, since the process never had the
+        // session the runner kept asking for.
+        await waitForAbort(this.startQuery(signal, input.sessionId), signal);
       } else if (
         input.sessionId !== null &&
         this.loadedSessionId !== null &&
@@ -348,14 +376,38 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     }
   }
 
+  /**
+   * Let the native process go without ending the transport.
+   *
+   * The process is the cost, not this object: a warm session is Claude Code
+   * plus every MCP server the user has configured, held for a request that
+   * may never come. The runner calls this once nothing has asked for Claude
+   * in a while, and the next warm() starts it again. A session id the runner
+   * still holds is served by the `claude --resume` fallback in the meantime.
+   */
+  async release(): Promise<void> {
+    // warm() does not wait for a reset in flight, so one started while an
+    // earlier release was still settling lands a new process after it. The
+    // last call wins: reset again until nothing is warm or warming, unless a
+    // newer warm has been asked for since, in which case it is the newer
+    // intent and this release has nothing left to say.
+    const asOf = this.generation;
+    do {
+      await this.resetQuery();
+    } while (
+      this.generation === asOf &&
+      (this.warming !== null || this.warmQuery !== null || this.query !== null)
+    );
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     await this.resetQuery();
   }
 
-  private async startQuery(signal?: AbortSignal): Promise<void> {
-    await waitForAbort(this.warm(), signal);
+  private async startQuery(signal?: AbortSignal, sessionId: string | null = null): Promise<void> {
+    await waitForAbort(this.warm(sessionId), signal);
     if (signal?.aborted) throw new Error("cancelled");
     const warmQuery = this.warmQuery;
     if (warmQuery === null) throw new Error("Claude Agent SDK did not warm.");
@@ -365,7 +417,8 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     this.warmQuery = null;
     this.input = input;
     this.query = query;
-    this.loadedSessionId = null;
+    // Optimistic for a resume; the process's own messages confirm or correct it.
+    this.loadedSessionId = sessionId;
     this.appliedEffort = null;
     this.pump = this.read(query);
   }
@@ -457,6 +510,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     this.pump = null;
     this.loadedSessionId = null;
     this.appliedEffort = null;
+    this.warmedFor = null;
     warmQuery?.close();
     input?.close();
     query?.close();

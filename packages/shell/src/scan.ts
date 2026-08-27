@@ -28,6 +28,27 @@ export function forgetScans(
   return next ?? scans;
 }
 
+/**
+ * Mounted panes whose document was replaced in place.
+ *
+ * A pane reloaded by hand, retried after a failure, or handed a new URL under
+ * the same title has a new document, and its verdict has to be read again. A
+ * title that merely came on stage has not: the background read already
+ * measured that document, and reading it again off stage doubled the cost of
+ * every flip.
+ */
+export function replacedPanes(
+  previous: ReadonlyMap<string, string>,
+  current: ReadonlyMap<string, string>,
+): string[] {
+  const replaced: string[] = [];
+  for (const [title, identity] of current) {
+    const before = previous.get(title);
+    if (before !== undefined && before !== identity) replaced.push(title);
+  }
+  return replaced;
+}
+
 /** Record one scan only against the URL whose document produced it. */
 export function recordScan(
   scans: PreviewScans,

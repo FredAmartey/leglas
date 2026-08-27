@@ -53,6 +53,21 @@ describe("request direction activity", () => {
     expect(changingRequestTitles(requests)).toEqual(["Queued", "Picked", "Running"]);
     expect([...workingRequestTitles(requests)]).toEqual(["Picked", "Running"]);
   });
+
+  test("a fork leaves its parent's document alone", () => {
+    // A variant is built beside the direction it was asked of, and the agent
+    // is told to leave that direction exactly as it is. Counting the parent as
+    // changing forgot its duplicate verdict and read it again after every
+    // fork, which is the default kind of request.
+    const requests = [
+      { ...request("fork", "picked-up", "Parent"), mode: "variant" as const },
+      { ...request("edit", "picked-up", "Edited"), mode: "replace" as const },
+      request("plain", "queued", "Unmarked"),
+    ];
+
+    expect(changingRequestTitles(requests)).toEqual(["Edited", "Unmarked"]);
+    expect([...workingRequestTitles(requests)]).toEqual(["Parent", "Edited"]);
+  });
 });
 
 describe("composerAgent", () => {

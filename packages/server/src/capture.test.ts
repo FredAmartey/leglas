@@ -3,7 +3,13 @@ import type { AddressInfo } from "node:net";
 
 import { afterAll, describe, expect, test, vi } from "vitest";
 
-import { findBrowser, launchBrowser, type Browser, type CdpPage } from "./browser.js";
+import {
+  START_TIMEOUT_MS,
+  findBrowser,
+  launchBrowser,
+  type Browser,
+  type CdpPage,
+} from "./browser.js";
 import {
   CROP_MIN,
   FRAME_MAX_HEIGHT,
@@ -11,6 +17,18 @@ import {
   cropBox,
   type Focus,
 } from "./capture.js";
+
+/**
+ * A live test's ceiling, derived rather than chosen.
+ *
+ * It has to sit above launchBrowser's own deadline, or vitest kills
+ * the test before the launch can either succeed or say why, and the
+ * log gets a bare timeout instead of the browser's last words. Double
+ * leaves the rest of the test more room than it has ever needed, and
+ * deriving it means raising the launch deadline for a slower runner
+ * never silently re-inverts the pair.
+ */
+const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
 describe("cropBox", () => {
   test("pads a swept region and clamps it at the page edge", () => {
@@ -278,7 +296,7 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
     expect(captured.crops[1]).toBeNull();
     expect(captured.errors.join(" ")).toContain("boom");
     },
-    20_000,
+    LIVE_TEST_TIMEOUT_MS,
   );
 });
 
@@ -319,7 +337,7 @@ describe.skipIf(executable === null)("two captures of one design", () => {
       expect(shots[2]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
       expect(shots[0]?.frame.png.length).toBeGreaterThan(100);
     },
-    30_000,
+    LIVE_TEST_TIMEOUT_MS,
   );
 });
 

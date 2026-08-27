@@ -27,7 +27,13 @@ export { CONFIG_BASENAMES, findConfigFile } from "./find-config.js";
 export { loadConfig } from "./load-config.js";
 export { LOCAL_PREVIEWS_PATH, addLocalPreview, dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
 export { createProxyHandler } from "./proxy.js";
-export { NO_BROWSER, createBrowserPool, findBrowser, launchBrowser } from "./browser.js";
+export {
+  NO_BROWSER,
+  createBrowserPool,
+  findBrowser,
+  launchBrowser,
+  reapOrphanedBrowsers,
+} from "./browser.js";
 export type { Browser, BrowserPool, BrowserSearch, CdpPage, CdpSocket, LaunchOptions } from "./browser.js";
 export { CROP_MIN, CROP_PAD, FRAME_MAX_HEIGHT, MAX_WIDTH, MIN_WIDTH, capturePage, cropBox } from "./capture.js";
 export type { Box, CaptureInput, CaptureOutput, Focus, Shot } from "./capture.js";

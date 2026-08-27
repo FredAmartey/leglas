@@ -33,8 +33,14 @@ export const INITIAL_HEALTH: HealthState = { reachable: true, wasDown: false };
  * Optimistic at boot, so an ordinary start never flashes a recovery. The
  * `wasDown` flag latches on failure and is cleared by whoever acts on it, not
  * here, so a recovery cannot be missed between polls.
+ *
+ * The same object comes back when nothing changed. This feeds a state setter
+ * on every poll, and a fresh object for the same answer re-rendered the whole
+ * interface every three seconds.
  */
 export function nextHealthState(current: HealthState, reachable: boolean): HealthState {
-  if (!reachable) return { reachable: false, wasDown: true };
-  return { reachable: true, wasDown: current.wasDown };
+  if (!reachable) {
+    return !current.reachable && current.wasDown ? current : { reachable: false, wasDown: true };
+  }
+  return current.reachable ? current : { reachable: true, wasDown: current.wasDown };
 }

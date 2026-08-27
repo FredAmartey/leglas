@@ -59,6 +59,17 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
         res.end(`${req.method}:${body}`);
       });
     }
+    if (req.url === "/slow") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.write("first");
+      slowClosed.push(false);
+      const slot = slowClosed.length - 1;
+      res.on("close", () => {
+        slowClosed[slot] = true;
+      });
+      // Held open on purpose: the test is about who ends it.
+      return;
+    }
     if (req.url === "/status-418") {
       res.writeHead(418, { "content-type": "text/plain" });
       return res.end("teapot");
@@ -90,6 +101,9 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
 }
 
 type Request = { url: string; headers: Record<string, string> };
+
+/** One entry per /slow request, flipped to true when the origin sees it close. */
+const slowClosed: boolean[] = [];
 
 function startProxy(targetPort: number): Promise<{ port: number; close: () => Promise<void> }> {
   const handler = createProxyHandler({ target: `http://127.0.0.1:${targetPort}` });
@@ -207,6 +221,30 @@ describe("proxy", () => {
 
     expect(response).toContain("101 Switching Protocols");
     expect(response).toContain("upgraded:/_next/webpack-hmr");
+  });
+
+  test("lets go of the upstream request when the browser gives up", async () => {
+    // A pane unmounting mid-load, a scan frame moving on, a navigation that
+    // abandons its module graph: the browser drops requests constantly. Each
+    // one used to run to completion into a response nobody would read, with
+    // its socket out of the pool until the dev server finished.
+    await new Promise<void>((resolve, reject) => {
+      const socket = net.connect(proxy.port, "127.0.0.1", () => {
+        socket.write(`GET /slow HTTP/1.1\r\nHost: 127.0.0.1:${proxy.port}\r\n\r\n`);
+      });
+      socket.once("data", () => {
+        socket.destroy();
+        resolve();
+      });
+      socket.on("error", reject);
+    });
+
+    const deadline = Date.now() + 2000;
+    while (!slowClosed.at(-1)) {
+      if (Date.now() > deadline) throw new Error("the origin never saw the request close");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(slowClosed.at(-1)).toBe(true);
   });
 
   test("reports a dead upstream as 502 rather than hanging or crashing", async () => {

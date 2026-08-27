@@ -5,13 +5,27 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   NO_BROWSER,
+  START_TIMEOUT_MS,
   createBrowserPool,
   findBrowser,
+  reapOrphanedBrowsers,
   launchBrowser,
   type Browser,
   type CdpPage,
   type CdpSocket,
 } from "./browser.js";
+
+/**
+ * A live test's ceiling, derived rather than chosen.
+ *
+ * It has to sit above launchBrowser's own deadline, or vitest kills
+ * the test before the launch can either succeed or say why, and the
+ * log gets a bare timeout instead of the browser's last words. Double
+ * leaves the rest of the test more room than it has ever needed, and
+ * deriving it means raising the launch deadline for a slower runner
+ * never silently re-inverts the pair.
+ */
+const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
 describe("findBrowser", () => {
   test("prefers the explicit Leglas and Chrome paths", () => {
@@ -666,6 +680,183 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
         await browser.close();
       }
     },
-    20_000,
+    LIVE_TEST_TIMEOUT_MS,
   );
+});
+
+describe("reapOrphanedBrowsers", () => {
+  const record = (fields: Record<string, unknown>) => JSON.stringify(fields);
+  const now = 1_000_000;
+  /** A profile old enough that the grace period for a pending record is over. */
+  const old = now - 600_000;
+
+  const reap = (over: Partial<Parameters<typeof reapOrphanedBrowsers>[0]>) =>
+    reapOrphanedBrowsers({
+      tmpdir: "/tmp",
+      now: () => now,
+      list: async () => [],
+      read: async () => null,
+      alive: () => false,
+      profile: async () => ({ createdAt: old, uid: 501 }),
+      uid: () => 501,
+      connect: async () => {
+        throw new Error("nothing should connect");
+      },
+      remove: async () => {},
+      ...over,
+    });
+
+  const socket = () => {
+    const sent: string[] = [];
+    let closed = false;
+    return {
+      sent,
+      get closed() {
+        return closed;
+      },
+      handle: {
+        send: (message: string) => void sent.push(message),
+        onMessage: () => {},
+        onClose: () => {},
+        close: () => void (closed = true),
+      },
+    };
+  };
+
+  test("closes an orphan through the endpoint only its own browser answers", async () => {
+    // A Leglas that is force-quit, crashes, or has its terminal window closed
+    // never runs its shutdown, so the browser it launched is reparented to
+    // init and holds its memory for the life of the machine: measured at
+    // 114MB across two processes on macOS.
+    //
+    // It is closed over the debugging endpoint rather than by signalling the
+    // recorded process id. The URL carries a token that browser minted, so
+    // only that browser accepts it. A process id is reused, and the gap
+    // between proving whose it is and signalling it cannot be closed, which
+    // would put a SIGKILL on whatever inherited the number.
+    const live = socket();
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-dead", "unrelated"],
+      read: async () =>
+        record({ owner: 4242, browser: 9001, ws: "ws://127.0.0.1:51000/devtools/browser/tok" }),
+      alive: (pid) => pid !== 4242,
+      connect: async (url) => {
+        expect(url).toBe("ws://127.0.0.1:51000/devtools/browser/tok");
+        return live.handle;
+      },
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(1);
+    expect(live.sent.join("")).toContain("Browser.close");
+    expect(live.closed).toBe(true);
+    expect(removed).toEqual(["/tmp/leglas-browser-dead"]);
+  });
+
+  test("leaves a browser alone while its Leglas is still running", async () => {
+    // Two Leglas instances on one machine is ordinary. Reaping on the
+    // directory name alone would close the other one's browser mid-capture.
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-live"],
+      read: async () => record({ owner: 777, browser: 9002, ws: "ws://127.0.0.1:51001/x" }),
+      alive: () => true,
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("a dead endpoint costs nothing and still clears the directory", async () => {
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-gone"],
+      read: async () => record({ owner: 4242, ws: "ws://127.0.0.1:51002/x" }),
+      connect: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual(["/tmp/leglas-browser-gone"]);
+  });
+
+  test("spares a profile whose record has not been written yet", async () => {
+    // The owner record is written before the browser is spawned, but a
+    // directory can still be seen in the moment between being made and being
+    // filled. Treating that as proof of an orphan let one Leglas delete the
+    // profile of another one's browser mid-launch.
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-newborn"],
+      read: async () => {
+        throw new Error("ENOENT");
+      },
+      profile: async () => ({ createdAt: now - 1_000, uid: 501 }),
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("clears a long-abandoned profile that never got a record", async () => {
+    const removed: string[] = [];
+    await reap({
+      list: async () => ["leglas-browser-halfborn"],
+      read: async () => {
+        throw new Error("ENOENT");
+      },
+      profile: async () => ({ createdAt: old, uid: 501 }),
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(removed).toEqual(["/tmp/leglas-browser-halfborn"]);
+  });
+
+  test("never signals a process id, whatever the record says", async () => {
+    // The guarantee behind the endpoint design: no code path here reaches a
+    // kill, so a recycled process id cannot be signalled by mistake.
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    await reap({
+      list: async () => ["leglas-browser-dead"],
+      read: async () => record({ owner: 4242, browser: 9003, ws: "ws://127.0.0.1:51003/x" }),
+      connect: async () => socket().handle,
+    });
+
+    expect(kill).not.toHaveBeenCalledWith(9003, expect.anything());
+    kill.mockRestore();
+  });
+
+  test("leaves another user's profile alone", async () => {
+    // On Linux the temp directory is shared between every account on the
+    // machine. A profile belonging to someone else is not ours to close, and
+    // the record inside it is not ours to read.
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-someone-else"],
+      read: async () => {
+        throw new Error("nothing should be read from another user's profile");
+      },
+      profile: async () => ({ createdAt: old, uid: 999 }),
+      uid: () => 501,
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("survives a temp directory it cannot read", async () => {
+    await expect(
+      reap({
+        list: async () => {
+          throw new Error("EACCES");
+        },
+      }),
+    ).resolves.toBe(0);
+  });
 });

@@ -17,6 +17,7 @@ import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
   activityFrom,
+  activityVerified,
   agentEnvironment,
   readAgentChoice,
   retryFrom,
@@ -42,6 +43,19 @@ import {
 
 const POLL_MS = 2000;
 const OUTPUT_LINES = 20;
+
+/**
+ * How long a warm transport outlives the last thing that used or asked for it.
+ *
+ * A warm transport is a vendor process and everything it loads: the Claude
+ * Agent SDK brings up Claude Code and, through the user's own settings, every
+ * MCP server they have configured. Measured at close to 600MB on a machine
+ * with a handful of them, held for the life of the server, whether or not a
+ * request was ever sent. Five minutes covers reading two directions and
+ * coming back to the composer; a Leglas left open overnight is a Node process
+ * and nothing else.
+ */
+export const IDLE_RELEASE_MS = 5 * 60_000;
 
 /**
  * How long a stopped run has to end itself before Leglas stops waiting.
@@ -263,19 +277,6 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           )
         : null
       : options.claudeAgentSession;
-  // Only the saved vendor is warmed at startup. Selection changes call
-  // prepare() too, paying the new vendor's process and handshake while the
-  // user composes; an already-warm transport stays ready for a quick switch
-  // back until this Leglas server shuts down.
-  const prepare = (agent: AgentChoice): void => {
-    if (agent === "codex") void codexAppServer?.warm().catch(() => {});
-    if (agent === "claude") void claudeAgentSession?.warm().catch(() => {});
-  };
-  void readAgentChoice(options.cwd)
-    .then((choice) => {
-      if (choice.agent !== null) prepare(choice.agent);
-    })
-    .catch(() => {});
   const setEvery = options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
   const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
@@ -313,6 +314,64 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     /** Settle the run as stopped without waiting for the child's streams. */
     abandon: () => void;
   } | null = null;
+  /** Which vendor the run in flight is on, so a switch never tears it down. */
+  let activeAgent: AgentChoice | null = null;
+  /** The vendor last asked for, which is the one worth keeping warm. */
+  let desiredAgent: AgentChoice | null = null;
+
+  const transportFor = (agent: AgentChoice) =>
+    agent === "codex" ? codexAppServer : agent === "claude" ? claudeAgentSession : null;
+
+  /** Let go of every transport but one, never the one with a run in flight. */
+  const releaseAllBut = (keep: AgentChoice | null) => {
+    for (const other of ["codex", "claude"] as const) {
+      if (other === keep) continue;
+      if (active !== null && activeAgent === other) continue;
+      void transportFor(other)?.release().catch(() => {});
+    }
+  };
+
+  /**
+   * Release every transport once nothing has used or asked for one in a
+   * while. A generation counter rather than a cleared timer: the injected
+   * setTimeout hands back nothing, and an unref'd real one costs nothing to
+   * let fire and ignore.
+   */
+  let idleGeneration = 0;
+  const armIdleRelease = () => {
+    if (stopped) return;
+    const generation = ++idleGeneration;
+    setLater(() => {
+      if (generation !== idleGeneration || stopped) return;
+      // A run in flight is exactly what the process is for; look again later.
+      if (active !== null) {
+        armIdleRelease();
+        return;
+      }
+      for (const transport of [codexAppServer, claudeAgentSession]) {
+        void transport?.release().catch(() => {});
+      }
+    }, IDLE_RELEASE_MS);
+  };
+
+  /**
+   * Warm one vendor and let the other go.
+   *
+   * Warming is paid on intent, when an agent is chosen or the composer takes
+   * focus, and never at boot: a saved choice is not a request, and a session
+   * that never sends one should not carry a vendor process for its whole
+   * life. One transport at a time for the same reason. A quick switch back
+   * costs a re-warm, hidden behind typing the request out.
+   */
+  const prepare = (agent: AgentChoice): void => {
+    if (stopped) return;
+    desiredAgent = agent;
+    releaseAllBut(agent);
+    // Warmed for the conversation the next request will continue, so a
+    // session released while idle is loaded again before Enter is pressed.
+    void transportFor(agent)?.warm(resumable(agent)).catch(() => {});
+    armIdleRelease();
+  };
 
   /**
    * The vendor session each agent may continue, per this server process.
@@ -322,6 +381,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
    * the requests after it.
    */
   const sessions = new Map<AgentChoice, { id: string; turns: number }>();
+
+  /** The session the next request on this vendor continues, if any. */
+  const resumable = (agent: AgentChoice): string | null => {
+    const session = sessions.get(agent);
+    return session !== undefined && session.turns < SESSION_TURNS_CAP ? session.id : null;
+  };
 
   const idle = () => {
     state = {
@@ -393,6 +458,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // thread creation and turn startup all await vendor work before there is a
     // synthetic child to signal, which previously made Stop a no-op here.
     active = current;
+    activeAgent = resolved.agent;
 
     const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
     const startPersistent = async (): Promise<RunnerChild> => {
@@ -408,10 +474,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       );
       return new Promise<RunnerChild>((resolve, reject) => {
         // A compliant transport rejects only after its startup cleanup ends.
-        // The grace path closes a transport that ignores its abort signal, so
-        // the queue never advances while a late process can still appear.
+        // The grace path tears down the process of a transport that ignores
+        // its abort signal, so the queue never advances while a late process
+        // can still appear. Released rather than closed: the transport is
+        // still the right one for the next request, and closing it here left
+        // every later run on the cold CLI path for the life of the server.
         current.abandon = () => {
-          void persistent.close().catch(() => {}).then(() => reject(new Error("cancelled")));
+          void persistent.release().catch(() => {}).then(() => reject(new Error("cancelled")));
         };
         void starting.then(
           (child) => {
@@ -525,9 +594,6 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     readFile(join(options.cwd, LOCAL_PREVIEWS_PATH), "utf8").catch(() => null);
 
   const handle = async (request: PendingRequest, choice: SavedAgentChoice): Promise<void> => {
-    const session =
-      choice.agent !== null ? (sessions.get(choice.agent) ?? null) : null;
-    const continuable = session !== null && session.turns < SESSION_TURNS_CAP;
     const allowedCommands =
       options.leglasCommand === undefined
         ? []
@@ -552,7 +618,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     let resolved = resolveCommand(
       choice,
       request.prompt,
-      continuable ? session.id : null,
+      choice.agent === null ? null : resumable(choice.agent),
       allowedCommands,
       images,
     );
@@ -631,6 +697,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         !(outcome.ok && outcome.code === 0) &&
         resolved.resumed &&
         !observed.edited &&
+        // The edited flag is only evidence where Leglas has read the vendor's
+        // real output. Where it has not, "did not edit" means "was not seen
+        // to edit", and rerunning on that is how a half-applied change gets
+        // applied twice. Such a vendor keeps the failure card and its Retry.
+        activityVerified(resolved.agent) &&
         sessionShaped(failure.code) &&
         // Not redundant with the verdict: a stop that lands between the first
         // child settling and the retry starting finds no child to cancel, so
@@ -686,6 +757,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       await reportFailure(request, failure, lines);
     } finally {
       idle();
+      activeAgent = null;
+      // A switch made during the run kept this vendor alive for the run's
+      // sake. With it over, only the vendor last asked for stays warm; with
+      // nothing asked for since boot, that is the one that just ran.
+      releaseAllBut(desiredAgent ?? choice.agent);
+      // The run is the last thing that used the transport; its clock starts now.
+      armIdleRelease();
     }
   };
 

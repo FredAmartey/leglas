@@ -66,12 +66,21 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
       );
 
       upstream.on("error", (error) => {
-        if (res.headersSent) return res.destroy();
+        if (res.headersSent || res.destroyed) return res.destroy();
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(
           `Leglas could not reach the dev server at ${options.target} (${error.message}).\n` +
             `Start it, or point Leglas somewhere else with --user-port.`,
         );
+      });
+
+      // The browser gives up on requests all the time: a pane unmounts
+      // mid-load, the scan frame moves on, a navigation abandons its module
+      // graph. Each one used to run to completion upstream into a response
+      // nobody would read, with its socket out of the pool until the dev
+      // server finished sending. Let go the moment the browser does.
+      res.on("close", () => {
+        if (!res.writableFinished) upstream.destroy();
       });
 
       req.pipe(upstream);

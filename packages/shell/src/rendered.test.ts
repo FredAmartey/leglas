@@ -254,3 +254,25 @@ describe("paintSample", () => {
     expect(paintSample(null, styleOf)).toEqual([]);
   });
 });
+
+describe("signature size", () => {
+  test("the signature is a digest, not the sample it was read from", () => {
+    // A visual sample runs to hundreds of elements at a couple of kilobytes
+    // each, and one used to be kept per direction for the life of the page.
+    const visual = Array.from(
+      { length: 720 },
+      (_, index) => `DIV{rect:${index},${index * 2},1280,64;${"display:block;".repeat(120)}}`,
+    );
+    const read = () =>
+      renderedSignature(
+        "Every incident, one timeline. Start free",
+        ["MAIN", "DIV"],
+        ["rgb(0,0,0);none;rgb(255,255,255)"],
+        visual,
+      );
+
+    expect(read()).not.toBeNull();
+    expect((read() ?? "").length).toBeLessThan(40);
+    expect(read()).toBe(read());
+  });
+});

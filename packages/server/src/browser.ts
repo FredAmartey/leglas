@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
+import nodeProcess from "node:process";
 import { spawn as nodeSpawn } from "node:child_process";
-import { accessSync, constants, existsSync, readdirSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -285,7 +286,7 @@ export type LaunchOptions = {
  * wait anybody sits through: a capture is abandoned by its own shorter
  * deadline long before this fires.
  */
-const START_TIMEOUT_MS = 30_000;
+export const START_TIMEOUT_MS = 30_000;
 
 type PendingCommand = {
   resolve(value: unknown): void;
@@ -382,6 +383,175 @@ function endpoint(
   });
 }
 
+/** Names the Leglas that launched a browser, written inside its own profile. */
+const OWNER_FILE = "leglas-owner.json";
+
+/** Every browser profile Leglas makes is named this way, and only Leglas's. */
+const PROFILE_PREFIX = "leglas-browser-";
+
+export type ReapDeps = {
+  tmpdir?: string;
+  now?: () => number;
+  list?: (path: string) => Promise<string[]>;
+  read?: (path: string) => Promise<string | null>;
+  /** Whether a pid still belongs to a running process. */
+  alive?: (pid: number) => boolean;
+  /** When a profile was made and who owns it, on systems that have owners. */
+  profile?: (path: string) => Promise<{ createdAt: number; uid: number | null }>;
+  /** This process's user, or null where the platform has no such notion. */
+  uid?: () => number | null;
+  connect?: (url: string) => Promise<CdpSocket>;
+  remove?: (path: string) => Promise<void>;
+};
+
+/**
+ * How long a profile with no owner record is left alone.
+ *
+ * The record is written before the browser is spawned, so a directory without
+ * one is either mid-creation or debris from a launch that died between the
+ * two. Waiting rules out the first, which matters because removing it would
+ * delete a live browser's profile out from under it.
+ */
+const RECORD_GRACE_MS = 60_000;
+
+/** How long an orphan gets to accept its own close before we stop waiting. */
+const REAP_CLOSE_MS = 2_000;
+
+function livePid(pid: number): boolean {
+  try {
+    // Signal 0 asks whether the process exists without touching it.
+    nodeProcess.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means it exists and belongs to someone else, which still counts.
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "EPERM"
+    );
+  }
+}
+
+/**
+ * Ask one orphaned browser to close, over the endpoint it published.
+ *
+ * The URL carries a token that browser minted for itself, so nothing else
+ * answers to it: a different browser on a reused port rejects it, and a
+ * non-browser listening there cannot speak the protocol. That is the whole
+ * reason this is not a kill by process id. Proving whose a pid is and then
+ * signalling it are two steps, the number can be reused in between, and the
+ * cost of losing that race is a SIGKILL delivered to unrelated work.
+ */
+async function closeOrphan(url: string, connect: (url: string) => Promise<CdpSocket>): Promise<boolean> {
+  let socket: CdpSocket;
+  try {
+    socket = await connect(url);
+  } catch {
+    // Nothing is listening, or it does not speak CDP. The browser is already
+    // gone, or was never ours to close.
+    return false;
+  }
+  try {
+    socket.send(JSON.stringify({ id: 1, method: "Browser.close", params: {} }));
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, REAP_CLOSE_MS);
+      timer.unref?.();
+      socket.onClose(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    return true;
+  } finally {
+    try {
+      socket.close();
+    } catch {
+      // It went on its own, which is the point.
+    }
+  }
+}
+
+/**
+ * Close browsers left behind by a Leglas that never got to shut down.
+ *
+ * The graceful paths already handle this: the CLI takes SIGINT, SIGTERM and
+ * SIGHUP, and each runs the pool's close. What no handler can cover is being
+ * killed outright, crashing, or losing the machine. The browser is then
+ * reparented to init and holds its memory for good, invisibly, because it is
+ * headless. Measured on macOS at 114MB across two processes per orphan, and
+ * it accrues once per session that ends badly.
+ *
+ * Each browser gets a profile directory of its own, and the Leglas that
+ * launched it writes its own pid there before spawning. A live owner means a
+ * second Leglas is using that browser right now, and it is left alone.
+ */
+export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number> {
+  const root = deps.tmpdir ?? osTmpdir();
+  const clock = deps.now ?? (() => Date.now());
+  const list =
+    deps.list ??
+    (async (path: string) =>
+      (await readdir(path, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name));
+  const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
+  const alive = deps.alive ?? livePid;
+  const profileOf =
+    deps.profile ??
+    (async (path: string) => {
+      const entry = await stat(path);
+      return { createdAt: entry.birthtimeMs, uid: entry.uid };
+    });
+  const currentUid = deps.uid ?? (() => nodeProcess.getuid?.() ?? null);
+  const connect = deps.connect ?? connectWebSocket;
+  const remove =
+    deps.remove ??
+    (async (path: string) => {
+      await rm(path, { recursive: true, force: true });
+    });
+
+  let names: string[];
+  try {
+    names = await list(root);
+  } catch {
+    // An unreadable temp directory is not worth reporting: nothing depends on
+    // this having run, and the next start tries again.
+    return 0;
+  }
+
+  let reaped = 0;
+  const mine = currentUid();
+  for (const name of names) {
+    if (!name.startsWith(PROFILE_PREFIX)) continue;
+    const directory = join(root, name);
+
+    // On Linux the temp directory is shared by every account on the machine.
+    // Another user's profile is not ours to close, and the record inside it
+    // is not ours to read, so it is skipped before anything opens it.
+    const details = await profileOf(directory).catch(() => null);
+    if (details === null) continue;
+    if (mine !== null && details.uid !== null && details.uid !== mine) continue;
+
+    type OwnerRecord = { owner?: unknown; ws?: unknown };
+    let record: OwnerRecord | null = null;
+    try {
+      const raw = await read(join(directory, OWNER_FILE));
+      record = raw === null ? null : (JSON.parse(raw) as OwnerRecord);
+    } catch {
+      // Either mid-creation or debris; the grace period below tells them apart.
+    }
+
+    const owner = typeof record?.owner === "number" ? record.owner : null;
+    if (owner !== null && alive(owner)) continue;
+    if (owner === null && clock() - details.createdAt < RECORD_GRACE_MS) continue;
+
+    const endpoint = typeof record?.ws === "string" && record.ws !== "" ? record.ws : null;
+    if (endpoint !== null && (await closeOrphan(endpoint, connect))) reaped += 1;
+    await remove(directory).catch(() => {});
+  }
+  return reaped;
+}
+
 /** Launch Chromium and expose the small, serialized CDP surface captures use. */
 export async function launchBrowser(
   executable: string,
@@ -394,6 +564,36 @@ export async function launchBrowser(
     options.tmpdir ?? osTmpdir(),
     `leglas-browser-${randomBytes(8).toString("hex")}`,
   );
+
+  // Claim the profile before the browser exists.
+  //
+  // Order matters: a second Leglas starting at this moment sweeps the temp
+  // directory, and a profile with no owner in it looks exactly like debris.
+  // Writing first means whatever it finds already says who to ask. Best
+  // effort otherwise: a profile that cannot be written is still a browser
+  // that works, and only the tidy-up after a hard kill is lost.
+  // Written synchronously, and not merely before the spawn: awaiting here
+  // would yield the turn, and a browser that exits in that window would do it
+  // before anything is listening for the event.
+  const owned = (fields: Record<string, unknown>): void => {
+    try {
+      // Owner-only, both of them. The record ends up holding the browser's
+      // debugging URL, which is a live capability over that browser: anyone
+      // who can read it can drive it. On Linux the temp directory is shared
+      // by every account on the machine, so default permissions would hand
+      // that to them.
+      mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
+      writeFileSync(
+        join(userDataDir, OWNER_FILE),
+        `${JSON.stringify({ owner: nodeProcess.pid, ...fields })}\n`,
+        { encoding: "utf8", mode: 0o600 },
+      );
+    } catch {
+      // Nothing here is worth failing a launch over.
+    }
+  };
+  owned({});
+
   const process = spawn(
     executable,
     [
@@ -438,6 +638,11 @@ export async function launchBrowser(
     await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
+
+  // Now that the browser has published an endpoint, record it. The URL holds
+  // a token this browser minted, which is what lets a later Leglas close it
+  // by asking rather than by signalling a process id it cannot prove.
+  owned({ browser: process.pid ?? null, ws: websocketUrl });
 
   let socket: CdpSocket;
   try {

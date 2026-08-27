@@ -87,6 +87,53 @@ async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
 }
 
 describe("Codex app-server transport", () => {
+  test("a release outlasts a warm queued behind an earlier reset", async () => {
+    // The runner fires warm() and release() without awaiting them. A warm
+    // queued behind a reset in flight used to install a fresh process after
+    // a later release had already returned, leaving Codex resident beside
+    // the vendor that was actually chosen. The last call wins.
+    const { server, spawned } = await initialize();
+
+    const first = server.release();
+    const warming = server.warm().catch(() => "refused");
+    const second = server.release();
+    await first;
+    await second;
+
+    expect(await warming).toBe("refused");
+    expect(spawned.processes).toHaveLength(2);
+    expect(spawned.processes[1]?.signals).toContain("SIGTERM");
+
+    // Released, not closed: a later ask still brings it up.
+    const again = server.warm();
+    await until(() => spawned.processes.length === 3);
+    const process = spawned.processes[2] as FakeProcess;
+    await until(() => byMethod(process, "initialize").length === 1);
+    process.send({ id: (byMethod(process, "initialize")[0] as Message).id, result: {} });
+    await again;
+    await server.close();
+  });
+
+  test("a warm asked for after a release began survives it", async () => {
+    // The other direction of the same race: the idle clock fires as the
+    // composer takes focus. The release started first, but the warm is the
+    // newer intent, and the process it brings up is the one the request
+    // about to arrive will use.
+    const { server, spawned } = await initialize();
+
+    const release = server.release();
+    const warming = server.warm();
+    await release;
+
+    await until(() => spawned.processes.length === 2);
+    const process = spawned.processes[1] as FakeProcess;
+    await until(() => byMethod(process, "initialize").length === 1);
+    process.send({ id: (byMethod(process, "initialize")[0] as Message).id, result: {} });
+    await warming;
+    expect(process.signals).not.toContain("SIGTERM");
+    await server.close();
+  });
+
   test("warms once, streams a turn and reuses its loaded thread", async () => {
     const { process, server, spawned } = await initialize();
     await expect(server.warm()).resolves.toBeUndefined();
