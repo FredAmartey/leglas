@@ -11,6 +11,7 @@ import {
   describeAnnotations,
   readAnnotations,
   removeAnnotations,
+  updateAnnotation,
   type Annotation,
   type AnnotationAnchor,
 } from "./annotations.js";
@@ -121,6 +122,149 @@ describe("the notes file", () => {
 
     expect(await removeAnnotations(root, [first.id, "never-existed"])).toBe(1);
     expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["b"]);
+  });
+
+  // A note is a sentence about a place, and the place is the expensive half.
+  // Rewording one must not cost it: the anchor is handed back exactly as it
+  // was found, and the note keeps its turn in the list so the pin keeps its
+  // number.
+  test("rewords a note and leaves what it points at alone", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+    await addAnnotation(root, note("Poster", "wrong on its side"));
+
+    const revised = await updateAnnotation(root, first.id, "  looks printed  ");
+
+    expect(revised).toEqual({ ...first, id: revised?.id, note: "looks printed" });
+    expect(revised?.anchor).toEqual(first.anchor);
+    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual([
+      "looks printed",
+      "wrong on its side",
+    ]);
+  });
+
+  test("rewording keeps a note where it is in the list", async () => {
+    const root = cwd();
+    await addAnnotation(root, note("Poster", "a"));
+    const middle = await addAnnotation(root, note("Poster", "b"));
+    await addAnnotation(root, note("Poster", "c"));
+
+    await updateAnnotation(root, middle.id, "b again");
+
+    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual([
+      "a",
+      "b again",
+      "c",
+    ]);
+  });
+
+  // Clearing a note is a real edit. The pin still carries an address, which
+  // is most of what a note is for, so the words are allowed to go.
+  test("rewording a note to nothing empties it rather than dropping it", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+
+    const emptied = await updateAnnotation(root, first.id, "   ");
+
+    expect(emptied?.note).toBe("");
+    expect((await readAnnotations(root)).map((entry) => entry.id)).toEqual([emptied?.id]);
+  });
+
+  test("a reworded note is capped like every other note", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+
+    const revised = await updateAnnotation(root, first.id, "x".repeat(900));
+
+    expect(revised?.note).toHaveLength(500);
+  });
+
+  test("rewording one note leaves the others alone", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "a"));
+    const second = await addAnnotation(root, note("Orchard", "b"));
+
+    await updateAnnotation(root, first.id, "a again");
+    const read = await readAnnotations(root);
+
+    expect(read.find((entry) => entry.id === second.id)).toEqual(second);
+  });
+
+  // The whole reason a reworded note takes a new identity. A change in flight
+  // recorded the ids it answers and the runner forgets exactly those when it
+  // lands, so a revision that kept its id would be swept away by the request
+  // whose words it was written to replace. Every rewording is reissued rather
+  // than only the ones the queue names right now, because a change sent a
+  // moment later would have caught the old id either way.
+  test("a note reworded while a change holds it survives that change landing", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+    const sent = [first.id];
+
+    const revised = await updateAnnotation(root, first.id, "looks printed");
+    // What the runner does when the change it was sent with succeeds.
+    await removeAnnotations(root, sent);
+
+    expect(revised?.id).not.toBe(first.id);
+    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["looks printed"]);
+  });
+
+  // Both the interface and the runner write this whole file back, and both do
+  // it around an await. Overlapping, the later write lands on a list the
+  // earlier one has already changed, and one of the two edits is gone.
+  test("a revision and a sweep landing together cannot overwrite each other", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+    const sent = new Set([first.id]);
+
+    const [revised] = await Promise.all([
+      updateAnnotation(root, first.id, "looks printed"),
+      removeAnnotations(root, [...sent]),
+    ]);
+
+    expect(revised?.id).not.toBe(first.id);
+    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["looks printed"]);
+  });
+
+  test("two notes left at the same moment both survive", async () => {
+    const root = cwd();
+
+    await Promise.all([
+      addAnnotation(root, note("Poster", "a")),
+      addAnnotation(root, note("Poster", "b")),
+    ]);
+
+    expect((await readAnnotations(root)).map((entry) => entry.note).toSorted()).toEqual(["a", "b"]);
+  });
+
+  test("saving a note without changing it changes nothing at all", async () => {
+    const root = cwd();
+    const first = await addAnnotation(root, note("Poster", "looks fake"));
+
+    const same = await updateAnnotation(root, first.id, "  looks fake  ");
+
+    expect(same).toEqual(first);
+  });
+
+  test("a reworded note keeps its address and its turn under the new identity", async () => {
+    const root = cwd();
+    await addAnnotation(root, note("Poster", "a"));
+    const middle = await addAnnotation(root, note("Poster", "b"));
+    await addAnnotation(root, note("Poster", "c"));
+
+    const revised = await updateAnnotation(root, middle.id, "b again");
+    const read = await readAnnotations(root);
+
+    expect(revised?.id).not.toBe(middle.id);
+    expect(revised?.anchor).toEqual(middle.anchor);
+    expect(read.map((entry) => entry.note)).toEqual(["a", "b again", "c"]);
+    expect(read[1]?.id).toBe(revised?.id);
+  });
+
+  test("rewording a note that has gone leaves no trace on disk", async () => {
+    const root = cwd();
+    expect(await updateAnnotation(root, "never-existed", "looks printed")).toBeNull();
+    expect(existsSync(join(root, ".leglas"))).toBe(false);
   });
 
   test("forgetting nothing leaves no trace on disk", async () => {

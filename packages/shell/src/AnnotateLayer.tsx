@@ -35,18 +35,40 @@ type Geometry = { doc: Document; rect: DOMRect; scale: number; view: Window };
 
 type Pin = {
   id: string;
+  /** Carried so opening the pin hands the card the same address the note has. */
+  anchor: Anchor;
   box: Box;
   note: string;
   number: number;
   region: Box | null;
+  /** Answered by a change that has been sent and has not settled. */
+  sent: boolean;
   stale: boolean;
 };
 
-type Draft = {
-  anchor: Anchor;
-  /** What the card has to keep clear of, in the preview's own coordinates. */
-  about: Box;
-};
+/** Where an anchor points now, and how much of that is a guess. */
+type Anchored = { about: Box; box: Box; stale: boolean };
+
+/**
+ * The card over the preview, holding the words of one note.
+ *
+ * One state rather than two, because there is only ever one card and it only
+ * does one thing. A note being left now and a note left ten minutes ago
+ * differ in where the words end up, not in how they are typed, and giving the
+ * second its own card is how you end up with two of everything: two
+ * placements, two Escape rules, two ways to lose what was typed.
+ */
+type Open =
+  /**
+   * Words about a place, kept nowhere yet.
+   *
+   * `answered` marks the one way a card gets here without being opened that
+   * way: the note it held was swept by the change that answered it while it
+   * was being reworded.
+   */
+  | { kind: "new"; anchor: Anchor; answered?: boolean; field: string; note: string }
+  /** A note already on the file, opened to be reworded or dropped. */
+  | { kind: "kept"; anchor: Anchor; field: string; id: string; note: string };
 
 /** How far a region's own outline sits from the elements it covers. */
 const REGION_PAD = 2;
@@ -56,6 +78,39 @@ const SCAN_CAP = 4000;
 
 /** A local cap keeps the picker quick even inside a very large preview. */
 const PICK_SCAN_CAP = 600;
+
+/**
+ * How much of a note a pin's own name carries.
+ *
+ * A note runs to 500 characters and the label is read aloud one word at a
+ * time, so the whole thing is a sentence nobody can get to the end of. Enough
+ * to tell one pin from another is the job; the words themselves are in the
+ * card the pin opens.
+ */
+const LABEL_CAP = 80;
+
+/** What a pin answers to, for anyone not looking at the colours. */
+function label(pin: Pin): string {
+  const said =
+    pin.note.length > LABEL_CAP ? `${pin.note.slice(0, LABEL_CAP - 1)}…` : pin.note;
+  return [
+    `Annotation ${pin.number}`,
+    said === "" ? null : `: ${said}`,
+    pin.sent ? ". Sent with a change." : null,
+    pin.stale ? ". Its element has gone." : null,
+  ]
+    .filter((part) => part !== null)
+    .join("");
+}
+
+/** The same two facts as a tooltip, for anyone using a pointer. */
+function pinTitle(pin: Pin): string | undefined {
+  const parts = [
+    pin.stale ? "This element has moved or gone since the annotation was left." : null,
+    pin.sent ? "Already sent with a change that has not landed yet." : null,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? undefined : parts.join(" ");
+}
 
 function boxOf(rect: DOMRect | Box): Box {
   return "left" in rect
@@ -77,16 +132,27 @@ export function AnnotateLayer({
   onExit,
   onForget,
   onKeep,
+  onRevise,
   paneScale,
   scaling,
+  sent,
   title,
 }: {
   notes: readonly Annotation[];
   /** Called when Escape backs out of the mode itself. */
   onExit: () => void;
   onForget: (id: string) => void;
-  onKeep: (anchor: Anchor, note: string) => void;
+  /** Answers whether the note was kept, because the card waits to hear. */
+  onKeep: (anchor: Anchor, note: string) => Promise<boolean>;
+  /** Called when an existing note is opened and given different words. */
+  onRevise: (id: string, note: string) => Promise<boolean>;
   paneScale: number;
+  /**
+   * Notes a change has already been sent for, and that change has not
+   * settled. Their words are in a prompt an agent is holding, so the pin says
+   * so and rewording one is understood to be about the next change.
+   */
+  sent: ReadonlySet<string>;
   scaling: boolean;
   title: string;
 }) {
@@ -99,7 +165,27 @@ export function AnnotateLayer({
 
   const [picked, setPicked] = useState<Box | null>(null);
   const [marquee, setMarquee] = useState<Box | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [open, setOpen] = useState<Open | null>(null);
+  /**
+   * A counter behind every card's `field`, so no two openings share one.
+   *
+   * A write outlives the card that started it, and what tells its answer
+   * which card to apply to is that name. Naming cards after the note they
+   * hold looked right and was not: two goes at the same pin, or two drafts in
+   * a row, are both "the same card" by that measure, and the first write back
+   * would close the second card and take what was being typed into it.
+   */
+  const opened = useRef(0);
+  /**
+   * A save in flight and a save refused, each named by the card it belongs to.
+   *
+   * Not a pair of flags, because a write outlives the card that started it:
+   * press Enter, click another pin, and a bare flag would have the first
+   * card's answer close the second one and take the sentence being typed into
+   * it. Everything here is checked against the card on screen now.
+   */
+  const [saving, setSaving] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [card, setCard] = useState({ height: 92, width: 256 });
 
@@ -215,44 +301,62 @@ export function AnnotateLayer({
   }, []);
 
   /**
-   * Where each annotation belongs now.
+   * Where one anchor points now.
    *
    * Resolved from the selector every time rather than trusted from the file,
    * because the design moves: that is what the annotations are for. A selector
    * that no longer resolves falls back to the rectangle recorded when it was
    * left and says so, which is more honest than hiding it or pointing
    * confidently at the wrong element.
+   *
+   * Read by the pins and by whatever card is open, so the outline under an
+   * open card tracks the page it is drawn on. It used to be a snapshot taken
+   * when the card opened, and the wheel still belongs to the preview while a
+   * card is up: three lines of scroll left the outline behind on the pixels
+   * the element had vacated.
    */
+  const anchored = useCallback((at: Geometry, anchor: Anchor): Anchored => {
+    let found: Element | null = null;
+    try {
+      found = at.doc.querySelector(anchor.selector);
+    } catch {
+      // A selector the browser will not parse is a stale one, not a crash.
+    }
+    const box = found === null ? boxOf(anchor.rect) : boxOf(found.getBoundingClientRect());
+    const spot = anchor.spot ?? { x: 0.5, y: 0.5 };
+    const region = anchor.region ? boxFromFractions(box, anchor.region) : null;
+
+    return {
+      about: region ?? box,
+      box: region ?? {
+        height: 0,
+        width: 0,
+        x: box.x + spot.x * box.width,
+        y: box.y + spot.y * box.height,
+      },
+      stale: found === null,
+    };
+  }, []);
+
+  /** Where each annotation belongs now, in the order the request will read them. */
   const measure = useCallback((): Pin[] => {
     const at = geometry();
     if (at === null) return [];
 
     return notes.map((note, index) => {
-      let found: Element | null = null;
-      try {
-        found = at.doc.querySelector(note.anchor.selector);
-      } catch {
-        // A selector the browser will not parse is a stale one, not a crash.
-      }
-      const box = found === null ? boxOf(note.anchor.rect) : boxOf(found.getBoundingClientRect());
-      const spot = note.anchor.spot ?? { x: 0.5, y: 0.5 };
-      const region = note.anchor.region ? boxFromFractions(box, note.anchor.region) : null;
-
+      const where = anchored(at, note.anchor);
       return {
-        box: region ?? {
-          height: 0,
-          width: 0,
-          x: box.x + spot.x * box.width,
-          y: box.y + spot.y * box.height,
-        },
+        anchor: note.anchor,
+        box: where.box,
         id: note.id,
         note: note.note,
         number: index + 1,
-        region,
-        stale: found === null,
+        region: note.anchor.region ? where.about : null,
+        sent: sent.has(note.id),
+        stale: where.stale,
       };
     });
-  }, [geometry, notes]);
+  }, [anchored, geometry, notes, sent]);
 
   const remeasure = useCallback(() => setPins(measure()), [measure]);
 
@@ -260,9 +364,9 @@ export function AnnotateLayer({
   const repick = useCallback(() => {
     const held = pointer.current;
     const at = geometry();
-    if (held === null || at === null || draft !== null) return;
+    if (held === null || at === null || open !== null) return;
     setPicked(elementAt(at, held)?.box ?? null);
-  }, [draft, elementAt, geometry]);
+  }, [elementAt, geometry, open]);
 
   useEffect(() => {
     remeasure();
@@ -306,15 +410,20 @@ export function AnnotateLayer({
   /**
    * Escape backs out one step: the card being typed into, then the mode.
    *
-   * Owned here because only this knows whether a card is open, and bound on
-   * the preview's own document as well as the shell's, since the pointer is
-   * usually over the preview and that document owns the keystroke.
+   * Owned here and only here, on the preview's own document as well as the
+   * shell's, since the pointer is usually over the preview and that document
+   * owns the keystroke. The card's field used to answer Escape too, and two
+   * answers to one keystroke skipped a rung: the field closed the card,
+   * React flushed that synchronously because a keystroke is a discrete
+   * event, this listener was replaced mid-dispatch, and the replacement,
+   * reading a state with nothing open, backed out of the mode as well. One
+   * Escape, one step.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (draft !== null) {
-        setDraft(null);
+      if (open !== null) {
+        setOpen(null);
         return;
       }
       onExit();
@@ -326,18 +435,42 @@ export function AnnotateLayer({
     return () => {
       for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
     };
-  }, [draft, geometry, onExit]);
+  }, [geometry, onExit, open]);
+
+  /**
+   * A note that goes while its card is up leaves the words behind.
+   *
+   * The runner forgets the notes a rewrite answered the moment it lands, and
+   * that is the same window this card exists to be used in: the pin said the
+   * change was in flight and invited a second thought about it. Closing the
+   * card there would throw away a sentence someone was halfway through, and
+   * leaving it open would leave a field whose Enter can only fail. So the
+   * card stays and becomes what it now is, words about a place with no note
+   * on it yet, and says so. The field keeps its identity across the change,
+   * which is what keeps the half-typed sentence in it.
+   */
+  useEffect(() => {
+    if (open === null || open.kind !== "kept") return;
+    if (notes.some((note) => note.id === open.id)) return;
+    setOpen({
+      anchor: open.anchor,
+      answered: true,
+      field: open.field,
+      kind: "new",
+      note: open.note,
+    });
+  }, [notes, open]);
 
   /** Measure the card once it exists, so its placement knows its real height. */
   useEffect(() => {
     const node = cardRef.current;
-    if (draft === null || node === null) return;
+    if (open === null || node === null) return;
     const height = node.offsetHeight;
     const width = node.offsetWidth;
     setCard((current) =>
       current.height === height && current.width === width ? current : { height, width },
     );
-  }, [draft]);
+  }, [open]);
 
   /**
    * Everything the region covers, outermost first.
@@ -408,7 +541,7 @@ export function AnnotateLayer({
       const swept = boxBetween(from, to);
       const { bounds, covers, holder } = sweep(at, swept);
       const holderBox = boxOf(holder.getBoundingClientRect());
-      setDraft({
+      setOpen({
         anchor: {
           ...anchorFor(holder, holderBox, at.view.innerWidth, {
             x: bounds.x + bounds.width / 2,
@@ -417,37 +550,47 @@ export function AnnotateLayer({
           covers,
           region: fractionsIn(holderBox, bounds),
         },
-        about: bounds,
+        field: String((opened.current += 1)),
+        kind: "new",
+        note: "",
       });
+      setRefused(null);
       return;
     }
 
     const target = elementAt(at, to);
     if (target === null) return;
-    setDraft({
+    setOpen({
       anchor: anchorFor(target.element, target.box, at.view.innerWidth, to),
-      about: target.box,
+      field: String((opened.current += 1)),
+      kind: "new",
+      note: "",
     });
+    setRefused(null);
   };
 
   const chrome = scaling && paneScale > 0 ? 1 / paneScale : 1;
   const at = geometry();
   const bounds = { height: at?.view.innerHeight ?? 0, width: at?.view.innerWidth ?? 0 };
   const width = cardWidth(bounds.width);
+  // The card and its outline both hang off wherever the anchor points now,
+  // re-read on every render so a preview scrolled under an open card takes
+  // the card with it.
+  const openAt = open === null || at === null ? null : anchored(at, open.anchor);
   const placed =
-    draft === null
+    openAt === null
       ? null
       : placeCard({
-          anchor: draft.about,
+          anchor: openAt.about,
           bounds,
           card: { height: card.height * chrome, width: width * chrome },
         });
 
   return (
     <div
-      className={`absolute inset-0 z-20 ${draft === null ? "cursor-crosshair" : "cursor-default"}`}
+      className={`absolute inset-0 z-20 ${open === null ? "cursor-crosshair" : "cursor-default"}`}
       onPointerDown={(event) => {
-        if (draft !== null) return;
+        if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
         if (point === null || frame === null) return;
@@ -467,7 +610,7 @@ export function AnnotateLayer({
         if (dragging.current === null) setPicked(null);
       }}
       onPointerMove={(event) => {
-        if (draft !== null) return;
+        if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
         if (point === null || frame === null) return;
@@ -493,7 +636,7 @@ export function AnnotateLayer({
         const held = dragging.current;
         dragging.current = null;
         setMarquee(null);
-        if (draft !== null) return;
+        if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
         if (point === null || frame === null) return;
@@ -509,7 +652,7 @@ export function AnnotateLayer({
       }}
       ref={layerRef}
     >
-      {picked !== null && draft === null && marquee === null ? (
+      {picked !== null && open === null && marquee === null ? (
         <div
           className="pointer-events-none absolute bg-[#7C9CFF]/10 outline outline-2 outline-[#7C9CFF]"
           style={{ height: picked.height, left: picked.x, top: picked.y, width: picked.width }}
@@ -538,12 +681,24 @@ export function AnnotateLayer({
               }}
             />
           )}
-          <div
+          <button
             // The badge alone sizes this box. The card beside it is hidden
             // until hover but still laid out, and while it was a flex sibling
             // its width dragged the centring transform with it, parking every
             // badge half a card to the left of the thing it marks.
-            className="group/pin absolute size-5"
+            aria-label={label(pin)}
+            className="group/pin absolute size-5 cursor-pointer"
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpen({
+                anchor: pin.anchor,
+                field: String((opened.current += 1)),
+                id: pin.id,
+                kind: "kept",
+                note: pin.note,
+              });
+              setRefused(null);
+            }}
             onPointerDown={(event) => event.stopPropagation()}
             onPointerMove={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
@@ -553,68 +708,76 @@ export function AnnotateLayer({
               transform: `translate(-50%, -50%) scale(${chrome})`,
               transformOrigin: "center",
             }}
+            type="button"
           >
+            {/* A pin reads best small and is aimed at by someone holding a
+                trackpad and looking at a design. What it is hit by is larger
+                than what it is read as, so a pointer that lands near enough
+                still lands. */}
+            <span aria-hidden className="absolute -inset-1.5" />
             <span
-              className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow-lg ${
+              // A sent pin keeps its colour and takes a ring. It is still the
+              // same note about the same place; what it is not is unread.
+              className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow-lg outline-offset-2 group-focus-visible/pin:outline group-focus-visible/pin:outline-2 group-focus-visible/pin:outline-white ${
                 pin.stale ? "bg-amber-500" : "bg-[#7C9CFF]"
-              }`}
-              title={
-                pin.stale ? "This element has moved or gone since the annotation was left." : undefined
-              }
+              } ${pin.sent ? "ring-2 ring-white/80" : ""}`}
+              title={pinTitle(pin)}
             >
               {pin.number}
             </span>
-            {/* The words and the way to drop them, on hover only: at rest the
-                pane is showing a design, and a row of open cards over it is
-                the thing in the way. */}
-            <span className="pointer-events-none absolute left-full top-1/2 ml-1 flex w-max max-w-56 -translate-y-1/2 items-center gap-1 rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover/pin:pointer-events-auto group-hover/pin:opacity-100">
-              <span className="min-w-0 flex-1 truncate">{pin.note || "No words"}</span>
-              <button
-                aria-label="Forget this annotation"
-                className="shrink-0 rounded px-1 text-[#84848C] transition-colors hover:text-white"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onForget(pin.id);
-                }}
-                type="button"
-              >
-                ×
-              </button>
+            {/* The words, on hover only: at rest the pane is showing a design,
+                and a row of open cards over it is the thing in the way. It
+                stays untouchable on purpose. Chasing a control across the gap
+                between a badge and its label is a fight with a hover state,
+                and every action worth taking is one click away in the card. */}
+            <span className="pointer-events-none absolute left-full top-1/2 ml-1 w-max max-w-56 -translate-y-1/2 truncate rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-left text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-focus-visible/pin:opacity-100 group-hover/pin:opacity-100">
+              {pin.note || "No words"}
             </span>
-          </div>
+          </button>
         </div>
       ))}
 
-      {draft !== null && placed !== null ? (
+      {open !== null && openAt !== null && placed !== null ? (
         <>
-          {/* What the words are about, held visible while they are typed. */}
+          {/* What the words are about, held visible while they are read or
+              typed. Taken from the box the card was placed against, so a note
+              opened again outlines whatever it points at now rather than the
+              rectangle it was left on. */}
           <div
             className="pointer-events-none absolute bg-[#7C9CFF]/10 outline outline-2 outline-[#7C9CFF]"
-            style={
-              draft.anchor.region
-                ? {
-                    height: draft.anchor.region.height * draft.anchor.rect.height,
-                    left: draft.anchor.rect.x + draft.anchor.region.x * draft.anchor.rect.width,
-                    top: draft.anchor.rect.y + draft.anchor.region.y * draft.anchor.rect.height,
-                    width: draft.anchor.region.width * draft.anchor.rect.width,
-                  }
-                : {
-                    height: draft.anchor.rect.height,
-                    left: draft.anchor.rect.x,
-                    top: draft.anchor.rect.y,
-                    width: draft.anchor.rect.width,
-                  }
-            }
+            style={{
+              height: openAt.about.height,
+              left: openAt.about.x,
+              top: openAt.about.y,
+              width: openAt.about.width,
+            }}
           />
           <form
             className="absolute z-30 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
+            // The card closes when the words are somewhere other than this
+            // field, and not before. Closing on submit read as saved and was
+            // not: a refused write left a toast on screen and a sentence
+            // nowhere, with no way back to it.
             onSubmit={(event) => {
               event.preventDefault();
-              const field = event.currentTarget.elements.namedItem("note");
-              onKeep(draft.anchor, field instanceof HTMLInputElement ? field.value.trim() : "");
-              setDraft(null);
+              const card = open.field;
+              if (saving === card) return;
+              const input = event.currentTarget.elements.namedItem("note");
+              const words = input instanceof HTMLInputElement ? input.value.trim() : "";
+              setSaving(card);
+              setRefused((current) => (current === card ? null : current));
+              void (open.kind === "new" ? onKeep(open.anchor, words) : onRevise(open.id, words))
+                .then((kept) => {
+                  setSaving((current) => (current === card ? null : current));
+                  if (kept) setOpen((current) => (current?.field === card ? null : current));
+                  else setRefused(card);
+                })
+                .catch(() => {
+                  setSaving((current) => (current === card ? null : current));
+                  setRefused(card);
+                });
             }}
             ref={cardRef}
             style={{
@@ -628,26 +791,91 @@ export function AnnotateLayer({
             <input
               autoFocus
               className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 text-xs text-white placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
+              defaultValue={open.note}
+              // A refusal is about the last Enter, not the next one. Bound
+              // only while one is showing, because otherwise this is a
+              // re-render of every pin per keystroke to clear nothing.
+              onInput={refused === open.field ? () => setRefused(null) : undefined}
+              // Keyed by this opening of the card, so a second pin arrives
+              // showing that pin's words rather than the last one's: a
+              // defaultValue on a node React is reusing is read once. Which is
+              // also why a note answered mid-edit keeps this key: it is still
+              // the same opening, and the same node carries the half-typed
+              // sentence into the card the note's departure turned this into.
+              key={open.field}
               name="note"
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDraft(null);
-                }
-              }}
               placeholder={
-                draft.anchor.region
-                  ? `What is wrong with this area?`
-                  : `What is wrong with this ${draft.anchor.tag}?`
+                open.kind === "kept"
+                  ? `What is wrong with it?`
+                  : open.anchor.region
+                    ? `What is wrong with this area?`
+                    : `What is wrong with this ${open.anchor.tag}?`
               }
             />
-            <p className="px-1 pt-1 text-[10px] leading-snug text-[#84848C]">
-              {draft.anchor.covers && draft.anchor.covers.length > 0
-                ? `${draft.anchor.covers.length} ${
-                    draft.anchor.covers.length === 1 ? "element" : "elements"
-                  } · Enter keeps it · Esc drops it`
-                : "Enter keeps it · Esc drops it"}
-            </p>
+            {open.kind === "kept" ? (
+              <>
+                {/* Two things the words alone cannot say: that an agent is
+                    already holding a copy of them, and that the thing they
+                    were left on is not there any more. Both change what a
+                    second thought is worth, so both are said before the
+                    keys are. */}
+                {sent.has(open.id) ? (
+                  <p className="px-1 pt-1 text-[10px] leading-snug text-[#B7A57A]">
+                    Already sent. New words go with the next change.
+                  </p>
+                ) : null}
+                {openAt.stale ? (
+                  <p className="px-1 pt-1 text-[10px] leading-snug text-amber-500/90">
+                    Its element has gone. The outline is where it was.
+                  </p>
+                ) : null}
+                {refused === open.field ? (
+                  <p className="px-1 pt-1 text-[10px] leading-snug text-[#F87171]">
+                    Those words were not saved. Enter tries again.
+                  </p>
+                ) : null}
+                {/* Dropping a note lives here rather than on the badge's own
+                    label. A control that only exists while the pointer is
+                    over something else is a control you lose by moving. */}
+                <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[10px] leading-snug text-[#84848C]">
+                  <button
+                    className="rounded transition-colors hover:text-[#F87171]"
+                    onClick={() => {
+                      onForget(open.id);
+                      setOpen(null);
+                    }}
+                    type="button"
+                  >
+                    Forget it
+                  </button>
+                  <span>Enter saves · Esc drops</span>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* The note under this card was answered and swept while it
+                    was being reworded. The words in the field are still
+                    someone's, so they stay; what changed is where Enter puts
+                    them, and that is worth a sentence. */}
+                {open.answered ? (
+                  <p className="px-1 pt-1 text-[10px] leading-snug text-[#B7A57A]">
+                    That change has landed. Enter leaves these words as a new note.
+                  </p>
+                ) : null}
+                {refused === open.field ? (
+                  <p className="px-1 pt-1 text-[10px] leading-snug text-[#F87171]">
+                    Those words were not saved. Enter tries again.
+                  </p>
+                ) : null}
+                <p className="px-1 pt-1 text-[10px] leading-snug text-[#84848C]">
+                  {open.anchor.covers && open.anchor.covers.length > 0
+                    ? `${open.anchor.covers.length} ${
+                        open.anchor.covers.length === 1 ? "element" : "elements"
+                      } · Enter keeps it · Esc drops it`
+                    : "Enter keeps it · Esc drops it"}
+                </p>
+              </>
+            )}
           </form>
         </>
       ) : null}

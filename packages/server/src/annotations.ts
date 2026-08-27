@@ -173,13 +173,96 @@ async function write(cwd: string, annotations: readonly Annotation[]): Promise<v
   await writeFile(path, `${JSON.stringify({ annotations }, null, 2)}\n`, "utf8");
 }
 
+/**
+ * The tail of every change to the notes file, so they happen one at a time.
+ *
+ * Each of them reads the whole list, changes one entry and writes the whole
+ * list back, with the file waiting on either side. Two of those overlapping
+ * is one of them undone: the second write was composed from a list the first
+ * had already moved on from. It is not a theoretical window either, since the
+ * two writers are a person typing and a run finishing, and the run finishing
+ * is exactly what makes the note worth retyping.
+ *
+ * One process is all this has to cover. Leglas serves the interface and hosts
+ * the runner from the same one, so the two writers are the two ends of this
+ * chain, and a project opened twice at once has a queue file with the same
+ * story.
+ */
+let writing: Promise<unknown> = Promise.resolve();
+
+/** Run one read-change-write after whatever is already in line. */
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const next = writing.then(work, work);
+  // The chain must survive a failed change; a rejection left on it would
+  // take down every note written after it.
+  writing = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 export async function addAnnotation(
   cwd: string,
   input: Omit<Annotation, "id">,
 ): Promise<Annotation> {
-  const annotation: Annotation = { ...input, id: randomBytes(6).toString("base64url") };
-  await write(cwd, [...(await readAnnotations(cwd)), annotation]);
-  return annotation;
+  return inTurn(async () => {
+    const annotation: Annotation = { ...input, id: randomBytes(6).toString("base64url") };
+    await write(cwd, [...(await readAnnotations(cwd)), annotation]);
+    return annotation;
+  });
+}
+
+/**
+ * Reword a note that is already there, handing back what it became.
+ *
+ * Only the words move, and the note keeps its place in the list so the pin
+ * keeps the number the interface has been showing. The anchor is the
+ * expensive half of a note and the half that was got right by pointing at
+ * something, so a second thought about the wording must not cost it.
+ *
+ * What the words do cost is the note's identity. A change records the ids it
+ * answers and freezes its prompt when it is sent, and the runner forgets
+ * exactly those ids when it lands. A revision that kept its id would be swept
+ * by a change that never carried its words, which is the one outcome the
+ * interface promises will not happen. Reissuing every time rather than only
+ * when the queue currently names it keeps that promise without asking the
+ * queue anything: a change created a moment after this returns would have
+ * caught the old id in a lookup and lost the race, and there is no answer
+ * about what is in flight that stays true for as long as a write takes.
+ *
+ * The old id is left to whatever is holding it, pointing at nothing. Sweeping
+ * a note that has gone is already how forgetting one works.
+ *
+ * A note whose id has gone is not an error worth throwing over: null says so,
+ * and the same rule as forgetting applies below it, nothing is written.
+ */
+export async function updateAnnotation(
+  cwd: string,
+  id: string,
+  note: string,
+): Promise<Annotation | null> {
+  return inTurn(async () => {
+    const annotations = await readAnnotations(cwd);
+    const found = annotations.find((entry) => entry.id === id);
+    if (found === undefined) return null;
+    const words = text(note, NOTE_CAP);
+    // Opening a note, reading it and pressing Enter is not a second thought.
+    // Reissuing it there would quietly take the pin out of the sweep of a
+    // change that is about to answer it, and leave it on the pane afterwards
+    // as a note about something already done.
+    if (words === found.note) return found;
+    const revised: Annotation = {
+      ...found,
+      id: randomBytes(6).toString("base64url"),
+      note: words,
+    };
+    await write(
+      cwd,
+      annotations.map((entry) => (entry.id === id ? revised : entry)),
+    );
+    return revised;
+  });
 }
 
 /** Drop the named notes, reporting how many were there to drop. */
@@ -187,14 +270,16 @@ export async function removeAnnotations(
   cwd: string,
   ids: readonly string[],
 ): Promise<number> {
-  const wanted = new Set(ids);
-  const annotations = await readAnnotations(cwd);
-  const remaining = annotations.filter((entry) => !wanted.has(entry.id));
-  const dropped = annotations.length - remaining.length;
-  // Same reason an empty queue writes nothing: a request to forget notes that
-  // were never there must not materialise .leglas/ in a fresh project.
-  if (dropped > 0) await write(cwd, remaining);
-  return dropped;
+  return inTurn(async () => {
+    const wanted = new Set(ids);
+    const annotations = await readAnnotations(cwd);
+    const remaining = annotations.filter((entry) => !wanted.has(entry.id));
+    const dropped = annotations.length - remaining.length;
+    // Same reason an empty queue writes nothing: a request to forget notes
+    // that were never there must not materialise .leglas/ in a fresh project.
+    if (dropped > 0) await write(cwd, remaining);
+    return dropped;
+  });
 }
 
 /** The notes on one direction, in the order they were left. */

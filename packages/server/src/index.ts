@@ -52,6 +52,7 @@ export {
   describeAnnotations,
   readAnnotations,
   removeAnnotations,
+  updateAnnotation,
   type Annotation,
   type AnnotationAnchor,
 } from "./annotations.js";
