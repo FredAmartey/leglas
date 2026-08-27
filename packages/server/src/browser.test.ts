@@ -117,8 +117,7 @@ describe("findBrowser", () => {
       }),
     ).toBe(playwright);
 
-    const puppeteer =
-      "/home/u/.cache/puppeteer/chrome/125/chrome-linux64/chrome";
+    const puppeteer = "/home/u/.cache/puppeteer/chrome/125/chrome-linux64/chrome";
     expect(
       findBrowser({
         env: {},
@@ -129,6 +128,85 @@ describe("findBrowser", () => {
         readdir: (dir) => (dir.endsWith("puppeteer/chrome") ? ["124", "125"] : []),
       }),
     ).toBe(puppeteer);
+  });
+
+  test("finds the Chrome for Testing the tools actually install today", () => {
+    // The layout Playwright ships now. Looking for Chromium.app here found
+    // nothing on a current install, which left a machine with no desktop
+    // browser with no capture at all.
+    const testing =
+      "/Users/u/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/" +
+      "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+    expect(
+      findBrowser({
+        env: {},
+        platform: "darwin",
+        home: "/Users/u",
+        exists: (path) => path === testing,
+        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium-1234"] : []),
+      }),
+    ).toBe(testing);
+  });
+
+  test("finds the headless shell, which is often the only Chromium in a container", () => {
+    const shell =
+      "/home/u/.cache/ms-playwright/chromium_headless_shell-1234/" +
+      "chrome-headless-shell-linux64/chrome-headless-shell";
+    expect(
+      findBrowser({
+        env: {},
+        platform: "linux",
+        home: "/home/u",
+        onPath: () => null,
+        exists: (path) => path === shell,
+        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
+      }),
+    ).toBe(shell);
+
+    const puppeteerShell =
+      "/home/u/.cache/puppeteer/chrome-headless-shell/130/" +
+      "chrome-headless-shell-linux64/chrome-headless-shell";
+    expect(
+      findBrowser({
+        env: {},
+        platform: "linux",
+        home: "/home/u",
+        onPath: () => null,
+        exists: (path) => path === puppeteerShell,
+        readdir: (dir) => (dir.endsWith("puppeteer/chrome-headless-shell") ? ["130"] : []),
+      }),
+    ).toBe(puppeteerShell);
+  });
+
+  test("prefers the newest build when several are cached", () => {
+    const newest =
+      "/home/u/.cache/ms-playwright/chromium-1240/chrome-linux64/chrome";
+    expect(
+      findBrowser({
+        env: {},
+        platform: "linux",
+        home: "/home/u",
+        onPath: () => null,
+        // Both builds are present; the newer one wins, and "1240" must not
+        // sort below "999" as a string would.
+        exists: (path) =>
+          path === newest || path === "/home/u/.cache/ms-playwright/chromium-999/chrome-linux64/chrome",
+        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium-999", "chromium-1240"] : []),
+      }),
+    ).toBe(newest);
+  });
+
+  test("honours the executable a test tool already points at", () => {
+    expect(
+      findBrowser({
+        env: { PUPPETEER_EXECUTABLE_PATH: "/opt/chrome/chrome" },
+        platform: "linux",
+        home: "/home/u",
+        onPath: () => null,
+        exists: (path) => path === "/opt/chrome/chrome",
+        readdir: () => [],
+      }),
+    ).toBe("/opt/chrome/chrome");
   });
 
   test("returns null when no supported browser exists", () => {

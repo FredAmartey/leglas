@@ -24,7 +24,9 @@ export type BrowserSearch = {
 };
 
 export const NO_BROWSER =
-  "No Chrome, Chromium, Brave or Edge was found on this machine. Set LEGLAS_BROWSER to a browser binary to let Leglas take screenshots.";
+  "No Chrome, Chromium, Brave or Edge was found on this machine, so Leglas could not take a screenshot. " +
+  "On a machine with no browser at all, `npx playwright install chromium` puts one where Leglas will find it. " +
+  "Set LEGLAS_BROWSER to point at a specific binary.";
 
 const DARWIN_APPS = [
   "Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -32,7 +34,9 @@ const DARWIN_APPS = [
   "Brave Browser.app/Contents/MacOS/Brave Browser",
   "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
   "Arc.app/Contents/MacOS/Arc",
+  "Vivaldi.app/Contents/MacOS/Vivaldi",
   "Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+  "Chromium.app/Contents/MacOS/chrome",
 ] as const;
 
 const LINUX_NAMES = [
@@ -42,6 +46,9 @@ const LINUX_NAMES = [
   "chromium-browser",
   "brave-browser",
   "microsoft-edge",
+  "microsoft-edge-stable",
+  "vivaldi",
+  "chrome",
 ] as const;
 
 const WINDOWS_BROWSERS = [
@@ -65,6 +72,34 @@ function firstOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
+/**
+ * Where the test tools put a Chrome for Testing, by platform folder.
+ *
+ * Every entry is tried against each cached build, because one cache holds
+ * one platform and the wrong ones simply are not there.
+ */
+const FOR_TESTING = [
+  ["chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"],
+  ["chrome-mac-x64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"],
+  ["chrome-linux64", "chrome"],
+  ["chrome-linux", "chrome"],
+  ["chrome-win64", "chrome.exe"],
+] as const;
+
+/** The smaller shell the same tools install beside it. */
+const HEADLESS_SHELL = [
+  ["chrome-headless-shell-mac-arm64", "chrome-headless-shell"],
+  ["chrome-headless-shell-mac-x64", "chrome-headless-shell"],
+  ["chrome-headless-shell-linux64", "chrome-headless-shell"],
+  ["chrome-headless-shell-win64", "chrome-headless-shell.exe"],
+] as const;
+
+/** A cache directory's build number, so the newest install is tried first. */
+function buildNumber(entry: string): number {
+  const digits = /(\d+)\s*$/.exec(entry)?.[1];
+  return digits === undefined ? 0 : Number(digits);
+}
+
 function readableDirectories(dir: string): string[] {
   try {
     return readdirSync(dir);
@@ -84,7 +119,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
   const firstExisting = (paths: readonly string[]): string | null =>
     paths.find((path) => exists(path)) ?? null;
 
-  for (const candidate of [env.LEGLAS_BROWSER, env.CHROME_PATH]) {
+  for (const candidate of [env.LEGLAS_BROWSER, env.CHROME_PATH, env.PUPPETEER_EXECUTABLE_PATH]) {
     if (typeof candidate === "string" && candidate !== "" && exists(candidate)) return candidate;
   }
 
@@ -124,13 +159,19 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
       platform === "darwin"
         ? join(home, "Library", "Caches", "ms-playwright")
         : join(home, ".cache", "ms-playwright");
+    // Playwright ships Chrome for Testing under `chromium-<build>`, and a
+    // smaller shell under `chromium_headless_shell-<build>`. Both drive CDP,
+    // and on a machine with no desktop browser one of them is often the only
+    // Chromium there is, so both are worth finding. Newest build first.
     const playwright = readdir(playwrightRoot)
-      .filter((entry) => entry.startsWith("chromium-"))
-      .sort()
-      .reverse()
+      .filter((entry) => entry.startsWith("chromium-") || entry.startsWith("chromium_headless_shell-"))
+      .sort((left, right) => buildNumber(right) - buildNumber(left))
       .flatMap((entry) => {
         const root = join(playwrightRoot, entry);
         return [
+          ...FOR_TESTING.map((rest) => join(root, ...rest)),
+          ...HEADLESS_SHELL.map((rest) => join(root, ...rest)),
+          // Older builds shipped a plain Chromium app.
           join(root, "chrome-mac-arm64", "Chromium.app", "Contents", "MacOS", "Chromium"),
           join(root, "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
           join(root, "chrome-linux", "chrome"),
@@ -139,34 +180,20 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
     const playwrightBrowser = firstExisting(playwright);
     if (playwrightBrowser !== null) return playwrightBrowser;
 
-    const puppeteerRoot = join(home, ".cache", "puppeteer", "chrome");
-    const puppeteer = readdir(puppeteerRoot)
-      .sort()
-      .reverse()
-      .flatMap((entry) => {
-        const root = join(puppeteerRoot, entry);
-        return [
-          join(
-            root,
-            "chrome-mac-arm64",
-            "Google Chrome for Testing.app",
-            "Contents",
-            "MacOS",
-            "Google Chrome for Testing",
-          ),
-          join(
-            root,
-            "chrome-mac-x64",
-            "Google Chrome for Testing.app",
-            "Contents",
-            "MacOS",
-            "Google Chrome for Testing",
-          ),
-          join(root, "chrome-linux64", "chrome"),
-        ];
-      });
-    const puppeteerBrowser = firstExisting(puppeteer);
-    if (puppeteerBrowser !== null) return puppeteerBrowser;
+    // Puppeteer keeps the same two kinds a directory apart.
+    const puppeteerCache = join(home, ".cache", "puppeteer");
+    for (const kind of ["chrome", "chrome-headless-shell"]) {
+      const kindRoot = join(puppeteerCache, kind);
+      const found = firstExisting(
+        readdir(kindRoot)
+          .sort((left, right) => buildNumber(right) - buildNumber(left))
+          .flatMap((entry) => {
+            const root = join(kindRoot, entry);
+            return [...FOR_TESTING, ...HEADLESS_SHELL].map((rest) => join(root, ...rest));
+          }),
+      );
+      if (found !== null) return found;
+    }
   }
 
   return null;

@@ -44,7 +44,7 @@ export type FailureCode =
  | "agent-error";
 export type Framework = "next" | "react";
 export declare const LEGLAS_PREFIX = "/leglas";
-export declare const NO_BROWSER = "No Chrome, Chromium, Brave or Edge was found on this machine. Set LEGLAS_BROWSER to a browser binary to let Leglas take screenshots.";
+export declare const NO_BROWSER: string;
 export type NewDeps = {
     log(line: string): void;
 };
