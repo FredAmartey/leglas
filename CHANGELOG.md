@@ -11,10 +11,11 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.7.0 (2026-08-26)
 
-Agents get eyes. The CLI and MCP surfaces grew, and every request from the
-interface now carries images.
+Embedded agents stay warm. The public surface did not move, so this could
+have been a patch; it is a minor because how every run starts changed
+underneath, and because `leglas` gained an optional dependency.
 
 ### Added
 
@@ -47,25 +48,15 @@ interface now carries images.
   serves, so a command pointed at the wrong Leglas is told so instead of
   capturing someone else's direction. (`leglas`)
 
-### Changed
-
-- The Claude Code allowance a composed request carries covers `leglas show` as
-  well as `leglas add`. (`leglas`)
-
-## 0.7.0 (2026-08-26)
-
-Embedded agents stay warm. The public surface did not move, so this could
-have been a patch; it is a minor because how every run starts changed
-underneath, and because `leglas` gained an optional dependency.
-
-### Added
-
 - **A direction says when an agent is working on it.** Its row in the rail
   carries a working badge while an agent has the request in hand, and not
   before: a request that is only queued shows nothing on the row, so the
   badge means work under way rather than work waiting. (`leglas`)
 
 ### Changed
+
+- The Claude Code allowance a composed request carries covers `leglas show` as
+  well as `leglas add`. (`leglas`)
 
 - **Embedded Claude runs now use one persistent Agent SDK session.** Leglas
   prewarms the selected Claude agent, keeps its native process and context
