@@ -684,7 +684,8 @@ describe("reapOrphanedBrowsers", () => {
       list: async () => [],
       read: async () => null,
       alive: () => false,
-      createdAt: async () => old,
+      profile: async () => ({ createdAt: old, uid: 501 }),
+      uid: () => 501,
       connect: async () => {
         throw new Error("nothing should connect");
       },
@@ -781,7 +782,7 @@ describe("reapOrphanedBrowsers", () => {
       read: async () => {
         throw new Error("ENOENT");
       },
-      createdAt: async () => now - 1_000,
+      profile: async () => ({ createdAt: now - 1_000, uid: 501 }),
       remove: async (path) => void removed.push(path),
     });
 
@@ -796,7 +797,7 @@ describe("reapOrphanedBrowsers", () => {
       read: async () => {
         throw new Error("ENOENT");
       },
-      createdAt: async () => old,
+      profile: async () => ({ createdAt: old, uid: 501 }),
       remove: async (path) => void removed.push(path),
     });
 
@@ -815,6 +816,25 @@ describe("reapOrphanedBrowsers", () => {
 
     expect(kill).not.toHaveBeenCalledWith(9003, expect.anything());
     kill.mockRestore();
+  });
+
+  test("leaves another user's profile alone", async () => {
+    // On Linux the temp directory is shared between every account on the
+    // machine. A profile belonging to someone else is not ours to close, and
+    // the record inside it is not ours to read.
+    const removed: string[] = [];
+    const reaped = await reap({
+      list: async () => ["leglas-browser-someone-else"],
+      read: async () => {
+        throw new Error("nothing should be read from another user's profile");
+      },
+      profile: async () => ({ createdAt: old, uid: 999 }),
+      uid: () => 501,
+      remove: async (path) => void removed.push(path),
+    });
+
+    expect(reaped).toBe(0);
+    expect(removed).toEqual([]);
   });
 
   test("survives a temp directory it cannot read", async () => {

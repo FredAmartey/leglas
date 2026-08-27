@@ -396,8 +396,10 @@ export type ReapDeps = {
   read?: (path: string) => Promise<string | null>;
   /** Whether a pid still belongs to a running process. */
   alive?: (pid: number) => boolean;
-  /** When a profile directory was made, for sparing one still being filled. */
-  createdAt?: (path: string) => Promise<number>;
+  /** When a profile was made and who owns it, on systems that have owners. */
+  profile?: (path: string) => Promise<{ createdAt: number; uid: number | null }>;
+  /** This process's user, or null where the platform has no such notion. */
+  uid?: () => number | null;
   connect?: (url: string) => Promise<CdpSocket>;
   remove?: (path: string) => Promise<void>;
 };
@@ -494,7 +496,13 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
         .map((entry) => entry.name));
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
   const alive = deps.alive ?? livePid;
-  const createdAt = deps.createdAt ?? (async (path: string) => (await stat(path)).birthtimeMs);
+  const profileOf =
+    deps.profile ??
+    (async (path: string) => {
+      const entry = await stat(path);
+      return { createdAt: entry.birthtimeMs, uid: entry.uid };
+    });
+  const currentUid = deps.uid ?? (() => nodeProcess.getuid?.() ?? null);
   const connect = deps.connect ?? connectWebSocket;
   const remove =
     deps.remove ??
@@ -512,9 +520,17 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
   }
 
   let reaped = 0;
+  const mine = currentUid();
   for (const name of names) {
     if (!name.startsWith(PROFILE_PREFIX)) continue;
     const directory = join(root, name);
+
+    // On Linux the temp directory is shared by every account on the machine.
+    // Another user's profile is not ours to close, and the record inside it
+    // is not ours to read, so it is skipped before anything opens it.
+    const details = await profileOf(directory).catch(() => null);
+    if (details === null) continue;
+    if (mine !== null && details.uid !== null && details.uid !== mine) continue;
 
     type OwnerRecord = { owner?: unknown; ws?: unknown };
     let record: OwnerRecord | null = null;
@@ -527,10 +543,7 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
 
     const owner = typeof record?.owner === "number" ? record.owner : null;
     if (owner !== null && alive(owner)) continue;
-    if (owner === null) {
-      const age = await createdAt(directory).catch(() => 0);
-      if (clock() - age < RECORD_GRACE_MS) continue;
-    }
+    if (owner === null && clock() - details.createdAt < RECORD_GRACE_MS) continue;
 
     const endpoint = typeof record?.ws === "string" && record.ws !== "" ? record.ws : null;
     if (endpoint !== null && (await closeOrphan(endpoint, connect))) reaped += 1;
@@ -564,11 +577,16 @@ export async function launchBrowser(
   // before anything is listening for the event.
   const owned = (fields: Record<string, unknown>): void => {
     try {
-      mkdirSync(userDataDir, { recursive: true });
+      // Owner-only, both of them. The record ends up holding the browser's
+      // debugging URL, which is a live capability over that browser: anyone
+      // who can read it can drive it. On Linux the temp directory is shared
+      // by every account on the machine, so default permissions would hand
+      // that to them.
+      mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
       writeFileSync(
         join(userDataDir, OWNER_FILE),
         `${JSON.stringify({ owner: nodeProcess.pid, ...fields })}\n`,
-        "utf8",
+        { encoding: "utf8", mode: 0o600 },
       );
     } catch {
       // Nothing here is worth failing a launch over.
