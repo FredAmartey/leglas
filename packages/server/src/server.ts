@@ -255,6 +255,32 @@ function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean
   return isTerminal(request.status) || failedIds.includes(request.id);
 }
 
+/**
+ * A request body as the object a route expects, or null for anything else.
+ *
+ * Every route below reads fields straight off the parsed body, and `null` is
+ * valid JSON: `JSON.parse("null")` succeeds and the next property read throws,
+ * inside a listener whose rejection nobody is waiting for. A client on this
+ * machine could end the process, and with it the interface and whatever run
+ * was under way, by sending four characters. An array or a bare number are
+ * equally valid JSON and equally not what any of this is written for.
+ *
+ * The cast is the one every route was making by hand. It says what the route
+ * expects to find rather than what arrived, and every field is still checked
+ * after this returns.
+ */
+function jsonBody<T>(body: string): T | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body || "{}");
+  } catch {
+    return null;
+  }
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as T)
+    : null;
+}
+
 function hasJsonBody(req: http.IncomingMessage): boolean {
   const contentType = req.headers["content-type"];
   return (
@@ -583,10 +609,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { titles?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { titles?: unknown };
-        } catch {
+        const parsed = jsonBody<{ titles?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
@@ -697,17 +721,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: {
+        const parsed = jsonBody<{
           title?: string;
           intent?: string;
           mode?: unknown;
           width?: unknown;
           compare?: unknown;
           references?: unknown;
-        };
-        try {
-          parsed = JSON.parse(body || "{}") as typeof parsed;
-        } catch {
+        }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         // Variant unless the caller says otherwise: a change that overwrites
@@ -1045,14 +1067,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
-        let parsed: { agent?: unknown; effort?: unknown; run?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as {
-            agent?: unknown;
-            effort?: unknown;
-            run?: unknown;
-          };
-        } catch {
+        const parsed = jsonBody<{ agent?: unknown; effort?: unknown; run?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
@@ -1117,10 +1133,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
-        let parsed: { watching?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { watching?: unknown };
-        } catch {
+        const parsed = jsonBody<{ watching?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (typeof parsed.watching !== "boolean") {
@@ -1194,10 +1208,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
-        let parsed: { id?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { id?: unknown };
-        } catch {
+        const parsed = jsonBody<{ id?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (parsed.id !== undefined && typeof parsed.id !== "string") {
@@ -1214,10 +1226,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { id?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { id?: unknown };
-        } catch {
+        const parsed = jsonBody<{ id?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (typeof parsed.id !== "string") {
@@ -1300,10 +1310,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { title?: unknown; note?: unknown; anchor?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as typeof parsed;
-        } catch {
+        const parsed = jsonBody<{ title?: unknown; note?: unknown; anchor?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
@@ -1333,10 +1341,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { ids?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { ids?: unknown };
-        } catch {
+        const parsed = jsonBody<{ ids?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         const ids = Array.isArray(parsed.ids)
@@ -1360,10 +1366,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let parsed: { id?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { id?: unknown };
-        } catch {
+        const parsed = jsonBody<{ id?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (typeof parsed.id !== "string") {
@@ -1393,10 +1397,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
-        let parsed: { renames?: unknown };
-        try {
-          parsed = JSON.parse(body || "{}") as { renames?: unknown };
-        } catch {
+        const parsed = jsonBody<{ renames?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
         if (parsed.renames === null || typeof parsed.renames !== "object") {
