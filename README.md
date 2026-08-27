@@ -211,14 +211,16 @@ Most of what you would type into that field is the part describing where
 the problem is, so you can point at it instead. Press `A` and the preview
 becomes a picker: hovering outlines the element under the pointer,
 clicking drops a numbered pin that takes a note, and dragging marks an
-area and names every element inside it. The page still scrolls, so the
-thing three screens down is as easy to mark as the headline. Annotations
+area and names every element inside it. Click a pin again to reread what
+it says, reword it or drop it. The page still scrolls, so the thing three
+screens down is as easy to mark as the headline. Annotations
 are a request on their own, so the field can stay empty; leave three and
 send once. Each one carries the element's own words, its tag and classes,
 a path and the box it filled, and the request tells your agent which of
 those to trust first, because the design moves under them by design. One
 whose element has since gone turns amber rather than pointing confidently
-at the wrong thing.
+at the wrong thing, and one already sent with a change takes a ring until
+that change settles.
 
 The card above the field is the whole status: what you have queued, who
 has taken it and for how long, and what went wrong when a run fails.

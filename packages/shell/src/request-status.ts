@@ -4,6 +4,8 @@ export type RequestFailure = { code: string; message: string };
 export type RequestStatus = {
   id: string;
   title: string;
+  /** The notes this change answers, by id. Empty when it was typed alone. */
+  notes?: readonly string[];
   /**
    * "running" is the server's overlay for the one request in flight; the
    * other four are the queue's own. "cancelled" is separate from "failed" on
@@ -77,6 +79,31 @@ export function changingRequestTitles(requests: readonly RequestStatus[]): strin
         .map((request) => request.title),
     ),
   ];
+}
+
+/**
+ * Notes that are already inside a change nobody has finished with.
+ *
+ * A request freezes its prompt when it is sent, so the words in it are the
+ * words that were there at the time. Rewording such a note afterwards is a
+ * note about the next change, not a correction to the one in flight, and the
+ * interface has to say which it is: a pin that had been sent and one that had
+ * never been read looked exactly alike.
+ *
+ * Failed and cancelled requests are left out. Their notes were never answered
+ * and are waiting to be sent again, which is what an unmarked pin means.
+ */
+export function notesAwaitingChange(requests: readonly RequestStatus[]): Set<string> {
+  return new Set(
+    requests
+      .filter(
+        (request) =>
+          request.status === "queued" ||
+          request.status === "picked-up" ||
+          request.status === "running",
+      )
+      .flatMap((request) => request.notes ?? []),
+  );
 }
 
 /** Directions an agent has actually picked up, excluding work still queued. */

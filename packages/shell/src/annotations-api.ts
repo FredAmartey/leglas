@@ -43,6 +43,24 @@ export function addNote(
   );
 }
 
+/**
+ * A second thought about what a note says.
+ *
+ * Only the words go up. Where the note points was decided by pointing at
+ * something and is the half worth keeping, so rewording never touches it.
+ */
+export function updateNote(
+  id: string,
+  note: string,
+  fetcher: NoteFetcher = browserFetch,
+): Promise<{ annotation: Annotation }> {
+  return post<{ annotation: Annotation }>(
+    "/leglas/api/annotations/update",
+    { id, note },
+    fetcher,
+  );
+}
+
 export function deleteNotes(
   ids: readonly string[],
   fetcher: NoteFetcher = browserFetch,

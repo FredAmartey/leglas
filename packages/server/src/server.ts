@@ -45,6 +45,7 @@ import {
   annotationsFor,
   readAnnotations,
   removeAnnotations,
+  updateAnnotation,
 } from "./annotations.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
@@ -1162,13 +1163,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       };
       return void readRequests(cwd).then((requests) =>
         sendJson(res, 200, {
-          requests: requests.map(({ id, title, intent, mode, status, failure }) => ({
+          requests: requests.map(({ id, title, intent, mode, status, failure, notes }) => ({
             id,
             title,
             intent,
             // A fork leaves its parent's document alone; the interface keeps
             // the parent's duplicate verdict on the strength of this.
             mode,
+            // Which pins this change speaks for. The interface marks them, so
+            // a note already sitting in a prompt an agent holds does not look
+            // like one nobody has read.
+            notes: notes ?? [],
             // The run in flight is the one thing the file cannot know. After
             // that the file is the record, including across a restart, and the
             // process-local failed set only covers a request whose verdict
@@ -1330,6 +1335,55 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 200, { ok: true, annotation });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The note could not be kept." });
+        }
+      });
+    }
+
+    // A second thought about the wording, without losing the place. Only the
+    // words are taken: the anchor is the half that was got right by pointing
+    // at something, and it is not the browser's to resend.
+    if (path === `${LEGLAS_PREFIX}/api/annotations/update` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
+      }
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        let read: unknown;
+        try {
+          read = JSON.parse(body || "{}");
+        } catch {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        // `null` is valid JSON, and reading a field off it throws here, inside
+        // a listener whose rejection nothing is waiting to catch: the process
+        // goes, and the interface and any run under way go with it. Every
+        // body-reading route in this file takes the same shortcut and has the
+        // same hole; this is the one being written today.
+        if (typeof read !== "object" || read === null || Array.isArray(read)) {
+          return sendJson(res, 400, { ok: false, error: "Body must be a JSON object." });
+        }
+        const parsed = read as { id?: unknown; note?: unknown };
+        if (typeof parsed.id !== "string" || parsed.id === "") {
+          return sendJson(res, 400, { ok: false, error: "Body needs the note to reword." });
+        }
+        // Words that did not arrive are refused rather than read as an empty
+        // string. Everywhere else here coerces a bad field and keeps going,
+        // because the worst case is a note recorded roughly; here the worst
+        // case is a request that forgot to say anything wiping the sentence
+        // it meant to correct. Clearing a note is still allowed, by sending
+        // an empty one on purpose.
+        if (typeof parsed.note !== "string") {
+          return sendJson(res, 400, { ok: false, error: "A reworded note needs its words." });
+        }
+        try {
+          const annotation = await updateAnnotation(cwd, parsed.id, parsed.note);
+          if (annotation === null) {
+            return sendJson(res, 404, { ok: false, error: "That note has gone." });
+          }
+          return sendJson(res, 200, { ok: true, annotation });
+        } catch {
+          return sendJson(res, 500, { ok: false, error: "The note could not be reworded." });
         }
       });
     }

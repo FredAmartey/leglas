@@ -58,6 +58,7 @@ import {
   addNote,
   deleteNotes,
   readNotes,
+  updateNote,
   type Annotation,
   type NoteFetcher,
 } from "./annotations-api.js";
@@ -66,6 +67,7 @@ import {
   changingRequestTitles,
   composerAgent,
   formatElapsed,
+  notesAwaitingChange,
   requestCard,
   waitingLabel,
   workingRequestTitles,
@@ -1597,6 +1599,7 @@ export function Shell({
   const changingTitlesKey = changingTitles.toSorted().join("\u0000");
   const scanBlocked = requestSnapshot.agent.running || changingTitles.length > 0;
   const workingTitles = workingRequestTitles(requestSnapshot.requests);
+  const notesSent = notesAwaitingChange(requestSnapshot.requests);
 
   // A result recorded before an edit began must not reappear when the queue
   // settles. Clear the directions being edited once per live-work transition,
@@ -1767,23 +1770,46 @@ export function Shell({
   /** Leaving the mode is all the shell has to know about it. */
   const stopAnnotating = useCallback(() => setAnnotating(false), []);
 
-  const keepNote = (title: string, anchor: Anchor, text: string) => {
+  // Both of these answer whether the words landed, because the card holding
+  // them stays open until they have. A note typed into a field and lost to a
+  // failed write is the one thing an annotation must not do.
+  const keepNote = (title: string, anchor: Anchor, text: string): Promise<boolean> => {
     // Annotations are a request on their own: the field can stay empty and
     // Send still has something to send. So dropping the first pin is as
     // honest a sign that a request is coming as typing into the composer,
     // and without this that whole path started its agent cold.
     warmChosenAgent();
-    void addNote(title, text, anchor)
-      .then(() => bumpRequests())
-      .catch(() =>
+    return addNote(title, text, anchor)
+      .then(() => {
+        bumpRequests();
+        return true;
+      })
+      .catch(() => {
         st.notify({
           kind: "request",
           message: "That annotation could not be kept.",
           tone: "danger",
           ttl: TOAST_TTL.action,
-        }),
-      );
+        });
+        return false;
+      });
   };
+
+  const reviseNote = (id: string, text: string): Promise<boolean> =>
+    updateNote(id, text)
+      .then(() => {
+        bumpRequests();
+        return true;
+      })
+      .catch(() => {
+        st.notify({
+          kind: "request",
+          message: "That annotation could not be changed.",
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+        return false;
+      });
 
   const forgetNote = (id: string) => {
     void deleteNotes([id])
@@ -3358,8 +3384,10 @@ export function Shell({
                   onExit={stopAnnotating}
                   onForget={forgetNote}
                   onKeep={(anchor, words) => keepNote(title, anchor, words)}
+                  onRevise={reviseNote}
                   paneScale={paneScale}
                   scaling={scaling}
+                  sent={notesSent}
                   title={title}
                 />
               ) : null}

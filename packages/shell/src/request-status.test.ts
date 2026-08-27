@@ -4,6 +4,7 @@ import {
   changingRequestTitles,
   composerAgent,
   formatElapsed,
+  notesAwaitingChange,
   requestCard,
   waitingLabel,
   workingRequestTitles,
@@ -320,5 +321,48 @@ describe("formatElapsed", () => {
     [754_000, "12m 34s"],
   ])("%d ms reads as %s", (milliseconds, expected) => {
     expect(formatElapsed(milliseconds)).toBe(expected);
+  });
+});
+
+describe("notesAwaitingChange", () => {
+  const request = (over: Partial<RequestStatus>): RequestStatus => ({
+    id: "r1",
+    status: "queued",
+    title: "Poster",
+    ...over,
+  });
+
+  test("collects the notes every unsettled change answers", () => {
+    const found = notesAwaitingChange([
+      request({ id: "r1", notes: ["a", "b"], status: "queued" }),
+      request({ id: "r2", notes: ["c"], status: "running" }),
+      request({ id: "r3", notes: ["d"], status: "picked-up" }),
+    ]);
+
+    expect([...found].toSorted()).toEqual(["a", "b", "c", "d"]);
+  });
+
+  // A change that failed or was stopped never answered its notes. They are
+  // waiting to be sent again, which is exactly what an unmarked pin means.
+  test("leaves out the notes of a change nobody is working on", () => {
+    const found = notesAwaitingChange([
+      request({ id: "r1", notes: ["a"], status: "failed" }),
+      request({ id: "r2", notes: ["b"], status: "cancelled" }),
+    ]);
+
+    expect([...found]).toEqual([]);
+  });
+
+  test("a change typed with no pins contributes nothing", () => {
+    expect([...notesAwaitingChange([request({})])]).toEqual([]);
+  });
+
+  test("one note answered by two changes is counted once", () => {
+    const found = notesAwaitingChange([
+      request({ id: "r1", notes: ["a"] }),
+      request({ id: "r2", notes: ["a"] }),
+    ]);
+
+    expect([...found]).toEqual(["a"]);
   });
 });

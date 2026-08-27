@@ -676,6 +676,138 @@ describe("startServer", () => {
     expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
   });
 
+  test("rewords a note that is already there", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-reword-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+
+    const kept = await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({
+        anchor: {
+          classes: ["pouch"],
+          rect: { height: 220, width: 340, x: 512, y: 180 },
+          selector: "main > div:nth-of-type(2)",
+          tag: "div",
+          text: "Made in Ghana",
+          viewport: 1440,
+        },
+        note: "looks fake",
+        title: "Poster",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+
+    const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
+      body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(revised.status).toBe(200);
+    const { annotation: reworded } = (await revised.json()) as {
+      annotation: { id: string; note: string };
+    };
+    expect(reworded.note).toBe("looks printed");
+    // Reissued, so a change already holding the old id cannot sweep this.
+    expect(reworded.id).not.toBe(annotation.id);
+
+    const listed = (await (
+      await fetch(`${server.url}/leglas/api/annotations`)
+    ).json()) as { annotations: { note: string }[] };
+    expect(listed.annotations).toMatchObject([{ note: "looks printed", title: "Poster" }]);
+
+    const gone = await fetch(`${server.url}/leglas/api/annotations/update`, {
+      body: JSON.stringify({ id: "never-existed", note: "looks printed" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(gone.status).toBe(404);
+
+    // JSON that is not an object at all. Reading a field off null throws
+    // inside a listener nothing is awaiting, which takes the process with it.
+    for (const nonsense of ["null", '"a string"', "[]", "7"]) {
+      const refused = await fetch(`${server.url}/leglas/api/annotations/update`, {
+        body: nonsense,
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      expect(refused.status).toBe(400);
+    }
+    // Still answering, which is the point.
+    expect((await fetch(`${server.url}/leglas/api/annotations`)).status).toBe(200);
+
+    // A body that forgot to say anything must not be read as "say nothing".
+    const wordless = await fetch(`${server.url}/leglas/api/annotations/update`, {
+      body: JSON.stringify({ id: reworded.id }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(wordless.status).toBe(400);
+
+    const survived = (await (
+      await fetch(`${server.url}/leglas/api/annotations`)
+    ).json()) as { annotations: { note: string }[] };
+    expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
+  });
+
+  // The pins have to be tellable apart from the ones nobody has read yet, and
+  // the queue is the only record of which is which.
+  test("the queue says which notes each change answers", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-sent-"));
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      cwd,
+      port: 0,
+    });
+
+    const kept = await fetch(`${server.url}/leglas/api/annotations`, {
+      body: JSON.stringify({
+        anchor: {
+          classes: [],
+          rect: { height: 20, width: 20, x: 0, y: 0 },
+          selector: "h1",
+          tag: "h1",
+          text: "Poster",
+          viewport: 1440,
+        },
+        note: "looks fake",
+        title: "Poster",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+
+    await fetch(`${server.url}/leglas/api/request`, {
+      body: JSON.stringify({ title: "Poster", intent: "" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    const queue = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: { notes: string[] }[];
+    };
+    expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
+
+    // Rewording a note the queue is holding hands it a new identity, so the
+    // change that was sent with the old words cannot take the new ones with
+    // it when it lands and forgets what it answered.
+    const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
+      body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const { annotation: after } = (await revised.json()) as {
+      annotation: { id: string; note: string };
+    };
+    expect(after.note).toBe("looks printed");
+    expect(after.id).not.toBe(annotation.id);
+  });
+
   test("refuses a note with nothing to point at", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-anchor-"));
     const server = await start({

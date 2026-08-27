@@ -53,6 +53,22 @@ gained an optional dependency, and the public surface moved.
   carries a working badge while an agent has the request in hand, and not
   before: a request that is only queued shows nothing on the row, so the
   badge means work under way rather than work waiting. (`leglas`)
+- **An annotation opens again.** Click a pin and the card it was written in
+  comes back with the words in it, ready to be reworded or dropped. Enter
+  saves, Escape closes and `Forget it` is a button in the card. Dropping a
+  note used to live on the hover label beside the badge, with a gap between
+  the two that ended the hover on the way across, so removing a pin meant
+  aiming at a target that kept vanishing. Nothing you have to reach now lives
+  in a hover state, the badge takes a larger hit area than it draws, and
+  pins answer the keyboard. (`leglas`)
+- **A pin says when its words are already with an agent.** A note carried by
+  a change that has been sent and has not settled takes a ring, and its card
+  says the same in words. The prompt is composed when you press send, so
+  rewording such a note is about the next change rather than the one in
+  flight, and a pin that had been read looked exactly like one that never
+  had. Rewording one hands it a new identity, because a change forgets the
+  notes it answered as it lands and would otherwise take the new words down
+  with the old. (`leglas`)
 
 ### Changed
 
@@ -139,6 +155,10 @@ gained an optional dependency, and the public surface moved.
   own writer and whatever run was under way, from four characters sent by
   anything that could reach loopback. (`leglas`)
 
+- **One Escape backs out one step while annotating.** The card's field and
+  the layer both answered the key, and because React flushes a keystroke
+  synchronously the second answer read a state the first had already
+  cleared: closing a card left the mode as well. (`leglas`)
 - **A reachable localhost port no longer silently passes as the intended app.**
   At startup, Leglas checks the working directory of a local port's listening
   process. If it sits outside the configured project, the CLI and interface
