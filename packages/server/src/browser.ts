@@ -286,7 +286,7 @@ export type LaunchOptions = {
  * wait anybody sits through: a capture is abandoned by its own shorter
  * deadline long before this fires.
  */
-const START_TIMEOUT_MS = 30_000;
+export const START_TIMEOUT_MS = 30_000;
 
 type PendingCommand = {
   resolve(value: unknown): void;

@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   NO_BROWSER,
+  START_TIMEOUT_MS,
   createBrowserPool,
   findBrowser,
   reapOrphanedBrowsers,
@@ -13,6 +14,18 @@ import {
   type CdpPage,
   type CdpSocket,
 } from "./browser.js";
+
+/**
+ * A live test's ceiling, derived rather than chosen.
+ *
+ * It has to sit above launchBrowser's own deadline, or vitest kills
+ * the test before the launch can either succeed or say why, and the
+ * log gets a bare timeout instead of the browser's last words. Double
+ * leaves the rest of the test more room than it has ever needed, and
+ * deriving it means raising the launch deadline for a slower runner
+ * never silently re-inverts the pair.
+ */
+const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
 describe("findBrowser", () => {
   test("prefers the explicit Leglas and Chrome paths", () => {
@@ -667,7 +680,7 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
         await browser.close();
       }
     },
-    20_000,
+    LIVE_TEST_TIMEOUT_MS,
   );
 });
 
