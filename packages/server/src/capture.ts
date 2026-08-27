@@ -218,19 +218,59 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       2_000,
       undefined,
     ).catch(() => {});
-    // Two animation frames, which is a painted frame plus the one after it.
-    // A flat wait here cost 300ms of every capture and still guaranteed
-    // nothing; this waits for the thing that actually matters and returns as
-    // soon as it happens. Bounded, because a page that never paints (a
-    // background tab, a broken rAF shim) must not hold the capture.
+    // Settle the design before the shutter, then wait for a painted frame.
+    //
+    // An entrance animation is the thing that makes two captures of one
+    // static page disagree: caught mid-fade, the same design comes back
+    // different every time, which is useless to an agent asked to judge it.
+    // A flat wait was the old answer and it only worked by outlasting the
+    // animations it happened to be longer than.
+    //
+    // So the finite ones are jumped to their end, which is the design at
+    // rest and the thing a screenshot is meant to show. It loops because a
+    // page commonly starts its entrance a frame or two after load, so one
+    // pass finishes nothing and the shutter still catches the fade; the loop
+    // ends when two passes running find nothing left to settle.
+    //
+    // Anything endless is left alone: a looping background cannot be waited
+    // out, and forcing it would freeze it somewhere it never sits. Those
+    // pages stay non-deterministic, which is honest, and the crops still land.
     await bounded(
       page.send("Runtime.evaluate", {
-        expression:
-          "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))",
+        expression: `(async () => {
+          const frame = () =>
+            new Promise((next) => requestAnimationFrame(() => requestAnimationFrame(next)));
+          const finite = () => {
+            try {
+              return document.getAnimations().filter((animation) => {
+                const timing = animation.effect && animation.effect.getComputedTiming();
+                return timing && timing.iterations !== Infinity && isFinite(timing.endTime);
+              });
+            } catch (error) {
+              // An engine without getAnimations. The frames still run.
+              return [];
+            }
+          };
+          let quiet = 0;
+          for (let pass = 0; pass < 12 && quiet < 2; pass += 1) {
+            await frame();
+            const running = finite();
+            if (running.length === 0) {
+              quiet += 1;
+              continue;
+            }
+            quiet = 0;
+            for (const animation of running) {
+              try { animation.finish(); } catch (error) { /* refused; the bound covers it */ }
+            }
+          }
+          await frame();
+          return true;
+        })()`,
         awaitPromise: true,
         returnByValue: true,
       }),
-      1_000,
+      2_000,
       undefined,
     ).catch(() => {});
 

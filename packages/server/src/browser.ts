@@ -388,7 +388,6 @@ export async function launchBrowser(
       "--disable-client-side-phishing-detection",
       "--disable-component-extensions-with-background-pages",
       "--disable-ipc-flooding-protection",
-      "--disable-software-rasterizer",
       "--metrics-recording-only",
       "--no-pings",
       "--password-store=basic",
@@ -614,6 +613,13 @@ export function createBrowserPool(options: {
 
   let browser: Browser | null = null;
   let exposed: Browser | null = null;
+  /**
+   * Captures in flight, so the idle timer cannot close the browser out from
+   * under work that is still queued behind the one that just finished.
+   * Counting only the last completion closed it mid-queue and failed every
+   * capture after the first.
+   */
+  let working = 0;
   let launching: Promise<Browser | null> | null = null;
   let timer: unknown = null;
   let lastReason: string | null = null;
@@ -626,7 +632,7 @@ export function createBrowserPool(options: {
   };
   const scheduleIdle = () => {
     clearIdle();
-    if (browser === null || closed) return;
+    if (browser === null || closed || working > 0) return;
     timer = setLater(() => {
       timer = null;
       const retiring = browser;
@@ -637,11 +643,13 @@ export function createBrowserPool(options: {
   };
   const wrap = (launched: Browser): Browser => ({
     withPage: async <T>(work: (page: CdpPage) => Promise<T>) => {
+      working += 1;
       clearIdle();
       try {
         return await launched.withPage(work);
       } finally {
-        if (browser === launched) scheduleIdle();
+        working -= 1;
+        if (working === 0 && browser === launched) scheduleIdle();
       }
     },
     close: () => launched.close(),

@@ -268,3 +268,23 @@ describe("runWatch", () => {
     await running;
   });
 });
+
+describe("stopping before the loop is listening", () => {
+  test("a signal that fired during startup still stops the watcher", async () => {
+    // Everything before the loop is awaited work, and a caller can abort
+    // inside that window. A listener added to an already-aborted signal is
+    // never called, so this used to leave the watcher running with nobody to
+    // stop it and the caller waiting on a promise that never settled.
+    const root = cwd();
+    const controller = new AbortController();
+    controller.abort();
+
+    const outcome = await runWatch(
+      { run: "node {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
+      deps(),
+    );
+
+    expect(outcome.exitCode).toBe(0);
+  });
+});
+

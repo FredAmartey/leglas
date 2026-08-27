@@ -509,6 +509,49 @@ describe("createBrowserPool", () => {
     await pool.close();
   });
 
+  test("holds the browser open while other work is still outstanding", async () => {
+    // The idle timer used to be armed by whichever call finished last, so
+    // work still in flight lost the browser underneath it and every capture
+    // after the first failed. Proven against a real browser too: six
+    // concurrent captures with a short idle window went one fulfilled and
+    // five rejected before this, and six fulfilled after.
+    let idle: (() => void) | null = null;
+    const launched = fakeBrowser();
+    const pool = createBrowserPool({
+      find: () => "/browser",
+      launch: async () => launched,
+      idleMs: 1,
+      setTimeout: (callback) => {
+        idle = callback;
+        return "idle";
+      },
+      clearTimeout: () => {
+        idle = null;
+      },
+    });
+    const browser = await pool.acquire();
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const outstanding = browser?.withPage(async () => {
+      await held;
+      return "slow";
+    });
+    await expect(browser?.withPage(async () => "quick")).resolves.toBe("quick");
+
+    // One call has finished and another has not, so nothing may be armed.
+    expect(idle).toBeNull();
+    expect(launched.closes).toBe(0);
+
+    release();
+    await expect(outstanding).resolves.toBe("slow");
+    // With the last one done, the timer may arm and the browser may retire.
+    expect(idle).not.toBeNull();
+    await pool.close();
+  });
+
   test("reports no browser and retries a failed launch on the next acquire", async () => {
     const missing = createBrowserPool({ find: () => null });
     expect(await missing.acquire()).toBeNull();

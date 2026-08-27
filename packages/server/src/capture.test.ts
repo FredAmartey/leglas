@@ -281,3 +281,45 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
     20_000,
   );
 });
+
+describe.skipIf(executable === null)("two captures of one design", () => {
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
+    "agree, even when the page fades itself in after load",
+    async () => {
+      // An entrance animation is what makes a still design come back
+      // different every time. Caught mid-fade the bytes differ, and an agent
+      // asked to judge the same direction twice sees two designs.
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(`<style>
+          body { margin: 0; background: #101014; }
+          .in { height: 300px; background: #e0864a; opacity: 0; transition: opacity 400ms linear; }
+          .in.on { opacity: 1; }
+        </style>
+        <div class="in" id="panel"></div>
+        <script>
+          addEventListener("load", () =>
+            requestAnimationFrame(() => document.getElementById("panel").classList.add("on")));
+        </script>`);
+      });
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as AddressInfo).port;
+      const browser = await launchBrowser(executable as string);
+      liveBrowsers.push(browser);
+
+      const shots = [];
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        shots.push(await capturePage(browser, { url: `http://127.0.0.1:${port}/`, width: 400 }));
+      }
+
+      // Byte-identical, and settled rather than blank: the panel is at full
+      // opacity, so the frame is the design at rest.
+      expect(shots[1]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
+      expect(shots[2]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
+      expect(shots[0]?.frame.png.length).toBeGreaterThan(100);
+    },
+    30_000,
+  );
+});
+

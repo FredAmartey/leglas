@@ -76,6 +76,12 @@ underneath, and because `leglas` gained an optional dependency.
 
 ### Fixed
 
+- **`leglas watch` could ignore a stop.** The watcher registered its stop
+  handler after resolving the agent and writing the template, so a stop that
+  arrived inside that window was never heard: the loop kept running and the
+  caller waited on it for good. A stop that lands during startup now stops it.
+  (`leglas`)
+
 - **A reachable localhost port no longer silently passes as the intended app.**
   At startup, Leglas checks the working directory of a local port's listening
   process. If it sits outside the configured project, the CLI and interface
