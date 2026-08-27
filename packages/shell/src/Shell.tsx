@@ -1368,17 +1368,25 @@ export function Shell({
     return () => document.removeEventListener("visibilitychange", onChange);
   }, []);
 
-  // A visible pane replaced in place invalidates its background verdict
-  // before the new document paints. URL changes are also rejected by
-  // scanSignatures, but an explicit retry of the same URL needs this
-  // generation-aware reset. A direction merely coming on stage keeps its
-  // verdict: it is the document the background read already measured.
+  // A pane replaced in place invalidates its background verdict before the
+  // new document paints. URL changes are also rejected by scanSignatures, but
+  // an explicit retry of the same URL needs this generation-aware reset. A
+  // direction merely coming on stage keeps its verdict: it is the document
+  // the background read already measured.
+  //
+  // Every direction is tracked, not only the ones on stage. A dev server
+  // coming back reloads every app-backed direction, most of which are off
+  // stage; with only mounted titles remembered, those had no previous
+  // identity to differ from, so the change was missed and a restart that
+  // altered the page could still be called a duplicate of what it used to be.
+  const scanIdentities = new Map(previews.map((preview) => [preview.title, paneIdentityFor(preview.title)]));
+  const scanIdentityKey = [...scanIdentities].map(([title, identity]) => `${title}${identity}`).join("");
   const previousScanPanes = useRef(new Map<string, string>());
   useLayoutEffect(() => {
-    const changed = replacedPanes(previousScanPanes.current, mountedIdentities);
+    const changed = replacedPanes(previousScanPanes.current, scanIdentities);
     if (changed.length > 0) setScans((current) => forgetScans(current, changed));
-    previousScanPanes.current = new Map(mountedIdentities);
-  }, [mountedIdentityKey]);
+    previousScanPanes.current = new Map(scanIdentities);
+  }, [scanIdentityKey]);
 
   /**
    * Hide the framework's own dev badge inside a preview.
@@ -1760,6 +1768,11 @@ export function Shell({
   const stopAnnotating = useCallback(() => setAnnotating(false), []);
 
   const keepNote = (title: string, anchor: Anchor, text: string) => {
+    // Annotations are a request on their own: the field can stay empty and
+    // Send still has something to send. So dropping the first pin is as
+    // honest a sign that a request is coming as typing into the composer,
+    // and without this that whole path started its agent cold.
+    warmChosenAgent();
     void addNote(title, text, anchor)
       .then(() => bumpRequests())
       .catch(() =>

@@ -135,3 +135,46 @@ describe("replacedPanes", () => {
     expect(replacedPanes(previous, current)).toEqual(["Dot grid"]);
   });
 });
+
+describe("replacedPanes across a dev-server recovery", () => {
+  const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
+
+  test("an off-stage direction reloaded by a recovery is read again", () => {
+    // When the dev server returns, every app-backed direction is reloaded,
+    // and most of them are off stage. Remembering only the mounted ones left
+    // those with no previous identity to differ from, so the reload was
+    // missed and a restart that changed the page could still be called a
+    // duplicate of what it used to be.
+    const before = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Dot grid", identity("Dot grid", 0)],
+      ["Session", identity("Session", 0)],
+    ]);
+    const afterRecovery = new Map([
+      ["Wave", identity("Wave", 1)],
+      ["Dot grid", identity("Dot grid", 1)],
+      ["Session", identity("Session", 1)],
+    ]);
+
+    expect(replacedPanes(before, afterRecovery).toSorted()).toEqual([
+      "Dot grid",
+      "Session",
+      "Wave",
+    ]);
+  });
+
+  test("a direction the recovery did not touch keeps its verdict", () => {
+    // A file preview is served by Leglas itself and never went down with the
+    // app, so its generation does not move and its reading still stands.
+    const before = new Map([
+      ["Wave", identity("Wave", 0)],
+      ["Paper", identity("Paper", 0)],
+    ]);
+    const afterRecovery = new Map([
+      ["Wave", identity("Wave", 1)],
+      ["Paper", identity("Paper", 0)],
+    ]);
+
+    expect(replacedPanes(before, afterRecovery)).toEqual(["Wave"]);
+  });
+});
