@@ -11,6 +11,26 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **The interface stops asking.** Three loops used to poll on a timer: the
+  config every 3s, the queue and its annotations every 2s, health every 3s.
+  A tab sitting idle with nobody touching it made 100 requests a minute and
+  moved 108KB, almost all of it answered no. The server now says when, over
+  one websocket at `/leglas/api/live`, and the shell keeps the reads it
+  already had. A frame names what changed and nothing else, so the queue file
+  stays the durable record and push is latency rather than truth. Idle cost
+  falls to 16 requests and 8KB a minute, and a direction an agent has just
+  registered reaches the rail in about 223ms rather than waiting up to 3s for
+  a tick to notice it. Measured with resource timings on both ends; summing
+  response bodies instead gives about 22KB for the same before-minute. A
+  dropped socket falls back to a slow read every 15s, so it degrades slower
+  rather than wrong, and the three loops keep independent fallbacks rather
+  than sharing one read, since a single slow endpoint should not become every
+  loop's problem. (`leglas`)
+
 ## 0.7.1 (2026-08-27)
 
 A patch: a request body of four characters could end the server, on the one
