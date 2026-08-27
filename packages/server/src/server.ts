@@ -2,7 +2,9 @@ import {
   createReadStream,
   existsSync,
   statSync,
+  unwatchFile,
   watch as watchFs,
+  watchFile,
   type FSWatcher,
 } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
@@ -398,6 +400,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
   const known = new Map(targets.map((target) => [target.path, fileStamp(target.path)]));
   const coalescer = createCoalescer((change) => live.nudge(change));
   const watchers = new Set<FSWatcher>();
+  const fallback = new Map<string, () => void>();
   let leglasWatcher: FSWatcher | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
@@ -411,6 +414,42 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       known.set(target.path, next);
       if (notify) nudgeSoon(target.change);
     }
+  };
+
+  /**
+   * Stat-poll a file, and only when its native watcher could not be
+   * established or has died.
+   *
+   * This is a second recovery path in a design that deliberately has one, so
+   * it needs a case rather than a worry. The case is a filesystem where
+   * `fs.watch` does not fire: a network mount, or a container bind mount on
+   * some hosts. Leglas runs wherever the dev server runs, so that is a real
+   * place for it to be installed.
+   *
+   * Without this, such a setup gets no nudges at all and every change waits
+   * out the shell's 15s fallback. That is *slower than the polling this
+   * change removes*, which used to notice within two or three seconds. So
+   * the point is not belt and braces: it is that the one population whose
+   * watcher does not work would otherwise be made worse off by a change
+   * meant to make things better.
+   *
+   * Every caller is an error handler or a catch. When `fs.watch` works, and
+   * it nearly always does, none of this runs and nothing is polled.
+   */
+  const fallbackWatch = (target: WatchedTarget): void => {
+    if (closed || fallback.has(target.path)) return;
+    const listener = (): void => {
+      const next = fileStamp(target.path);
+      if (next === known.get(target.path)) return;
+      known.set(target.path, next);
+      nudgeSoon(target.change);
+    };
+    fallback.set(target.path, listener);
+    watchFile(target.path, { persistent: false, interval: 250 }, listener);
+  };
+
+  const fallbackLeglas = (): void => {
+    for (const target of targets) fallbackWatch(target);
   };
 
   const retryLeglas = (): void => {
@@ -438,6 +477,15 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
         leglasWatcher.close();
         leglasWatcher = null;
       }
+      // Look again shortly. Until this returns, the only thing that would
+      // ever notice `.leglas` being created is the watcher on the parent
+      // directory, and a single missed event there used to mean the state
+      // directory was never watched for the rest of the session: no nudges
+      // at all, every change waiting out the shell's fallback, and nothing
+      // anywhere saying why. The window is short in practice, because the
+      // server writes its own rendezvous file into `.leglas` on listen, so
+      // this costs a couple of stats rather than a standing poll.
+      retryLeglas();
       return;
     }
     if (leglasWatcher !== null) return;
@@ -459,11 +507,13 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
         watchers.delete(watcher);
         watcher.close();
         leglasWatcher = null;
+        fallbackLeglas();
         retryLeglas();
       });
       leglasWatcher = watcher;
       watchers.add(watcher);
     } catch {
+      fallbackLeglas();
       retryLeglas();
     }
   };
@@ -481,9 +531,14 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
             : filename;
       if (name === null || name === ".leglas") armLeglas(true);
     });
-    watcher.on("error", () => {});
+    watcher.on("error", () => {
+      watchers.delete(watcher);
+      watcher.close();
+      fallbackLeglas();
+    });
     watchers.add(watcher);
   } catch {
+    fallbackLeglas();
     // Optional acceleration only. The endpoints still read files directly.
   }
 
@@ -491,6 +546,8 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     try {
       const directory = dirname(configPath);
       const name = basename(configPath);
+      const target = { path: configPath, change: "config" } satisfies WatchedTarget;
+      known.set(configPath, fileStamp(configPath));
       const watcher = watchFs(directory, { persistent: false }, (_event, filename) => {
         const changed =
           filename === null
@@ -500,9 +557,14 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
               : filename;
         if (changed === null || changed === name) nudgeSoon("config");
       });
-      watcher.on("error", () => {});
+      watcher.on("error", () => {
+        watchers.delete(watcher);
+        watcher.close();
+        fallbackWatch(target);
+      });
       watchers.add(watcher);
     } catch {
+      fallbackWatch({ path: configPath, change: "config" });
       // A missing or unwatchable config does not make the server unavailable.
     }
   }
@@ -517,6 +579,8 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       coalescer.close();
       for (const watcher of watchers) watcher.close();
       watchers.clear();
+      for (const [path, listener] of fallback) unwatchFile(path, listener);
+      fallback.clear();
       leglasWatcher = null;
     },
   };
