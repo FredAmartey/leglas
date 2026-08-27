@@ -308,3 +308,75 @@ describe("wasAborted", () => {
     expect(wasAborted(undefined)).toBe(false);
   });
 });
+
+describe("a loop driven by something other than the clock", () => {
+  /**
+   * Held on an object rather than in a variable so a call after the
+   * subscribe callback has run is not narrowed back to null by the compiler,
+   * which cannot see that the callback already ran.
+   */
+  const held = () => ({ run: null as (() => void) | null });
+
+  test("a nudge reads now, and the interval still covers a silent socket", async () => {
+    const fake = clock();
+    const recorded = reads(() => Promise.resolve());
+    const nudge = held();
+
+    const stop = startPoll(recorded.task, {
+      everyMs: 15_000,
+      timers: fake.timers,
+      subscribe: (run) => {
+        nudge.run = run;
+        return () => {
+          nudge.run = null;
+        };
+      },
+    });
+    await fake.flush();
+    expect(recorded.signals).toHaveLength(1);
+
+    // A nudge does not wait out the interval, which is the whole point.
+    nudge.run?.();
+    await fake.flush();
+    expect(recorded.signals).toHaveLength(2);
+
+    // And the interval is still there for a socket that died quietly.
+    await fake.advance(15_000);
+    expect(recorded.signals).toHaveLength(3);
+
+    stop();
+    // Stopping unsubscribes, so a socket outliving the loop cannot drive a
+    // read into a component that is gone.
+    expect(nudge.run).toBeNull();
+  });
+
+  test("a nudge arriving mid-read is dropped, not queued behind it", async () => {
+    const fake = clock();
+    const recorded = reads(never);
+    const nudge = held();
+
+    const stop = startPoll(recorded.task, {
+      everyMs: 15_000,
+      timeoutMs: 600_000,
+      timers: fake.timers,
+      subscribe: (run) => {
+        nudge.run = run;
+        return () => {};
+      },
+    });
+    await fake.flush();
+    expect(recorded.signals).toHaveLength(1);
+
+    // The first read never settles. Three nudges arrive against it.
+    nudge.run?.();
+    nudge.run?.();
+    nudge.run?.();
+    await fake.flush();
+
+    // One read at a time, whatever does the asking. A nudge is subject to
+    // the same guard an interval tick is, so a burst of frames cannot pile
+    // reads up against the six-connection budget.
+    expect(recorded.signals).toHaveLength(1);
+    stop();
+  });
+});

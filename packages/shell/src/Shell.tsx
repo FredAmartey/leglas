@@ -18,6 +18,7 @@ import {
 import { copyText } from "./clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
 import { MOOD } from "./orb.js";
+import { FALLBACK_MS, liveConnection } from "./live.js";
 import { startPoll } from "./poll.js";
 import { previewFrameIsReady, previewIdentity, watchPreviewFrame } from "./preview-frame.js";
 import { previewFrameForSource, previewMessageSignal } from "./preview-message.js";
@@ -1076,7 +1077,14 @@ export function Shell({
         })
         .catch(() => {});
     };
-    const stop = startPoll(poll, { everyMs: 2000 });
+    // One nudge drives both reads, which is what keeps them a pair. The
+    // wire has three kinds and annotations is deliberately not one of them,
+    // so there is no way to ask for the notes without the queue and no way
+    // for a later change to quietly split this beat into two channels.
+    const stop = startPoll(poll, {
+      everyMs: FALLBACK_MS,
+      subscribe: (run) => liveConnection().on("requests", run),
+    });
     return () => {
       cancelled = true;
       stop();
@@ -1319,7 +1327,13 @@ export function Shell({
           // Leglas itself is unreachable; that is not the dev server's fault
           // and the page will fail visibly enough on its own.
         });
-    const stop = startPoll(poll, { everyMs: 3000 });
+    // The server probes the dev server once for every interface rather than
+    // each of them probing separately, and says so only when the answer
+    // changes. A restart is still noticed in the same beat it always was.
+    const stop = startPoll(poll, {
+      everyMs: FALLBACK_MS,
+      subscribe: (run) => liveConnection().on("health", run),
+    });
     return () => {
       cancelled = true;
       stop();

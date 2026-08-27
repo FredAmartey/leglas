@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Mark } from "./kit.js";
+import { FALLBACK_MS, liveConnection } from "./live.js";
 import { startPoll, wasAborted } from "./poll.js";
 import { Shell } from "./Shell.js";
 import type { ConfigPayload } from "./types.js";
@@ -35,12 +36,17 @@ export function App() {
         return response.json() as Promise<ConfigPayload>;
       });
 
-    // An agent registers directions while this is open, so the config is
-    // polled and new previews appear as they are added. Updates only apply on
-    // a changed payload, so the steady state re-renders nothing, and a failure
-    // once the rail is up changes nothing: transient server hiccups are the
-    // health banner's story, not a reason to blank it. A failure before that
-    // is the difference between a started interface and none, so it shows.
+    // An agent registers directions while this is open, so new previews have
+    // to appear as they are added. The server says when: it watches the
+    // config and the previews file and nudges, and this reads on the nudge.
+    // The interval underneath is the fallback for a socket that died
+    // quietly, which is why it is slow rather than the pace.
+    //
+    // Updates only apply on a changed payload, so the steady state
+    // re-renders nothing, and a failure once the rail is up changes nothing:
+    // transient server hiccups are the health banner's story, not a reason
+    // to blank it. A failure before that is the difference between a started
+    // interface and none, so it shows.
     const stop = startPoll(
       (signal) =>
         read(signal)
@@ -70,7 +76,10 @@ export function App() {
                   },
             );
           }),
-      { everyMs: 3000 },
+      {
+        everyMs: FALLBACK_MS,
+        subscribe: (run) => liveConnection().on("config", run),
+      },
     );
 
     return () => {
