@@ -1,33 +1,25 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { appendRequest, readRequests } from "@leglas/server";
 
 import { runWatch } from "./run-watch.js";
 
 /**
- * A port with nothing behind it, bound and released so the number is real.
+ * The port the watcher is told to beat at. Nothing ever reaches it.
  *
- * `port: DEAD_PORT` means DEFAULT_PORT, and these tests then aimed watcher
- * heartbeats at whatever is genuinely running on 4100 on the machine running
- * them: a developer's own Leglas, told a watcher had attached and then gone.
- * Every startup and shutdown here also became a real network round trip,
- * which is what made this file the first to time out under a loaded suite.
- * A closed port fails locally and at once, which is the case the loop is
- * written for anyway.
+ * Leaving this undefined meant DEFAULT_PORT, and these tests then aimed
+ * watcher heartbeats at whatever is genuinely running on 4100 on the machine
+ * running them: a developer's own Leglas, told a watcher had attached and then
+ * gone. Binding an ephemeral port and closing it fixed that, but left every
+ * test in the file making a real network call to learn nothing, which is what
+ * made this the first file to time out under a loaded suite. The beat is
+ * stubbed for the whole file instead, so this number is never dialled and
+ * every test here is about the loop's bookkeeping rather than about HTTP.
  */
-async function closedPort(): Promise<number> {
-  const probe = net.createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", () => resolve()));
-  const { port } = probe.address() as net.AddressInfo;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  return port;
-}
-
-const DEAD_PORT = await closedPort();
+const DEAD_PORT = 4399;
 
 const cwd = () => mkdtempSync(join(tmpdir(), "leglas-watch-"));
 
@@ -79,6 +71,16 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
 }
 
 describe("runWatch", () => {
+  // The case the loop is written for: nothing is listening. Refusing at once
+  // is what a closed port does, without the socket, the abort timer, or the
+  // chance that the port has quietly become another worker's server. Tests
+  // that care what the server said stub their own.
+  beforeEach(() => {
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("nothing is listening");
+    });
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -266,6 +268,23 @@ describe("runWatch", () => {
     });
     controller.abort();
     await running;
+  });
+
+  // The watcher hears a stop from the moment it is asked for, not from the
+  // moment it has finished starting. Its own template write is what these
+  // tests wait for, so a stop can land between that file appearing on disk
+  // and the loop being wired to listen for one, and the loop that missed it
+  // ran until the test around it timed out.
+  test("a stop that lands during startup is still a stop", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const outcome = await runWatch(
+      { run: "node {prompt}", port: DEAD_PORT, cwd: cwd(), signal: controller.signal },
+      deps(),
+    );
+
+    expect(outcome.exitCode).toBe(0);
   });
 });
 
