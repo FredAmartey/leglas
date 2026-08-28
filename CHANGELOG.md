@@ -11,7 +11,11 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.7.4 (2026-08-27)
+
+A patch: a branch preview is checked out when you open it rather than
+when Leglas starts, so a project with branches is usable in a second
+instead of ten.
 
 ### Changed
 

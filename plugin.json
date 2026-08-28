@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "leglas",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Compare design directions inside your own running app.",
   "author": {
     "name": "Fred Amartey",
