@@ -23,6 +23,14 @@ describe("the site", () => {
     expect(html).not.toMatch(/src="https?:/);
   });
 
+  test("the theme switch is in the bar, and the stored choice is stamped before the styles", () => {
+    const html = renderHome(loadAssets(root));
+    expect(html).toContain("data-theme-switch");
+    const stamp = html.indexOf('localStorage.getItem("leglas-theme")');
+    expect(stamp).toBeGreaterThan(0);
+    expect(stamp).toBeLessThan(html.indexOf("<style>"));
+  });
+
   test("builds both pages and the captures beside them", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);

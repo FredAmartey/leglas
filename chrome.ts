@@ -65,6 +65,7 @@ const DARK = `
   --media-bg:#1E1F25;--media-shadow:rgba(0,0,0,.5);--bar-bg:rgba(20,21,25,.84);
   --cli:#7E97DD;--mcp:#3EC2A8;--plugin:#B58CF2;
   --m-g6a:#E8ECF7;--m-g6b:#92A7E0;--m-g3a:#7E97DD;--m-g3b:#5F7FD8;
+  --icon-sun:inline;--icon-moon:none;
 `;
 
 export function baseStyles(fonts: Assets["fonts"]): string {
@@ -84,6 +85,7 @@ export function baseStyles(fonts: Assets["fonts"]): string {
   --media-bg:#EEF0F5;--media-shadow:rgba(11,24,57,.14);--bar-bg:rgba(248,248,251,.84);
   --cli:#3159CF;--mcp:#2AA68C;--plugin:#7C38E8;
   --m-g6a:#081327;--m-g6b:#0F266A;--m-g3a:#0E2B85;--m-g3b:#3159CF;
+  --icon-sun:none;--icon-moon:inline;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
 :root[data-theme="dark"]{${DARK}}
@@ -107,11 +109,16 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
 .nav a{color:inherit;text-decoration:none}
 .nav a:hover{color:var(--ink)}
 .nav .active{color:var(--ink);font-weight:500}
-.install{margin-left:auto;display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);font:500 13px/1 var(--mono);letter-spacing:-.01em;cursor:pointer}
+.bar-end{margin-left:auto;display:flex;align-items:center;gap:10px}
+.install{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);font:500 13px/1 var(--mono);letter-spacing:-.01em;cursor:pointer}
 .install:hover{color:var(--ink)}
 .install .done{display:none}
 .install[data-done] .cmd{display:none}
 .install[data-done] .done{display:inline}
+.theme{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);cursor:pointer}
+.theme:hover{color:var(--ink)}
+.theme .sun{display:var(--icon-sun)}
+.theme .moon{display:var(--icon-moon)}
 .media{margin:6px 0 2px;display:flex;flex-direction:column;gap:8px}
 .media img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--rule-soft);background:var(--media-bg);box-shadow:0 12px 28px var(--media-shadow)}
 .media figcaption{font-size:13px;color:var(--ink-3)}
@@ -140,7 +147,13 @@ export function bar(assets: Assets, place: Place): string {
   return `<header class="bar"><div class="bar-row">
 <a class="brand" href="${place.home}">${assets.mark}${assets.wordmark}</a>
 <nav class="nav" aria-label="Site">${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
+<div class="bar-end">
 <button class="install" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
+<button class="theme" type="button" data-theme-switch aria-label="Switch to dark mode">
+<svg class="sun" aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+<svg class="moon" aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z"/></svg>
+</button>
+</div>
 </div></header>`;
 }
 
@@ -150,6 +163,20 @@ export function foot(lead: string): string {
 <nav aria-label="Elsewhere"><a href="${REPO}">GitHub</a><a href="${NPM}">npm</a></nav>
 </div></footer>`;
 }
+
+/**
+ * The reader's choice, applied before anything paints so the page never
+ * flashes the other theme. No choice stored means the system decides, which
+ * is the un-stamped state the tokens are written for.
+ */
+const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}})();`;
+
+/**
+ * The switch flips between light and dark from whatever is showing now,
+ * which \`color-scheme\` reports without repeating the tokens' three-state
+ * logic, and remembers the result.
+ */
+const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
 /** Every copy control on a page copies the command in it. */
 const COPY_SCRIPT = `(function(){if(!navigator.clipboard)return;document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})})();`;
@@ -169,12 +196,14 @@ export function document(options: {
 <title>${escape(options.title)}</title>
 <meta name="description" content="${escape(options.description)}">
 <link rel="icon" href="${options.assets.favicon}" type="image/svg+xml">
+<script>${STAMP_SCRIPT}</script>
 <style>${baseStyles(options.assets.fonts)}${options.styles}</style>
 </head>
 <body>
 ${options.body}
 <script>
 ${COPY_SCRIPT}
+${THEME_SCRIPT}
 </script>
 </body>
 </html>
