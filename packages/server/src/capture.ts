@@ -1,4 +1,5 @@
 import type { Browser, CdpPage } from "./browser.js";
+import { hydrationEvidence, type HydrationEvidence } from "./hydration.js";
 
 /**
  * A fresh browser rendering of one direction and the places its notes name.
@@ -31,6 +32,7 @@ export type CaptureOutput = {
   /** One per focus, in order. How each was found, or null when the crop fell back to the frame. */
   crops: ({ shot: Shot; resolved: "element" | "recorded-rect" } | null)[];
   errors: string[];
+  hydration: HydrationEvidence | null;
   cut: boolean;
 };
 
@@ -150,9 +152,11 @@ function locatorExpression(focus: Focus): string {
 async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput> {
   const width = clamp(Math.round(input.width), MIN_WIDTH, MAX_WIDTH);
   const errors: string[] = [];
+  let hydration: HydrationEvidence | null = null;
   const remember = (value: unknown) => {
+    const message = String(value ?? "").trim().slice(0, 240);
+    hydration ??= hydrationEvidence([message]);
     if (errors.length >= 10) return;
-    const message = String(value ?? "").slice(0, 240);
     if (message === "" || /favicon/i.test(message)) return;
     errors.push(message);
   };
@@ -340,7 +344,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       });
     }
 
-    return { frame, crops, errors, cut };
+    return { frame, crops, errors, hydration, cut };
   } finally {
     for (const stop of unlisten) stop();
   }

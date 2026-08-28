@@ -48,6 +48,14 @@ When asked for design variations, alternatives, or "a few options":
    and register it with \`npx leglas add --title "…" --url "/" --branch <branch>\`
    (the config needs \`devCommand\` with \`{port}\`). Everything below is the
    ordinary, in-app path.
+   A page the app rebuilds in the browser after load (anything that hydrates:
+   Next, Nuxt, SvelteKit, a captured production site) is not its served HTML.
+   Markup edited there shows for a moment and is then replaced from the app's
+   own JavaScript and data, so make the change where that JavaScript gets what
+   it renders. When that is a script other directions share, give it a
+   per-direction override that defaults to what it renders today: every other
+   direction renders exactly as before, which is adding beside, not rewriting.
+   \`npx leglas show\` says when a page was rebuilt after load.
 2. Run \`npx leglas explore <surface> --count <n>\` first, adding
    \`--based-on "<title>"\` when the user wants variations of a direction they
    already like. It prints what the set needs and how to register it. In

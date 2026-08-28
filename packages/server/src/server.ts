@@ -1409,6 +1409,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             height: shot.height,
             viewport: result.frame.width,
             errors: result.errors,
+            hydration: result.hydration,
             cut: result.cut,
           });
         } catch (error) {

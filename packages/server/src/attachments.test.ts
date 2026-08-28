@@ -82,6 +82,7 @@ function capture(overrides: Partial<CaptureOutput> = {}): CaptureOutput {
     frame: shot("frame"),
     crops: [],
     errors: [],
+    hydration: null,
     cut: false,
     ...overrides,
   };
@@ -164,6 +165,7 @@ describe("attachRequest", () => {
             { shot: shot("note-two", 700, 400), resolved: "recorded-rect" },
           ],
           errors: ["boom"],
+          hydration: { framework: "React", message: "Hydration failed" },
         }),
       )
       .mockResolvedValueOnce(capture({ frame: shot("compare", 390, 900) }));
@@ -184,6 +186,7 @@ describe("attachRequest", () => {
 
     expect(result.skipped).toBeNull();
     expect(result.errors).toEqual(["boom"]);
+    expect(result.hydration).toEqual({ framework: "React", message: "Hydration failed" });
     expect(result.attachments).toEqual([
       {
         kind: "frame",

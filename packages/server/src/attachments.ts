@@ -17,6 +17,7 @@ import type { Annotation } from "./annotations.js";
 import { NO_BROWSER, type BrowserPool } from "./browser.js";
 import { MAX_WIDTH, MIN_WIDTH, capturePage, type CaptureInput } from "./capture.js";
 import type { Preview } from "./config.js";
+import type { HydrationEvidence } from "./hydration.js";
 
 /**
  * Images belonging to one change request.
@@ -54,6 +55,7 @@ export type Attachment = {
 export type Captured = {
   attachments: Attachment[];
   errors: string[];
+  hydration: HydrationEvidence | null;
   cut: boolean;
   skipped: string | null;
 };
@@ -233,7 +235,13 @@ export async function attachRequest(
   const capture = deps.capture ?? capturePage;
   const deadlineMs = deps.deadlineMs ?? 12_000;
   const destination = join(cwd, CAPTURES_DIR, requestId);
-  const captured: Captured = { attachments: [], errors: [], cut: false, skipped: null };
+  const captured: Captured = {
+    attachments: [],
+    errors: [],
+    hydration: null,
+    cut: false,
+    skipped: null,
+  };
   const references: Attachment[] = [];
   requestedWidths.set(captured, Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(input.width))));
 
@@ -288,6 +296,7 @@ export async function attachRequest(
         viewport: direction.frame.width,
       });
       captured.errors = direction.errors;
+      captured.hydration = direction.hydration;
       captured.cut = direction.cut;
 
       for (let index = 0; index < direction.crops.length; index += 1) {

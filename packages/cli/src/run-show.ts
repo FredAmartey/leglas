@@ -24,6 +24,7 @@ type Screenshot = {
   height: number;
   viewport: number;
   errors: string[];
+  hydration: { framework: string; message: string } | null;
   /** True when the page was taller than the frame and the PNG stops short. */
   cut: boolean;
 };
@@ -180,6 +181,16 @@ export async function runShow(
       errors: Array.isArray(captured.errors)
         ? captured.errors.filter((error): error is string => typeof error === "string")
         : [],
+      hydration:
+        typeof captured.hydration === "object" &&
+        captured.hydration !== null &&
+        typeof captured.hydration.framework === "string" &&
+        typeof captured.hydration.message === "string"
+          ? {
+              framework: captured.hydration.framework,
+              message: captured.hydration.message,
+            }
+          : null,
       cut: captured.cut === true,
     };
   }
@@ -208,6 +219,12 @@ export async function runShow(
     deps.log(`  screenshot  ${envelope.screenshot.file}`);
     if (envelope.screenshot.cut) {
       deps.log("              the top of the page only; it is taller than one capture");
+    }
+    if (envelope.screenshot.hydration !== null) {
+      deps.log(
+        `  hydration   ${envelope.screenshot.hydration.framework} rebuilt the page in the browser after load; the served markup is not what is on screen`,
+      );
+      deps.log(`              ${envelope.screenshot.hydration.message}`);
     }
     if (envelope.screenshot.errors.length > 0) {
       const count = envelope.screenshot.errors.length;

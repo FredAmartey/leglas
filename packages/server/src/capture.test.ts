@@ -72,6 +72,8 @@ class FakePage implements CdpPage {
   found = { x: 500, y: 100, width: 100, height: 40 };
   /** What the main document answered with. */
   documentStatus = 200;
+  /** Load errors to emit instead of the default console line. */
+  loadErrors: string[] | null = null;
 
   async send<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     this.sent.push({ method, params });
@@ -81,11 +83,17 @@ class FakePage implements CdpPage {
           type: "Document",
           response: { status: this.documentStatus },
         });
-        this.emit("Runtime.consoleAPICalled", {
-          type: "error",
-          args: [{ value: "boom" }, { description: "details" }],
-        });
-        this.emit("Log.entryAdded", { entry: { level: "error", text: "favicon.ico failed" } });
+        if (this.loadErrors === null) {
+          this.emit("Runtime.consoleAPICalled", {
+            type: "error",
+            args: [{ value: "boom" }, { description: "details" }],
+          });
+          this.emit("Log.entryAdded", { entry: { level: "error", text: "favicon.ico failed" } });
+        } else {
+          for (const text of this.loadErrors) {
+            this.emit("Log.entryAdded", { entry: { level: "error", text } });
+          }
+        }
         this.emit("Page.loadEventFired", {});
       });
       return {} as T;
@@ -158,6 +166,7 @@ describe("capturePage", () => {
     expect(captured.frame.png.toString()).toBe("png-data");
     expect(captured.cut).toBe(true);
     expect(captured.errors).toEqual(["boom details"]);
+    expect(captured.hydration).toBeNull();
     expect(captured.crops).toMatchObject([
       { resolved: "element", shot: { width: CROP_MIN.width * 2, height: CROP_MIN.height * 2 } },
       {
@@ -172,6 +181,31 @@ describe("capturePage", () => {
       (entry) => entry.method === "Emulation.setDeviceMetricsOverride",
     );
     expect(metrics?.params).toMatchObject({ width: 320, height: 900, deviceScaleFactor: 1 });
+  });
+
+  test("keeps hydration evidence after the console error cap", async () => {
+    const page = new FakePage();
+    const message = "Uncaught Error: Minified React error #418; visit https://react.dev/errors/418";
+    page.loadErrors = [
+      ...Array.from(
+        { length: 11 },
+        (_, index) => `Refused to connect to https://example.com/${index} because it violates the Content Security Policy`,
+      ),
+      message,
+    ];
+    const browser: Browser = {
+      closed: false,
+      close: async () => {},
+      withPage: async (work) => work(page),
+    };
+
+    const captured = await capturePage(browser, {
+      url: "http://127.0.0.1/page",
+      width: 800,
+    });
+
+    expect(captured.errors).toHaveLength(10);
+    expect(captured.hydration).toEqual({ framework: "React", message });
   });
 
   test("a note below the frame cap is cropped where it is, not where the frame ends", async () => {
@@ -340,4 +374,3 @@ describe.skipIf(executable === null)("two captures of one design", () => {
     LIVE_TEST_TIMEOUT_MS,
   );
 });
-

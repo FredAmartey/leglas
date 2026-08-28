@@ -117,6 +117,7 @@ describe("runShow", () => {
             height: 800,
             viewport: 390,
             errors: ["boom"],
+            hydration: { framework: "React", message: "Minified React error #418" },
           }),
           { status: 200 },
         ),
@@ -135,6 +136,7 @@ describe("runShow", () => {
       height: 800,
       viewport: 390,
       errors: ["boom"],
+      hydration: { framework: "React", message: "Minified React error #418" },
       cut: false,
     });
     expect(fetch.mock.calls[0]?.[0]).toBe("http://127.0.0.1:4321/leglas/api/health");
@@ -162,6 +164,7 @@ describe("runShow", () => {
             height: 900,
             viewport: 1440,
             errors: ["first", "second"],
+            hydration: { framework: "React", message: "Minified React error #418" },
             cut: true,
           }),
           { status: 200 },
@@ -177,9 +180,45 @@ describe("runShow", () => {
     // A page taller than one capture says so, so the agent knows what it
     // has not seen.
     expect(lines).toContain("              the top of the page only; it is taller than one capture");
+    expect(lines).toContain(
+      "  hydration   React rebuilt the page in the browser after load; the served markup is not what is on screen",
+    );
+    expect(lines).toContain("              Minified React error #418");
+    expect(lines.indexOf("              Minified React error #418")).toBeLessThan(
+      lines.indexOf("  console     2 errors on load"),
+    );
     expect(lines).toContain("  console     2 errors on load");
     expect(lines).toContain("    first");
     expect(lines).toContain("    second");
+  });
+
+  test("human output omits hydration lines when the server has no evidence", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v-hero=aurora");
+    const { deps, lines } = collect();
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            file: ".leglas/captures/show/aurora-1440.png",
+            width: 1440,
+            height: 900,
+            viewport: 1440,
+            errors: [],
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await runShow(
+      { title: "Aurora", json: false, screenshot: true, width: null, port: 4321, cwd },
+      { ...deps, fetch },
+    );
+
+    expect(lines.join("\n")).not.toContain("hydration");
+    expect(lines.join("\n")).not.toContain("rebuilt the page in the browser");
   });
 
   test("reports a missing server and surfaces capture errors verbatim", async () => {
@@ -253,6 +292,7 @@ describe("whose server a screenshot comes from", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
+    expect((envelope(lines)["screenshot"] as Record<string, unknown>)["hydration"]).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
