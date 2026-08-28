@@ -12,6 +12,7 @@
   <a href="https://www.npmjs.com/package/leglas"><img src="https://img.shields.io/npm/v/leglas" alt="npm"></a>
   <a href="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml"><img src="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/leglas" alt="license"></a>
+  <a href="https://fredamartey.github.io/leglas/changelog/"><img src="https://img.shields.io/badge/changelog-what's%20new-0B1839" alt="changelog"></a>
 </p>
 
 <p align="center">
@@ -534,6 +535,7 @@ pnpm install
 pnpm build       # build every package
 pnpm test        # run the test suite
 pnpm typecheck   # type check every package
+pnpm site        # build the changelog page into dist/site
 ```
 
 | Package           | Contents                                           |
@@ -549,11 +551,16 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 Two packages are published, both unscoped: `leglas`, which bundles the
 server and the built interface, and `leglas-mcp`. Releases are
 tag-driven: set the same version in both packages and `plugin.json`, turn
-the changelog's Unreleased section into that version, push a `v<version>`
-tag, and CI runs the suite and publishes through npm trusted publishing.
-A tag that disagrees with the manifests is refused, and so is a patch tag
-when `api-surface.txt` has moved since the previous one. No npm token
-exists anywhere in the project.
+the changelog's Unreleased section into that version with a title for what
+the release was about, push a `v<version>` tag, and CI runs the suite and
+publishes through npm trusted publishing. A tag that disagrees with the
+manifests is refused, and so is a patch tag when `api-surface.txt` has
+moved since the previous one. No npm token exists anywhere in the project.
+
+The [changelog page](https://fredamartey.github.io/leglas/changelog/) is
+made from `CHANGELOG.md` by `changelog.ts` and published through GitHub
+Pages on every push to main that touches it, so describing a release in the
+changelog is the whole job.
 
 ## License
 
