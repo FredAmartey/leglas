@@ -1,8 +1,16 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  statSync,
+  unwatchFile,
+  watch as watchFs,
+  watchFile,
+  type FSWatcher,
+} from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
-import { extname, join, normalize, relative } from "node:path";
+import { basename, dirname, extname, join, normalize, relative } from "node:path";
 
 import { parseTemplate } from "./agent-command.js";
 import {
@@ -38,8 +46,13 @@ import {
 } from "./agents.js";
 import type { LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
-import { dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
 import {
+  LOCAL_PREVIEWS_PATH,
+  dropLocalPreviews,
+  readLocalPreviews,
+} from "./local-previews.js";
+import {
+  ANNOTATIONS_PATH,
   addAnnotation,
   anchorFrom,
   annotationsFor,
@@ -47,9 +60,11 @@ import {
   removeAnnotations,
   updateAnnotation,
 } from "./annotations.js";
+import { createCoalescer, createLiveHub, type LiveChange, type LiveHub } from "./live.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./renames.js";
 import {
+  REQUESTS_PATH,
   appendRequest,
   composeRequest,
   isTerminal,
@@ -139,6 +154,8 @@ export type ServerOptions = {
   claudeAgentSession?: ClaudeTurnRunner | null;
   /** Warm screenshot browser, injectable so HTTP tests never launch a desktop browser. */
   pool?: BrowserPool;
+  /** Live change channel, injectable so server tests need no websocket client. */
+  live?: LiveHub;
 };
 
 export type RunningServer = {
@@ -345,6 +362,264 @@ function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: str
 
 type ConfigSnapshot = { path: string; mtimeMs: number } | null;
 
+const HEALTH_PROBE_MS = 3000;
+
+type LiveFiles = {
+  close(): void;
+};
+
+type WatchedTarget = {
+  path: string;
+  change: LiveChange;
+};
+
+function fileStamp(path: string): string | null {
+  try {
+    const stat = statSync(path);
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Watch the small file-backed pieces the shell re-reads after a live nudge.
+ *
+ * The `.leglas` directory is watched as a directory rather than four fragile
+ * file handles, so atomic replacements keep working. Its parent is watched as
+ * well because `.leglas` may be created after this process starts.
+ */
+function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): LiveFiles {
+  const leglasDir = join(cwd, ".leglas");
+  const targets = [
+    { path: join(cwd, LOCAL_PREVIEWS_PATH), change: "config" },
+    { path: join(cwd, REQUESTS_PATH), change: "requests" },
+    { path: join(cwd, ANNOTATIONS_PATH), change: "requests" },
+  ] satisfies WatchedTarget[];
+  const byName = new Map(targets.map((target) => [basename(target.path), target]));
+  const known = new Map(targets.map((target) => [target.path, fileStamp(target.path)]));
+  const coalescer = createCoalescer((change) => live.nudge(change));
+  const watchers = new Set<FSWatcher>();
+  const fallback = new Map<string, () => void>();
+  let leglasWatcher: FSWatcher | null = null;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
+
+  const nudgeSoon = (change: LiveChange): void => coalescer.schedule(change);
+
+  const scanLeglas = (notify: boolean): void => {
+    for (const target of targets) {
+      const next = fileStamp(target.path);
+      if (next === known.get(target.path)) continue;
+      known.set(target.path, next);
+      if (notify) nudgeSoon(target.change);
+    }
+  };
+
+  /**
+   * Stat-poll a file, and only when its native watcher could not be
+   * established or has died.
+   *
+   * This is a second recovery path in a design that deliberately has one, so
+   * it needs a case rather than a worry. The case is a filesystem where
+   * `fs.watch` does not fire: a network mount, or a container bind mount on
+   * some hosts. Leglas runs wherever the dev server runs, so that is a real
+   * place for it to be installed.
+   *
+   * Without this, such a setup gets no nudges at all and every change waits
+   * out the shell's 15s fallback. That is *slower than the polling this
+   * change removes*, which used to notice within two or three seconds. So
+   * the point is not belt and braces: it is that the one population whose
+   * watcher does not work would otherwise be made worse off by a change
+   * meant to make things better.
+   *
+   * Every caller is an error handler or a catch. When `fs.watch` works, and
+   * it nearly always does, none of this runs and nothing is polled.
+   */
+  const fallbackWatch = (target: WatchedTarget): void => {
+    if (closed || fallback.has(target.path)) return;
+    const listener = (): void => {
+      const next = fileStamp(target.path);
+      if (next === known.get(target.path)) return;
+      known.set(target.path, next);
+      nudgeSoon(target.change);
+    };
+    fallback.set(target.path, listener);
+    watchFile(target.path, { persistent: false, interval: 250 }, listener);
+  };
+
+  const fallbackLeglas = (): void => {
+    for (const target of targets) fallbackWatch(target);
+  };
+
+  const retryLeglas = (): void => {
+    if (closed || retry !== null) return;
+    retry = setTimeout(() => {
+      retry = null;
+      armLeglas(true);
+    }, 250);
+    retry.unref?.();
+  };
+
+  const armLeglas = (notify: boolean): void => {
+    if (closed) return;
+    scanLeglas(notify);
+    let directory = false;
+    try {
+      directory = statSync(leglasDir).isDirectory();
+    } catch {
+      directory = false;
+    }
+
+    if (!directory) {
+      if (leglasWatcher !== null) {
+        watchers.delete(leglasWatcher);
+        leglasWatcher.close();
+        leglasWatcher = null;
+      }
+      // Look again shortly. Until this returns, the only thing that would
+      // ever notice `.leglas` being created is the watcher on the parent
+      // directory, and a single missed event there used to mean the state
+      // directory was never watched for the rest of the session: no nudges
+      // at all, every change waiting out the shell's fallback, and nothing
+      // anywhere saying why. The window is short in practice, because the
+      // server writes its own rendezvous file into `.leglas` on listen, so
+      // this costs a couple of stats rather than a standing poll.
+      retryLeglas();
+      return;
+    }
+    if (leglasWatcher !== null) return;
+
+    try {
+      const watcher = watchFs(leglasDir, { persistent: false }, (_event, filename) => {
+        if (filename === null) {
+          scanLeglas(true);
+          return;
+        }
+        const name = Buffer.isBuffer(filename) ? filename.toString() : filename;
+        const target = byName.get(name);
+        if (target === undefined) return;
+        known.set(target.path, fileStamp(target.path));
+        nudgeSoon(target.change);
+      });
+      watcher.on("error", () => {
+        if (leglasWatcher !== watcher) return;
+        watchers.delete(watcher);
+        watcher.close();
+        leglasWatcher = null;
+        fallbackLeglas();
+        retryLeglas();
+      });
+      leglasWatcher = watcher;
+      watchers.add(watcher);
+    } catch {
+      fallbackLeglas();
+      retryLeglas();
+    }
+  };
+
+  // Re-arm the inner watcher whenever the machine-local state directory is
+  // created, removed or replaced. Failure is deliberately silent: the shell's
+  // fallback read remains the source of truth.
+  try {
+    const watcher = watchFs(cwd, { persistent: false }, (_event, filename) => {
+      const name =
+        filename === null
+          ? null
+          : Buffer.isBuffer(filename)
+            ? filename.toString()
+            : filename;
+      if (name === null || name === ".leglas") armLeglas(true);
+    });
+    watcher.on("error", () => {
+      watchers.delete(watcher);
+      watcher.close();
+      fallbackLeglas();
+    });
+    watchers.add(watcher);
+  } catch {
+    fallbackLeglas();
+    // Optional acceleration only. The endpoints still read files directly.
+  }
+
+  if (configPath !== null) {
+    try {
+      const directory = dirname(configPath);
+      const name = basename(configPath);
+      const target = { path: configPath, change: "config" } satisfies WatchedTarget;
+      known.set(configPath, fileStamp(configPath));
+      const watcher = watchFs(directory, { persistent: false }, (_event, filename) => {
+        const changed =
+          filename === null
+            ? null
+            : Buffer.isBuffer(filename)
+              ? filename.toString()
+              : filename;
+        if (changed === null || changed === name) nudgeSoon("config");
+      });
+      watcher.on("error", () => {
+        watchers.delete(watcher);
+        watcher.close();
+        fallbackWatch(target);
+      });
+      watchers.add(watcher);
+    } catch {
+      fallbackWatch({ path: configPath, change: "config" });
+      // A missing or unwatchable config does not make the server unavailable.
+    }
+  }
+
+  armLeglas(false);
+
+  return {
+    close: () => {
+      if (closed) return;
+      closed = true;
+      if (retry !== null) clearTimeout(retry);
+      coalescer.close();
+      for (const watcher of watchers) watcher.close();
+      watchers.clear();
+      for (const [path, listener] of fallback) unwatchFile(path, listener);
+      fallback.clear();
+      leglasWatcher = null;
+    },
+  };
+}
+
+function watchHealth(target: string, live: LiveHub): LiveFiles {
+  let previous: boolean | null = null;
+  let probing = false;
+  let closed = false;
+  const timer = setInterval(() => {
+    if (live.listening === 0) {
+      previous = null;
+      return;
+    }
+    if (probing) return;
+    probing = true;
+    void probe(target)
+      .then((reachable) => {
+        if (closed || live.listening === 0) {
+          previous = null;
+          return;
+        }
+        if (previous !== null && previous !== reachable) live.nudge("health");
+        previous = reachable;
+      })
+      .finally(() => {
+        probing = false;
+      });
+  }, HEALTH_PROBE_MS);
+  timer.unref?.();
+
+  return {
+    close: () => {
+      closed = true;
+      clearInterval(timer);
+    },
+  };
+}
+
 function snapshotConfig(cwd: string): ConfigSnapshot {
   const path = findConfigFile(cwd);
   if (path === null) return null;
@@ -437,6 +712,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detect = () => detectAgents(),
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
+  const live = options.live ?? createLiveHub();
   // Sweep up browsers left by a Leglas that was killed outright or crashed,
   // which no shutdown handler can reach. Deliberately not awaited: it is
   // tidying, and a slow temp directory must not hold up the interface. A
@@ -448,6 +724,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
   // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
+  const bootConfigPath = findConfigFile(cwd);
   const bootConfigSnapshot = snapshotConfig(cwd);
 
   /**
@@ -1510,13 +1787,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   server.on("upgrade", (req, socket, head) => {
+    if (live.upgrade(req, socket, head)) return;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
-    // The shell owns nothing that upgrades yet; everything else is the app's.
+    // The live hub owns one shell upgrade. Other Leglas upgrades are refused;
+    // everything outside the prefix still belongs to the app.
     if (path.startsWith(`${LEGLAS_PREFIX}/`)) return socket.destroy();
     proxy.upgrade(req, socket, head);
   });
 
   const port = await bind(server, options.port ?? DEFAULT_PORT);
+  const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
+  const liveHealth = watchHealth(target, live);
   await pruneCaptures(
     cwd,
     (await readRequests(cwd).catch(() => [])).map((request) => request.id),
@@ -1529,6 +1810,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   runner = startRunner({
     cwd,
     externallyAttached,
+    onChange: () => live.nudge("requests"),
     leglasCommand,
     ...(options.codexAppServer === undefined
       ? {}
@@ -1545,7 +1827,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://localhost:${port}`,
     close: () => {
       if (closePromise !== null) return closePromise;
-      closePromise = Promise.all([runner.stop(), browserPool.close()])
+      liveFiles.close();
+      liveHealth.close();
+      closePromise = Promise.all([runner.stop(), browserPool.close(), live.close()])
         .then(
           () =>
           new Promise<void>((done) => {

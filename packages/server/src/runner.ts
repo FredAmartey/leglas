@@ -111,6 +111,8 @@ export type RunnerSpawn = (
 export type RunnerOptions = {
   cwd: string;
   externallyAttached: () => boolean;
+  /** Called whenever the process-local state exposed by snapshot changes. */
+  onChange?: () => void;
   spawn?: RunnerSpawn;
   /** Injected by app-server tests; null keeps the legacy Codex CLI path. */
   codexAppServer?: CodexTurnRunner | null;
@@ -298,6 +300,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stopping: false,
     waiting: null,
   };
+  const setState = (
+    next: ActiveRunnerState | ((current: ActiveRunnerState) => ActiveRunnerState),
+  ): void => {
+    state = typeof next === "function" ? next(state) : next;
+    options.onChange?.();
+  };
   let stopped = false;
   let ticking: Promise<void> | null = null;
   // Requests can land while the previous tick is removing its completed queue
@@ -389,7 +397,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   const idle = () => {
-    state = {
+    setState({
       running: false,
       requestId: null,
       agent: null,
@@ -397,7 +405,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       startedAt: null,
       stopping: false,
       waiting: null,
-    };
+    });
   };
 
   const rememberLine = (lines: string[], line: string) => {
@@ -554,14 +562,16 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         const retry = retryFrom(resolved.agent, line);
         if (retry !== null) {
           observed.retry = retry;
-          if (active === current) state = { ...state, waiting: retry };
+          if (active === current) setState((value) => ({ ...value, waiting: retry }));
         }
         const activity = activityFrom(resolved.agent, line, options.cwd);
         if (activity !== null) {
           if (activity.startsWith("editing")) observed.edited = true;
           // Work resuming ends the wait: the backoff is over the moment the
           // agent says anything else.
-          if (active === current) state = { ...state, activity, waiting: null };
+          if (active === current) {
+            setState((value) => ({ ...value, activity, waiting: null }));
+          }
         }
       });
       const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
@@ -644,7 +654,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       }
       // Wall-clock rather than injected time: the value only feeds the elapsed
       // counter in the shell, which reads it against its own Date.now anyway.
-      state = {
+      setState({
         running: true,
         requestId: request.id,
         agent: resolved.name,
@@ -652,7 +662,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         startedAt: Date.now(),
         stopping: false,
         waiting: null,
-      };
+      });
       const observed = {
         sessionId: null as string | null,
         edited: false,
@@ -715,7 +725,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           observed.sessionId = null;
           observed.retry = null;
           // The failed attempt's last activity must not caption the fresh one.
-          state = { ...state, activity: null, waiting: null };
+          setState((value) => ({ ...value, activity: null, waiting: null }));
           outcome = await runChild(request, resolved, lines, observed);
           failure = verdict();
         }
@@ -813,7 +823,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     failed.add(current.requestId);
     // The card stops claiming the run is live the moment the stop is asked
     // for, rather than whenever the child gets around to going.
-    state = { ...state, stopping: true, waiting: null };
+    setState((value) => ({ ...value, stopping: true, waiting: null }));
     current.controller.abort();
     try {
       current.child?.kill("SIGTERM");

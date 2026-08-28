@@ -58,6 +58,8 @@ export {
 } from "./annotations.js";
 export { REQUESTS_PATH, appendRequest, clearRequests, collectRequests, composeRequest, isTerminal, markFailed, markPickedUp, newRequestId, readRequests, removeRequest, targetFor } from "./requests.js";
 export { startRunner } from "./runner.js";
+export { createLiveHub } from "./live.js";
+export type { LiveChange, LiveHub } from "./live.js";
 export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";
 export type { Renames, TitleResolution } from "./renames.js";
 export { DEFAULT_PORT, FILES_PREFIX, LEGLAS_PREFIX, probe, startServer } from "./server.js";

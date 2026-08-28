@@ -65,6 +65,24 @@ export type PollTimers = {
 export type PollOptions = {
   everyMs: number;
   /**
+   * Something other than the clock that means "read now".
+   *
+   * The server pushes a nudge when it knows something changed, and this is
+   * how that reaches a loop without letting it out of the two rules above.
+   * A nudge goes through the same `run` an interval tick does, so it is
+   * dropped when a read is already in flight and it gets the same deadline.
+   * A caller wires this to the live socket and gets back the unsubscribe,
+   * which the stop below calls.
+   *
+   * The interval stays. It is the fallback, and a slow one: a dropped socket
+   * then means the interface is slower to notice a change rather than blind
+   * to it, which is the difference between degrading and lying. Polling
+   * fails invisibly and heals itself on the next tick; a socket that died
+   * quietly leaves a rail that looks perfectly correct and never updates
+   * again.
+   */
+  subscribe?: (run: () => void) => () => void;
+  /**
    * How long one read may take before it is abandoned. This is a backstop,
    * not a latency target: it wants to be far longer than any honest response
    * so a slow dev server is never cut off, and short enough that a socket
@@ -123,9 +141,13 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
 
   run();
   const timer = timers.setInterval(run, everyMs);
+  // After the first read, so a nudge arriving during it is dropped by the
+  // guard rather than queueing a second one behind it.
+  const unsubscribe = options.subscribe?.(run);
 
   return () => {
     stopped = true;
+    unsubscribe?.();
     timers.clearInterval(timer);
     if (active === null) return;
     timers.clearTimeout(active.deadline);
