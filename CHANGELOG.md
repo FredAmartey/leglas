@@ -1,4 +1,20 @@
-## Unreleased
+# Changelog
+
+Leglas ships as three things from one repository, and a release moves all
+of them together:
+
+- **`leglas`**, the command line tool, on npm
+- **`leglas-mcp`**, the MCP server for agent hosts that cannot run a shell, on npm
+- **the Agent Plugin**, which is this repository's own directory
+
+They share a version number, so a plugin, a CLI and a server picked up at the
+same time are the same release. Each entry says who a change actually reaches,
+because most reach only one of the three.
+
+## 0.7.1 (2026-08-27)
+
+A patch: a request body of four characters could end the server, on the one
+route the guard that closed that hole never saw.
 
 ### Fixed
 
@@ -17,19 +33,6 @@
   moment it is written, and the two that genuinely take something else carry
   a named reason rather than being silently missing. A source scan fails if
   any route parses a body by hand again. (`leglas`)
-
-# Changelog
-
-Leglas ships as three things from one repository, and a release moves all
-of them together:
-
-- **`leglas`**, the command line tool, on npm
-- **`leglas-mcp`**, the MCP server for agent hosts that cannot run a shell, on npm
-- **the Agent Plugin**, which is this repository's own directory
-
-They share a version number, so a plugin, a CLI and a server picked up at the
-same time are the same release. Each entry says who a change actually reaches,
-because most reach only one of the three.
 
 ## 0.7.0 (2026-08-27)
 
