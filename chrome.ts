@@ -140,7 +140,7 @@ export function bar(assets: Assets, place: Place): string {
   return `<header class="bar"><div class="bar-row">
 <a class="brand" href="${place.home}">${assets.mark}${assets.wordmark}</a>
 <nav class="nav" aria-label="Site">${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
-<button class="install" type="button" data-copy="npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
+<button class="install" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
 </div></header>`;
 }
 

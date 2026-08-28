@@ -59,7 +59,7 @@ ${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
 <h1>Your app is the canvas.</h1>
 <p class="standfirst">Compare design directions inside your own running app. Ask your agent for a handful of directions for the landing page, the checkout, the empty states, and Leglas runs them all as your actual app, side by side in one place, holding your notes on each. Every variation is the real product, motion and data included, so choosing between two directions is choosing between two things that already exist.</p>
 <div class="cta">
-<button class="command" type="button" data-copy="npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
+<button class="command" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
 <span class="cta-note">Nothing to install. Node 24 or newer.</span>
 </div>
 </section>
@@ -87,7 +87,7 @@ ${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
 <li><strong>Send a link, not a screenshot.</strong> A teammate opens the live direction instead of a picture and a paragraph of explanation.</li>
 <li><strong>Compare what no design tool can hold.</strong> Three git branches, a local build against production, yesterday's direction against today's.</li>
 <li><strong>Your agent does the building.</strong> <code>leglas init</code> teaches any coding agent the workflow and <code>leglas explore</code> briefs an exploration. You choose the spread, your agent supplies the taste.</li>
-<li><strong>Ask for changes where you are.</strong> Describe what you want on the direction you are looking at. Leglas turns it into a precise request, file path included, and runs Claude Code, Codex or Cursor itself. Your agent, your subscription, no keys.</li>
+<li><strong>Ask for changes where you are.</strong> Describe what you want on the direction you are looking at. Leglas turns it into a precise request, file path included, and hands it to the agent you picked, Claude Code, Codex or Cursor, without you leaving the comparison. Your agent, your subscription, no keys.</li>
 <li><strong>The agent sees what you see.</strong> Every request carries a screenshot of the direction, a crop of whatever you pointed at, and any reference image you pasted in.</li>
 <li><strong>Keep the winner with one command.</strong> It moves into your source tree, the exploration is cleared away, and what was decided is written down in <code>design-log/</code>.</li>
 </ul>
