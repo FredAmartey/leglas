@@ -1,4 +1,8 @@
+import { startProxyServer, type RunningProxy } from "./proxy.js";
 import { startWorktree, type RunningWorktree } from "./worktree.js";
+
+export const BRANCH_IDLE_MS = 10 * 60 * 1000;
+const BRANCH_SWEEP_MS = 30_000;
 
 export type BranchPhase = "checking out" | "installing" | "starting";
 
@@ -20,9 +24,11 @@ export type BranchPreview = {
 };
 
 export type StartBranchWorktree = typeof startWorktree;
+type StartBranchProxy = typeof startProxyServer;
 
 export type BranchRegistry = {
   state(title: string): BranchState | undefined;
+  url(title: string): string | undefined;
   start(title: string): Promise<BranchState> | undefined;
   stop(): Promise<void>;
 };
@@ -38,6 +44,7 @@ export function createBranchRegistry(options: {
   installCommand: string;
   devCommand: string | undefined;
   startWorktree?: StartBranchWorktree;
+  startProxy?: StartBranchProxy;
   onChange?: (title: string, state: BranchState) => void;
 }): BranchRegistry {
   const states = new Map<string, BranchState>(
@@ -45,7 +52,11 @@ export function createBranchRegistry(options: {
   );
   const previews = new Map(options.previews.map((preview) => [preview.title, preview]));
   const inflight = new Map<string, Promise<BranchState>>();
+  const stopping = new Map<string, Promise<void>>();
+  const lastActivity = new Map<string, number>();
+  const proxies = new Map<string, RunningProxy>();
   const boot = options.startWorktree ?? startWorktree;
+  const proxy = options.startProxy ?? startProxyServer;
   let closed = false;
   let stopPromise: Promise<void> | null = null;
 
@@ -62,6 +73,44 @@ export function createBranchRegistry(options: {
     options.onChange?.(title, state);
     return state;
   };
+
+  const stopReady = (
+    title: string,
+    state: Extract<BranchState, { status: "ready" }>,
+    toIdle: boolean,
+  ): Promise<void> => {
+    const current = stopping.get(title);
+    if (current !== undefined) return current;
+    const pending = (async () => {
+      await proxies.get(title)?.close().catch(() => {});
+      await state.worktree.stop().catch(() => {});
+      proxies.delete(title);
+      lastActivity.delete(title);
+      if (toIdle && !closed && states.get(title) === state) {
+        transition(title, { status: "idle" });
+      }
+    })().finally(() => {
+      stopping.delete(title);
+    });
+    stopping.set(title, pending);
+    return pending;
+  };
+
+  const sweep = () => {
+    const now = Date.now();
+    for (const [title, state] of states) {
+      const branchProxy = proxies.get(title);
+      if (state.status !== "ready" || branchProxy === undefined || stopping.has(title)) continue;
+      if (branchProxy.active()) {
+        lastActivity.set(title, now);
+        continue;
+      }
+      const seen = lastActivity.get(title) ?? now;
+      if (now - seen >= BRANCH_IDLE_MS) void stopReady(title, state, true);
+    }
+  };
+  const sweepTimer = setInterval(sweep, BRANCH_SWEEP_MS);
+  sweepTimer.unref();
 
   const begin = (title: string): Promise<BranchState> | undefined => {
     const preview = previews.get(title);
@@ -93,9 +142,20 @@ export function createBranchRegistry(options: {
     }
 
     const starting = checkout
-      .then((worktree) => {
+      .then(async (worktree) => {
         transition(title, { status: "starting", phase: "starting" });
-        return transition(title, { status: "ready", worktree });
+        try {
+          const branchProxy = await proxy({
+            target: worktree.url,
+            onActivity: () => lastActivity.set(title, Date.now()),
+          });
+          proxies.set(title, branchProxy);
+          lastActivity.set(title, Date.now());
+          return transition(title, { status: "ready", worktree });
+        } catch (error) {
+          await worktree.stop().catch(() => {});
+          throw error;
+        }
       })
       .catch((error: unknown) =>
         transition(title, {
@@ -112,17 +172,19 @@ export function createBranchRegistry(options: {
 
   return {
     state: (title) => states.get(title),
+    url: (title) => proxies.get(title)?.url,
     start: begin,
     stop: () => {
       if (stopPromise !== null) return stopPromise;
       closed = true;
+      clearInterval(sweepTimer);
       stopPromise = Promise.allSettled([...inflight.values()]).then(async () => {
-        const worktrees = [...states.values()]
-          .filter((state): state is Extract<BranchState, { status: "ready" }> =>
-            state.status === "ready",
-          )
-          .map((state) => state.worktree);
-        await Promise.all(worktrees.map((worktree) => worktree.stop().catch(() => {})));
+        await Promise.allSettled([...stopping.values()]);
+        const ready = [...states.entries()].filter(
+          (entry): entry is [string, Extract<BranchState, { status: "ready" }>] =>
+            entry[1].status === "ready" && proxies.has(entry[0]),
+        );
+        await Promise.all(ready.map(([title, state]) => stopReady(title, state, false)));
       });
       return stopPromise;
     },

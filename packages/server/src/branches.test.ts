@@ -1,6 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { createBranchRegistry } from "./branches.js";
+import { BRANCH_IDLE_MS, createBranchRegistry } from "./branches.js";
+import type { RunningProxy } from "./proxy.js";
 import type { RunningWorktree } from "./worktree.js";
 
 function deferred<T>() {
@@ -25,6 +29,23 @@ function running(title = "Wave"): RunningWorktree {
 
 const branch = { title: "Wave", branch: "feature/wave" };
 
+afterEach(() => vi.useRealTimers());
+
+function proxy(options: {
+  active?: () => boolean;
+  onActivity?: () => void;
+  onClose?: () => void;
+} = {}): (input: { target: string; onActivity?: () => void }) => Promise<RunningProxy> {
+  return async (input) => {
+    options.onActivity?.();
+    return {
+      active: options.active ?? (() => false),
+      close: async () => options.onClose?.(),
+      url: input.target,
+    };
+  };
+}
+
 describe("branch preview registry", () => {
   test("joins a start already in flight, so one title gets one checkout", async () => {
     const checkout = deferred<RunningWorktree>();
@@ -34,6 +55,7 @@ describe("branch preview registry", () => {
       previews: [branch],
       installCommand: "pnpm install",
       devCommand: "pnpm dev --port {port}",
+      startProxy: proxy(),
       startWorktree: async () => {
         starts += 1;
         return checkout.promise;
@@ -65,6 +87,7 @@ describe("branch preview registry", () => {
       previews: [branch],
       installCommand: "pnpm install",
       devCommand: "pnpm dev --port {port}",
+      startProxy: proxy(),
       startWorktree: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error("checkout failed");
@@ -96,6 +119,7 @@ describe("branch preview registry", () => {
           state.status === "starting" ? `${state.status}:${state.phase}` : state.status,
         );
       },
+      startProxy: proxy(),
       startWorktree: async (options) => {
         options.onLog?.("installing feature/wave");
         options.onLog?.("vite ready");
@@ -123,6 +147,7 @@ describe("branch preview registry", () => {
       previews: [branch, { title: "Ember", branch: "feature/ember" }],
       installCommand: "pnpm install",
       devCommand: "pnpm dev --port {port}",
+      startProxy: proxy(),
       startWorktree: async ({ branch: name }) => ({
         ...running(name),
         branch: name,
@@ -136,5 +161,105 @@ describe("branch preview registry", () => {
     await registry.stop();
 
     expect(stops).toBe(2);
+  });
+
+  test("stops a ready branch after ten minutes without proxy activity, then lets it start again", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    let starts = 0;
+    let proxyStops = 0;
+    let worktreeStops = 0;
+    const checkout = join(mkdtempSync(join(tmpdir(), "leglas-idle-")), "wave");
+    mkdirSync(checkout);
+    const transitions: string[] = [];
+    const registry = createBranchRegistry({
+      cwd: "/repo",
+      previews: [branch],
+      installCommand: "pnpm install",
+      devCommand: "pnpm dev --port {port}",
+      onChange: (_title, state) => transitions.push(state.status),
+      startProxy: proxy({ onClose: () => (proxyStops += 1) }),
+      startWorktree: async () => {
+        starts += 1;
+        return {
+          ...running(),
+          path: checkout,
+          stop: async () => {
+            worktreeStops += 1;
+            rmSync(checkout, { recursive: true, force: true });
+          },
+        };
+      },
+    });
+
+    await registry.start("Wave");
+    await vi.advanceTimersByTimeAsync(BRANCH_IDLE_MS + 30_000);
+
+    expect(proxyStops).toBe(1);
+    expect(worktreeStops).toBe(1);
+    expect(existsSync(checkout)).toBe(false);
+    expect(registry.state("Wave")).toEqual({ status: "idle" });
+    expect(transitions.at(-1)).toBe("idle");
+
+    await registry.start("Wave");
+    expect(starts).toBe(2);
+    expect(registry.state("Wave")?.status).toBe("ready");
+    await registry.stop();
+  });
+
+  test("does not stop a branch that still has an active proxy connection", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    let active = true;
+    let stops = 0;
+    const registry = createBranchRegistry({
+      cwd: "/repo",
+      previews: [branch],
+      installCommand: "pnpm install",
+      devCommand: "pnpm dev --port {port}",
+      startProxy: proxy({ active: () => active }),
+      startWorktree: async () => ({
+        ...running(),
+        stop: async () => {
+          stops += 1;
+        },
+      }),
+    });
+
+    await registry.start("Wave");
+    await vi.advanceTimersByTimeAsync(BRANCH_IDLE_MS * 2);
+
+    expect(stops).toBe(0);
+    expect(registry.state("Wave")?.status).toBe("ready");
+
+    active = false;
+    await vi.advanceTimersByTimeAsync(BRANCH_IDLE_MS + 30_000);
+    expect(stops).toBe(1);
+    expect(registry.state("Wave")).toEqual({ status: "idle" });
+    await registry.stop();
+  });
+
+  test("never stops a branch while it is starting", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const checkout = deferred<RunningWorktree>();
+    const registry = createBranchRegistry({
+      cwd: "/repo",
+      previews: [branch],
+      installCommand: "pnpm install",
+      devCommand: "pnpm dev --port {port}",
+      startProxy: proxy(),
+      startWorktree: async () => checkout.promise,
+    });
+
+    const start = registry.start("Wave");
+    await vi.advanceTimersByTimeAsync(BRANCH_IDLE_MS * 2);
+
+    expect(registry.state("Wave")?.status).toBe("starting");
+
+    checkout.resolve(running());
+    await start;
+    expect(registry.state("Wave")?.status).toBe("ready");
+    await registry.stop();
   });
 });
