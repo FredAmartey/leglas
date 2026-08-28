@@ -149,7 +149,7 @@ export function bar(assets: Assets, place: Place): string {
 <nav class="nav" aria-label="Site">${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
 <div class="bar-end">
 <button class="install" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
-<button class="theme" type="button" data-theme-switch aria-label="Switch to dark mode">
+<button class="theme" type="button" data-theme-switch aria-label="Switch between light and dark">
 <svg class="sun" aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
 <svg class="moon" aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z"/></svg>
 </button>
@@ -175,6 +175,11 @@ const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme")
  * The switch flips between light and dark from whatever is showing now,
  * which \`color-scheme\` reports without repeating the tokens' three-state
  * logic, and remembers the result.
+ *
+ * It also names the direction it would take you, which the markup cannot do:
+ * a system-dark reader with no choice stored is offered light, and the file
+ * is one document served to everybody. So the button ships undirected and
+ * this is what makes it specific.
  */
 const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
@@ -197,6 +202,7 @@ export function document(options: {
 <meta name="description" content="${escape(options.description)}">
 <link rel="icon" href="${options.assets.favicon}" type="image/svg+xml">
 <script>${STAMP_SCRIPT}</script>
+<noscript><style>.theme{display:none}</style></noscript>
 <style>${baseStyles(options.assets.fonts)}${options.styles}</style>
 </head>
 <body>

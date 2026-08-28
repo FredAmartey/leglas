@@ -29,6 +29,9 @@ describe("the site", () => {
     const stamp = html.indexOf('localStorage.getItem("leglas-theme")');
     expect(stamp).toBeGreaterThan(0);
     expect(stamp).toBeLessThan(html.indexOf("<style>"));
+    // Which way it goes depends on the reader, so the markup cannot claim one.
+    expect(html).toContain('aria-label="Switch between light and dark"');
+    expect(html).toContain("<noscript><style>.theme{display:none}</style></noscript>");
   });
 
   test("builds both pages and the captures beside them", () => {
