@@ -1,5 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { REPO, bar, document, escape, foot, type Assets } from "./chrome.ts";
 
 /**
  * CHANGELOG.md, as a page.
@@ -7,8 +6,8 @@ import { join } from "node:path";
  * The changelog is the record: every release edits it, a cut dates it, and it
  * is what a GitHub or npm reader already sees. The page is made from it and
  * from nothing else, so there is one text to keep true and no second copy to
- * drift. `pnpm site` writes the page under dist/site; the Pages workflow does
- * the same on main and publishes what it wrote.
+ * drift. `pnpm site` (site.ts) writes the page under dist/site; the Pages
+ * workflow does the same on main and publishes what it wrote.
  *
  * The reader understands the markdown this file actually uses rather than
  * markdown in general: a release heading, a group heading, a bullet with a
@@ -175,9 +174,6 @@ export function parseChangelog(markdown: string): Changelog {
   return { preamble, entries };
 }
 
-export const escape = (text: string): string =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-
 /** Code spans, bold and links: the inline markdown the changelog uses. */
 export function inline(markdown: string): string {
   const pattern = /`([^`]+)`|\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
@@ -207,9 +203,6 @@ export function longDate(iso: string): string {
 
 export const anchor = (entry: Entry): string =>
   /^\d/.test(entry.versions[0]!) ? `v${entry.versions[0]!}` : entry.versions[0]!.toLowerCase();
-
-const REPO = "https://github.com/FredAmartey/leglas";
-const NPM = "https://www.npmjs.com/package/leglas";
 
 function renderItem(item: Item): string {
   // A lead running straight into punctuation ("**`leglas`**, the command
@@ -284,108 +277,7 @@ function renderEntry(entry: Entry): string {
   return `<article class="entry" id="${id}"><div class="aside">${pills}${date}</div><div class="body">${title}${body}</div></article>`;
 }
 
-export type Assets = {
-  /** Satoshi, base64 woff2, the interface's own face. */
-  fonts: { regular: string; medium: string };
-  /** The mark and the wordmark as inline SVG, styled by the page. */
-  mark: string;
-  wordmark: string;
-  /** The favicon as a data URL. */
-  favicon: string;
-};
-
-/** Everything the page needs, read from where the repository already keeps it. */
-export function loadAssets(root: string): Assets {
-  const read = (path: string): string => readFileSync(join(root, path), "utf8");
-  const base64 = (path: string): string => readFileSync(join(root, path)).toString("base64");
-  const favicon = read("packages/shell/public/favicon.svg");
-  const stripStyle = (svg: string): string => svg.replace(/<style>[\s\S]*?<\/style>/, "");
-  const mark = stripStyle(favicon).replace(
-    /^<svg[^>]*viewBox="([^"]+)"[^>]*>/,
-    '<svg class="mark" aria-hidden="true" viewBox="$1" width="26" height="26">',
-  );
-  const wordmark = stripStyle(read(".github/assets/wordmark.svg")).replace(
-    /^<svg[^>]*viewBox="([^"]+)"[^>]*>/,
-    '<svg class="wordmark" role="img" aria-label="Leglas" viewBox="$1" width="52" height="18" fill="currentColor">',
-  );
-  return {
-    fonts: {
-      regular: base64("packages/shell/src/fonts/Satoshi-Regular.woff2"),
-      medium: base64("packages/shell/src/fonts/Satoshi-Medium.woff2"),
-    },
-    mark,
-    wordmark,
-    favicon: `data:image/svg+xml;base64,${Buffer.from(favicon).toString("base64")}`,
-  };
-}
-
-function styles(fonts: Assets["fonts"]): string {
-  return `
-@font-face{font-family:"Satoshi";font-weight:400;font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${fonts.regular}) format("woff2")}
-@font-face{font-family:"Satoshi";font-weight:500;font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${fonts.medium}) format("woff2")}
-:root{
-  color-scheme:light;
-  --sans:"Satoshi",ui-sans-serif,system-ui,-apple-system,"Helvetica Neue",sans-serif;
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --ground:#F8F8FB;--ink:#0B1839;
-  --ink-2:rgba(11,24,57,.70);--ink-3:rgba(11,24,57,.50);--ink-4:rgba(11,24,57,.32);
-  --rule:rgba(11,24,57,.22);--rule-soft:rgba(11,24,57,.09);--dot:rgba(11,24,57,.17);
-  --code-bg:rgba(11,24,57,.06);--link:#2B4BC0;
-  --pill-a:#EAF0FB;--pill-b:#B9C9FF;--pill-c:#DDEEF6;--pill-border:#1D3A9E;--pill-text:#0B1839;--pill-shine:rgba(255,255,255,.7);
-  --chip-bg:#FFFFFF;--chip-border:rgba(11,24,57,.20);
-  --media-bg:#EEF0F5;--media-shadow:rgba(11,24,57,.14);--bar-bg:rgba(248,248,251,.84);
-  --cli:#3159CF;--mcp:#2AA68C;--plugin:#7C38E8;
-  --m-g6a:#081327;--m-g6b:#0F266A;--m-g3a:#0E2B85;--m-g3b:#3159CF;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  color-scheme:dark;
-  --ground:#141519;--ink:#E8ECF7;
-  --ink-2:rgba(232,236,247,.72);--ink-3:rgba(232,236,247,.52);--ink-4:rgba(232,236,247,.34);
-  --rule:rgba(232,236,247,.20);--rule-soft:rgba(232,236,247,.09);--dot:rgba(232,236,247,.14);
-  --code-bg:rgba(232,236,247,.09);--link:#9AABE2;
-  --pill-a:#E6EBF8;--pill-b:#9AABE2;--pill-c:#D2E6F0;--pill-border:#5F7FD8;--pill-text:#0B1839;--pill-shine:rgba(255,255,255,.5);
-  --chip-bg:#1E1F25;--chip-border:rgba(232,236,247,.20);
-  --media-bg:#1E1F25;--media-shadow:rgba(0,0,0,.5);--bar-bg:rgba(20,21,25,.84);
-  --cli:#7E97DD;--mcp:#3EC2A8;--plugin:#B58CF2;
-  --m-g6a:#E8ECF7;--m-g6b:#92A7E0;--m-g3a:#7E97DD;--m-g3b:#5F7FD8;
-}}
-:root[data-theme="dark"]{
-  color-scheme:dark;
-  --ground:#141519;--ink:#E8ECF7;
-  --ink-2:rgba(232,236,247,.72);--ink-3:rgba(232,236,247,.52);--ink-4:rgba(232,236,247,.34);
-  --rule:rgba(232,236,247,.20);--rule-soft:rgba(232,236,247,.09);--dot:rgba(232,236,247,.14);
-  --code-bg:rgba(232,236,247,.09);--link:#9AABE2;
-  --pill-a:#E6EBF8;--pill-b:#9AABE2;--pill-c:#D2E6F0;--pill-border:#5F7FD8;--pill-text:#0B1839;--pill-shine:rgba(255,255,255,.5);
-  --chip-bg:#1E1F25;--chip-border:rgba(232,236,247,.20);
-  --media-bg:#1E1F25;--media-shadow:rgba(0,0,0,.5);--bar-bg:rgba(20,21,25,.84);
-  --cli:#7E97DD;--mcp:#3EC2A8;--plugin:#B58CF2;
-  --m-g6a:#E8ECF7;--m-g6b:#92A7E0;--m-g3a:#7E97DD;--m-g3b:#5F7FD8;
-}
-*{box-sizing:border-box}
-html{scroll-padding-top:96px;-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--ground);color:var(--ink);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;position:relative;min-height:100vh}
-a{color:var(--link)}
-code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.06em .28em;border-radius:5px;color:inherit}
-.dots{position:absolute;top:0;left:0;right:0;height:440px;pointer-events:none;z-index:0;background-image:radial-gradient(var(--dot) 1px,transparent 1.3px);background-size:34px 34px;-webkit-mask-image:linear-gradient(#000 0 50%,transparent);mask-image:linear-gradient(#000 0 50%,transparent)}
-.bar{position:sticky;top:0;z-index:5;background:var(--bar-bg);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule-soft)}
-.bar-row{max-width:1180px;margin:0 auto;padding:0 28px;height:60px;display:flex;align-items:center;gap:32px}
-.brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none}
-.mark path{stroke-width:38;stroke-linejoin:round}
-.mark .ink{fill:var(--ink);stroke:var(--ink)}
-.mark path[fill="url(#Gradient6)"]{stroke:url(#Gradient6)}
-.mark path[fill="url(#Gradient5)"]{stroke:url(#Gradient5)}
-.mark path[fill="url(#Gradient4)"]{stroke:url(#Gradient4)}
-.mark path[fill="url(#Gradient3)"]{stroke:url(#Gradient3)}
-.mark .g6a{stop-color:var(--m-g6a)}.mark .g6b{stop-color:var(--m-g6b)}.mark .g3a{stop-color:var(--m-g3a)}.mark .g3b{stop-color:var(--m-g3b)}
-.nav{display:flex;align-items:center;gap:22px;font-size:15px;color:var(--ink-3);letter-spacing:-.01em}
-.nav a{color:inherit;text-decoration:none}
-.nav a:hover{color:var(--ink)}
-.nav .active{color:var(--ink);font-weight:500}
-.install{margin-left:auto;display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);font:500 13px/1 var(--mono);letter-spacing:-.01em;cursor:pointer}
-.install:hover{color:var(--ink)}
-.install .done{display:none}
-.install[data-done] .cmd{display:none}
-.install[data-done] .done{display:inline}
+const STYLES = `
 .page{position:relative;z-index:1;max-width:980px;margin:0 auto;padding:96px 28px 80px}
 .head{display:flex;flex-direction:column;gap:10px;margin-bottom:56px}
 .eyebrow{margin:0;font-size:12px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
@@ -420,23 +312,9 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 .chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px 0 7px;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);font:500 12px/1 var(--mono);letter-spacing:-.01em}
 .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--chip-dot,var(--ink-4))}
 .chip-cli{--chip-dot:var(--cli)}.chip-mcp{--chip-dot:var(--mcp)}.chip-plugin{--chip-dot:var(--plugin)}
-.media{margin:6px 0 2px;display:flex;flex-direction:column;gap:8px}
-.media img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--rule-soft);background:var(--media-bg);box-shadow:0 12px 28px var(--media-shadow)}
-.media figcaption{font-size:13px;color:var(--ink-3)}
-.foot{position:relative;z-index:1;border-top:1px solid var(--rule-soft)}
-.foot-row{max-width:980px;margin:0 auto;padding:28px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;font-size:13px;color:var(--ink-3)}
-.foot-row nav{display:flex;gap:18px;margin-left:auto}
-.foot-row a{color:var(--ink-2);text-decoration:none}
-.foot-row a:hover{color:var(--ink)}
-:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .head{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
 .list{animation:rise .5s cubic-bezier(.2,.7,.2,1) .08s both}
-@media (prefers-reduced-motion:reduce){.head,.list{animation:none}}
 @media (max-width:720px){
-  .bar-row{padding:0 20px;gap:18px}
-  .nav{gap:16px;font-size:14px}
-  .install{display:none}
   .page{padding:56px 20px 48px}
   h1{font-size:40px}
   .head{margin-bottom:40px}
@@ -444,7 +322,6 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
   .aside{position:static;flex-direction:row;align-items:center;gap:12px;padding-top:0}
 }
 `;
-}
 
 export function renderPage(changelog: Changelog, assets: Assets): string {
   const standfirst = renderBlocks(
@@ -452,65 +329,22 @@ export function renderPage(changelog: Changelog, assets: Assets): string {
     "",
   );
   const entries = changelog.entries.map(renderEntry).join("");
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Leglas Changelog</title>
-<meta name="description" content="What changed in each release of Leglas: the command line tool, the MCP server and the Agent Plugin.">
-<link rel="icon" href="${assets.favicon}" type="image/svg+xml">
-<style>${styles(assets.fonts)}</style>
-</head>
-<body>
-<div class="dots" aria-hidden="true"></div>
-<header class="bar"><div class="bar-row">
-<a class="brand" href="${REPO}">${assets.mark}${assets.wordmark}</a>
-<nav class="nav" aria-label="Site"><a href="${REPO}#readme">README</a><a href="${NPM}">npm</a><span class="active" aria-current="page">Changelog</span></nav>
-<button class="install" type="button" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
-</div></header>
+  const body = `<div class="dots" aria-hidden="true"></div>
+${bar(assets, { home: "../", changelog: "./", active: "changelog" })}
 <main class="page">
-<div class="head">
+<div class="head rise">
 <p class="eyebrow">Changelog</p>
 <h1>What's new</h1>
 <div class="standfirst">${standfirst}</div>
 </div>
-<div class="list">${entries}</div>
+<div class="list rise">${entries}</div>
 </main>
-<footer class="foot"><div class="foot-row">
-<span>Made from <a href="${REPO}/blob/main/CHANGELOG.md">CHANGELOG.md</a>. Leglas is MIT licensed.</span>
-<nav aria-label="Elsewhere"><a href="${REPO}">GitHub</a><a href="${NPM}">npm</a></nav>
-</div></footer>
-<script>
-(function(){var b=document.querySelector(".install");if(!b||!navigator.clipboard)return;b.addEventListener("click",function(){navigator.clipboard.writeText("npx leglas").then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})();
-</script>
-</body>
-</html>
-`;
-}
-
-/**
- * The site is the changelog at /changelog/ and a root that sends you there,
- * until there is a homepage to send you to instead. Written under dist/site,
- * which is ignored, so nothing generated is ever committed.
- */
-export function buildSite(root: string, out: string): string[] {
-  const changelog = parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8"));
-  const page = renderPage(changelog, loadAssets(root));
-  const redirect = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=changelog/"><title>Leglas</title></head>
-<body><p><a href="changelog/">What's new in Leglas</a></p></body></html>
-`;
-  mkdirSync(join(out, "changelog"), { recursive: true });
-  const written = [join(out, "changelog", "index.html"), join(out, "index.html")];
-  writeFileSync(written[0]!, page);
-  writeFileSync(written[1]!, redirect);
-  return written;
-}
-
-if (import.meta.main) {
-  const root = import.meta.dirname;
-  for (const path of buildSite(root, join(root, "dist", "site"))) {
-    process.stdout.write(`${path}\n`);
-  }
+${foot(`Made from <a href="${REPO}/blob/main/CHANGELOG.md">CHANGELOG.md</a>.`)}`;
+  return document({
+    title: "Leglas Changelog",
+    description: "What changed in each release of Leglas: the command line tool, the MCP server and the Agent Plugin.",
+    assets,
+    styles: STYLES,
+    body,
+  });
 }
