@@ -11,7 +11,11 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.7.2 (2026-08-27)
+
+A patch: the interface stops polling on a timer and the server says
+when instead. Nothing a caller uses changes, and the public surface
+does not move.
 
 ### Changed
 
