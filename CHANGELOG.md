@@ -11,6 +11,23 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **A branch preview starts when you open it, not when Leglas does.** A branch
+  is a whole second copy of the project: checked out, installed and served.
+  Every one of them was brought up before the interface appeared, in sequence,
+  whether or not anybody opened one, and the README's own pitch is comparing
+  seven of them. On a small project with two, that was 8.3s of waiting and
+  272MB of checkouts before anything was on screen. Opening one is the trigger
+  now, so the interface is up in 1.6s and only the branch you look at costs
+  anything. The pane says where its checkout has got to while it runs, a
+  failure says why and offers to try again, and asking twice joins the one
+  start rather than checking out twice. The rail shows a branch preview's
+  branch instead of its URL, which was a loopback address on a port picked at
+  random. (`leglas`)
+
 ## 0.7.3 (2026-08-27)
 
 A patch: branch previews could not start at all on a project whose dev

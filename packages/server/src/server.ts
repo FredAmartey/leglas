@@ -33,6 +33,12 @@ import {
   type BrowserPool,
 } from "./browser.js";
 import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture.js";
+import {
+  createBranchRegistry,
+  publicBranchState,
+  type BranchPreviewState,
+  type StartBranchWorktree,
+} from "./branches.js";
 import type { ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import {
@@ -44,7 +50,7 @@ import {
   type DetectedAgent,
   type KnownAgentId,
 } from "./agents.js";
-import type { LeglasConfig } from "./config.js";
+import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./config.js";
 import { findConfigFile } from "./find-config.js";
 import {
   LOCAL_PREVIEWS_PATH,
@@ -156,6 +162,8 @@ export type ServerOptions = {
   pool?: BrowserPool;
   /** Live change channel, injectable so server tests need no websocket client. */
   live?: LiveHub;
+  /** Branch checkout lifecycle, injectable so server tests need no real git worktree. */
+  startWorktree?: StartBranchWorktree;
 };
 
 export type RunningServer = {
@@ -713,6 +721,45 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
   const live = options.live ?? createLiveHub();
+  const branches = createBranchRegistry({
+    cwd,
+    previews: (config?.previews ?? []).flatMap((preview) =>
+      preview.branch === undefined
+        ? []
+        : [{ title: preview.title, branch: preview.branch }],
+    ),
+    installCommand: config?.installCommand ?? DEFAULT_INSTALL_COMMAND,
+    devCommand: config?.devCommand,
+    onChange: () => live.nudge("config"),
+    ...(options.startWorktree === undefined ? {} : { startWorktree: options.startWorktree }),
+  });
+
+  type ConfigPreview = Preview | (Omit<Preview, "url"> & {
+    url?: string;
+    state: BranchPreviewState;
+  });
+
+  const previewForConfig = (preview: Preview): ConfigPreview => {
+    if (preview.branch === undefined) return preview;
+    const state = branches.state(preview.title) ?? { status: "idle" as const };
+    const { url: route, ...withoutUrl } = preview;
+    return state.status === "ready"
+      ? {
+          ...withoutUrl,
+          url: `${state.worktree.url}${route}`,
+          state: publicBranchState(state),
+        }
+      : { ...withoutUrl, state: publicBranchState(state) };
+  };
+  const previewsForConfig = (previews: readonly Preview[]) => previews.map(previewForConfig);
+
+  const readyPreview = (preview: Preview): Preview | null => {
+    if (preview.branch === undefined) return preview;
+    const state = branches.state(preview.title);
+    return state?.status === "ready"
+      ? { ...preview, url: `${state.worktree.url}${preview.url}` }
+      : null;
+  };
   // Sweep up browsers left by a Leglas that was killed outright or crashed,
   // which no shutdown handler can reach. Deliberately not awaited: it is
   // tidying, and a slow temp directory must not hold up the interface. A
@@ -787,7 +834,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * the direction. The rail already holds those back until the restart the
    * CLI asks for, and so does this.
    */
-  const livePreviews = async () => {
+  const livePreviewDefinitions = async (): Promise<Preview[]> => {
     const localRead = await readLocalPreviews(cwd).catch(() => null);
     const local = localRead?.errors.length === 0 ? localRead.previews : [];
     const localTitles = new Set(local.map((entry) => entry.title));
@@ -805,6 +852,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     );
     return [...boot, ...fresh];
   };
+  const livePreviews = async (): Promise<Preview[]> =>
+    (await livePreviewDefinitions()).map(readyPreview).filter((preview) => preview !== null);
 
   // Start the only blocking discovery before the browser asks for it. This
   // overlaps CLI authentication with shell and preview loading; the first API
@@ -844,7 +893,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               project,
               devServer: target,
               scanPreviews: config?.scanPreviews ?? true,
-              previews: boot,
+              previews: previewsForConfig(boot),
               errors,
               warnings: configWarnings,
             });
@@ -866,7 +915,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             project,
             devServer: target,
             scanPreviews: config?.scanPreviews ?? true,
-            previews: [...currentBoot, ...fresh],
+            previews: previewsForConfig([...currentBoot, ...fresh]),
             errors,
             warnings: configWarnings,
           });
@@ -876,11 +925,51 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             project,
             devServer: target,
             scanPreviews: config?.scanPreviews ?? true,
-            previews: boot,
+            previews: previewsForConfig(boot),
             errors,
             warnings: configWarnings,
           }),
         );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/previews/start` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        const parsed = jsonBody<{ title?: unknown }>(body);
+        if (parsed === null) {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a direction title." });
+        }
+
+        const preview = (await livePreviewDefinitions()).find(
+          (entry) => entry.title === parsed.title,
+        );
+        if (preview === undefined) {
+          return sendJson(res, 404, { ok: false, error: "No such direction." });
+        }
+        if (preview.branch === undefined) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `"${preview.title}" is not a branch preview.`,
+          });
+        }
+        if (config?.devCommand === undefined) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `"${preview.title}" cannot start because the config sets no devCommand.`,
+          });
+        }
+
+        void branches.start(preview.title);
+        const state = branches.state(preview.title);
+        if (state === undefined) {
+          return sendJson(res, 404, { ok: false, error: "No such branch preview." });
+        }
+        return sendJson(res, 200, { ok: true, state: publicBranchState(state) });
+      });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/previews/delete` && req.method === "POST") {
@@ -1829,7 +1918,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (closePromise !== null) return closePromise;
       liveFiles.close();
       liveHealth.close();
-      closePromise = Promise.all([runner.stop(), browserPool.close(), live.close()])
+      closePromise = Promise.all([
+        branches.stop(),
+        runner.stop(),
+        browserPool.close(),
+        live.close(),
+      ])
         .then(
           () =>
           new Promise<void>((done) => {

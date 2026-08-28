@@ -15,6 +15,7 @@ import type { LiveChange, LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
+import type { RunningWorktree } from "./worktree.js";
 
 const running: RunningServer[] = [];
 const origins: http.Server[] = [];
@@ -83,6 +84,16 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, reject, resolve };
+}
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
   // Server tests exercise HTTP behavior, not the installed Codex binary.
@@ -1757,6 +1768,144 @@ describe("startServer", () => {
     expect(res.status).toBe(200);
     expect(body.previews).toHaveLength(1);
     expect(body.errors).toEqual([]);
+  });
+
+  test("starts a branch once in the background and withholds its url until it is ready", async () => {
+    const checkout = deferred<RunningWorktree>();
+    const live = fakeLiveHub();
+    let starts = 0;
+    const config = configFor(await startOrigin(), [
+      { title: "Wave", url: "/direction", branch: "feature/wave" },
+    ]);
+    config.devCommand = "pnpm dev --port {port}";
+    config.installCommand = "pnpm install";
+    const server = await start({
+      config,
+      live,
+      port: 0,
+      startWorktree: async () => {
+        starts += 1;
+        return checkout.promise;
+      },
+    });
+    live.changes.splice(0);
+
+    const idle = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: Array<Record<string, unknown>>;
+    };
+    expect(idle.previews[0]).toMatchObject({ title: "Wave", state: { status: "idle" } });
+    expect(Object.hasOwn(idle.previews[0] ?? {}, "url")).toBe(false);
+
+    const responses = await Promise.all(
+      [1, 2].map(() =>
+        fetch(`${server.url}/leglas/api/previews/start`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Wave" }),
+        }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(starts).toBe(1);
+    expect(await responses[0]?.json()).toMatchObject({
+      ok: true,
+      state: { status: "starting", phase: "checking out" },
+    });
+
+    const whileStarting = (await (
+      await fetch(`${server.url}/leglas/api/config`)
+    ).json()) as { previews: Array<Record<string, unknown>> };
+    expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
+
+    checkout.resolve({
+      branch: "feature/wave",
+      path: "/tmp/wave",
+      port: 4312,
+      url: "http://127.0.0.1:4312",
+      stop: async () => {},
+    });
+    await eventually(async () => {
+      const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+        previews: Array<{ state?: { status?: string } }>;
+      };
+      return body.previews[0]?.state?.status === "ready";
+    });
+
+    const ready = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: Array<Record<string, unknown>>;
+    };
+    expect(ready.previews[0]).toMatchObject({
+      title: "Wave",
+      url: "http://127.0.0.1:4312/direction",
+      state: { status: "ready" },
+    });
+    expect(live.changes).toEqual(["config", "config", "config"]);
+  });
+
+  test("validates branch start titles and the command needed to boot them", async () => {
+    const config = configFor(await startOrigin(), [
+      { title: "Current", url: "/" },
+      { title: "Wave", url: "/direction", branch: "feature/wave" },
+    ]);
+    config.installCommand = "pnpm install";
+    config.devCommand = undefined;
+    const server = await start({ config, port: 0 });
+    const post = (title: string) =>
+      fetch(`${server.url}/leglas/api/previews/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+    const unknown = await post("Missing");
+    expect(unknown.status).toBe(404);
+
+    const ordinary = await post("Current");
+    expect(ordinary.status).toBe(400);
+    expect(await ordinary.json()).toMatchObject({ error: expect.stringContaining("branch") });
+
+    const noCommand = await post("Wave");
+    expect(noCommand.status).toBe(400);
+    expect(await noCommand.json()).toMatchObject({
+      error: expect.stringMatching(/Wave.*devCommand/),
+    });
+  });
+
+  test("closing the server stops a branch worktree that reached ready", async () => {
+    let stops = 0;
+    const config = configFor(await startOrigin(), [
+      { title: "Wave", url: "/", branch: "feature/wave" },
+    ]);
+    config.devCommand = "pnpm dev --port {port}";
+    config.installCommand = "pnpm install";
+    const server = await start({
+      config,
+      port: 0,
+      startWorktree: async () => ({
+        branch: "feature/wave",
+        path: "/tmp/wave",
+        port: 4312,
+        url: "http://127.0.0.1:4312",
+        stop: async () => {
+          stops += 1;
+        },
+      }),
+    });
+
+    await fetch(`${server.url}/leglas/api/previews/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Wave" }),
+    });
+    await eventually(async () => {
+      const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+        previews: Array<{ state?: { status?: string } }>;
+      };
+      return body.previews[0]?.state?.status === "ready";
+    });
+
+    await server.close();
+    expect(stops).toBe(1);
   });
 
   test("tells the shell when unopened preview scanning is disabled", async () => {

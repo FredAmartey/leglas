@@ -22,7 +22,7 @@ import {
   resetPreviewLoaded,
 } from "./preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
-import type { Preview } from "./types.js";
+import type { BranchPreviewState, Preview } from "./types.js";
 
 /**
  * The engine every shell body sits on: prefs, selection, search, rename and
@@ -146,6 +146,29 @@ export function useShellState({
 
   const displayName = (title: string) => prefs.renames[title] ?? title;
   const urlFor = (title: string) => byTitle.get(title)?.url ?? "/";
+
+  /**
+   * A branch preview's checkout state, or null when the preview is a route on
+   * the running app and so has nothing to start.
+   */
+  const branchState = (title: string): BranchPreviewState | null => {
+    const preview = byTitle.get(title);
+    return preview?.branch === undefined ? null : (preview.state ?? { status: "idle" });
+  };
+
+  /**
+   * Ask the server to bring a branch up. Safe to call again: the server joins
+   * a start already in flight rather than checking out twice, so opening a
+   * preview twice while it boots is one checkout, and a failed one retries.
+   * The interface hears the result through the live socket's config nudge.
+   */
+  const startBranch = (title: string) => {
+    void fetch("/leglas/api/previews/start", {
+      body: JSON.stringify({ title }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }).catch(() => {});
+  };
 
   const matches = (title: string) => {
     if (!query.trim()) return true;
@@ -581,6 +604,8 @@ export function useShellState({
     startRename,
     toasts,
     urlFor,
+    branchState,
+    startBranch,
     visibleCount,
     viewports: VIEWPORTS,
   };

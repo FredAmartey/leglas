@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState }
 import { ThinkingOrb } from "thinking-orbs";
 
 import {
+  BranchOverlay,
   ErrorOverlay,
   ICON_BUTTON,
   Mark,
@@ -842,6 +843,23 @@ export function Shell({
     const identity = paneIdentityFor(title);
     return previousMounted.current.get(title) === identity && st.isLoaded(title, identity);
   };
+  /**
+   * A branch pane on stage is a request to bring that branch up.
+   *
+   * Opening it is the whole trigger: nothing checks out until somebody looks,
+   * which is the point of the change. Asking again while one is in flight is
+   * free, because the server joins the start rather than checking out twice,
+   * so this can stay a plain effect over whatever is mounted.
+   */
+  const branchesOnStage = mounted
+    .filter((title) => st.branchState(title)?.status === "idle")
+    .join("\u0001");
+  useEffect(() => {
+    for (const title of branchesOnStage.split("\u0001").filter(Boolean)) st.startBranch(title);
+    // st is rebuilt every render; the titles are what actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchesOnStage]);
+
   const mountedIdentities = new Map(mounted.map((title) => [title, paneIdentityFor(title)]));
   const mountedIdentityKey = [...mountedIdentities.values()].join("\u0001");
   const currentPaneIdentities = useRef(mountedIdentities);
@@ -2092,7 +2110,14 @@ export function Shell({
                 }`}
                 id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
               >
-                {renamingThis && st.renameError ? st.renameError : (preview?.note ?? preview?.url)}
+                {renamingThis && st.renameError
+                  ? st.renameError
+                  : // A branch's own URL is a loopback address on a port picked at
+                    // random, which tells a reader nothing and now appears only once
+                    // the checkout is up. The branch it came from is the useful line
+                    // and it is there from the start.
+                    (preview?.note ??
+                    (preview?.branch === undefined ? preview?.url : preview.branch))}
               </span>
             </span>
           </div>
@@ -3370,6 +3395,15 @@ export function Shell({
                     : undefined
                 }
               >
+              {(() => {
+                const branch = st.branchState(title);
+                return branch !== null && branch.status !== "ready" ? (
+                  <BranchOverlay
+                    branch={st.previewFor(title)?.branch ?? title}
+                    onStart={() => st.startBranch(title)}
+                    state={branch}
+                  />
+                ) : (
               <iframe
                 className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
                 key={paneIdentityFor(title)}
@@ -3392,6 +3426,8 @@ export function Shell({
                 src={st.urlFor(title)}
                 title={`Preview: ${st.displayName(title)}`}
               />
+                );
+              })()}
               {annotating && title === st.active ? (
                 <AnnotateLayer
                   notes={activeNotes}
@@ -3406,7 +3442,7 @@ export function Shell({
                 />
               ) : null}
               </div>
-              {errored[title] ? (
+              {st.branchState(title) !== null && st.branchState(title)?.status !== "ready" ? null : errored[title] ? (
                 <ErrorOverlay
                   onReload={() => reloadPane(title)}
                   reason={
