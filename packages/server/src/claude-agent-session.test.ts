@@ -12,6 +12,9 @@ import {
   type ClaudeWarmQuery,
 } from "./claude-agent-session.js";
 
+/** How long a wait may take before it is a hang rather than a slow machine. */
+const EVENTUALLY_MS = 15_000;
+
 type Message = Record<string, unknown>;
 
 class FakeQuery implements ClaudeSdkQuery {
@@ -83,7 +86,7 @@ function harness() {
 }
 
 async function until(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + EVENTUALLY_MS;
   while (!check()) {
     if (Date.now() > deadline) throw new Error("condition was not reached");
     await new Promise((resolve) => setTimeout(resolve, 2));

@@ -65,8 +65,22 @@ function manualClock() {
   };
 }
 
+/** How long a wait may take before it is a hang rather than a slow machine. */
+const EVENTUALLY_MS = 15_000;
+
+/**
+ * The deadline bounds a hang. It is not an assertion about latency.
+ *
+ * Two different tests failed here on a loaded machine, both with "condition
+ * never held", both waiting on something the operating system delivers when it
+ * gets to it: a filesystem watch event, a reachability probe. A suite that
+ * reports a slow machine as a defect teaches people to rerun until it passes,
+ * which is how a real failure gets waved through.
+ *
+ * Fifteen seconds costs nothing on every run where the condition holds.
+ */
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + EVENTUALLY_MS;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((resolve) => setTimeout(resolve, 5));
