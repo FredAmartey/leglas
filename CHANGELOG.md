@@ -11,7 +11,10 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
-## Unreleased
+## 0.7.3 (2026-08-27)
+
+A patch: branch previews could not start at all on a project whose dev
+server binds IPv6, which is the default one.
 
 ### Fixed
 
