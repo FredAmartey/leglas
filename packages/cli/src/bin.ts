@@ -8,6 +8,7 @@ import { runExplore } from "./run-explore.js";
 import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
+import { runLog } from "./run-log.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
 import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
@@ -24,6 +25,7 @@ Usage
   leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
+  leglas log [entry]         What past explorations decided
   leglas show <title>        Everything Leglas knows about one direction
   leglas requests            Show change requests made from the interface
   leglas watch --run "<cmd>" Hand each request to your agent as it arrives
@@ -179,6 +181,14 @@ if (parsed.kind === "requests") {
 if (parsed.kind === "watch") {
   const outcome = await runWatch(
     { run: parsed.run, port: parsed.port, cwd: process.cwd() },
+    previewDeps,
+  );
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "log") {
+  const outcome = await runLog(
+    { entry: parsed.entry, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
   process.exit(outcome.exitCode);

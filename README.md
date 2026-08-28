@@ -196,7 +196,14 @@ edit the hero. The supporting commands:
   a direction from the rail hands over a block that ends in this command, so
   an agent given the block can go and get the rest.
 - `npx leglas keep "Aurora" --to src/components/hero.tsx` moves the winner
-  into real source and ends the exploration.
+  into real source and ends the exploration. It also writes down what the
+  exploration was, into `design-log/`: every direction with its note, the words
+  you typed at each of them, the captures the agent was sent, and which one
+  won. Plain markdown and PNGs, committed, so a pull request can link it and
+  somebody can read it in three months without this tool. Exploring is
+  episodic, and the archive is what makes coming back to a surface cheaper than
+  starting over. `npx leglas log` lists what is there. Set `logDir` if you want
+  it somewhere else.
 
 Asking for a change works from the interface too. Type what you want
 changed into the field under the rail (or press `R`) and Leglas composes a
@@ -388,6 +395,7 @@ Usage
   leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
+  leglas log [entry]         What past explorations decided
   leglas show <title>        Everything Leglas knows about one direction
   leglas requests            Show change requests made from the interface
   leglas watch --run "<cmd>" Hand each request to your agent as it arrives
