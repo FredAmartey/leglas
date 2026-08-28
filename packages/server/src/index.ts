@@ -26,6 +26,8 @@ export type { DeclaredChange, Placement } from "./classify.js";
 export { CONFIG_BASENAMES, findConfigFile } from "./find-config.js";
 export { loadConfig } from "./load-config.js";
 export { LOCAL_PREVIEWS_PATH, addLocalPreview, dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
+export { DEFAULT_LOG_DIR, composeEntry } from "./log.js";
+export type { LogEntry, LogInput } from "./log.js";
 export { createProxyHandler } from "./proxy.js";
 export {
   NO_BROWSER,

@@ -98,6 +98,12 @@ out of the ignored directory, deletes the rest of the exploration, and drops
 them from the rail. Then change their component to use the kept component
 instead of the switcher.
 
+Keeping also writes what the exploration was into \`design-log/\`, which is
+committed. Before exploring a surface, read \`npx leglas log --json\` and any
+entry for that surface: it says what was already tried there, in the user's own
+words, and which direction won. Proposing something that was already rejected
+wastes their time, and the record is there so you do not have to ask.
+
 Useful to know:
 
 - \`.leglas/\` is gitignored. Exploration is disposable and nothing in there

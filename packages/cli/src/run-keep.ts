@@ -1,8 +1,17 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { dropLocalPreviews, loadConfig, readLocalPreviews, readRenames } from "@leglas/server";
+import {
+  DEFAULT_LOG_DIR,
+  composeEntry,
+  dropLocalPreviews,
+  loadConfig,
+  readAnnotations,
+  readLocalPreviews,
+  readRenames,
+  readRequests,
+} from "@leglas/server";
 
 import { planKeep } from "./keep.js";
 import { resolveOrExplain } from "./resolve-title.js";
@@ -25,6 +34,53 @@ function renameExport(source: string, to: string): string {
     new RegExp(`\\b${match[1]}\\b`, "g"),
     to,
   );
+}
+
+
+/**
+ * Write down what this exploration was, before the exploration is deleted.
+ *
+ * Everything in the entry already existed and was about to go: the directions,
+ * the words typed at each of them, the captures the agent was sent. That is
+ * correct for the working files and wrong for the record, and the record is
+ * what makes coming back to a surface in three months cheaper than starting
+ * over.
+ *
+ * Returns where it was written, or null if there was nothing to say. A failure
+ * here is reported by the caller and never fatal: the winner is already in
+ * source, and losing the note is not worth losing the move.
+ */
+async function writeLogEntry(options: {
+  cwd: string;
+  logDir: string;
+  surface: string;
+  won: { title: string; to: string };
+  previews: readonly Parameters<typeof composeEntry>[0]["previews"][number][];
+}): Promise<string | null> {
+  const entry = composeEntry({
+    surface: options.surface,
+    won: options.won,
+    previews: options.previews,
+    requests: await readRequests(options.cwd),
+    annotations: await readAnnotations(options.cwd),
+    date: new Date().toISOString().slice(0, 10),
+  });
+
+  const dir = join(options.cwd, options.logDir);
+  await mkdir(dir, { recursive: true });
+  const file = join(dir, `${entry.slug}.md`);
+  await writeFile(file, entry.markdown, "utf8");
+
+  if (entry.pictures.length > 0) {
+    const pictureDir = join(dir, entry.slug);
+    await mkdir(pictureDir, { recursive: true });
+    for (const picture of entry.pictures) {
+      // A capture that has already been pruned is skipped rather than fatal.
+      await copyFile(join(options.cwd, picture.from), join(pictureDir, picture.to)).catch(() => {});
+    }
+  }
+
+  return `${options.logDir}/${entry.slug}.md`;
 }
 
 export async function runKeep(
@@ -69,6 +125,23 @@ export async function runKeep(
   await mkdir(dirname(to), { recursive: true });
   await writeFile(to, renameExport(source, plan.exportName), "utf8");
 
+  // Written before the exploration is cleared, because the record is made of
+  // the things being cleared.
+  const surface = plan.removeDir.slice(plan.removeDir.lastIndexOf("/") + 1);
+  let logged: string | null = null;
+  let logError: string | null = null;
+  try {
+    logged = await writeLogEntry({
+      cwd: options.cwd,
+      logDir: loaded.config?.logDir ?? DEFAULT_LOG_DIR,
+      surface,
+      won: { title: resolved.title, to: plan.move.to },
+      previews: previews.filter((preview) => plan.dropTitles.includes(preview.title)),
+    });
+  } catch (error) {
+    logError = error instanceof Error ? error.message : String(error);
+  }
+
   // The exploration goes only after the winner is safely written.
   await rm(join(options.cwd, plan.removeDir), { recursive: true, force: true });
   const dropped = await dropLocalPreviews(options.cwd, plan.dropTitles);
@@ -82,6 +155,8 @@ export async function runKeep(
         exportName: plan.exportName,
         removed: plan.removeDir,
         droppedPreviews: dropped,
+        logged,
+        logError,
         instructions: plan.instructions,
       }),
     );
@@ -90,6 +165,8 @@ export async function runKeep(
 
   deps.log(`  kept     ${plan.move.to}`);
   deps.log(`  removed  ${plan.removeDir}`);
+  if (logged !== null) deps.log(`  logged   ${logged}`);
+  if (logError !== null) deps.error(`  The decision log could not be written: ${logError}`);
   if (dropped > 0) {
     deps.log(`  dropped  ${dropped} direction${dropped === 1 ? "" : "s"} from the rail`);
   }

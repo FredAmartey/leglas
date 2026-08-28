@@ -1,3 +1,4 @@
+import { DEFAULT_LOG_DIR } from "./log.js";
 export const DEFAULT_DEV_SERVER = "http://localhost:3000";
 
 /** Enough to install a fresh checkout with the package manager most repos use. */
@@ -49,6 +50,8 @@ export type LeglasConfig = {
   /** How to start the app in a checkout Leglas manages. `{port}` is required. */
   devCommand: string | undefined;
   installCommand: string;
+  /** Where decision-log entries are written. Committed, so it is the project's choice. */
+  logDir: string;
 };
 
 export type NormalizeResult = {
@@ -240,6 +243,10 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     );
   }
 
+  const logDir = source["logDir"] ?? DEFAULT_LOG_DIR;
+  if (typeof logDir !== "string" || logDir.trim() === "") {
+    errors.push("logDir must be a non-empty string.");
+  }
   const installCommand = source["installCommand"] ?? DEFAULT_INSTALL_COMMAND;
   if (typeof installCommand !== "string" || installCommand.trim() === "") {
     errors.push("installCommand must be a non-empty string.");
@@ -259,6 +266,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       scanPreviews: scanPreviews as boolean,
       devCommand: typeof devCommand === "string" ? devCommand : undefined,
       installCommand: installCommand as string,
+      logDir: logDir as string,
     },
     errors: [],
   };

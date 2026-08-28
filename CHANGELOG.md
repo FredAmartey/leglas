@@ -13,6 +13,23 @@ because most reach only one of the three.
 
 ## Unreleased
 
+### Added
+
+- **An exploration writes down what it decided.** Everything an exploration
+  produces was thrown away when it ended: the directions with their notes, the
+  words typed at each of them, the captures the agent was sent, and which one
+  won. That is right for the working files, which is why `.leglas/` is
+  gitignored, and wrong for the record. `leglas keep` now writes an entry to
+  `design-log/` first: plain markdown and PNGs, committed, so a pull request
+  can link it and somebody can read it in three months without this tool.
+  Nothing is invented; a direction with no note gets no note. A change that
+  failed is listed once, at the foot, with why, rather than reading as though
+  it happened. `leglas log` lists what is there and prints one entry, and the
+  instructions Leglas writes for agents now tell them to read it before
+  exploring a surface, so nobody proposes a direction that was already
+  rejected. Set `logDir` to put it somewhere other than `design-log`.
+  (`leglas`)
+
 ### Changed
 
 - **A branch stops when nobody is looking at it.** 0.7.4 made a branch preview

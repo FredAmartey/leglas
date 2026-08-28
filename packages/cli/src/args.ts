@@ -33,6 +33,7 @@ export type ParseResult =
   | { kind: "add"; preview: AddPreview; json: boolean }
   | { kind: "classify"; changes: ClassifyChange[]; json: boolean }
   | { kind: "list"; json: boolean }
+  | { kind: "log"; entry: string | null; json: boolean }
   | {
       kind: "show";
       title: string;
@@ -380,6 +381,19 @@ export function parseArgs(argv: string[]): ParseResult {
       return { kind: "error", message: `leglas requests does not take ${unknown}.` };
     }
     return { kind: "requests", json: rest.includes("--json"), clear: rest.includes("--clear") };
+  }
+  if (argv[0] === "log") {
+    const rest = argv.slice(1);
+    const flags = rest.filter((argument) => argument.startsWith("--"));
+    const unknown = flags.find((flag) => flag !== "--json");
+    if (unknown !== undefined) {
+      return { kind: "error", message: `leglas log does not take ${unknown}.` };
+    }
+    const names = rest.filter((argument) => !argument.startsWith("--"));
+    if (names.length > 1) {
+      return { kind: "error", message: "leglas log takes one entry at most." };
+    }
+    return { kind: "log", entry: names[0] ?? null, json: flags.includes("--json") };
   }
   if (argv[0] === "list") {
     const rest = argv.slice(1);

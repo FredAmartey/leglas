@@ -84,6 +84,10 @@ export type ParseResult = {
     kind: "list";
     json: boolean;
 } | {
+    kind: "log";
+    entry: string | null;
+    json: boolean;
+} | {
     kind: "show";
     title: string;
     json: boolean;
