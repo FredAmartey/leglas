@@ -11,6 +11,18 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **One route was still parsing its own request body.** `/api/annotations/update`
+  arrived in the same release as the guard that folded every other
+  body-reading route onto one helper, so it kept a hand-rolled copy of the
+  same check. It is folded on now, and the guard's test covers it, which it
+  did not before. No behaviour changes: the route already refused `null`, an
+  array and a bare value. Its comment claimed every route in the file still
+  had that hole, which stopped being true in the same release. (`leglas`)
+
 ## 0.7.0 (2026-08-27)
 
 Every change request carries what the user sees, and embedded agents warm up

@@ -1349,21 +1349,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
-        let read: unknown;
-        try {
-          read = JSON.parse(body || "{}");
-        } catch {
+        const parsed = jsonBody<{ id?: unknown; note?: unknown }>(body);
+        if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        // `null` is valid JSON, and reading a field off it throws here, inside
-        // a listener whose rejection nothing is waiting to catch: the process
-        // goes, and the interface and any run under way go with it. Every
-        // body-reading route in this file takes the same shortcut and has the
-        // same hole; this is the one being written today.
-        if (typeof read !== "object" || read === null || Array.isArray(read)) {
-          return sendJson(res, 400, { ok: false, error: "Body must be a JSON object." });
-        }
-        const parsed = read as { id?: unknown; note?: unknown };
         if (typeof parsed.id !== "string" || parsed.id === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs the note to reword." });
         }

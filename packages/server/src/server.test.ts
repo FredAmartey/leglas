@@ -2231,6 +2231,7 @@ describe("a body that is not an object", () => {
     "/api/requests/retry",
     "/api/requests/dismiss",
     "/api/annotations",
+    "/api/annotations/update",
     "/api/annotations/delete",
     "/api/renames",
   ] as const;
