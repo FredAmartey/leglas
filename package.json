@@ -4,7 +4,7 @@
   "packageManager": "pnpm@11.20.0",
   "type": "module",
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "pnpm build && vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build",
