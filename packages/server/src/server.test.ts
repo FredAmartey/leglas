@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
@@ -84,6 +85,39 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 };
+
+async function expectConditionalRead(url: string, change: () => Promise<void> | void): Promise<void> {
+  const initial = await fetch(url);
+  const initialBody = await initial.text();
+  const initialEtag = initial.headers.get("etag");
+
+  expect(initial.status).toBe(200);
+  expect(initialEtag).toBe(
+    `"${createHash("sha256").update(initialBody).digest("base64url")}"`,
+  );
+
+  const unchanged = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
+  expect(unchanged.status).toBe(304);
+  expect(unchanged.headers.get("etag")).toBe(initialEtag);
+  expect(await unchanged.text()).toBe("");
+
+  await change();
+
+  const changed = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
+  const changedBody = await changed.text();
+  const changedEtag = changed.headers.get("etag");
+  expect(changed.status).toBe(200);
+  expect(changedBody).not.toBe(initialBody);
+  expect(changedEtag).not.toBe(initialEtag);
+  expect(changedEtag).toBe(
+    `"${createHash("sha256").update(changedBody).digest("base64url")}"`,
+  );
+
+  const changedUnchanged = await fetch(url, {
+    headers: { "if-none-match": changedEtag ?? "" },
+  });
+  expect(changedUnchanged.status).toBe(304);
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -1770,6 +1804,64 @@ describe("startServer", () => {
     expect(body.errors).toEqual([]);
   });
 
+  test("returns conditional config responses and changes the etag with the body", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-config-"));
+    mkdirSync(join(cwd, ".leglas"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    await expectConditionalRead(`${server.url}/leglas/api/config`, () => {
+      writeFileSync(
+        join(cwd, ".leglas/previews.json"),
+        JSON.stringify({ previews: [{ title: "Fresh", url: "/fresh" }] }),
+      );
+    });
+  });
+
+  test("returns conditional request responses and changes the etag with the body", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-requests-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    await expectConditionalRead(`${server.url}/leglas/api/requests`, async () => {
+      const response = await fetch(`${server.url}/leglas/api/watch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ watching: true }),
+      });
+      expect(response.status).toBe(200);
+    });
+  });
+
+  test("returns conditional annotation responses and changes the etag with the body", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-annotations-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    await expectConditionalRead(`${server.url}/leglas/api/annotations`, async () => {
+      const response = await fetch(`${server.url}/leglas/api/annotations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: "Fresh",
+          note: "keep this",
+          anchor: { selector: "main" },
+        }),
+      });
+      expect(response.status).toBe(200);
+    });
+  });
+
+  test("returns conditional health responses and changes the etag with the body", async () => {
+    const targetPort = await startOrigin();
+    const target = origins.at(-1);
+    if (target === undefined) throw new Error("test origin did not start");
+    const server = await start({ config: configFor(targetPort), port: 0 });
+
+    await expectConditionalRead(`${server.url}/leglas/api/health`, async () => {
+      target.closeAllConnections();
+      await new Promise<void>((done) => target.close(() => done()));
+      origins.splice(origins.indexOf(target), 1);
+    });
+  });
+
   test("starts a branch once in the background and withholds its url until it is ready", async () => {
     const checkout = deferred<RunningWorktree>();
     const live = fakeLiveHub();
@@ -1836,9 +1928,11 @@ describe("startServer", () => {
     };
     expect(ready.previews[0]).toMatchObject({
       title: "Wave",
-      url: "http://127.0.0.1:4312/direction",
       state: { status: "ready" },
     });
+    const branchUrl = new URL(String(ready.previews[0]?.url));
+    expect(branchUrl.pathname).toBe("/direction");
+    expect(branchUrl.port).not.toBe("4312");
     expect(live.changes).toEqual(["config", "config", "config"]);
   });
 

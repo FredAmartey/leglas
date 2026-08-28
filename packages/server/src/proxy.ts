@@ -5,6 +5,11 @@ import type { Duplex } from "node:stream";
 export type ProxyOptions = {
   /** Origin of the dev server being fronted, e.g. http://localhost:3000 */
   target: string;
+  /** Marks traffic which proves a caller is still using this proxy. */
+  onActivity?: () => void;
+  /** Tracks requests that remain open, notably dev-server HMR connections. */
+  onOpen?: () => void;
+  onClose?: () => void;
 };
 
 export type ProxyHandler = {
@@ -12,6 +17,13 @@ export type ProxyHandler = {
   request(req: IncomingMessage, res: ServerResponse, publicOrigin: string): void;
   /** Forwards the websocket handshake. Without this, live reload dies silently. */
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void;
+};
+
+export type RunningProxy = {
+  /** Whether a request or upgraded connection is still open through the proxy. */
+  active(): boolean;
+  close(): Promise<void>;
+  url: string;
 };
 
 /**
@@ -22,6 +34,16 @@ export type ProxyHandler = {
 export function createProxyHandler(options: ProxyOptions): ProxyHandler {
   const target = new URL(options.target);
   const host = target.hostname;
+  /**
+   * The same address, dialable.
+   *
+   * `URL.hostname` returns an IPv6 literal with its brackets, which is what a
+   * Host header and an origin want and what a socket cannot use: `net.connect`
+   * and `http.request` hand it to `getaddrinfo`, which answers ENOTFOUND for
+   * `[::1]` because that is not a name. A branch's own dev server is reached
+   * this way whenever it binds IPv6, which Vite does by default on macOS.
+   */
+  const dialHost = host.replace(/^\[|\]$/g, "");
   const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
   const authority = target.port ? `${host}:${target.port}` : host;
 
@@ -49,8 +71,20 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
 
   return {
     request(req, res, publicOrigin) {
+      options.onActivity?.();
+      options.onOpen?.();
+      let open = true;
+      const close = () => {
+        if (!open) return;
+        open = false;
+        options.onActivity?.();
+        options.onClose?.();
+      };
+      res.once("finish", close);
+      res.once("close", close);
+
       const upstream = http.request(
-        { host, port, method: req.method, path: req.url, headers: upstreamHeaders(req) },
+        { host: dialHost, port, method: req.method, path: req.url, headers: upstreamHeaders(req) },
         (upstreamRes) => {
           const headers = { ...upstreamRes.headers };
           const location = rewriteLocation(
@@ -87,7 +121,16 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
     },
 
     upgrade(req, socket, head) {
-      const upstream = net.connect(port, host, () => {
+      options.onActivity?.();
+      options.onOpen?.();
+      let open = true;
+      const closeActivity = () => {
+        if (!open) return;
+        open = false;
+        options.onActivity?.();
+        options.onClose?.();
+      };
+      const upstream = net.connect(port, dialHost, () => {
         const headers = Object.entries(upstreamHeaders(req))
           .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}\r\n`)
           .join("");
@@ -101,6 +144,7 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
       // its live-reload socket is an ordinary close, and without this the
       // upstream connection leaks for every tab the user ever opens.
       const shutdown = () => {
+        closeActivity();
         upstream.destroy();
         socket.destroy();
       };
@@ -110,4 +154,68 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
       socket.on("close", shutdown);
     },
   };
+}
+
+/**
+ * Put a loopback-only origin in front of one dev server.
+ *
+ * Branch previews need their own origin because their root-relative assets and
+ * live-reload sockets must still point at their own checkout. Owning that
+ * origin also gives the branch registry the traffic signal it needs without a
+ * shell heartbeat or any changes to the app being previewed.
+ */
+export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
+  return new Promise((resolve, reject) => {
+    let open = 0;
+    const handler = createProxyHandler({
+      ...options,
+      onOpen: () => {
+        open += 1;
+        options.onOpen?.();
+      },
+      onClose: () => {
+        open = Math.max(0, open - 1);
+        options.onClose?.();
+      },
+    });
+    const server = http.createServer((req, res) => {
+      const address = server.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      handler.request(req, res, `http://127.0.0.1:${port}`);
+    });
+    const sockets = new Set<Duplex>();
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    });
+    server.on("upgrade", (req, socket, head) => handler.upgrade(req, socket, head));
+
+    const onError = (error: Error) => {
+      server.removeListener("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.removeListener("error", onError);
+      const address = server.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      let closed: Promise<void> | null = null;
+      resolve({
+        active: () => open > 0,
+        close: () => {
+          if (closed !== null) return closed;
+          closed = new Promise<void>((done) => {
+            for (const socket of sockets) socket.destroy();
+            sockets.clear();
+            server.closeAllConnections();
+            server.close(() => done());
+          });
+          return closed;
+        },
+        url: `http://127.0.0.1:${port}`,
+      });
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(0, "127.0.0.1");
+  });
 }

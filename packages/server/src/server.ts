@@ -7,6 +7,7 @@ import {
   watchFile,
   type FSWatcher,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
@@ -177,6 +178,38 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+  });
+  res.end(payload);
+}
+
+function etagMatches(value: string | string[] | undefined, etag: string): boolean {
+  if (value === undefined) return false;
+  const values = Array.isArray(value) ? value : [value];
+  return values.some((header) =>
+    header.split(",").some((candidate) => {
+      const tag = candidate.trim();
+      return tag === "*" || tag === etag || tag === `W/${etag}`;
+    }),
+  );
+}
+
+/** Serialize once, then derive and answer from those exact bytes. */
+function sendConditionalJson(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  body: unknown,
+): void {
+  const payload = JSON.stringify(body);
+  const etag = `"${createHash("sha256").update(payload).digest("base64url")}"`;
+  if (etagMatches(req.headers["if-none-match"], etag)) {
+    res.writeHead(304, { etag, "cache-control": "private, no-cache" });
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "private, no-cache",
+    etag,
   });
   res.end(payload);
 }
@@ -743,10 +776,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (preview.branch === undefined) return preview;
     const state = branches.state(preview.title) ?? { status: "idle" as const };
     const { url: route, ...withoutUrl } = preview;
+    const branchUrl = branches.url(preview.title);
     return state.status === "ready"
       ? {
           ...withoutUrl,
-          url: `${state.worktree.url}${route}`,
+          url: `${branchUrl ?? state.worktree.url}${route}`,
           state: publicBranchState(state),
         }
       : { ...withoutUrl, state: publicBranchState(state) };
@@ -757,7 +791,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (preview.branch === undefined) return preview;
     const state = branches.state(preview.title);
     return state?.status === "ready"
-      ? { ...preview, url: `${state.worktree.url}${preview.url}` }
+      ? { ...preview, url: `${branches.url(preview.title) ?? state.worktree.url}${preview.url}` }
       : null;
   };
   // Sweep up browsers left by a Leglas that was killed outright or crashed,
@@ -889,7 +923,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return void readLocalPreviews(cwd)
         .then(({ previews: local, errors: localErrors }) => {
           if (localErrors.length > 0) {
-            return sendJson(res, 200, {
+            return sendConditionalJson(req, res, {
               project,
               devServer: target,
               scanPreviews: config?.scanPreviews ?? true,
@@ -911,7 +945,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             (preview) =>
               !known.has(preview.title) && preview.branch === undefined && preview.file === undefined,
           );
-          sendJson(res, 200, {
+          sendConditionalJson(req, res, {
             project,
             devServer: target,
             scanPreviews: config?.scanPreviews ?? true,
@@ -921,7 +955,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         })
         .catch(() =>
-          sendJson(res, 200, {
+          sendConditionalJson(req, res, {
             project,
             devServer: target,
             scanPreviews: config?.scanPreviews ?? true,
@@ -1526,7 +1560,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         failedIds: [],
       };
       return void readRequests(cwd).then((requests) =>
-        sendJson(res, 200, {
+        sendConditionalJson(req, res, {
           requests: requests.map(({ id, title, intent, mode, status, failure, notes }) => ({
             id,
             title,
@@ -1668,7 +1702,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // while another is being looked at.
     if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "GET") {
       return void readAnnotations(cwd).then((annotations) =>
-        sendJson(res, 200, { annotations }),
+        sendConditionalJson(req, res, { annotations }),
       );
     }
 
@@ -1830,7 +1864,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       // can tell this server from one serving a different project on a port
       // it happened to find.
       return void probe(target).then((reachable) =>
-        sendJson(res, 200, { devServer: target, reachable, cwd }),
+        sendConditionalJson(req, res, { devServer: target, reachable, cwd }),
       );
     }
 

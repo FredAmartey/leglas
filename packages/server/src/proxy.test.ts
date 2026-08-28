@@ -3,7 +3,7 @@ import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { createProxyHandler } from "./proxy.js";
+import { createProxyHandler, startProxyServer } from "./proxy.js";
 
 /**
  * Node detaches a socket from its server once upgraded, so neither close() nor
@@ -137,6 +137,57 @@ afterAll(async () => {
 });
 
 describe("proxy", () => {
+  /**
+   * A branch's own dev server binds whatever `localhost` resolves to, which on
+   * macOS is `::1`, so its origin is `http://[::1]:PORT`. `URL.hostname` keeps
+   * the brackets, which is right for a Host header and wrong for a socket:
+   * `getaddrinfo` answers ENOTFOUND for `[::1]` because it is not a name.
+   * Every branch preview 502'd on this.
+   */
+  test("reaches a target that is an IPv6 literal", async () => {
+    const upstream = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("six");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "::1", () => resolve()));
+    const port = (upstream.address() as AddressInfo).port;
+
+    const handler = createProxyHandler({ target: `http://[::1]:${port}` });
+    const front: http.Server = http.createServer((req, res) => {
+      handler.request(req, res, `http://127.0.0.1:${(front.address() as AddressInfo).port}`);
+    });
+    await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", () => resolve()));
+    const frontPort = (front.address() as AddressInfo).port;
+
+    try {
+      const answer = await fetch(`http://127.0.0.1:${frontPort}/`);
+      expect(answer.status).toBe(200);
+      expect((await answer.text()).trim()).toBe("six");
+    } finally {
+      await new Promise<void>((resolve) => front.close(() => resolve()));
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  }, 20_000);
+
+  test("a branch proxy exposes activity and owns its loopback origin", async () => {
+    let activity = 0;
+    const branchProxy = await startProxyServer({
+      target: `http://127.0.0.1:${origin.port}`,
+      onActivity: () => {
+        activity += 1;
+      },
+    });
+    const response = await fetch(`${branchProxy.url}/slow`);
+
+    expect(branchProxy.active()).toBe(true);
+    expect(activity).toBeGreaterThan(0);
+
+    await branchProxy.close();
+    await response.text().catch(() => "");
+    expect(branchProxy.active()).toBe(false);
+    expect(activity).toBeGreaterThan(1);
+  });
+
   test("passes a response body through unchanged", async () => {
     const res = await fetch(`http://127.0.0.1:${proxy.port}/`);
 

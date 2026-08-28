@@ -11,6 +11,35 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Changed
+
+- **A branch stops when nobody is looking at it.** 0.7.4 made a branch preview
+  start when you open it. Nothing stopped one afterwards, so a branch opened
+  once held a checkout and a dev server until the session ended. Ten minutes
+  without traffic and it is stopped and its checkout removed; opening it starts
+  it again. A branch still serving, including one holding a live-reload
+  connection, is left alone, and one that is still starting is never touched.
+  (`leglas`)
+- **The interface stops asking for answers it already has.** `/api/config`,
+  `/api/requests`, `/api/annotations` and `/api/health` answered in full every
+  time, and an idle tab reads them sixteen times a minute, almost always
+  unchanged. They carry an ETag now and answer 304 to a matching revalidation,
+  which on a small project is about 1.25KB a tick down to headers alone. One
+  combined endpoint would cut the request count further and was not done: the
+  four would then share a failure, so a slow health probe would hold up the
+  queue. (`leglas`)
+
+### Fixed
+
+- **A branch preview served nothing but 502.** Its dev server is reached
+  through a proxy so Leglas can tell when it was last looked at, and the proxy
+  dialled the address exactly as `URL.hostname` gives it, brackets and all. A
+  branch binding IPv6, which is Vite's default on macOS, has an origin of
+  `http://[::1]:PORT`, and `[::1]` is not a name: every lookup answered
+  ENOTFOUND. (`leglas`)
+
 ## 0.7.4 (2026-08-27)
 
 A patch: a branch preview is checked out when you open it rather than
