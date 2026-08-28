@@ -8,7 +8,10 @@
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
-    "types": ["node"]
+    "types": ["node"],
+    // Node strips types but does not rewrite specifiers, so a root script that
+    // imports a sibling names the .ts file. Only legal with noEmit, which this is.
+    "allowImportingTsExtensions": true
   },
   "include": ["*.ts"]
 }

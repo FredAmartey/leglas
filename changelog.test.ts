@@ -3,7 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { anchor, inline, loadAssets, longDate, parseChangelog, renderPage } from "./changelog.js";
+import { anchor, inline, longDate, parseChangelog, renderPage } from "./changelog.ts";
+import { loadAssets } from "./chrome.ts";
 
 const root = import.meta.dirname;
 

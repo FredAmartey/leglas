@@ -1,9 +1,10 @@
 name: Pages
 
-# The changelog page is made from CHANGELOG.md on every push to main and
-# published through GitHub Pages. Nothing generated is committed: the site is
-# built here, from the same file a GitHub or npm reader sees, so it cannot say
-# something the changelog does not.
+# The site, a homepage and the changelog page made from CHANGELOG.md, is
+# built on every push to main and published through GitHub Pages. Nothing
+# generated is committed: the changelog page comes from the same file a
+# GitHub or npm reader sees, so it cannot say something the changelog does
+# not.
 #
 # The repository's Pages source has to be "GitHub Actions" for the deploy step
 # to be accepted. That is a one-time setting, not something this file can do.
@@ -12,10 +13,14 @@ on:
     branches: [main]
     paths:
       - CHANGELOG.md
+      - site.ts
+      - chrome.ts
+      - home.ts
       - changelog.ts
       - packages/shell/src/fonts/**
       - packages/shell/public/favicon.svg
       - .github/assets/wordmark.svg
+      - .github/assets/screenshots/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -39,7 +44,7 @@ jobs:
           node-version: 24
       # No install: the page has no dependencies beyond Node and the files
       # already in the tree.
-      - run: node changelog.ts
+      - run: node site.ts
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist/site
