@@ -9,9 +9,10 @@ of them together:
 
 They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
-because most reach only one of the three.
+because most reach only one of the three, and each release heading says what
+it was about.
 
-## 0.8.0 (2026-08-28)
+## 0.8.0 (2026-08-28): An exploration writes down what it decided
 
 A minor, because the public surface moved: an exploration now writes
 down what it decided, and `leglas log` reads it back.
@@ -32,6 +33,9 @@ down what it decided, and `leglas log` reads it back.
   exploring a surface, so nobody proposes a direction that was already
   rejected. Set `logDir` to put it somewhere other than `design-log`.
   (`leglas`)
+
+![A design-log entry as GitHub renders it: hero, 2026-08-28; Table won and became src/hero.tsx, 8 directions were compared; then the Table section with its capture and the words that were asked for it](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.8.0-design-log/design-log-entry.jpg "What leglas keep writes before it clears the exploration: the winner, every direction with its note and its capture, and the words typed at each of them.")
+
 
 ### Changed
 
@@ -60,7 +64,7 @@ down what it decided, and `leglas log` reads it back.
   `http://[::1]:PORT`, and `[::1]` is not a name: every lookup answered
   ENOTFOUND. (`leglas`)
 
-## 0.7.4 (2026-08-27)
+## 0.7.4 (2026-08-27): Branches start when you open them
 
 A patch: a branch preview is checked out when you open it rather than
 when Leglas starts, so a project with branches is usable in a second
@@ -81,7 +85,10 @@ instead of ten.
   branch instead of its URL, which was a loopback address on a port picked at
   random. (`leglas`)
 
-## 0.7.3 (2026-08-27)
+![The pane of a branch preview while it starts: a spinner, the line Installing what it needs, and under it A branch runs in its own checkout, built the first time you open it this session](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.7.4-branch-starts-when-opened/installing-what-it-needs.png#w=500 "Opening a branch is what starts it, and the pane says which step it is on: checking out, installing, starting its dev server.")
+
+
+## 0.7.3 (2026-08-27): Branch previews on a default Vite project
 
 A patch: branch previews could not start at all on a project whose dev
 server binds IPv6, which is the default one.
@@ -101,7 +108,7 @@ server binds IPv6, which is the default one.
   The same wait starts a project's own app when the config carries a
   `devCommand`, so that path was equally affected. (`leglas`)
 
-## 0.7.2 (2026-08-27)
+## 0.7.2 (2026-08-27): The server says when
 
 A patch: the interface stops polling on a timer and the server says
 when instead. Nothing a caller uses changes, and the public surface
@@ -125,7 +132,7 @@ does not move.
   than sharing one read, since a single slow endpoint should not become every
   loop's problem. (`leglas`)
 
-## 0.7.1 (2026-08-27)
+## 0.7.1 (2026-08-27): The route the guard never saw
 
 A patch: a request body of four characters could end the server, on the one
 route the guard that closed that hole never saw.
@@ -148,7 +155,7 @@ route the guard that closed that hole never saw.
   a named reason rather than being silently missing. A source scan fails if
   any route parses a body by hand again. (`leglas`)
 
-## 0.7.0 (2026-08-27)
+## 0.7.0 (2026-08-27): The agent sees what you see
 
 Every change request carries what the user sees, and embedded agents warm up
 when you mean it. A minor: how every run starts changed underneath, `leglas`
@@ -170,6 +177,9 @@ gained an optional dependency, and the public surface moved.
   and `leglas watch`, gets the paths in the prompt and is told to open them. With no browser on the machine the request still goes, with one
   sentence saying why nothing was captured. Captures leave with their request
   and orphans are pruned at boot. (`leglas`)
+
+![The composer a moment after sending: the field is disabled, a reference thumbnail sits above it, and the hint reads Capturing the design for your agent](https://raw.githubusercontent.com/FredAmartey/docs-assets/377e0b3810067971eee37f8f940c9bf690b256fa/projects/leglas/pull-requests/0032-agent-eyes/composer-capturing.png#w=480 "Send, and the direction is captured for the agent first; a reference image attached to the composer rides along.")
+
 - **Reference images in the composer.** Paste, drop or attach up to four PNG,
   JPEG, WebP or GIF images of 10MB or less to a change. They upload as they
   are attached and ride with the request. (`leglas`)
@@ -180,6 +190,9 @@ gained an optional dependency, and the public surface moved.
   `leglas init` writes, the explore brief and the skill now ask for one look
   at each direction before it is called done, and a composed request asks the
   agent to look once after the change. (`leglas`, `leglas-mcp`, plugin)
+
+![A rendered direction: a dark landing page whose headline reads Catch it while it's still humming, over orange sound waves](https://raw.githubusercontent.com/FredAmartey/docs-assets/377e0b3810067971eee37f8f940c9bf690b256fa/projects/leglas/pull-requests/0032-agent-eyes/what-the-agent-received-frame.png "What one request handed the agent: the direction at the width it was drawn at, filed under .leglas/captures/.")
+
 - **`.leglas/server.json`** records the running server's port so a second
   process can find it. Removed when the server stops, and only by the instance
   that wrote it. `/leglas/api/health` also names the project directory it
@@ -334,7 +347,7 @@ gained an optional dependency, and the public surface moved.
   an agent is chosen: the "I'll run my own" dismissal is gone, since
   `leglas watch` announces an external agent on its own. (`leglas`)
 
-## 0.6.1 (2026-08-20)
+## 0.6.1 (2026-08-20): A broken first load comes back
 
 ### Fixed
 
@@ -346,7 +359,7 @@ gained an optional dependency, and the public surface moved.
   nothing on screen to say it was still broken and no way back short of a
   manual reload. Every app-backed preview now reloads. (`leglas`)
 
-## 0.6.0 (2026-08-20)
+## 0.6.0 (2026-08-20): The picker knows what is installed
 
 ### Changed
 
@@ -358,6 +371,9 @@ gained an optional dependency, and the public surface moved.
   effort selector from Low through Maximum, remembered separately for each
   agent; `Agent default` passes no override and keeps the CLI's own setting.
   (`leglas`)
+
+![The agent picker open above the composer: Claude, Codex with a tick, an Effort row set to Agent default, and Connect agent via MCP](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/picker-with-effort.png#w=500 "The picker lists what is actually installed, with an effort row for Claude Code and Codex.")
+
 - **MCP connection is now a complete, verifiable flow.** The agent picker has
   one clearly named `Connect agent via MCP` path instead of mixing a custom
   command editor with a nested copy panel. A focused dialog distinguishes
@@ -367,6 +383,9 @@ gained an optional dependency, and the public surface moved.
   used a Leglas tool. The same path stays visible when no local agent is
   installed. Custom commands remain available through `leglas watch --run`
   without occupying the primary picker. (`leglas`)
+
+![The Connect agent via MCP dialog: a choice between Claude Code and Codex, Cursor and others, the terminal command with a copy button, and a row reading Waiting for agent activity](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/connect-agent-via-mcp.png#w=570 "One dialog for the whole flow: pick the client, copy the exact setup, and watch it confirm once the agent uses a Leglas tool.")
+
 
 ### Fixed
 
@@ -382,7 +401,7 @@ gained an optional dependency, and the public surface moved.
   Each loop now keeps one read in flight at a time, and abandons one that
   outlives its deadline so the connection comes back. (`leglas`)
 
-## 0.5.0 (2026-08-20)
+## 0.5.0 (2026-08-20): Point at what is wrong
 
 This is a minor rather than a patch because the public API surface moved:
 `PendingRequest.status` gained two values, and the type gained `failure`,
@@ -406,6 +425,9 @@ This is a minor rather than a patch because the public API surface moved:
   edges of the pane rather than hanging off them. They live in
   `.leglas/annotations.json`, and a change made in place forgets the ones it
   answered. (`leglas`)
+
+![The interface in annotate mode: a dashed region covers the headline and the pouch with a numbered pin at its corner, the Annotate chip counts one note, and the composer offers to send with no words](https://raw.githubusercontent.com/FredAmartey/docs-assets/2ad249d23aba5f967d2f1ab4da2ea46ea978aa83/projects/leglas/pull-requests/0025-agent-run-legibility/annotate-region-kept.png "A region marked on the design. Pin 1 covers the headline and the pouch, and the note alone is a complete request.")
+
 - **A change makes a variant instead of overwriting the direction.** Sending
   "the pouch looks fake" at a direction used to edit that direction's file, so
   the thing being compared against was gone. It now builds a new direction
@@ -477,7 +499,7 @@ This is a minor rather than a patch because the public API surface moved:
   line saying so; anything else still queues, and the composer stays open
   during a run. (`leglas`)
 
-## 0.4.1 (2026-08-14)
+## 0.4.1 (2026-08-14): Deleting for good, dragging from anywhere
 
 ### Added
 
@@ -491,6 +513,11 @@ This is a minor rather than a patch because the public API surface moved:
 - **A direction can be dragged from anywhere on its row.** Vertical movement
   reorders while horizontal movement still selects text, so the note no longer
   leaves most of the row unable to drag. (`leglas`)
+
+![Before: a text selection painted across four rows of the rail, nothing moved](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0017-row-drag-rename/row-drag-before.png#w=372 "Before: pressing on a note and dragging painted a selection across four rows and moved nothing.")
+
+![After: the dragged row lifted out of the list, the others making room](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0017-row-drag-rename/row-drag-after.png#w=372 "After: the row lifts and the others make room.")
+
 - **Rename fields keep Enter and Space.** The row keyboard shortcut now runs
   only when the row itself has focus, so Enter submits a rename and spaces can
   be typed into its name. (`leglas`)
@@ -501,7 +528,7 @@ This is a minor rather than a patch because the public API surface moved:
   the dialog until it closes, then returns to the control that opened it.
   (`leglas`)
 
-## 0.4.0 (2026-08-13)
+## 0.4.0 (2026-08-13): The interface runs your agent
 
 The interface runs your agent itself. Asking for a change no longer
 needs a second terminal: pick an agent once and every request runs as
@@ -517,6 +544,9 @@ you send it.
   above the field: who is working, which file they are touching, a
   ticking clock, a stop button while it runs, retry and dismiss when it
   fails. Your agent, your subscription, no keys and no login. (`leglas`)
+
+![A run reporting in its card above the composer: Codex is on it, editing directions/hero-a.html, 1m 10s, a stop button](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0011-embedded-agent-runner/runner-running.png#w=600 "A run reporting in its card: who is working, the file they are touching, the clock and a stop button.")
+
 - **The picker knows who is signed in.** Each detected CLI is asked for
   its own login status (`claude auth status`, `codex login status`), so
   a signed-out agent is marked in the menu before a run fails instead
@@ -529,6 +559,9 @@ you send it.
   needs that, in the menu and in `leglas watch --run` alike. The chip
   wears the command's own name, and the run loop treats it exactly like
   the built-in three. (`leglas`)
+
+![The picker open above the chip: Claude, Codex with a tick, and a row reading Add your own](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0011-embedded-agent-runner/runner-picker.png#w=560 "The picker above the chip: the CLIs found on the machine, and a row for a command of your own.")
+
 - **`leglas watch` needs no `--run` once an agent is picked.** The
   choice is shared through `.leglas/watch.json`, and an external watcher
   always wins over the embedded runner, so the two never race for a
@@ -547,6 +580,9 @@ you send it.
   embedded runner stays out of its way while it works and takes back
   over once it goes quiet. (`leglas`, `leglas-mcp`)
 
+![The connect sheet: Give your agent the Leglas tools, with a copy button beside Claude Code command and beside mcp.json for everything else](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0014-mcp-connect/connect-sheet.png#w=520 "The sheet behind Connect another agent: the Claude Code command or an mcp.json entry, one copy each.")
+
+
 ### Changed
 
 - **Runs start the moment you send and finish in half the time.** A new
@@ -562,7 +598,7 @@ you send it.
   links keep working for what they promised, opening and viewing live
   directions. (`leglas`)
 
-## 0.3.0 (2026-08-09)
+## 0.3.0 (2026-08-09): Installable as one thing
 
 Leglas becomes installable as one thing. The skill teaches an agent the
 workflow, the plugin carries the skill and the server together, and the server
@@ -625,7 +661,7 @@ learned to find your project when a plugin client starts it somewhere else.
   same names and arguments, as in 0.2.0. It affects only code that imports from
   `leglas-mcp` directly, which is an unusual thing to do.
 
-## 0.2.0 (2026-08-05)
+## 0.2.0 (2026-08-05): Ask for a change without leaving
 
 Change requests, so you can ask for edits without leaving the comparison.
 
@@ -635,8 +671,14 @@ Change requests, so you can ask for edits without leaving the comparison.
   direction you are looking at. Leglas writes a prompt naming that direction
   and the file behind it, copies it to your clipboard, and queues it, with a
   lifecycle the interface can show.
+
+![The input bar under the rail with a notice above it: Asked for a change to Aurora. Prompt copied. The hint reads 1 change queued for your agent](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0002-change-request-lifecycle/request-queued.png#w=560 "A change asked for from the input bar: the prompt is on the clipboard and the hint says one change is queued.")
+
 - **`leglas watch --run "<command>"`** hands each request to your agent as it
   arrives, so you can keep working while it acts on them.
+
+![The Leglas interface with Aurora selected, its gradient now warm orange fading to blue, and the hint under the input bar reading Your agent is listening](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0003-agent-watch/aurora-after.png "Aurora after the watcher handed a change to the agent. The hint under the input bar reads Your agent is listening.")
+
 - **Channel push.** On hosts that speak channels, the MCP server delivers each
   request straight into the open session instead of waiting to be asked.
 - **`leglas show <title>`** answers everything about one direction: its entry,
@@ -663,7 +705,7 @@ Change requests, so you can ask for edits without leaving the comparison.
 - Releases run from CI on a `v*` tag through npm trusted publishing, so no
   token exists anywhere. 0.2.0 onward carry build provenance.
 
-## 0.1.0 and 0.1.1 (2026-08-01)
+## 0.1.0 and 0.1.1 (2026-08-01): First release
 
 First release, and a same-day documentation correction. Both were published by
 hand before the CI pipeline existed, which is why they carry no provenance and
@@ -679,3 +721,6 @@ application: real data, real authentication, real behaviour.
 - `leglas-mcp` for agent hosts that cannot run a shell.
 - Branch-backed previews, plain HTML directions with no dev server, and a
   duplicate check for two directions that render the same page.
+
+![The first Leglas interface: a rail headed Directions with five of them and Table selected, and the Simmer hero running full width on the stage](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.1.0-first-release/rail-and-stage.jpg "Leglas 0.1.0, built from its tag and pointed at a demo app: the rail on the left, and the selected direction running as the real app on the stage.")
+

@@ -1,0 +1,55 @@
+name: Pages
+
+# The changelog page is made from CHANGELOG.md on every push to main and
+# published through GitHub Pages. Nothing generated is committed: the site is
+# built here, from the same file a GitHub or npm reader sees, so it cannot say
+# something the changelog does not.
+#
+# The repository's Pages source has to be "GitHub Actions" for the deploy step
+# to be accepted. That is a one-time setting, not something this file can do.
+on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - changelog.ts
+      - packages/shell/src/fonts/**
+      - packages/shell/public/favicon.svg
+      - .github/assets/wordmark.svg
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and a newer push wins over one still in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # No install: the page has no dependencies beyond Node and the files
+      # already in the tree.
+      - run: node changelog.ts
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
