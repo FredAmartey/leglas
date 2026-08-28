@@ -6,6 +6,7 @@ describe("hydrationEvidence", () => {
   test.each([
     ["React", "Uncaught Error: Minified React error #418; visit https://react.dev/errors/418"],
     ["React", "Hydration failed because the initial UI does not match"],
+    ["React", "Hydration failed because the server rendered HTML didn't match the client."],
     ["React", "There was an error while hydrating this Suspense boundary"],
     ["React", "Text content does not match server-rendered HTML"],
     ["React", "Expected server HTML to contain a matching div"],
@@ -15,6 +16,7 @@ describe("hydrationEvidence", () => {
     ["Svelte", "https://svelte.dev/e/hydration_mismatch"],
     ["Solid", "Hydration Mismatch. Unable to find DOM nodes for hydration key"],
     ["the app", "Unexpected hydration result: markup mismatch"],
+    ["the app", "NG0500: During hydration Angular expected <div> but found <span>"],
   ])("recognises %s evidence", (framework, message) => {
     expect(hydrationEvidence([message])).toEqual({ framework, message });
   });
@@ -24,6 +26,9 @@ describe("hydrationEvidence", () => {
     "Failed to load resource: the server responded with a status of 500",
     "Failed to load resource: the server responded with a status of 404 (favicon.ico)",
     "hydrated 12 islands",
+    "Redux Persist failed to rehydrate state: unexpected key 'cart'",
+    "Apollo Client: cache hydration failed, falling back to network",
+    "React Query: hydration produced an unexpected query state",
   ])("does not mistake ordinary load noise for hydration evidence", (message) => {
     expect(hydrationEvidence([message])).toBeNull();
   });

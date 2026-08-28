@@ -15,7 +15,7 @@ export function hydrationEvidence(messages: readonly string[]): HydrationEvidenc
       return { framework: "React", message };
     }
     if (
-      /Hydration failed/i.test(message) ||
+      /Hydration failed because/.test(message) ||
       /error while hydrating/i.test(message) ||
       /Text content (did not|does not) match/i.test(message) ||
       /Expected server HTML to contain/i.test(message) ||
@@ -35,7 +35,16 @@ export function hydrationEvidence(messages: readonly string[]): HydrationEvidenc
     if (/Hydration Mismatch\. Unable to find DOM nodes/.test(message)) {
       return { framework: "Solid", message };
     }
-    if (/hydrat/i.test(message) && /(mismatch|fail|did not match|unexpected)/i.test(message)) {
+    // Anything else has to say hydration and describe the markup it disagreed
+    // with: what it expected against what it found, or a mismatch on a named
+    // part of the document. A cache or a store also "rehydrates", and a
+    // persisted state that failed to rehydrate says nothing about the screen.
+    if (
+      /hydrat/i.test(message) &&
+      (/expected .+ but found/i.test(message) ||
+        (/mismatch/i.test(message) &&
+          /(node|element|markup|dom|tag|text|attribute|server|client)/i.test(message)))
+    ) {
       return { framework: "the app", message };
     }
   }

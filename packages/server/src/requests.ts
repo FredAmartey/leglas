@@ -180,9 +180,10 @@ function scope(leglasCommand: string, quotedTitle: string | null): string {
   `Leave every other direction exactly as it is; they are alternatives being ` +
   `compared side by side, so changing a sibling destroys the comparison. Keep ` +
   `the change additive: do not rewrite shared components that other ` +
-  `directions rely on. A shared script may gain a per-direction override that ` +
-  `defaults to what it renders today; every other direction then renders ` +
-  `exactly as before, so that counts as additive.`;
+  `directions rely on. A shared script may gain one small per-direction ` +
+  `override, at the point it reads what it renders, that defaults to what it ` +
+  `renders today; every other direction then renders exactly as before, so ` +
+  `that counts as additive.`;
 }
 
 /** The images and load evidence placed between the ask and the closing rules. */
