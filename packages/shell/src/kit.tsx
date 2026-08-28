@@ -533,12 +533,17 @@ export function BranchOverlay({
   if (state.status === "failed") {
     return <ErrorOverlay onReload={onStart} reason={state.reason} />;
   }
+  // `ready` never reaches here, because the pane renders the design instead.
+  // Saying so in the narrowing rather than assuming it keeps this honest if
+  // that ever stops being true.
   const line =
-    state.status === "idle"
-      ? `Opening ${branch}`
-      : { "checking out": `Checking out ${branch}`, installing: "Installing what it needs", starting: "Starting its dev server" }[
-          state.phase
-        ];
+    state.status === "starting"
+      ? {
+          "checking out": `Checking out ${branch}`,
+          installing: "Installing what it needs",
+          starting: "Starting its dev server",
+        }[state.phase]
+      : `Opening ${branch}`;
   return (
     <div
       aria-live="polite"
