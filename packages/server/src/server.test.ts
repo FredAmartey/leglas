@@ -2222,18 +2222,31 @@ describe("what a capture may resolve", () => {
  * under way, from a client that only had to reach loopback.
  */
 describe("a body that is not an object", () => {
-  const ROUTES = [
-    "/api/previews/delete",
-    "/api/request",
-    "/api/agent",
-    "/api/watch",
-    "/api/requests/cancel",
-    "/api/requests/retry",
-    "/api/requests/dismiss",
-    "/api/annotations",
-    "/api/annotations/delete",
-    "/api/renames",
-  ] as const;
+  /**
+   * The routes are read out of the server rather than listed here.
+   *
+   * They were listed here, and within one release a route written after the
+   * list was added had the hole again: nothing failed, because the list had
+   * no way of knowing it existed. A new POST route is now covered the moment
+   * it is written, and a route that genuinely takes something else has to say
+   * so below, where the reason is visible and the entry is one somebody has
+   * to justify rather than one somebody has to remember.
+   */
+  const NOT_A_JSON_OBJECT: Record<string, string> = {
+    "/api/references": "takes raw image bytes",
+    "/api/agents/warm": "takes nothing at all",
+  };
+
+  const routes = (): string[] => {
+    const source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8");
+    const found = [
+      ...source.matchAll(
+        /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g,
+      ),
+    ].map((match) => match.groups?.["route"] ?? "");
+    expect(found.length, "no POST routes found; the pattern above has drifted").toBeGreaterThan(5);
+    return found.filter((route) => !(route in NOT_A_JSON_OBJECT));
+  };
 
   test("is refused by every route that takes one, and none of them fall over", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-json-body-"));
@@ -2243,7 +2256,7 @@ describe("a body that is not an object", () => {
       port: 0,
     });
 
-    for (const route of ROUTES) {
+    for (const route of routes()) {
       for (const nonsense of ["null", '"a string"', "[]", "7", "true"]) {
         const answer = await fetch(`${server.url}/leglas${route}`, {
           body: nonsense,
@@ -2256,5 +2269,22 @@ describe("a body that is not an object", () => {
 
     // Still up, which is the whole point.
     expect((await fetch(`${server.url}/leglas/api/requests`)).status).toBe(200);
+  });
+
+  // The reader exists so that no route has to remember any of this. One route
+  // parsing a body by hand is how the hole came back the first time.
+  test("no route reads a body without going through the one reader", () => {
+    const lines = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").split("\n");
+    const opens = lines.findIndex((line) => line.startsWith("function jsonBody<"));
+    expect(opens, "jsonBody has been renamed; this check has to follow it").toBeGreaterThan(-1);
+    const closes = lines.findIndex((line, index) => index > opens && line === "}");
+
+    const offenders = lines
+      .map((line, index) => ({ at: index, line: line.trim() }))
+      .filter((entry) => entry.line.includes("JSON.parse(body"))
+      .filter((entry) => entry.at < opens || entry.at > closes)
+      .map((entry) => `server.ts:${entry.at + 1}`);
+
+    expect(offenders, "these should call jsonBody instead").toEqual([]);
   });
 });
