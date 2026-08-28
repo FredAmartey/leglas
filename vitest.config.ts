@@ -10,6 +10,14 @@ export default defineConfig({
      * mismatch when the surface is fine is worse than noise. The tag guard
      * exists to be believed.
      */
+    /**
+     * Above the waiting helpers' own deadlines, so a wait that never lands
+     * reports what it was waiting for instead of a bare timeout. Vitest's
+     * default 5s ceiling sat under those deadlines and would have won the
+     * race, which is why they were tuned down to fit under it and then failed
+     * on a loaded machine for being an assertion about speed.
+     */
+    testTimeout: 30_000,
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
   },
 });

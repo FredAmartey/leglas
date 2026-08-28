@@ -78,8 +78,23 @@ function fakeLiveHub(initialListening = 0): FakeLiveHub {
   };
 }
 
+/** How long a wait may take before it is a hang rather than a slow machine. */
+const EVENTUALLY_MS = 15_000;
+
+/**
+ * The deadline bounds a hang. It is not an assertion about latency.
+ *
+ * Two different tests failed here on a loaded machine, both with "condition
+ * never held", both waiting on something the operating system delivers when it
+ * gets to it: a filesystem watch event, a reachability probe. A suite that
+ * reports a slow machine as a defect teaches people to rerun until it passes,
+ * which is how a real failure gets waved through.
+ *
+ * Fifteen seconds costs nothing on every run where the condition holds, and
+ * the config's own ceiling sits above it so this message wins the race.
+ */
 const eventually = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + EVENTUALLY_MS;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1450,7 +1465,7 @@ describe("startServer", () => {
     };
 
     let body: RequestsBody | null = null;
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + EVENTUALLY_MS;
     while (body?.agent.running !== true) {
       if (Date.now() > deadline) throw new Error("embedded runner did not start");
       body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
@@ -1517,7 +1532,7 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
     let failed: { id: string; status: string } | undefined;
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + EVENTUALLY_MS;
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
       const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
@@ -1645,7 +1660,7 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
     let failed: { id: string; status: string } | undefined;
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + EVENTUALLY_MS;
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
       const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {

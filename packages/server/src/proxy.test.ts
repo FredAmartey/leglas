@@ -5,6 +5,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { createProxyHandler, startProxyServer } from "./proxy.js";
 
+/** How long a wait may take before it is a hang rather than a slow machine. */
+const EVENTUALLY_MS = 15_000;
+
 /**
  * Node detaches a socket from its server once upgraded, so neither close() nor
  * closeAllConnections() will reap it and close() waits forever. Every server
@@ -290,7 +293,7 @@ describe("proxy", () => {
       socket.on("error", reject);
     });
 
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + EVENTUALLY_MS;
     while (!slowClosed.at(-1)) {
       if (Date.now() > deadline) throw new Error("the origin never saw the request close");
       await new Promise((resolve) => setTimeout(resolve, 10));
