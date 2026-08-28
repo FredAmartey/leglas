@@ -44,6 +44,7 @@ describe("planInit", () => {
 
     expect(contents.toLowerCase()).toContain("beside");
     expect(contents.toLowerCase()).toContain("never replace");
+    expect(contents).toContain("defaults to what it renders today");
   });
 
   test("choreographs the live loop: viewer first, register as each lands", () => {

@@ -125,6 +125,7 @@ describe("composeRequest, as a variant", () => {
         { kind: "reference", file: ".leglas/captures/k3j9x1/reference-1.png", width: 800, height: 600 },
       ],
       errors: ["TypeError: Cannot read properties of undefined", "Failed to load resource: 500"],
+      hydration: null,
       cut: true,
       skipped: "The design could not be captured in time.",
     };
@@ -153,6 +154,51 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain("(The design could not be captured in time. Use the live preview instead.)");
     expect(prompt.indexOf("What to change")).toBeLessThan(prompt.indexOf("What it looks like"));
     expect(prompt.indexOf("What it looks like")).toBeLessThan(prompt.indexOf("Then register it"));
+  });
+
+  test("explains hydration evidence and the additive shared-script exception", () => {
+    const message = "Uncaught Error: Minified React error #418; visit https://react.dev/errors/418";
+    const captured: Captured = {
+      attachments: [],
+      errors: [],
+      hydration: { framework: "React", message },
+      cut: false,
+      skipped: null,
+    };
+    const variant = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "make it warmer",
+      "variant",
+      [],
+      "npx -y leglas",
+      captured,
+    ).prompt;
+    const replace = composeRequest(
+      preview("Poster", "/?v-hero=poster"),
+      "make it warmer",
+      "replace",
+      [],
+      "npx -y leglas",
+      captured,
+    ).prompt;
+
+    for (const prompt of [variant, replace]) {
+      expect(prompt).toContain("After load, React rebuilt this page in the browser");
+      expect(prompt).toContain(message);
+      expect(prompt).toContain("counts as additive");
+    }
+    expect(variant.indexOf("What to change")).toBeLessThan(variant.indexOf("After load"));
+    expect(variant.indexOf("After load")).toBeLessThan(variant.indexOf("Then register it"));
+
+    for (const mode of ["variant", "replace"] as const) {
+      const withoutEvidence = composeRequest(
+        preview("Poster", "/?v-hero=poster"),
+        "make it warmer",
+        mode,
+      ).prompt;
+      expect(withoutEvidence).not.toContain("rebuilt this page");
+      expect(withoutEvidence).toContain("counts as additive");
+    }
   });
 
   // A quote in the request would end the argument early and hand the shell
@@ -629,6 +675,7 @@ describe("agents that receive paths rather than attachments", () => {
         { kind: "reference" as const, file: ".leglas/captures/r1/reference-1.png", width: 800, height: 600 },
       ],
       errors: [],
+      hydration: null,
       cut: false,
       skipped: null,
     };
@@ -648,4 +695,3 @@ describe("agents that receive paths rather than attachments", () => {
     expect(prompt).toContain("Open every one and look at it");
   });
 });
-

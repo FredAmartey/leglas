@@ -23,6 +23,15 @@ rewrite the same file cannot coexist, and asked for "a calmer hero,"
 your instinct is to edit the hero. Resist it. New files beside the old,
 one per direction, switched by URL.
 
+A page the app rebuilds in the browser after load (anything that hydrates:
+Next, Nuxt, SvelteKit, a captured production site) is not its served HTML.
+Markup edited there shows for a moment and is then replaced from the app's
+own JavaScript and data, so make the change where that JavaScript gets what
+it renders. When that is a script other directions share, give it a
+per-direction override that defaults to what it renders today: every other
+direction renders exactly as before, which is adding beside, not rewriting.
+`npx leglas show` says when a page was rebuilt after load.
+
 ## Setup
 
 Check whether the project's `AGENTS.md` contains a "Design directions

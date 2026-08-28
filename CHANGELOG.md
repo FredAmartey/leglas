@@ -12,6 +12,24 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Fixed
+
+- **A variant of a captured page came back with unwanted elements from its
+  parent.** Fork the served HTML of a page that rebuilds itself in the browser
+  (a captured production site, a static export, any hydrating app served as a
+  file) and the parent's hero, logo and buttons showed up in the variant for a
+  few seconds after every load, or for good: the framework rebuilt the page
+  from the parent's JavaScript, and the agent's only evidence was one line
+  lost under the console error cap. The capture now keeps that line whatever
+  else the page logged, the request tells the agent the page rebuilds itself
+  and that the change belongs where its JavaScript gets what it renders (a
+  per-direction override with the original as default, which the additive
+  rule now names as allowed), and `leglas show` reports it. Directions
+  switched in components were never affected.
+  (`leglas`, `leglas-mcp`, plugin)
+
 ## 0.8.0 (2026-08-28): An exploration writes down what it decided
 
 A minor, because the public surface moved: an exploration now writes

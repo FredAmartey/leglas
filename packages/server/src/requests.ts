@@ -180,14 +180,19 @@ function scope(leglasCommand: string, quotedTitle: string | null): string {
   `Leave every other direction exactly as it is; they are alternatives being ` +
   `compared side by side, so changing a sibling destroys the comparison. Keep ` +
   `the change additive: do not rewrite shared components that other ` +
-  `directions rely on.`;
+  `directions rely on. A shared script may gain a per-direction override that ` +
+  `defaults to what it renders today; every other direction then renders ` +
+  `exactly as before, so that counts as additive.`;
 }
 
 /** The images and load evidence placed between the ask and the closing rules. */
 function capturedBlock(captured: Captured | null): string {
   if (
     captured === null ||
-    (captured.attachments.length === 0 && captured.errors.length === 0 && captured.skipped === null)
+    (captured.attachments.length === 0 &&
+      captured.errors.length === 0 &&
+      captured.hydration === null &&
+      captured.skipped === null)
   ) return "";
 
   const lines: string[] = [];
@@ -233,6 +238,15 @@ function capturedBlock(captured: Captured | null): string {
       `On load it logged ${captured.errors.length} console ${captured.errors.length === 1 ? "error" : "errors"}:`,
     );
     for (const error of captured.errors) lines.push(`  - ${error}`);
+  }
+  if (captured.hydration !== null) {
+    lines.push(
+      `After load, ${captured.hydration.framework} rebuilt this page in the browser from the app's own ` +
+        `JavaScript and data (${captured.hydration.message}). Markup edited in the served HTML shows for ` +
+        `a moment and is then replaced, so make the change where that JavaScript gets what it renders: ` +
+        `the data or source it reads, or a per-direction override that a shared script reads with the ` +
+        `original as its default. Look at the result a few seconds after load, not at first paint.`,
+    );
   }
   if (captured.skipped !== null) {
     lines.push(`(${captured.skipped} Use the live preview instead.)`);

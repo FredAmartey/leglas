@@ -581,6 +581,7 @@ describe("startServer", () => {
       height: number;
       viewport: number;
       errors: string[];
+      hydration: null;
     };
 
     expect(response.status).toBe(200);
@@ -590,6 +591,7 @@ describe("startServer", () => {
       height: 600,
       viewport: 390,
       errors: [],
+      hydration: null,
     });
     expect(readFileSync(join(cwd, body.file), "utf8")).toBe("fake png");
   });

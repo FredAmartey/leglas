@@ -39,6 +39,8 @@ export {
 export type { Browser, BrowserPool, BrowserSearch, CdpPage, CdpSocket, LaunchOptions } from "./browser.js";
 export { CROP_MIN, CROP_PAD, FRAME_MAX_HEIGHT, MAX_WIDTH, MIN_WIDTH, capturePage, cropBox } from "./capture.js";
 export type { Box, CaptureInput, CaptureOutput, Focus, Shot } from "./capture.js";
+export { hydrationEvidence } from "./hydration.js";
+export type { HydrationEvidence } from "./hydration.js";
 export { CAPTURES_DIR, REFERENCES_DIR, attachRequest, isOwnCapture, previewUrl, pruneCaptures, pruneReferences, rehomeText, removeCaptures, sniffImage } from "./attachments.js";
 export type { AttachInput, Attachment, AttachmentKind, Captured } from "./attachments.js";
 export { WORKTREES_DIR, startAppProcess, startWorktree, substitutePort, worktreeSlug } from "./worktree.js";
