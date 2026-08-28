@@ -1,3 +1,23 @@
+## Unreleased
+
+### Fixed
+
+- **A malformed body could still take the server down, on one route.** 0.7.0
+  folded every body-reading route onto one reader that refuses anything which
+  is not a JSON object, and shipped `POST /api/capture` in the same release,
+  written to the old hand-rolled pattern. Four characters sent to loopback,
+  `null`, ended the process: the interface, the queue's own writer and
+  whatever run was under way. `/api/annotations/update` had the same shape,
+  though it repeated the check inline and so was never exploitable. Both use
+  the reader now. (`leglas`)
+- **The guard's test could not see a route nobody told it about.** It worked
+  from a hardcoded list, so a route written after the list was added was
+  simply absent, which is how the hole came back inside one release. The
+  routes are read out of the server now, so a new POST route is covered the
+  moment it is written, and the two that genuinely take something else carry
+  a named reason rather than being silently missing. A source scan fails if
+  any route parses a body by hand again. (`leglas`)
+
 # Changelog
 
 Leglas ships as three things from one repository, and a release moves all
