@@ -49,6 +49,15 @@ export type Changelog = { preamble: Block[]; entries: Entry[] };
 const RELEASE = /^## (.+?)(?: \((\d{4}-\d{2}-\d{2})\))?(?:: (.+))?$/;
 const IMAGE = /^!\[([^\]]*)\]\(([^)\s]+)(?: "([^"]*)")?\)$/;
 const TAG = /\s*\(((?:`[^`]+`|plugin)(?:, (?:`[^`]+`|plugin))*)\)$/;
+/**
+ * A real tag anywhere else: one that punctuation or a sentence has pushed off
+ * the end. Only the three names count, since a parenthetical of commands,
+ * "(`claude auth status`, `codex login status`)", is ordinary prose.
+ */
+const AUDIENCE = Object.keys(TARGETS)
+  .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+const STRAY_TAG = new RegExp(`\\((?:${AUDIENCE})(?:, (?:${AUDIENCE}))*\\)`);
 
 const tidy = (lines: string[]): string => lines.join(" ").replace(/\s+/g, " ").trim();
 
@@ -82,6 +91,13 @@ export function parseChangelog(markdown: string): Changelog {
       }
       paragraphs[last] = paragraphs[last]!.slice(0, -tagged[0].length).trim();
     }
+    // A tag followed by a full stop, or one in the middle of a sentence,
+    // would otherwise stay in the prose and the chip would quietly not
+    // appear. The bullet ends with the tag, or it has no tag.
+    const stray = paragraphs.find((text) => STRAY_TAG.test(text));
+    if (stray !== undefined) {
+      throw new Error(`An audience tag ends its bullet, with nothing after it: "${stray}".`);
+    }
     const [first = "", ...more] = paragraphs;
     let lead: string | null = null;
     let text = first;
@@ -98,6 +114,8 @@ export function parseChangelog(markdown: string): Changelog {
   for (const line of markdown.split("\n")) {
     if (item) {
       if (/^ {2,}\S/.test(line)) {
+        // A nested list would be absorbed as prose, marker and all.
+        if (/^ {2,}- /.test(line)) throw new Error(`A bullet inside a bullet is not supported: "${line.trim()}".`);
         if (item.gap) item.paragraphs.push([]);
         item.paragraphs[item.paragraphs.length - 1]!.push(line.trim());
         item.gap = false;
@@ -139,6 +157,15 @@ export function parseChangelog(markdown: string): Changelog {
       const [, alt = "", src = "", caption] = IMAGE.exec(line)!;
       container().push({ kind: "media", src, alt, caption: caption ?? null });
     } else {
+      // A group holds bullets and pictures. Prose here is nearly always a
+      // bullet's second paragraph that lost its indent, which would split
+      // the list in two around a stray paragraph and nothing would say so.
+      if (group !== null) {
+        throw new Error(
+          `A paragraph inside "${group.heading}": "${line.trim()}". ` +
+            "Indent it by two spaces to keep it in its bullet, or put it above the group.",
+        );
+      }
       (paragraph ??= []).push(line.trim());
     }
   }
@@ -401,7 +428,7 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 .foot-row nav{display:flex;gap:18px;margin-left:auto}
 .foot-row a{color:var(--ink-2);text-decoration:none}
 .foot-row a:hover{color:var(--ink)}
-:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:4px}
+:focus-visible{outline:2px solid var(--link);outline-offset:2px}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .head{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
 .list{animation:rise .5s cubic-bezier(.2,.7,.2,1) .08s both}

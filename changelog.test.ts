@@ -34,7 +34,8 @@ describe("CHANGELOG.md", () => {
     const first = changelog.entries[0]!;
     if (first.versions[0] === "Unreleased") return;
     const declared = JSON.parse(readFileSync(join(root, "packages/cli/package.json"), "utf8")).version;
-    expect(first.versions[0], "the top entry is not the version being shipped").toBe(declared);
+    // An entry can name two releases, as the first one does.
+    expect(first.versions, "the top entry is not the version being shipped").toContain(declared);
   });
 
   test("releases run newest first, and none repeats", () => {
@@ -128,6 +129,25 @@ describe("reading the markdown", () => {
 
   test("an audience nobody ships is refused", () => {
     expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`legless`)\n")).toThrow(/Unknown audience/);
+  });
+
+  test("a tag that does not end its bullet is refused rather than left in the prose", () => {
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`leglas`).\n")).toThrow(/ends its bullet/);
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words (`leglas`) and more.\n")).toThrow(/ends its bullet/);
+    // A parenthetical of commands is prose, not a tag.
+    expect(parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Asked (`claude auth status`, `codex login status`) first. (`leglas`)\n").entries[0]!.blocks[0]).toMatchObject({ reaches: ["cli"] });
+  });
+
+  test("a paragraph that lost its indent inside a group is refused", () => {
+    expect(() =>
+      parseChangelog(["## 1.0.0 (2026-01-02): T", "", "### Fixed", "", "- **Lead.** Words.", "", "A second paragraph, unindented.", ""].join("\n")),
+    ).toThrow(/Indent it by two spaces/);
+    // Above the group, at the entry's level, prose is the intro and stays allowed.
+    expect(parseChangelog(["## 1.0.0 (2026-01-02): T", "", "- A bullet.", "", "Then prose.", ""].join("\n")).entries[0]!.blocks).toHaveLength(2);
+  });
+
+  test("a bullet inside a bullet is refused", () => {
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Outer.\n  - Inner.\n")).toThrow(/bullet inside a bullet/);
   });
 
   test("inline code, bold and links, with everything else escaped", () => {
