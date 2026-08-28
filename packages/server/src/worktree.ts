@@ -49,18 +49,46 @@ async function freePort(): Promise<number> {
   });
 }
 
-function answers(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = net.connect(port, "127.0.0.1");
-    const settle = (value: boolean) => {
-      socket.destroy();
-      resolve(value);
-    };
-    socket.setTimeout(400);
-    socket.once("connect", () => settle(true));
-    socket.once("timeout", () => settle(false));
-    socket.once("error", () => settle(false));
-  });
+/** Loopback, both ways round, because a dev server picks one of them. */
+const LOOPBACK = ["127.0.0.1", "::1"] as const;
+
+/** An address for a URL: IPv6 needs the brackets, IPv4 must not have them. */
+function forUrl(host: string): string {
+  return host.includes(":") ? `[${host}]` : host;
+}
+
+/**
+ * The loopback address answering on this port, or null while none does.
+ *
+ * Which one that is cannot be assumed. A dev command told to serve `localhost`
+ * binds whatever the machine resolves that to, and on current macOS and Node
+ * it is `::1` first: Vite's default listens on IPv6 alone. Probing only
+ * `127.0.0.1` therefore waits out the whole deadline against a server that has
+ * been answering since its first second, and then blames the user's dev
+ * command for not serving the port it was given, which it did.
+ *
+ * The answer is also what the URL has to be built from. Reporting
+ * `127.0.0.1` for a server bound to `::1` hands the interface an address
+ * nothing is listening on, which fails later and further from the cause.
+ */
+async function answeringHost(port: number): Promise<string | null> {
+  const reached = await Promise.all(
+    LOOPBACK.map(
+      (host) =>
+        new Promise<string | null>((resolve) => {
+          const socket = net.connect({ port, host });
+          const settle = (value: string | null) => {
+            socket.destroy();
+            resolve(value);
+          };
+          socket.setTimeout(400);
+          socket.once("connect", () => settle(host));
+          socket.once("timeout", () => settle(null));
+          socket.once("error", () => settle(null));
+        }),
+    ),
+  );
+  return reached.find((host) => host !== null) ?? null;
 }
 
 /**
@@ -201,8 +229,9 @@ export async function startAppProcess(options: {
         `${options.label} did not start: its dev command exited with code ${exited}.`,
       );
     }
-    if (await answers(port)) {
-      return { port, url: `http://127.0.0.1:${port}`, stop };
+    const host = await answeringHost(port);
+    if (host !== null) {
+      return { port, url: `http://${forUrl(host)}:${port}`, stop };
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }

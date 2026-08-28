@@ -11,6 +11,23 @@ They share a version number, so a plugin, a CLI and a server picked up at the
 same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three.
 
+## Unreleased
+
+### Fixed
+
+- **Branch previews could not start at all, on a default Vite project.** The
+  wait for a dev command to come up connected to `127.0.0.1` and nothing else.
+  A dev server told to serve `localhost` binds whatever the machine resolves
+  that to, and on current macOS and Node that is `::1` first, so Vite's default
+  listens on IPv6 alone. Every branch waited out its full ninety seconds
+  against a server that had been answering since its first second, then was
+  reported as not serving the port it was given, which it was, and its checkout
+  was deleted. The wait now tries both loopback addresses and builds the
+  preview's URL from whichever one answered, since reporting `127.0.0.1` for a
+  server bound to `::1` moves the failure later and further from its cause.
+  The same wait starts a project's own app when the config carries a
+  `devCommand`, so that path was equally affected. (`leglas`)
+
 ## 0.7.2 (2026-08-27)
 
 A patch: the interface stops polling on a timer and the server says

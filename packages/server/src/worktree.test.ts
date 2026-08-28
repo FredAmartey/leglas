@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 
-import { WORKTREES_DIR, startWorktree, substitutePort, worktreeSlug } from "./worktree.js";
+import {
+  WORKTREES_DIR,
+  startAppProcess,
+  startWorktree,
+  substitutePort,
+  worktreeSlug,
+} from "./worktree.js";
 
 const run = promisify(execFile);
 
@@ -149,4 +155,65 @@ describe("startWorktree", () => {
     const { stdout } = await run("git", ["worktree", "list"], { cwd });
     expect(stdout).not.toContain(WORKTREES_DIR);
   }, 60_000);
+});
+
+describe("startAppProcess", () => {
+  /**
+   * The fixture above serves `127.0.0.1` because it was written to match the
+   * probe, so the two agreed with each other and neither matched a real dev
+   * server. Vite's default binds `localhost`, which on current macOS and Node
+   * resolves to `::1` first, and every branch preview then waited out its
+   * ninety seconds against a server that was up the whole time.
+   */
+  test("finds a dev server listening on IPv6 only, and reports a URL that reaches it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-v6-"));
+    writeFileSync(
+      join(cwd, "serve6.mjs"),
+      `import http from "node:http";
+       http
+         .createServer((_q, s) => {
+           s.writeHead(200, { "content-type": "text/plain" });
+           s.end("six");
+         })
+         .listen(Number(process.argv[2]), "::1");
+      `,
+    );
+
+    const app = await startAppProcess({
+      cwd,
+      devCommand: "node serve6.mjs {port}",
+      label: "an IPv6-only app",
+      readyTimeoutMs: 15_000,
+    });
+    cleanups.push(app.stop);
+
+    expect(app.url).toContain("[::1]");
+    expect((await (await fetch(app.url)).text()).trim()).toBe("six");
+  }, 40_000);
+
+  test("still finds one listening on IPv4 only", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-v4-"));
+    writeFileSync(
+      join(cwd, "serve4.mjs"),
+      `import http from "node:http";
+       http
+         .createServer((_q, s) => {
+           s.writeHead(200, { "content-type": "text/plain" });
+           s.end("four");
+         })
+         .listen(Number(process.argv[2]), "127.0.0.1");
+      `,
+    );
+
+    const app = await startAppProcess({
+      cwd,
+      devCommand: "node serve4.mjs {port}",
+      label: "an IPv4-only app",
+      readyTimeoutMs: 15_000,
+    });
+    cleanups.push(app.stop);
+
+    expect(app.url).toContain("127.0.0.1");
+    expect((await (await fetch(app.url)).text()).trim()).toBe("four");
+  }, 40_000);
 });
