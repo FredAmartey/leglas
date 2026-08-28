@@ -6,7 +6,7 @@
   "scripts": {
     "test": "pnpm build && vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm build && pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build",
     "api:update": "node api-surface.ts"
   },
