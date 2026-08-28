@@ -12,11 +12,9 @@ import {
   readLocalPreviews,
   startAppProcess,
   startServer,
-  startWorktree,
   worktreeSlug,
   type Preview,
   type RunningApp,
-  type RunningWorktree,
 } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
@@ -103,8 +101,7 @@ export async function run(
       ? null
       : { ...loaded.config, devServer, previews: [...loaded.config.previews, ...local.previews] };
 
-  const worktrees: RunningWorktree[] = [];
-  const worktreeErrors: string[] = [];
+  const previewErrors: string[] = [];
   const previews: Preview[] = [];
 
   // The greenfield case, half one: nothing is listening, but the config says
@@ -132,21 +129,21 @@ export async function run(
       devServer = app.url;
       merged.devServer = app.url;
     } catch (error) {
-      worktreeErrors.push(error instanceof Error ? error.message : String(error));
+      previewErrors.push(error instanceof Error ? error.message : String(error));
     }
   }
 
-  // Previews served by Leglas itself rather than by the user's dev server: a
-  // branch is brought up in its own checkout, and a file's directory is
-  // mounted under the Leglas origin, which is the greenfield case, half two.
-  // Isolation is the exception here: only branches pay a boot.
+  // File previews are the one preview source the CLI resolves before server
+  // startup, because their directories become mounts on the Leglas origin.
+  // Branch previews stay registered with their authored path; the server owns
+  // their checkout and replaces that path with a worktree URL only once ready.
   const fileMounts = new Map<string, string>();
 
   for (const preview of merged?.previews ?? []) {
     if (preview.file !== undefined) {
       const absolute = join(options.cwd, preview.file);
       if (!existsSync(absolute)) {
-        worktreeErrors.push(
+        previewErrors.push(
           `"${preview.title}" names file ${preview.file}, which does not exist. The preview is skipped.`,
         );
         continue;
@@ -162,36 +159,7 @@ export async function run(
       });
       continue;
     }
-    if (preview.branch === undefined) {
-      previews.push(preview);
-      continue;
-    }
-    if (merged?.devCommand === undefined) {
-      // Registered with --branch while the config never gained a devCommand.
-      // Pointing its URL at the user's own dev server would silently render
-      // the wrong code, which is worse than no preview at all.
-      worktreeErrors.push(
-        `"${preview.title}" names branch ${preview.branch}, but the config sets no devCommand, ` +
-          `so Leglas cannot start that checkout. Add devCommand (with {port}) to the config.`,
-      );
-      continue;
-    }
-    if (!options.json) deps.log(`  starting ${preview.branch}…`);
-    try {
-      const worktree = await startWorktree({
-        cwd: options.cwd,
-        branch: preview.branch,
-        installCommand: merged.installCommand,
-        devCommand: merged.devCommand,
-      });
-      worktrees.push(worktree);
-      // Its own origin, so the interface iframes it directly.
-      previews.push({ ...preview, url: `${worktree.url}${preview.url}` });
-    } catch (error) {
-      // A branch that will not start is reported and skipped: the previews that
-      // do work should still be usable.
-      worktreeErrors.push(error instanceof Error ? error.message : String(error));
-    }
+    previews.push(preview);
   }
 
   const config = merged === null ? null : { ...merged, previews };
@@ -208,7 +176,7 @@ export async function run(
 
   const serverPromise = startServer({
     config,
-    configErrors: [...loaded.errors, ...local.errors, ...worktreeErrors],
+    configErrors: [...loaded.errors, ...local.errors, ...previewErrors],
     configWarnings,
     fileMounts,
     shellDir: findShellDir(),
@@ -258,9 +226,9 @@ export async function run(
     deps.log(`config   ${configLabel}`);
     deps.log(`          ${previewCount} preview${previewCount === 1 ? "" : "s"}`);
 
-    if (loaded.errors.length + worktreeErrors.length > 0) {
+    if (loaded.errors.length + previewErrors.length > 0) {
       deps.log("");
-      for (const error of [...loaded.errors, ...worktreeErrors]) deps.log(`  ! ${error}`);
+      for (const error of [...loaded.errors, ...previewErrors]) deps.log(`  ! ${error}`);
       deps.log("  Fix the config and reload; Leglas will pick it up on restart.");
     }
 
@@ -287,9 +255,8 @@ export async function run(
     devServer,
     previewCount,
     stop: async () => {
-      // Everything Leglas started goes before the server, so a stopped Leglas
-      // never leaves a dev server running on a port nobody remembers.
-      await Promise.all(worktrees.map((worktree) => worktree.stop().catch(() => {})));
+      // The server owns branch worktrees; the CLI still owns the project app
+      // it may have started for the greenfield case.
       await app?.stop().catch(() => {});
       await server.close();
     },

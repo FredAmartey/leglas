@@ -5,6 +5,7 @@ import { MOOD } from "./orb.js";
 import { EASE } from "./prefs.js";
 import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
+import type { BranchPreviewState } from "./types.js";
 
 /**
  * The Leglas mark in its brand colours, the lockup's dark variant: the one
@@ -511,6 +512,54 @@ export function SkeletonOverlay({ loaded }: { loaded: boolean }) {
 }
 
 /** Shown when a preview never loads: a quiet title, the reason, one affordance. */
+/**
+ * Where a branch's design will be, until its checkout is running.
+ *
+ * A branch preview is a whole other copy of the project: checked out,
+ * installed and served. That used to happen before the interface appeared,
+ * which cost every session the price of every branch whether or not anyone
+ * opened one. Now it happens when you open it, and this is the seconds in
+ * between, which is worth saying plainly rather than spinning at.
+ */
+export function BranchOverlay({
+  branch,
+  onStart,
+  state,
+}: {
+  branch: string;
+  onStart: () => void;
+  state: BranchPreviewState;
+}) {
+  if (state.status === "failed") {
+    return <ErrorOverlay onReload={onStart} reason={state.reason} />;
+  }
+  // `ready` never reaches here, because the pane renders the design instead.
+  // Saying so in the narrowing rather than assuming it keeps this honest if
+  // that ever stops being true.
+  const line =
+    state.status === "starting"
+      ? {
+          "checking out": `Checking out ${branch}`,
+          installing: "Installing what it needs",
+          starting: "Starting its dev server",
+        }[state.phase]
+      : `Opening ${branch}`;
+  return (
+    <div
+      aria-live="polite"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white p-6 text-center"
+    >
+      <span className="size-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-800 motion-reduce:animate-none" />
+      <div className="max-w-xs">
+        <p className="text-sm font-medium text-neutral-800">{line}</p>
+        <p className="mt-1 text-xs leading-snug text-neutral-500">
+          A branch runs in its own checkout, built the first time you open it this session.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reason: string }) {
   return (
     <div

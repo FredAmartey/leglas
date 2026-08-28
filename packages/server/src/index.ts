@@ -41,6 +41,15 @@ export { CAPTURES_DIR, REFERENCES_DIR, attachRequest, isOwnCapture, previewUrl, 
 export type { AttachInput, Attachment, AttachmentKind, Captured } from "./attachments.js";
 export { WORKTREES_DIR, startAppProcess, startWorktree, substitutePort, worktreeSlug } from "./worktree.js";
 export type { RunningApp, RunningWorktree } from "./worktree.js";
+export { createBranchRegistry, publicBranchState } from "./branches.js";
+export type {
+  BranchPhase,
+  BranchPreview,
+  BranchPreviewState,
+  BranchRegistry,
+  BranchState,
+  StartBranchWorktree,
+} from "./branches.js";
 export { classifyFailure, sessionShaped } from "./failure.js";
 export type { Failure, FailureCode, FailureInput, RetryNotice } from "./failure.js";
 export {

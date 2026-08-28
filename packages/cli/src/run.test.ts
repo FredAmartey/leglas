@@ -181,7 +181,7 @@ describe("run", () => {
 });
 
 describe("branch previews without a devCommand", () => {
-  test("reports the missing devCommand and skips the preview instead of showing the wrong server", async () => {
+  test("keeps the preview idle and reports the missing devCommand only when it is opened", async () => {
     const port = await startOrigin();
     const dir = projectWith(
       `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
@@ -194,9 +194,46 @@ describe("branch previews without a devCommand", () => {
 
     const { result, output } = await boot(dir, { open: false });
 
+    expect(result.previewCount).toBe(2);
+    expect(output).not.toContain("devCommand");
+    const base = result.url.replace(/\/leglas$/, "");
+    const config = (await (await fetch(`${base}/leglas/api/config`)).json()) as {
+      previews: Array<Record<string, unknown>>;
+    };
+    expect(config.previews[1]).toMatchObject({ title: "PR", state: { status: "idle" } });
+    expect(Object.hasOwn(config.previews[1] ?? {}, "url")).toBe(false);
+
+    const started = await fetch(`${base}/leglas/api/previews/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "PR" }),
+    });
+    expect(started.status).toBe(400);
+    expect(await started.json()).toMatchObject({
+      error: expect.stringMatching(/PR.*devCommand/),
+    });
+  });
+
+  test("does not check out a configured branch during CLI startup", async () => {
+    const port = await startOrigin();
+    const dir = projectWith(
+      `export default {
+        devServer: "http://127.0.0.1:${port}",
+        devCommand: "node app.mjs {port}",
+        installCommand: "true",
+        previews: [{ title: "PR", url: "/", branch: "main" }]
+      };`,
+    );
+
+    const { result, output } = await boot(dir, { open: false });
+
     expect(result.previewCount).toBe(1);
-    expect(output).toContain("devCommand");
-    expect(output).toContain("PR");
+    expect(output).not.toContain("Could not check out");
+    const config = (await (
+      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
+    ).json()) as { previews: Array<Record<string, unknown>> };
+    expect(config.previews[0]).toMatchObject({ title: "PR", state: { status: "idle" } });
+    expect(Object.hasOwn(config.previews[0] ?? {}, "url")).toBe(false);
   });
 });
 
