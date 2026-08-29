@@ -128,6 +128,19 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
 .foot-row a{color:var(--ink-2);text-decoration:none}
 .foot-row a:hover{color:var(--ink)}
 :focus-visible{outline:2px solid var(--link);outline-offset:2px}
+/* The theme arrives as a circle opening from the switch. Both snapshots lose
+   their default cross-fade, the new one is drawn over the old, and only its
+   clip grows, so what spreads is the new theme rather than a dissolve between
+   two. The origin and the radius are measured at the click: the radius
+   reaches the furthest corner of the viewport, which is what makes the sweep
+   finish exactly as it covers the last of the page. */
+::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
+::view-transition-old(root){z-index:0}
+::view-transition-new(root){z-index:1}
+@keyframes theme-reveal{from{clip-path:circle(0px at var(--vt-x,100%) var(--vt-y,0px))}to{clip-path:circle(var(--vt-r,150vmax) at var(--vt-x,100%) var(--vt-y,0px))}}
+@media (prefers-reduced-motion:no-preference){
+  ::view-transition-new(root){animation:theme-reveal 600ms cubic-bezier(.4,0,.2,1)}
+}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.rise{animation:none !important}}
 @media (max-width:720px){
@@ -176,12 +189,20 @@ const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme")
  * which \`color-scheme\` reports without repeating the tokens' three-state
  * logic, and remembers the result.
  *
+ * The new theme arrives as a circle opening from the switch itself, so the
+ * change starts where the reader clicked and sweeps across the page at
+ * whatever angle that corner implies. The origin is the button's own centre
+ * and the radius is the distance to the furthest corner of the viewport,
+ * both measured at the click, since a bar that moves or a window that
+ * resizes would make a stored pair wrong. A browser without view
+ * transitions, and a reader who asked for less motion, get the flip alone.
+ *
  * It also names the direction it would take you, which the markup cannot do:
  * a system-dark reader with no choice stored is offered light, and the file
  * is one document served to everybody. So the button ships undirected and
  * this is what makes it specific.
  */
-const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
+const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
 /** Every copy control on a page copies the command in it. */
 const COPY_SCRIPT = `(function(){if(!navigator.clipboard)return;document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})})();`;

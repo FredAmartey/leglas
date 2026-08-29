@@ -34,6 +34,18 @@ describe("the site", () => {
     expect(html).toContain("<noscript><style>.theme{display:none}</style></noscript>");
   });
 
+  test("the theme arrives as a circle opening from the switch", () => {
+    const html = renderHome(loadAssets(root));
+    expect(html).toContain("@keyframes theme-reveal");
+    expect(html).toContain("::view-transition-new(root)");
+    // Measured at the click, not baked into the stylesheet.
+    expect(html).toContain('setProperty("--vt-x"');
+    expect(html).toContain("Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))");
+    // The sweep is motion, so it belongs to readers who did not ask for less.
+    expect(html).toMatch(/@media \(prefers-reduced-motion:no-preference\)\{\s*::view-transition-new\(root\)\{animation:theme-reveal/);
+    expect(html).toContain("matchMedia(\"(prefers-reduced-motion: reduce)\").matches");
+  });
+
   test("builds both pages and the captures beside them", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);
