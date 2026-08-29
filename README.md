@@ -535,7 +535,7 @@ pnpm install
 pnpm build       # build every package
 pnpm test        # run the test suite
 pnpm typecheck   # type check every package
-pnpm site        # build the changelog page into dist/site
+pnpm site        # build the site, homepage and changelog, into dist/site
 ```
 
 | Package           | Contents                                           |
@@ -557,10 +557,11 @@ publishes through npm trusted publishing. A tag that disagrees with the
 manifests is refused, and so is a patch tag when `api-surface.txt` has
 moved since the previous one. No npm token exists anywhere in the project.
 
-The [changelog page](https://fredamartey.github.io/leglas/changelog/) is
-made from `CHANGELOG.md` by `changelog.ts` and published through GitHub
-Pages on every push to main that touches it, so describing a release in the
-changelog is the whole job.
+The [site](https://fredamartey.github.io/leglas/) is two pages, the
+homepage and the [changelog](https://fredamartey.github.io/leglas/changelog/),
+written by `site.ts`. The changelog page is made from `CHANGELOG.md` and
+nothing else, so describing a release in the changelog is the whole job, and
+a push to main that touches either publishes through GitHub Pages.
 
 ## License
 
