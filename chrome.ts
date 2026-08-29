@@ -196,13 +196,16 @@ const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme")
  * both measured at the click, since a bar that moves or a window that
  * resizes would make a stored pair wrong. A browser without view
  * transitions, and a reader who asked for less motion, get the flip alone.
+ * A hidden document skips the transition and rejects, which is why the
+ * promise is caught: the flip itself still lands, and an unread rejection
+ * would reach the console and anything listening for one.
  *
  * It also names the direction it would take you, which the markup cannot do:
  * a system-dark reader with no choice stored is offered light, and the file
  * is one document served to everybody. So the button ships undirected and
  * this is what makes it specific.
  */
-const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
+const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)}).ready.catch(function(){})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
 /** Every copy control on a page copies the command in it. */
 const COPY_SCRIPT = `(function(){if(!navigator.clipboard)return;document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})})();`;

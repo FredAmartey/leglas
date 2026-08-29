@@ -44,6 +44,8 @@ describe("the site", () => {
     // The sweep is motion, so it belongs to readers who did not ask for less.
     expect(html).toMatch(/@media \(prefers-reduced-motion:no-preference\)\{\s*::view-transition-new\(root\)\{animation:theme-reveal/);
     expect(html).toContain("matchMedia(\"(prefers-reduced-motion: reduce)\").matches");
+    // A hidden document rejects, and an unread rejection reaches the console.
+    expect(html).toContain(".ready.catch(function(){})");
   });
 
   test("builds both pages and the captures beside them", () => {
