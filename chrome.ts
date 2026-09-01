@@ -214,10 +214,10 @@ const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-swit
  * copy controls do, which on a desk is the thing a reader actually wants:
  * the next stop is a chat window or an issue, and the system's share sheet
  * offers neither. On a phone the sheet is where everything lives, so a
- * device without hover gets it instead. The address is the page without
- * any hash, since a fragment is where the reader happens to be rather than
- * what they are sharing. A sheet the reader dismisses rejects, and that is
- * not an error.
+ * device without hover gets it instead. The address is the page's path
+ * alone, with no query and no fragment, since where the reader happens to
+ * be on the page is not what they are sharing. A sheet the reader
+ * dismisses rejects, and that is not an error.
  */
 const SHARE_SCRIPT = `(function(){var b=document.querySelector("[data-share]");if(!b)return;var data={title:document.title,text:b.dataset.share,url:location.origin+location.pathname};b.addEventListener("click",function(){if(navigator.share&&matchMedia("(hover: none)").matches&&(!navigator.canShare||navigator.canShare(data))){navigator.share(data).catch(function(){});return}if(!navigator.clipboard)return;navigator.clipboard.writeText(data.url).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})();`;
 
