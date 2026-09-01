@@ -8,7 +8,7 @@ import { CAPTURES, renderHome } from "./home.ts";
 /**
  * The site: a homepage and the changelog, written under dist/site, which is
  * ignored, so nothing generated is ever committed. `pnpm site` runs this and
- * the Pages workflow does the same on main.
+ * Vercel does the same on every push, as vercel.json says.
  */
 export function buildSite(root: string, out: string): string[] {
   const assets = loadAssets(root);

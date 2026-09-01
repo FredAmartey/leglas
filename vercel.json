@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "node site.ts",
+  "outputDirectory": "dist/site",
+  "trailingSlash": true
+}
