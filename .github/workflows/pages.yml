@@ -1,27 +1,11 @@
 name: Pages
 
-# The site, a homepage and the changelog page made from CHANGELOG.md, is
-# built on every push to main and published through GitHub Pages. Nothing
-# generated is committed: the changelog page comes from the same file a
-# GitHub or npm reader sees, so it cannot say something the changelog does
-# not.
-#
-# The repository's Pages source has to be "GitHub Actions" for the deploy step
-# to be accepted. That is a one-time setting, not something this file can do.
+# The site lives at https://leglas.vercel.app since 2026-09-01, built by
+# Vercel from vercel.json on every push. GitHub Pages still answers at the
+# old address because READMEs already published to npm link to it, so this
+# deploys one page there that forwards every path to the new one. It runs
+# only by hand: nothing about the site is built here any more.
 on:
-  push:
-    branches: [main]
-    paths:
-      - CHANGELOG.md
-      - site.ts
-      - chrome.ts
-      - home.ts
-      - changelog.ts
-      - packages/shell/src/fonts/**
-      - packages/shell/public/favicon.svg
-      - .github/assets/wordmark.svg
-      - .github/assets/screenshots/**
-      - .github/workflows/pages.yml
   workflow_dispatch:
 
 permissions:
@@ -29,32 +13,36 @@ permissions:
   pages: write
   id-token: write
 
-# One deploy at a time, and a newer push wins over one still in flight.
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      # No install: the page has no dependencies beyond Node and the files
-      # already in the tree.
-      - run: node site.ts
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: dist/site
-
-  deploy:
-    needs: build
+  forward:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The same page at the root and as the 404, so /leglas/changelog/ and
+      # anything else under the old address lands on its new counterpart.
+      - run: |
+          mkdir -p out
+          cat > out/404.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Leglas has moved</title>
+          <meta http-equiv="refresh" content="0; url=https://leglas.vercel.app/">
+          <link rel="canonical" href="https://leglas.vercel.app/">
+          <script>location.replace("https://leglas.vercel.app"+location.pathname.replace(/^\/leglas/,"")+location.search+location.hash)</script>
+          <p>Leglas moved to <a href="https://leglas.vercel.app/">leglas.vercel.app</a>.</p>
+          </html>
+          HTML
+          cp out/404.html out/index.html
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: out
       - id: deployment
         uses: actions/deploy-pages@v5

@@ -12,7 +12,7 @@
   <a href="https://www.npmjs.com/package/leglas"><img src="https://img.shields.io/npm/v/leglas" alt="npm"></a>
   <a href="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml"><img src="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/leglas" alt="license"></a>
-  <a href="https://fredamartey.github.io/leglas/changelog/"><img src="https://img.shields.io/badge/changelog-what's%20new-0B1839" alt="changelog"></a>
+  <a href="https://leglas.vercel.app/changelog/"><img src="https://img.shields.io/badge/changelog-what's%20new-0B1839" alt="changelog"></a>
 </p>
 
 <p align="center">
@@ -557,11 +557,12 @@ publishes through npm trusted publishing. A tag that disagrees with the
 manifests is refused, and so is a patch tag when `api-surface.txt` has
 moved since the previous one. No npm token exists anywhere in the project.
 
-The [site](https://fredamartey.github.io/leglas/) is two pages, the
-homepage and the [changelog](https://fredamartey.github.io/leglas/changelog/),
-written by `site.ts`. The changelog page is made from `CHANGELOG.md` and
-nothing else, so describing a release in the changelog is the whole job, and
-a push to main that touches either publishes through GitHub Pages.
+The [site](https://leglas.vercel.app/) is two pages, the homepage and the
+[changelog](https://leglas.vercel.app/changelog/), written by `site.ts`. The
+changelog page is made from `CHANGELOG.md` and nothing else, so describing a
+release in the changelog is the whole job. Vercel builds it from
+`vercel.json` on every push, so main is the live site and every pull request
+gets a preview.
 
 ## License
 
