@@ -64,6 +64,7 @@ const DARK = `
   --chip-bg:#1E1F25;--chip-border:rgba(232,236,247,.20);
   --media-bg:#1E1F25;--media-shadow:rgba(0,0,0,.5);--bar-bg:rgba(20,21,25,.84);
   --cli:#7E97DD;--mcp:#3EC2A8;--plugin:#B58CF2;
+  --star:#FACC15;--spark:#FEF08A;
   --m-g6a:#E8ECF7;--m-g6b:#92A7E0;--m-g3a:#7E97DD;--m-g3b:#5F7FD8;
   --icon-sun:inline;--icon-moon:none;
 `;
@@ -84,6 +85,7 @@ export function baseStyles(fonts: Assets["fonts"]): string {
   --chip-bg:#FFFFFF;--chip-border:rgba(11,24,57,.20);
   --media-bg:#EEF0F5;--media-shadow:rgba(11,24,57,.14);--bar-bg:rgba(248,248,251,.84);
   --cli:#3159CF;--mcp:#2AA68C;--plugin:#7C38E8;
+  --star:#D99A00;--spark:#EFC13A;
   --m-g6a:#081327;--m-g6b:#0F266A;--m-g3a:#0E2B85;--m-g3b:#3159CF;
   --icon-sun:none;--icon-moon:inline;
 }
@@ -207,6 +209,18 @@ const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme")
  */
 const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)}).ready.catch(function(){})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
+/**
+ * Share copies the page's address and says so on the button, the way the
+ * copy controls do, which on a desk is the thing a reader actually wants:
+ * the next stop is a chat window or an issue, and the system's share sheet
+ * offers neither. On a phone the sheet is where everything lives, so a
+ * device without hover gets it instead. The address is the page's path
+ * alone, with no query and no fragment, since where the reader happens to
+ * be on the page is not what they are sharing. A sheet the reader
+ * dismisses rejects, and that is not an error.
+ */
+const SHARE_SCRIPT = `(function(){var b=document.querySelector("[data-share]");if(!b)return;var data={title:document.title,text:b.dataset.share,url:location.origin+location.pathname};b.addEventListener("click",function(){if(navigator.share&&matchMedia("(hover: none)").matches&&(!navigator.canShare||navigator.canShare(data))){navigator.share(data).catch(function(){});return}if(!navigator.clipboard)return;navigator.clipboard.writeText(data.url).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})();`;
+
 /** Every copy control on a page copies the command in it. */
 const COPY_SCRIPT = `(function(){if(!navigator.clipboard)return;document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})})();`;
 
@@ -226,13 +240,14 @@ export function document(options: {
 <meta name="description" content="${escape(options.description)}">
 <link rel="icon" href="${options.assets.favicon}" type="image/svg+xml">
 <script>${STAMP_SCRIPT}</script>
-<noscript><style>.theme{display:none}</style></noscript>
+<noscript><style>.theme,.share{display:none}</style></noscript>
 <style>${baseStyles(options.assets.fonts)}${options.styles}</style>
 </head>
 <body>
 ${options.body}
 <script>
 ${COPY_SCRIPT}
+${SHARE_SCRIPT}
 ${THEME_SCRIPT}
 </script>
 </body>
