@@ -31,7 +31,7 @@ describe("the site", () => {
     expect(stamp).toBeLessThan(html.indexOf("<style>"));
     // Which way it goes depends on the reader, so the markup cannot claim one.
     expect(html).toContain('aria-label="Switch between light and dark"');
-    expect(html).toContain("<noscript><style>.theme{display:none}</style></noscript>");
+    expect(html).toContain("<noscript><style>.theme,.share{display:none}</style></noscript>");
   });
 
   test("the theme arrives as a circle opening from the switch", () => {
@@ -46,6 +46,23 @@ describe("the site", () => {
     expect(html).toContain("matchMedia(\"(prefers-reduced-motion: reduce)\").matches");
     // A hidden document rejects, and an unread rejection reaches the console.
     expect(html).toContain(".ready.catch(function(){})");
+  });
+
+  test("the hero offers a star and a share beside the command", () => {
+    const html = renderHome(loadAssets(root));
+    // The star is a plain link to the repository, so it works without a script.
+    expect(html).toMatch(/<a class="action star" href="https:\/\/github\.com\/FredAmartey\/leglas">[\s\S]*?Star on GitHub<\/a>/);
+    expect(html).toContain('<button class="action share" type="button" data-share=');
+    // Share copies the address on a desk and goes to the system sheet on a phone.
+    expect(html).toContain('navigator.share&&matchMedia("(hover: none)").matches');
+    expect(html).toContain("navigator.share(data).catch(function(){})");
+    expect(html).toContain("navigator.clipboard.writeText(data.url)");
+    expect(html).toContain("url:location.origin+location.pathname");
+    // Without a script the share control would do nothing, so it goes with the theme switch.
+    expect(html).toContain("<noscript><style>.theme,.share{display:none}</style></noscript>");
+    // The swap rides a spring, with a bezier before it for browsers that drop linear().
+    expect(html).toMatch(/transition-timing-function:cubic-bezier\([^)]*\),ease;transition-timing-function:linear\(/);
+    expect(html).toContain("@media (prefers-reduced-motion:reduce){.action,.action .icon>*,.spark{transition:none}}");
   });
 
   test("builds both pages and the captures beside them", () => {
