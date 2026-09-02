@@ -36,6 +36,11 @@ it was about.
 
 ### Fixed
 
+- **The interface blanked on a project with a branch preview that had not
+  started.** A branch preview has no url until its checkout is up, and the
+  duplicate scan read one off it anyway, which took the whole interface down
+  with it on load. Such a preview is now skipped until it is running. (`leglas`)
+
 - **A variant of a captured page came back with unwanted elements from its
   parent.** Fork the served HTML of a page that rebuilds itself in the browser
   (a captured production site, a static export, any hydrating app served as a
