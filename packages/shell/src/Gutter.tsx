@@ -187,9 +187,9 @@ export function Gutter({
   });
   const landed = arriving;
 
-  // Laid over the row's own left padding and a variant's indent rather than
-  // taking a column of its own, so the titles sit exactly where the rail
-  // always put them.
+  // Laid over the row's left padding, which railInsets sizes so that the card
+  // starts past everything drawn here: the gutter is a column beside the
+  // card, and a variant's title still sits where the rail always put it.
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
       <svg

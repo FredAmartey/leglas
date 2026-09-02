@@ -38,7 +38,7 @@ import {
 } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
-import { Gutter, gutterWidth, railInsets } from "./Gutter.js";
+import { Gutter, gutterWidth } from "./Gutter.js";
 import { flushSync } from "react-dom";
 import { Crumbs } from "./Crumbs.js";
 import {
@@ -506,7 +506,7 @@ export function Shell({
   });
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
-  const insets = railInsets(st.rowMeta);
+  const insets = st.insets;
   /** The light's own colour, for a working mark's breath and for blooms. */
   const tint = PALETTE.current[0];
   /**

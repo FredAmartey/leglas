@@ -34,6 +34,20 @@ describe("railInsets", () => {
     expect(insets).toEqual({ root: 36, variant: 42 });
   });
 
+  test("a folded family takes its lanes off the rail, which is why the columns are measured with every family open", () => {
+    const titles = ["Meridian", "Ledger", "Dusk", "Sea", "Harbour", "Quay"];
+    const pairs: [string, string][] = [
+      ["Ledger", "Meridian"],
+      ["Dusk", "Meridian"],
+      ["Sea", "Meridian"],
+      ["Harbour", "Meridian"],
+    ];
+    const open = railInsets(lineageRail(titles, new Map(pairs), new Set()).meta);
+    const folded = railInsets(lineageRail(titles, new Map(pairs), new Set(["Meridian"])).meta);
+    expect(open).toEqual({ root: 36, variant: 42 });
+    expect(folded).toEqual({ root: 16, variant: 0 });
+  });
+
   test("a lone root on a rail with a family elsewhere shares the roots' column", () => {
     const { root } = insetsFor(["Quay", "Meridian", "Ledger"], [["Ledger", "Meridian"]]);
     expect(root).toBe(16);
