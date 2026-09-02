@@ -410,6 +410,9 @@ function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }
             {toast.detail}
           </span>
         ) : null}
+        {toast.note ? (
+          <span className="mt-1 block text-[11px] leading-snug text-[#9CA3AF]">{toast.note}</span>
+        ) : null}
       </span>
       {toast.action ? (
         <button

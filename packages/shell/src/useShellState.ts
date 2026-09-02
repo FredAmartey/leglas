@@ -12,6 +12,15 @@ import {
   type Prefs,
 } from "./prefs.js";
 import { collapseRows, familyRows, rootOf } from "./families.js";
+import {
+  ancestry,
+  lineageRail,
+  reorderAmongSiblings,
+  widestLane,
+  type Rail,
+  type RowMeta,
+} from "./lineage.js";
+import { railShape, type RailDirection } from "./rail-direction.js";
 import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
@@ -58,6 +67,8 @@ export type ShellStateProps = {
    * Hold every shortcut but help, for when something on top owns the keyboard.
    */
   suspended?: boolean | undefined;
+  /** Which rail to draw: an exploration switch, "current" unless the URL says otherwise. */
+  direction?: RailDirection | undefined;
 };
 
 export function useShellState({
@@ -69,6 +80,7 @@ export function useShellState({
   onToggleTools,
   onToggleNote,
   suspended = false,
+  direction = "current",
 }: ShellStateProps) {
   const key = storageKey(project);
   const initial = () =>
@@ -102,6 +114,12 @@ export function useShellState({
     setQueryRaw(value);
   };
   const [showHidden, setShowHidden] = useState(false);
+  /**
+   * Rows folded for the length of a drag. A lineage rail folds the families
+   * around the row being moved, so the slots it can take are exactly the
+   * rows on screen; the fold lifts when the drag ends.
+   */
+  const [dragFolded, setDragFolded] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Why the open rename form refused what was typed into it. */
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -202,23 +220,63 @@ export function useShellState({
       preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
     ),
   );
-  const grouped = familyRows(
-    ordered.filter((title) => !prefs.hidden.includes(title) && matches(title)),
-    basedOnMap,
-  );
-  const rowsWithDepth = collapseRows(grouped, new Set(foldedNow));
-  const rows = rowsWithDepth.map((row) => row.title);
-  /** Per-title rail metadata: indent depth, variant count, folded state. */
-  const rowMeta = new Map(
-    rowsWithDepth.map((row) => {
-      const variants =
-        row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
-      return [
-        row.title,
-        { depth: row.depth, variants, folded: foldedNow.includes(row.title) },
-      ] as const;
-    }),
-  );
+  const shape = railShape(direction);
+  const showing = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
+  /** The rail as it ships: one level under each family root, in saved order. */
+  const familyRail = (): Rail => {
+    const grouped = familyRows(showing, basedOnMap);
+    const rowsWithDepth = collapseRows(grouped, new Set(foldedNow));
+    /** Per-title rail metadata: indent depth, variant count, folded state. */
+    const meta = new Map<string, RowMeta>(
+      rowsWithDepth.map((row) => {
+        const variants =
+          row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
+        return [
+          row.title,
+          {
+            depth: row.depth,
+            variants,
+            descendants: variants,
+            folded: foldedNow.includes(row.title),
+            graph: null,
+          },
+        ] as const;
+      }),
+    );
+    return {
+      rows: rowsWithDepth.map((row) => row.title),
+      meta,
+      parents: new Map(),
+      children: new Map(),
+      roots: [],
+    };
+  };
+  const {
+    rows,
+    meta: rowMeta,
+    parents: railParents,
+    children: railChildren,
+    roots: railRoots,
+  } =
+    shape.order === "family"
+      ? familyRail()
+      : lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
+  /** Move a direction among its siblings; see reorderAmongSiblings. */
+  const reorderAmong = (title: string, before: string | null, siblings: readonly string[]) =>
+    setPrefs((current) => ({
+      ...current,
+      order: reorderAmongSiblings(
+        current.order,
+        previews.map((preview) => preview.title),
+        title,
+        before,
+        siblings,
+      ),
+    }));
+  /** Where a direction came from, root first, for a rail that shows the chain. */
+  const ancestryOf = (title: string) => ancestry(title, basedOnMap);
+  /** The widest gutter lane any row touches, or -1 when no row draws one. */
+  const lanes = widestLane(rowMeta);
   const toggleIn = (list: readonly string[], title: string) =>
     list.includes(title) ? list.filter((entry) => entry !== title) : [...list, title];
   const toggleFamily = (title: string) =>
@@ -565,16 +623,19 @@ export function useShellState({
 
   return {
     active,
+    ancestryOf,
     copied,
     copyLink,
     copyReference,
     deleteRemoved,
     displayName,
     dismissToast: dismiss,
+    dragFolded,
     focusing,
     hiddenCount: prefs.hidden.length,
     hide,
     isLoaded,
+    lanes,
     loaded,
     markLoaded,
     matches,
@@ -584,6 +645,10 @@ export function useShellState({
     onHandlePointerDown,
     panes,
     prefs,
+    railChildren,
+    railParents,
+    railRoots,
+    reorderAmong,
     previewFor: (title: string) => byTitle.get(title),
     query,
     rename,
@@ -597,9 +662,11 @@ export function useShellState({
     rows,
     toggleFamily,
     setActive,
+    setDragFolded,
     setPrefs,
     setQuery,
     setShowHidden,
+    shape,
     showHidden,
     startRename,
     toasts,
