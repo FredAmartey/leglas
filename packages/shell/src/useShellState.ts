@@ -7,11 +7,15 @@ import {
   deleteDirections,
   loadPrefs,
   railOrder,
-  reorder,
   storageKey,
   type Prefs,
 } from "./prefs.js";
-import { collapseRows, familyRows, rootOf } from "./families.js";
+import {
+  ancestry,
+  lineageRail,
+  reorderAmongSiblings,
+  widestLane,
+} from "./lineage.js";
 import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
@@ -102,6 +106,12 @@ export function useShellState({
     setQueryRaw(value);
   };
   const [showHidden, setShowHidden] = useState(false);
+  /**
+   * Rows folded for the length of a drag. A lineage rail folds the families
+   * around the row being moved, so the slots it can take are exactly the
+   * rows on screen; the fold lifts when the drag ends.
+   */
+  const [dragFolded, setDragFolded] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
   /** Why the open rename form refused what was typed into it. */
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -202,23 +212,30 @@ export function useShellState({
       preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
     ),
   );
-  const grouped = familyRows(
-    ordered.filter((title) => !prefs.hidden.includes(title) && matches(title)),
-    basedOnMap,
-  );
-  const rowsWithDepth = collapseRows(grouped, new Set(foldedNow));
-  const rows = rowsWithDepth.map((row) => row.title);
-  /** Per-title rail metadata: indent depth, variant count, folded state. */
-  const rowMeta = new Map(
-    rowsWithDepth.map((row) => {
-      const variants =
-        row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
-      return [
-        row.title,
-        { depth: row.depth, variants, folded: foldedNow.includes(row.title) },
-      ] as const;
-    }),
-  );
+  const showing = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
+  const {
+    rows,
+    meta: rowMeta,
+    parents: railParents,
+    children: railChildren,
+    roots: railRoots,
+  } = lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
+  /** Move a direction among its siblings; see reorderAmongSiblings. */
+  const reorderAmong = (title: string, before: string | null, siblings: readonly string[]) =>
+    setPrefs((current) => ({
+      ...current,
+      order: reorderAmongSiblings(
+        current.order,
+        previews.map((preview) => preview.title),
+        title,
+        before,
+        siblings,
+      ),
+    }));
+  /** Where a direction came from, root first, for a rail that shows the chain. */
+  const ancestryOf = (title: string) => ancestry(title, basedOnMap);
+  /** The widest gutter lane any row touches, or -1 when no row draws one. */
+  const lanes = widestLane(rowMeta);
   const toggleIn = (list: readonly string[], title: string) =>
     list.includes(title) ? list.filter((entry) => entry !== title) : [...list, title];
   const toggleFamily = (title: string) =>
@@ -233,9 +250,6 @@ export function useShellState({
 
   /** Rows that would show if the search were cleared, for the empty state. */
   const visibleCount = ordered.filter((title) => !prefs.hidden.includes(title)).length;
-
-  const moveOption = (title: string, toIndex: number) =>
-    setPrefs((current) => ({ ...current, order: reorder(current, previews, title, toIndex) }));
 
   /**
    * Put a removed direction back. Order is untouched by removal, so it returns
@@ -565,25 +579,31 @@ export function useShellState({
 
   return {
     active,
+    ancestryOf,
     copied,
     copyLink,
     copyReference,
     deleteRemoved,
     displayName,
     dismissToast: dismiss,
+    dragFolded,
     focusing,
     hiddenCount: prefs.hidden.length,
     hide,
     isLoaded,
+    lanes,
     loaded,
     markLoaded,
     matches,
-    moveOption,
     nested,
     notify,
     onHandlePointerDown,
     panes,
     prefs,
+    railChildren,
+    railParents,
+    railRoots,
+    reorderAmong,
     previewFor: (title: string) => byTitle.get(title),
     query,
     rename,
@@ -597,6 +617,7 @@ export function useShellState({
     rows,
     toggleFamily,
     setActive,
+    setDragFolded,
     setPrefs,
     setQuery,
     setShowHidden,

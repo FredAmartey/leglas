@@ -14,7 +14,32 @@ it was about.
 
 ## Unreleased
 
+### Changed
+
+- **The rail shows where each direction came from.** A rail of eight rows read
+  as eight siblings even when the head said four directions and a chain of
+  passes on one of them, because every variant was flattened under its family
+  root in saved order. The rail now keeps lineage order: each variant follows
+  the direction it was made from, and a gutter beside the titles draws the
+  family the way `git log --graph` draws a history, with a lane per branch and
+  a fork where a later sibling leaves the line. Dots mark where a line starts,
+  ends or forks; a ring marks the row on stage. The line from a direction's
+  root down to it carries a slow current of colour and a soft surge every few
+  seconds, and resting on a row or on a crumb aims it there; the crumbs under
+  the composer say the same ancestry in words, and clicking one goes there,
+  shift-click compares against it. Reordering holds a row among its siblings:
+  drag one and the families around it fold away for the drag, a family
+  travels as one row behind its root, and a row pushed past its siblings says
+  why on the way and again when it is let go. Folding a family is a view
+  transition; a new direction blooms where it lands. With less motion asked
+  for, the line is still coloured and nothing moves. (`leglas`)
+
 ### Fixed
+
+- **The interface blanked on a project with a branch preview that had not
+  started.** A branch preview has no url until its checkout is up, and the
+  duplicate scan read one off it anyway, which took the whole interface down
+  with it on load. Such a preview is now skipped until it is running. (`leglas`)
 
 - **A variant of a captured page came back with unwanted elements from its
   parent.** Fork the served HTML of a page that rebuilds itself in the browser

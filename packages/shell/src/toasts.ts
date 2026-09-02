@@ -19,6 +19,8 @@ export type Toast = {
   action?: { label: string; run: () => void } | undefined;
   /** Secondary line, selectable: the URL to copy by hand when the clipboard refuses. */
   detail?: string | undefined;
+  /** Secondary line in prose: why something did not happen and what to do instead. */
+  note?: string | undefined;
   id: number;
   /**
    * What this toast is about. A new toast of the same kind supersedes the old

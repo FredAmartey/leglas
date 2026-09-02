@@ -17,6 +17,11 @@ const PREVIEWS = [
 ] as const;
 
 describe("scanQueue", () => {
+  test("a branch preview that has not started has no url yet, and is skipped rather than thrown on", () => {
+    const idle = { title: "Warm red", url: undefined as unknown as string, tags: [], branch: "warm-red" };
+    expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain("Warm red");
+  });
+
   test("queues same-origin previews without current results", () => {
     expect(scanQueue(PREVIEWS, {}).map((preview) => preview.title)).toEqual([
       "Current",
