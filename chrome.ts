@@ -10,6 +10,27 @@ import { join } from "node:path";
 export const REPO = "https://github.com/FredAmartey/leglas";
 export const NPM = "https://www.npmjs.com/package/leglas";
 
+/**
+ * A spring (stiffness 600, damping 25, unit mass) sampled as an easing, so
+ * the star's swap overshoots and settles the way a physical thing does
+ * rather than easing to a stop. It reaches its target a third of the way
+ * through, peaks at about 115% and is still by the end, which is what makes
+ * the duration half a second while the motion reads as a quick flick.
+ * Browsers without linear() drop the declaration and keep the bezier
+ * declared before it.
+ */
+const SPRING = "linear(0, .108, .349, .622, .859, 1.028, 1.123, 1.155, 1.143, 1.107, 1.065, 1.027, .999, .983, .976, .977, .982, .989, .995, 1, 1.002, 1.004, 1.004, 1.003, 1)";
+const EASE = "cubic-bezier(.2,.7,.2,1)";
+
+/** Lucide's outlines, drawn at 16px in the text's colour. */
+const outline = (cls: string | null, paths: string): string =>
+  `<svg${cls ? ` class="${cls}"` : ""} aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const GITHUB = outline("from", '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>');
+const STAR = outline(null, '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>');
+/** The two sparks that come up with the star, one bigger and paler than the other. */
+const SPARK = (cls: string): string =>
+  `<svg class="spark ${cls}" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l2.4 7.6H22l-6.2 4.5 2.4 7.6-6.2-4.5-6.2 4.5 2.4-7.6L2 9.6h7.6z"/></svg>`;
+
 export const escape = (text: string): string =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
@@ -121,6 +142,27 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
 .theme:hover{color:var(--ink)}
 .theme .sun{display:var(--icon-sun)}
 .theme .moon{display:var(--icon-moon)}
+/* The star, a link to the repository in the same chip as its neighbours.
+   Reaching for it swaps the GitHub mark for a star that brings two sparks up
+   with it, and the chip breathes out by 3px while it does. The swap is two
+   layers in one 16px box, each moving on the spring above and fading faster
+   than it moves, so the star is already showing while the mark is still
+   leaving. */
+.star{position:relative;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);font:500 13px/1 var(--sans);letter-spacing:-.01em;text-decoration:none;transition:padding .5s,color .15s,transform .5s;transition-timing-function:${EASE},ease,${EASE};transition-timing-function:${SPRING},ease,${SPRING}}
+.star:is(:hover,:focus-visible){padding:0 15px;color:var(--ink);transform:scale(1.02)}
+.star:active{transform:scale(.96)}
+.star .icon{position:relative;width:16px;height:16px;flex:none}
+.star .icon>*,.spark{position:absolute;transition:transform .5s,opacity .2s;transition-timing-function:${EASE},ease;transition-timing-function:${SPRING},ease}
+.star .icon>*{inset:0}
+.star .to{opacity:0;color:var(--star);transform:translateY(15px) scale(.8)}
+.star:is(:hover,:focus-visible,:active) .to{opacity:1;transform:none}
+.star:is(:hover,:focus-visible,:active) .from{opacity:0;transform:translateY(-15px) scale(.8)}
+.spark{fill:currentColor;opacity:0}
+.spark-a{top:-12px;right:-8px;width:10px;height:10px;color:var(--spark);transform:translateY(10px) rotate(-45deg) scale(0)}
+.spark-b{top:-4px;left:-12px;width:6px;height:6px;color:var(--star);transform:translateX(10px) rotate(45deg) scale(0)}
+.star:is(:hover,:focus-visible,:active) .spark{opacity:1;transform:none}
+.star:is(:hover,:focus-visible,:active) .spark-a{transition-delay:.05s}
+.star:is(:hover,:focus-visible,:active) .spark-b{transition-delay:.1s}
 .media{margin:6px 0 2px;display:flex;flex-direction:column;gap:8px}
 .media img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--rule-soft);background:var(--media-bg);box-shadow:0 12px 28px var(--media-shadow)}
 .media figcaption{font-size:13px;color:var(--ink-3)}
@@ -144,11 +186,13 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
   ::view-transition-new(root){animation:theme-reveal 600ms cubic-bezier(.4,0,.2,1)}
 }
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.rise{animation:none !important}}
+@media (prefers-reduced-motion:reduce){.rise{animation:none !important}.star,.star .icon>*,.spark{transition:none}}
 @media (max-width:720px){
   .bar-row{padding:0 20px;gap:18px}
   .nav{gap:16px;font-size:14px}
   .install{display:none}
+  .star,.star:is(:hover,:focus-visible){width:30px;padding:0;justify-content:center;gap:0}
+  .star .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
 `;
 }
@@ -163,6 +207,7 @@ export function bar(assets: Assets, place: Place): string {
 <a class="brand" href="${place.home}">${assets.mark}${assets.wordmark}</a>
 <nav class="nav" aria-label="Site">${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
 <div class="bar-end">
+<a class="star" href="${REPO}"><span class="icon">${GITHUB}<span class="to">${STAR}${SPARK("spark-a")}${SPARK("spark-b")}</span></span><span class="label">Star on GitHub</span></a>
 <button class="install" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>
 <button class="theme" type="button" data-theme-switch aria-label="Switch between light and dark">
 <svg class="sun" aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
@@ -209,18 +254,6 @@ const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme")
  */
 const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)}).ready.catch(function(){})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 
-/**
- * Share copies the page's address and says so on the button, the way the
- * copy controls do, which on a desk is the thing a reader actually wants:
- * the next stop is a chat window or an issue, and the system's share sheet
- * offers neither. On a phone the sheet is where everything lives, so a
- * device without hover gets it instead. The address is the page's path
- * alone, with no query and no fragment, since where the reader happens to
- * be on the page is not what they are sharing. A sheet the reader
- * dismisses rejects, and that is not an error.
- */
-const SHARE_SCRIPT = `(function(){var b=document.querySelector("[data-share]");if(!b)return;var data={title:document.title,text:b.dataset.share,url:location.origin+location.pathname};b.addEventListener("click",function(){if(navigator.share&&matchMedia("(hover: none)").matches&&(!navigator.canShare||navigator.canShare(data))){navigator.share(data).catch(function(){});return}if(!navigator.clipboard)return;navigator.clipboard.writeText(data.url).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})();`;
-
 /** Every copy control on a page copies the command in it. */
 const COPY_SCRIPT = `(function(){if(!navigator.clipboard)return;document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.dataset.done="1";setTimeout(function(){delete b.dataset.done},1200)},function(){})})})})();`;
 
@@ -240,14 +273,13 @@ export function document(options: {
 <meta name="description" content="${escape(options.description)}">
 <link rel="icon" href="${options.assets.favicon}" type="image/svg+xml">
 <script>${STAMP_SCRIPT}</script>
-<noscript><style>.theme,.share{display:none}</style></noscript>
+<noscript><style>.theme{display:none}</style></noscript>
 <style>${baseStyles(options.assets.fonts)}${options.styles}</style>
 </head>
 <body>
 ${options.body}
 <script>
 ${COPY_SCRIPT}
-${SHARE_SCRIPT}
 ${THEME_SCRIPT}
 </script>
 </body>
