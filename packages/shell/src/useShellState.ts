@@ -16,6 +16,7 @@ import {
   reorderAmongSiblings,
   widestLane,
 } from "./lineage.js";
+import { railInsets } from "./Gutter.js";
 import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
@@ -220,6 +221,10 @@ export function useShellState({
     children: railChildren,
     roots: railRoots,
   } = lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
+  // Where the cards start is measured on the rail with every family open, so
+  // a fold, or the folding a drag does on its way, never moves a card
+  // sideways: the columns are what the whole tree needs, not what shows.
+  const insets = railInsets(lineageRail(showing, basedOnMap, new Set()).meta);
   /** Move a direction among its siblings; see reorderAmongSiblings. */
   const reorderAmong = (title: string, before: string | null, siblings: readonly string[]) =>
     setPrefs((current) => ({
@@ -592,6 +597,7 @@ export function useShellState({
     hide,
     isLoaded,
     lanes,
+    insets,
     loaded,
     markLoaded,
     matches,

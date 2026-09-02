@@ -23,7 +23,9 @@ it was about.
   the direction it was made from, and a gutter beside the titles draws the
   family the way `git log --graph` draws a history, with a lane per branch and
   a fork where a later sibling leaves the line. Dots mark where a line starts,
-  ends or forks; a ring marks the row on stage. The line from a direction's
+  ends or forks; a ring marks the row on stage. Each card starts where its
+  text does, so the graph runs in the gutter beside the cards and a variant's
+  card sits inside its root's. The line from a direction's
   root down to it carries a slow current of colour and a soft surge every few
   seconds, and resting on a row or on a crumb aims it there; the crumbs under
   the composer say the same ancestry in words, and clicking one goes there,

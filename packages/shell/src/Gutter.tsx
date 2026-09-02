@@ -1,4 +1,4 @@
-import { forkCurve, forkKnee, type LineageRow, type Segment } from "./lineage.js";
+import { forkCurve, forkKnee, type LineageRow, type RowMeta, type Segment } from "./lineage.js";
 
 /**
  * The lineage drawn beside the titles, the way `git log --graph` draws a
@@ -60,6 +60,40 @@ const EASE = "160ms cubic-bezier(0.2, 0.7, 0.2, 1)";
 /** The gutter's width for the widest lane any row touches; zero when none does. */
 export function gutterWidth(lanes: number): number {
   return lanes < 0 ? 0 : Math.max(INDENT, PAD + lanes * LANE + 10);
+}
+
+/** A root's card starts here once anything is drawn in the gutter: past its mark and a fork to the next lane. */
+const ROOT_INSET = 16;
+/** A variant's card starts here, so its title keeps the indent it always had. */
+const VARIANT_INSET = INDENT - 12;
+/** A line or a fork's knee keeps this much dark between itself and a card's edge. */
+const LINE_CLEAR = 2;
+/** A ring around a mark keeps this much: the ring's own radius and a little more. */
+const RING_CLEAR = 8;
+
+/**
+ * Where the cards start, so that everything the gutter draws stays outside
+ * them: roots as one column, variants as another. Both grow together when a
+ * family opens more lanes than usual, and both are zero on a rail that draws
+ * nothing, where a card fills its row as it always did.
+ */
+export function railInsets(meta: ReadonlyMap<string, RowMeta>): { root: number; variant: number } {
+  let root = 0;
+  let variant = 0;
+  for (const { descendants, graph } of meta.values()) {
+    if (graph === null) continue;
+    if (!(graph.fromAbove || graph.toBelow || graph.forks.length > 0 || descendants > 0)) continue;
+    if (graph.depth === 0) {
+      // A root sits on lane 0; only the forks leaving it reach further right.
+      root = Math.max(root, ROOT_INSET, PAD + Math.max(0, ...graph.forks) * LANE + LINE_CLEAR);
+    } else {
+      const reach = Math.max(graph.lane, ...graph.forks, ...graph.through);
+      variant = Math.max(variant, VARIANT_INSET, PAD + reach * LANE + RING_CLEAR);
+    }
+  }
+  // A family anywhere puts every root past the trunk column, lone ones too.
+  if (variant > 0) root = Math.max(root, ROOT_INSET);
+  return { root, variant };
 }
 
 type Piece =
@@ -153,9 +187,9 @@ export function Gutter({
   });
   const landed = arriving;
 
-  // Laid over the row's own left padding and a variant's indent rather than
-  // taking a column of its own, so the titles sit exactly where the rail
-  // always put them.
+  // Laid over the row's left padding, which railInsets sizes so that the card
+  // starts past everything drawn here: the gutter is a column beside the
+  // card, and a variant's title still sits where the rail always put it.
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
       <svg
