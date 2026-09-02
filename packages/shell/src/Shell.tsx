@@ -2503,15 +2503,15 @@ export function Shell({
                         line the rename field will fill, growing to fit a longer
                         name. Each padding is cancelled by an equal negative
                         margin, which buys territory without moving a pixel of
-                        text or changing the row's height. It reaches into the
-                        left gutter, where there is nothing to take it from,
-                        except on a family root where the fold control is
-                        already sitting there. What is left for opening the
-                        design is the note beneath, the badge, and the last
-                        third of the title line. */}
+                        text or changing the row's height. It reaches 20px into
+                        the left gutter, a root's whole indent, where the marks
+                        take nothing from it, except on a family root where the
+                        fold control is already sitting there. What is left for
+                        opening the design is the note beneath, the badge, and
+                        the last third of the title line. */}
                     <span
                       className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
-                        variantCount > 0 ? "" : "-ml-3 pl-3"
+                        variantCount > 0 ? "" : "-ml-5 pl-5"
                       }`}
                       onDoubleClick={(event) => {
                         event.stopPropagation();
