@@ -911,6 +911,10 @@ export function Shell({
         // Rows differ in height, so the slot is chosen by which of these the
         // row is nearest rather than by crossing midpoints: that keeps the
         // travel and the target in step, and the two ends exactly reachable.
+        // The span is set by the remeasure once the fold has laid out, and
+        // the siblings it comes from always include the dragged row itself,
+        // so the whole-rail fallback here only covers the frames before that
+        // remeasure has run; it never widens a family's slots to the rail.
         const [first, last] = current.span ?? [0, meta.rows.length - 1];
         const slotTop = (index: number): number => {
           const slot = meta.rows[index];
