@@ -654,7 +654,7 @@ export function Shell({
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>("li[data-title]") ?? [])].find(
       (entry) => entry.dataset.title === title,
     );
-    if (row) setGlow({ height: row.offsetHeight, on: true, top: row.offsetTop });
+    if (row) setGlow(glowFor(row));
   };
   const closeDeletePrompt = () => {
     if (!deletingRemoved) setDeletePrompt(null);
@@ -827,7 +827,15 @@ export function Shell({
   // One white/6% panel behind the hovered row that eases between rows. The
   // active row carries its own persistent surface, so this is hover-only.
   const listRef = useRef<HTMLUListElement | null>(null);
-  const [glow, setGlow] = useState({ height: 0, on: false, top: 0 });
+  const [glow, setGlow] = useState({ height: 0, left: 0, on: false, top: 0 });
+  // The glow covers the card, not the row: a card starts past the gutter its
+  // lineage lives in, so the glow starts where the card does.
+  const glowFor = (row: HTMLElement) => ({
+    height: row.offsetHeight,
+    left: row.querySelector<HTMLElement>('[role="button"]')?.offsetLeft ?? 0,
+    on: true,
+    top: row.offsetTop,
+  });
 
   // The panel is measured from the row the pointer entered, and rows move as
   // a search narrows the list or a family folds. Left on, it hangs over
@@ -2296,12 +2304,12 @@ export function Shell({
       dragging && st.dragFolded.has(title) && (meta?.variants ?? 0) === 0
         ? (meta?.descendants ?? 0)
         : 0;
-    // How the row shows its depth: one indent for any variant, one per level,
-    // or none at all, with the gutter carrying the lineage instead.
-    // A root's text starts past the trunk that hangs from its mark, with room
-    // for the light's glow beside a note. At the old 12px the lit line ran
-    // hard against the first letter.
-    const indent = isVariant ? "pl-11" : "pl-5";
+    // How the row shows its depth. With lineage on the rail the card itself
+    // starts where its text column begins, so the graph lives in the gutter
+    // outside every card: a root's card sits past its mark and the fork that
+    // leaves it at 14px, a variant's past the lanes to its left. Without
+    // lineage the card fills the row as it always did.
+    const rowIndent = gutter > 0 ? (isVariant ? "pl-8" : "pl-4") : "";
     const variantCount = meta?.variants ?? 0;
     const folded = meta?.folded ?? false;
     // Renaming edits the name where it sits. Replacing the whole row with a
@@ -2324,9 +2332,9 @@ export function Shell({
 
     return (
       <li
-        className={`group relative ${
+        className={`group relative ${rowIndent} ${
           isDragged
-            ? `z-30 rounded-md bg-white/[0.06] shadow-2xl ${
+            ? `z-30 ${
                 drag?.settling
                   ? `transition-transform duration-200 ${EASE} motion-reduce:transition-none`
                   : ""
@@ -2341,11 +2349,7 @@ export function Shell({
         key={title}
         onPointerEnter={(event) => {
           setTraced(title);
-          setGlow({
-            height: event.currentTarget.offsetHeight,
-            on: true,
-            top: event.currentTarget.offsetTop,
-          });
+          setGlow(glowFor(event.currentTarget));
         }}
         style={{
           ...(isDragged
@@ -2372,6 +2376,23 @@ export function Shell({
             this one was built from, and the change that was asked for. Only
             for a direction that records one of them, so a card never opens
             to say nothing, and never while the name is being edited. */}
+        {gutter > 0 && meta?.graph ? (
+          <Gutter
+            active={isActive}
+            arriving={arriving(title)}
+            bloom={crumbBloom.title === title ? crumbBloom.nonce : 0}
+            delay={Math.min(index, 12) * 28}
+            family={(meta?.descendants ?? 0) > 0}
+            folded={meta?.folded ?? false}
+            fresh={freshFor(title)}
+            lifted={isDragged}
+            lit={litSegments?.get(title)}
+            row={meta.graph}
+            tint={tint}
+            width={gutter}
+            working={isWorking}
+          />
+        ) : null}
         <HoverCard
           label={
             renamingThis ? null : cardFor(preview, st.displayName(title), st.displayName)
@@ -2379,9 +2400,13 @@ export function Shell({
         >
           <div
             aria-pressed={isActive}
-            className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pr-3 text-left transition-colors active:cursor-grabbing ${indent} ${
-              isActive ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40" : ""
-            }`}
+            className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pl-3 pr-3 text-left transition-colors active:cursor-grabbing ${
+              isActive
+                ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40"
+                : isDragged
+                  ? "bg-white/[0.06]"
+                  : ""
+            } ${isDragged ? "shadow-2xl" : ""}`}
             onClick={() => {
               if (renamingThis) return;
               if (dragMeta.current?.suppressed) {
@@ -2417,23 +2442,6 @@ export function Shell({
             role="button"
             tabIndex={0}
           >
-            {gutter > 0 && meta?.graph ? (
-              <Gutter
-                active={isActive}
-                arriving={arriving(title)}
-                bloom={crumbBloom.title === title ? crumbBloom.nonce : 0}
-                delay={Math.min(index, 12) * 28}
-                family={(meta?.descendants ?? 0) > 0}
-                folded={meta?.folded ?? false}
-                fresh={freshFor(title)}
-                lifted={isDragged}
-                lit={litSegments?.get(title)}
-                row={meta.graph}
-                tint={tint}
-                width={gutter}
-                working={isWorking}
-              />
-            ) : null}
             <span className="min-w-0 flex-1">
               {/* The buttons float over the row rather than sitting in it, so
                   the title line has to give up the strip they land on or a long
@@ -2503,15 +2511,15 @@ export function Shell({
                         line the rename field will fill, growing to fit a longer
                         name. Each padding is cancelled by an equal negative
                         margin, which buys territory without moving a pixel of
-                        text or changing the row's height. It reaches 20px into
-                        the left gutter, a root's whole indent, where the marks
-                        take nothing from it, except on a family root where the
-                        fold control is already sitting there. What is left for
-                        opening the design is the note beneath, the badge, and
-                        the last third of the title line. */}
+                        text or changing the row's height. It reaches to the
+                        card's edge, where there is nothing to take it from,
+                        except on a family root where the fold control is
+                        already sitting there. What is left for opening the
+                        design is the note beneath, the badge, and the last
+                        third of the title line. */}
                     <span
                       className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
-                        variantCount > 0 ? "" : "-ml-5 pl-5"
+                        variantCount > 0 ? "" : "-ml-3 pl-3"
                       }`}
                       onDoubleClick={(event) => {
                         event.stopPropagation();
@@ -2843,9 +2851,10 @@ export function Shell({
             >
               <div
                 aria-hidden
-                className={`pointer-events-none absolute left-0 right-0 z-0 rounded-md bg-white/[0.06] transition-[transform,height,opacity] duration-150 ${EASE} motion-reduce:transition-none`}
+                className={`pointer-events-none absolute right-0 z-0 rounded-md bg-white/[0.06] transition-[transform,height,opacity,left] duration-150 ${EASE} motion-reduce:transition-none`}
                 style={{
                   height: glow.height,
+                  left: glow.left,
                   opacity: glow.on && !dragging ? 1 : 0,
                   transform: `translateY(${glow.top}px)`,
                 }}
