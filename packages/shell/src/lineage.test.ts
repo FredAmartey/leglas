@@ -367,67 +367,27 @@ describe("trailPath", () => {
     ).toBe("M 6 10 L 6 60");
   });
 
-  test("a step into another lane takes the gutter's own knee", () => {
-    expect(
-      trailPath(
-        [
-          { x: 6, y: 10 },
-          { x: 16, y: 60 },
-        ],
-        "knee",
-      ),
-    ).toBe("M 6 10 C 6 19, 16 13, 16 22 L 16 60");
-  });
-
-  test("the fork drawn by default is the deep elbow", () => {
+  test("a step into another lane drops, turns out, turns down and arrives vertical", () => {
     expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }])).toBe(
       "M 4 10 C 4 11.33, 4 12.67, 4 14 C 4 16.76, 6.24 19, 9 19 C 11.76 19, 14 21.24, 14 24 L 14 80",
     );
   });
 
+  test("a fork with no room before the next mark goes straight there", () => {
+    expect(trailPath([{ x: 6, y: 10 }, { x: 16, y: 16 }])).toBe("M 6 10 L 16 16");
+  });
+
   test("room left around a forking mark is cut off the curve, not moved down it", () => {
-    const whole = trailPath([{ x: 6, y: 10 }, { x: 16, y: 60 }], "knee");
-    const cut = trailPath([{ x: 6, y: 10, clear: 5 }, { x: 16, y: 60 }], "knee");
-    // Both end at the same knee and the same line; only the start differs.
-    expect(cut.endsWith("16 22 L 16 60")).toBe(true);
-    expect(whole.endsWith("16 22 L 16 60")).toBe(true);
-    // The cut curve starts on the original curve, a little way down and across it.
+    const whole = trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }]);
+    const cut = trailPath([{ x: 4, y: 10, clear: 5 }, { x: 14, y: 80 }]);
+    expect(whole.endsWith("14 24 L 14 80")).toBe(true);
+    expect(cut.endsWith("14 24 L 14 80")).toBe(true);
+    // Five pixels of arc: the four-pixel drop, then one pixel into the turn.
     const [, sx, sy] = cut.match(/^M ([\d.]+) ([\d.]+)/) as RegExpMatchArray;
-    expect(Number(sy)).toBeGreaterThan(13);
-    expect(Number(sy)).toBeLessThan(17);
-    expect(Number(sx)).toBeGreaterThan(6);
-  });
-
-  test("a knee with no room before the next mark goes straight there", () => {
-    expect(trailPath([{ x: 6, y: 10 }, { x: 16, y: 16 }], "knee")).toBe("M 6 10 L 16 16");
-  });
-
-  test("each fork geometry leaves the mark and arrives vertical in the new lane", () => {
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "arc")).toBe("M 4 10 C 9.52 10, 14 14.48, 14 20 L 14 80");
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "diagonal")).toBe("M 4 10 C 7.33 13.33, 10.67 16.67, 14 20 L 14 80");
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "tangent")).toBe("M 4 10 C 4 20, 14 20, 14 30 L 14 80");
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "elbow")).toBe(
-      "M 4 10 C 4 12.76, 6.24 15, 9 15 C 11.76 15, 14 17.24, 14 20 L 14 80",
-    );
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "hook")).toBe("M 4 10 C 7.33 10, 10.67 10, 14 10 L 14 80");
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "chamfer")).toBe(
-      "M 4 10 C 4 11, 4 12, 4 13 C 7.33 16.33, 10.67 19.67, 14 23 L 14 80",
-    );
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], "cascade")).toBe("M 4 10 C 14 10, 14 18, 14 30 L 14 80");
-  });
-
-  test("the S family all leave the mark downward and arrive vertical in the lane", () => {
-    for (const kind of ["knee-tight", "knee-tall", "knee-round", "sine", "elbow-deep", "step", "ogee", "ogee-flip"] as const) {
-      const d = trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }], kind);
-      expect(d.startsWith("M 4 10 C 4 ")).toBe(true);
-      expect(d.endsWith(" L 14 80")).toBe(true);
-      // The last curve arrives at x = 14 with its final control point directly above its end.
-      const last = d.slice(0, d.lastIndexOf(" L ")).split(" C ").pop() as string;
-      const [, , cx, , ex, ey] = last.replace(/,/g, "").split(" ");
-      expect(cx).toBe("14");
-      expect(ex).toBe("14");
-      expect(Number(ey)).toBeGreaterThan(10);
-    }
+    expect(Number(sx)).toBeGreaterThanOrEqual(4);
+    expect(Number(sx)).toBeLessThan(4.3);
+    expect(Number(sy)).toBeGreaterThan(14.9);
+    expect(Number(sy)).toBeLessThan(15.1);
   });
 
   test("the light stops short of a mark that asks for room, and passes a tick that does not", () => {

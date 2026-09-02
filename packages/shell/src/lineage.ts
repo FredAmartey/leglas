@@ -377,162 +377,21 @@ export function collapseChain(chain: readonly string[], max = 3): Crumbs {
 export type Mark = { x: number; y: number; clear?: number };
 
 /**
- * How a fork leaves a mark for the lane beside it. Four geometries, all
- * drawn from the mark's centre, all sharing the arc-length cut that keeps
- * the light off the dot:
- *
- * - knee: a short cubic, twelve pixels deep, the original.
- * - arc: a quarter circle the width of the lane change, leaving the mark
- *   sideways and arriving vertical, the way branch lines turn in a graph.
- * - diagonal: a straight line at forty-five degrees.
- * - tangent: an S twice the lane change deep, leaving the mark downward
- *   along the trunk and bending across.
- * - elbow: two tight quarter circles, half the lane change each, the way a
- *   transit map turns a line: down, round, across, round, down.
- * - hook: straight out sideways from the mark and a square drop into the
- *   lane, the way a file tree hangs a child off its parent.
- * - chamfer: a short drop, a forty-five degree cut across, and down; the
- *   corner of a schematic.
- * - cascade: out sideways and a long easing fall into the lane, twice the
- *   lane change deep, the softest of them.
- *
- * And a family around the S the knee and the elbow share, down, across and
- * down again, varying only its height and how the two bends are shaped:
- *
- * - knee-tight, knee-tall: the knee's cubic at eight and sixteen pixels.
- * - knee-round: the knee's depth with fuller bends.
- * - sine: the symmetric S, both bends alike, twelve pixels deep.
- * - elbow-deep: a short drop before the elbow's two quarter circles.
- * - step: quarter circles smaller than the lane change, with a straight run
- *   between them; a transit map's tighter turn.
- * - ogee, ogee-flip: two quarter circles of unequal radius, the larger
- *   first or last; the cyma of a moulding.
+ * How a fork leaves a mark for the lane beside it: a short drop, then two
+ * quarter circles of half the lane change, the way a transit map turns a
+ * line. Down, round, across, round, down, and vertical in the new lane
+ * fourteen pixels below the mark it left. Drawn from the mark's centre, and
+ * shared with the light that runs along it, which cuts its first stretch to
+ * stay clear of the dot.
  */
-export const FORK_KINDS = [
-  "knee",
-  "arc",
-  "diagonal",
-  "tangent",
-  "elbow",
-  "hook",
-  "chamfer",
-  "cascade",
-  "knee-tight",
-  "knee-tall",
-  "knee-round",
-  "sine",
-  "elbow-deep",
-  "step",
-  "ogee",
-  "ogee-flip",
-] as const;
-export type ForkKind = (typeof FORK_KINDS)[number];
-/** Elbow deep, chosen over fifteen others; the rest stay reachable as switches. */
-export const DEFAULT_FORK: ForkKind = "elbow-deep";
-
 type Point = readonly [number, number];
 type Cubic = readonly [Point, Point, Point, Point];
 
 const at = (value: number) => Math.round(value * 100) / 100;
 /** The cubic that best approximates a quarter circle. */
 const KAPPA = 0.5523;
-
-/** The fork's curve as cubic segments, and where the lane's straight run begins. */
-function forkSegments(kind: ForkKind, fromX: number, fromY: number, toX: number): { segments: Cubic[]; knee: number } {
-  const d = Math.abs(toX - fromX);
-  const side = toX > fromX ? 1 : -1;
-  switch (kind) {
-    case "arc": {
-      const knee = fromY + d;
-      return { knee, segments: [[[fromX, fromY], [fromX + side * KAPPA * d, fromY], [toX, knee - KAPPA * d], [toX, knee]]] };
-    }
-    case "diagonal": {
-      const knee = fromY + d;
-      return {
-        knee,
-        segments: [[[fromX, fromY], [fromX + (side * d) / 3, fromY + d / 3], [fromX + (side * 2 * d) / 3, fromY + (2 * d) / 3], [toX, knee]]],
-      };
-    }
-    case "tangent": {
-      const knee = fromY + 2 * d;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + d], [toX, fromY + d], [toX, knee]]] };
-    }
-    case "elbow": {
-      const r = d / 2;
-      const mid: Point = [fromX + side * r, fromY + r];
-      const knee = fromY + d;
-      return { knee, segments: [turnOut([fromX, fromY], r, side), turnDown(mid, r, side)] };
-    }
-    case "hook": {
-      const knee = fromY;
-      return { knee, segments: [line([fromX, fromY], [toX, fromY])] };
-    }
-    case "chamfer": {
-      const drop = 3;
-      const knee = fromY + drop + d;
-      return {
-        knee,
-        segments: [line([fromX, fromY], [fromX, fromY + drop]), line([fromX, fromY + drop], [toX, knee])],
-      };
-    }
-    case "cascade": {
-      const knee = fromY + 2 * d;
-      return { knee, segments: [[[fromX, fromY], [fromX + side * d, fromY], [toX, fromY + 0.8 * d], [toX, knee]]] };
-    }
-    case "knee-tight": {
-      const knee = fromY + 8;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + 6], [toX, fromY + 2], [toX, knee]]] };
-    }
-    case "knee-tall": {
-      const knee = fromY + 16;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + 12], [toX, fromY + 4], [toX, knee]]] };
-    }
-    case "knee-round": {
-      const knee = fromY + 12;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + 7.2], [toX, fromY + 4.8], [toX, knee]]] };
-    }
-    case "sine": {
-      const knee = fromY + 12;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + 6], [toX, fromY + 6], [toX, knee]]] };
-    }
-    case "elbow-deep": {
-      const drop = 4;
-      const r = d / 2;
-      const top: Point = [fromX, fromY + drop];
-      const mid: Point = [fromX + side * r, fromY + drop + r];
-      const knee = fromY + drop + d;
-      return { knee, segments: [line([fromX, fromY], top), turnOut(top, r, side), turnDown(mid, r, side)] };
-    }
-    case "step": {
-      const r = Math.min(3, d / 2);
-      const run = d - 2 * r;
-      const a: Point = [fromX + side * r, fromY + r];
-      const b: Point = [a[0] + side * run, a[1]];
-      const knee = fromY + 2 * r;
-      return {
-        knee,
-        segments: run > 0 ? [turnOut([fromX, fromY], r, side), line(a, b), turnDown(b, r, side)] : [turnOut([fromX, fromY], r, side), turnDown(a, r, side)],
-      };
-    }
-    case "ogee":
-    case "ogee-flip": {
-      const r1 = kind === "ogee" ? 0.7 * d : 0.3 * d;
-      const r2 = d - r1;
-      const mid: Point = [fromX + side * r1, fromY + r1];
-      const knee = fromY + d;
-      return { knee, segments: [turnOut([fromX, fromY], r1, side), turnDown(mid, r2, side)] };
-    }
-    default: {
-      const knee = fromY + 12;
-      return { knee, segments: [[[fromX, fromY], [fromX, fromY + 9], [toX, fromY + 3], [toX, knee]]] };
-    }
-  }
-}
-
-/** Where a fork of this kind has finished changing lane. */
-export function forkKnee(kind: ForkKind, fromX: number, fromY: number, toX: number): number {
-  return forkSegments(kind, fromX, fromY, toX).knee;
-}
+/** The straight drop out of the mark before the turn begins. */
+const FORK_DROP = 4;
 
 /** A quarter circle from heading down to heading sideways, as a cubic. */
 const turnOut = ([x, y]: Point, r: number, side: number): Cubic => [
@@ -548,14 +407,29 @@ const turnDown = ([x, y]: Point, r: number, side: number): Cubic => [
   [x + side * r, y + r - KAPPA * r],
   [x + side * r, y + r],
 ];
-
-/** A straight stretch as a cubic, so every geometry is a list of cubics. */
+/** A straight stretch as a cubic, so the whole fork is a list of cubics. */
 const line = (a: Point, b: Point): Cubic => [
   a,
   [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3],
   [a[0] + ((b[0] - a[0]) * 2) / 3, a[1] + ((b[1] - a[1]) * 2) / 3],
   b,
 ];
+
+/** The fork's curve as cubic segments, and where the lane's straight run begins. */
+function forkSegments(fromX: number, fromY: number, toX: number): { segments: Cubic[]; knee: number } {
+  const d = Math.abs(toX - fromX);
+  const side = toX > fromX ? 1 : -1;
+  const r = d / 2;
+  const top: Point = [fromX, fromY + FORK_DROP];
+  const mid: Point = [fromX + side * r, fromY + FORK_DROP + r];
+  const knee = fromY + FORK_DROP + d;
+  return { knee, segments: [line([fromX, fromY], top), turnOut(top, r, side), turnDown(mid, r, side)] };
+}
+
+/** Where a fork has finished changing lane. */
+export function forkKnee(fromX: number, fromY: number, toX: number): number {
+  return forkSegments(fromX, fromY, toX).knee;
+}
 
 const cubicAt = ([p0, p1, p2, p3]: Cubic, t: number): Point => {
   const u = 1 - t;
@@ -587,8 +461,8 @@ function cubicFrom([p0, p1, p2, p3]: Cubic, t: number): Cubic {
  * the parameter that arc length falls at, which keeps what remains exactly
  * the same shape. An empty string means the skip ate the whole curve.
  */
-export function forkCurve(kind: ForkKind, fromX: number, fromY: number, toX: number, skip = 0): string {
-  const { segments } = forkSegments(kind, fromX, fromY, toX);
+export function forkCurve(fromX: number, fromY: number, toX: number, skip = 0): string {
+  const { segments } = forkSegments(fromX, fromY, toX);
   let remaining = skip;
   const kept: Cubic[] = [];
   for (const segment of segments) {
@@ -637,7 +511,7 @@ export function forkCurve(kind: ForkKind, fromX: number, fromY: number, toX: num
  * own corner. The light stops short of each mark by the room the mark asks
  * for and sets off again past it, so a dot is met, never run through.
  */
-export function trailPath(marks: readonly Mark[], fork: ForkKind = DEFAULT_FORK): string {
+export function trailPath(marks: readonly Mark[]): string {
   let path = "";
   for (let index = 1; index < marks.length; index += 1) {
     const from = marks[index - 1] as Mark;
@@ -652,13 +526,13 @@ export function trailPath(marks: readonly Mark[], fork: ForkKind = DEFAULT_FORK)
     }
     // The same curve the gutter draws from the mark, less the stretch the
     // mark asked to be left clear, then straight down to the child.
-    const knee = forkKnee(fork, from.x, from.y, to.x);
+    const knee = forkKnee(from.x, from.y, to.x);
     if (knee > end) {
       // No room for the turn before the next mark: straight there.
       path += `${path ? " " : ""}M ${from.x} ${start} L ${to.x} ${end}`;
       continue;
     }
-    const curve = forkCurve(fork, from.x, from.y, to.x, skip);
+    const curve = forkCurve(from.x, from.y, to.x, skip);
     path += `${path ? " " : ""}${curve === "" ? `M ${to.x} ${knee}` : curve} L ${to.x} ${end}`;
   }
   return path;

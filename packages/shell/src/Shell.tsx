@@ -38,22 +38,18 @@ import {
 } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
-import { Gutter, gutterWidth, lanePitch } from "./Gutter.js";
+import { Gutter, gutterWidth } from "./Gutter.js";
 import { flushSync } from "react-dom";
 import { Crumbs } from "./Crumbs.js";
 import {
-  DEFAULT_FORK,
-  FORK_KINDS,
   segmentsOf,
   tracedSegments,
   tracedTree,
-  type ForkKind,
   trailPath,
   type Mark as TrailMark,
   type Segment,
 } from "./lineage.js";
-import { DEFAULT_PALETTE, PALETTES, Trail } from "./Trail.js";
-import { resolveRailDirection } from "./rail-direction.js";
+import { PALETTE, Trail } from "./Trail.js";
 import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
@@ -496,21 +492,7 @@ export function Shell({
   // The way into the tools when the widget is switched off the stage.
   const onToggleTools = useCallback(() => setWidgetOpen((open) => !open), []);
   const onToggleNote = useCallback(() => setAnnotating((on) => !on), []);
-  // Which rail this page draws: an exploration switch, read once from the URL.
-  const [railDirection] = useState(() =>
-    resolveRailDirection(window.location.search, import.meta.env.PROD),
-  );
-  /** How a fork leaves a mark, an exploration switch: ?fork=knee|arc|diagonal|tangent. */
-  const [forkKind] = useState<ForkKind>(() => {
-    const value = new URLSearchParams(window.location.search).get("fork");
-    return value !== null && (FORK_KINDS as readonly string[]).includes(value) ? (value as ForkKind) : DEFAULT_FORK;
-  });
-  /** The light's colours, an exploration switch of its own: ?palette=ember|aurora|ice. */
-  const [railPalette] = useState(
-    () => new URLSearchParams(window.location.search).get("palette") ?? DEFAULT_PALETTE,
-  );
   const st = useShellState({
-    direction: railDirection,
     previews,
     project,
     searchRef,
@@ -523,10 +505,9 @@ export function Shell({
     suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
   });
   /** The lineage gutter's width, shared by every row so the titles align. */
-  const gutter = st.shape.graph ? gutterWidth(st.lanes) : 0;
-  const pitch = lanePitch();
+  const gutter = gutterWidth(st.lanes);
   /** The light's own colour, for a working mark's breath and for blooms. */
-  const tint = (PALETTES[railPalette] ?? PALETTES[DEFAULT_PALETTE])?.current[0] ?? "#FB7185";
+  const tint = PALETTE.current[0];
   /**
    * Titles the rail has shown before. A row not among them just arrived, an
    * agent's new direction landing, and the rail marks the moment; a row
@@ -588,7 +569,6 @@ export function Shell({
     },
     [],
   );
-  const live = st.shape.live;
   /**
    * The line the light runs along, and the segments under it. One answer,
    * used twice.
@@ -601,13 +581,9 @@ export function Shell({
    */
   const treeOf = (title: string) =>
     title === "" ? { nodes: [], edges: [] } : tracedTree(st.railParents, st.railChildren, title);
-  const hovered = live && traced !== null ? treeOf(traced) : { nodes: [], edges: [] };
-  const litTree = !live
-    ? { nodes: [], edges: [] }
-    : hovered.edges.length > 0
-      ? hovered
-      : treeOf(st.active);
-  const litSegments = live ? tracedSegments(st.rows, st.rowMeta, litTree) : null;
+  const hovered = traced !== null ? treeOf(traced) : { nodes: [], edges: [] };
+  const litTree = hovered.edges.length > 0 ? hovered : treeOf(st.active);
+  const litSegments = tracedSegments(st.rows, st.rowMeta, litTree);
   /**
    * Which segments each row has already drawn, so only what is new draws
    * itself in: the whole rail on first sight, then just the line an agent's
@@ -626,7 +602,7 @@ export function Shell({
   const [, settle] = useReducer((count: number) => count + 1, 0);
   const freshFor = (title: string): Set<Segment> | undefined => {
     const graph = st.rowMeta.get(title)?.graph;
-    if (!live || !graph) return undefined;
+    if (!graph) return undefined;
     const drawn = drawnSegments.current.get(title);
     const fresh = new Set(segmentsOf(graph).filter((segment) => !drawn?.has(segment)));
     if (fresh.size > 0) drawing.current = true;
@@ -635,16 +611,13 @@ export function Shell({
   // Keyed on what the gutter draws, not on renders: the shell re-renders
   // for polls and frames far more often than every 700ms, and a timer reset
   // on each of those would never fire.
-  const gutterSignature = live
-    ? st.rows
-        .map((title) => {
-          const graph = st.rowMeta.get(title)?.graph;
-          return graph ? `${title}=${segmentsOf(graph).join(",")}` : title;
-        })
-        .join("|")
-    : "";
+  const gutterSignature = st.rows
+      .map((title) => {
+        const graph = st.rowMeta.get(title)?.graph;
+        return graph ? `${title}=${segmentsOf(graph).join(",")}` : title;
+      })
+      .join("|");
   useEffect(() => {
-    if (!live) return;
     const snapshot = st.rows.map((title) => [title, st.rowMeta.get(title)?.graph] as const);
     const wasDrawing = drawing.current;
     const timer = setTimeout(() => {
@@ -657,14 +630,14 @@ export function Shell({
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, gutterSignature]);
+  }, [gutterSignature]);
   /**
    * Folding on a graph rail is a change of layout the browser can animate:
    * the rows that stay slide to their new places and the rows that go fade,
    * instead of the list snapping to its new shape.
    */
   const foldFamily = (title: string) => {
-    if (st.shape.graph && !stillMotion && typeof document.startViewTransition === "function") {
+    if (!stillMotion && typeof document.startViewTransition === "function") {
       document.startViewTransition(() => flushSync(() => st.toggleFamily(title)));
       return;
     }
@@ -880,7 +853,7 @@ export function Shell({
     oldTop: number;
     /** On a lineage rail: the rows it may be ordered among, and what they hang from. */
     parent: string | null;
-    siblings: readonly string[] | null;
+    siblings: readonly string[];
   } | null>(null);
 
   useEffect(() => {
@@ -921,36 +894,19 @@ export function Shell({
           // Whatever the browser painted on the way to the threshold goes;
           // from here the rail is `select-none` and nothing can extend it.
           window.getSelection()?.removeAllRanges();
-          // On a lineage rail the rows around this one fold away for the
-          // drag, so what can be ordered is exactly what is on screen and a
-          // family travels as one row. Positions are measured again once
-          // the fold has laid out.
-          if (meta.siblings !== null) {
-            st.setDragFolded(
-              new Set(
-                meta.siblings.filter(
-                  (sibling) => (st.rowMeta.get(sibling)?.descendants ?? 0) > 0,
-                ),
-              ),
-            );
-            return { ...current, dy: 0, measured: false, started: true };
-          }
+          // The rows around this one fold away for the drag, so what can be
+          // ordered is exactly what is on screen and a family travels as one
+          // row. Positions are measured again once the fold has laid out.
+          st.setDragFolded(
+            new Set(
+              meta.siblings.filter((sibling) => (st.rowMeta.get(sibling)?.descendants ?? 0) > 0),
+            ),
+          );
+          return { ...current, dy: 0, measured: false, started: true };
         }
         if (!current.measured) return current;
         const row = meta.rows[current.from];
         if (!row) return current;
-        if (meta.siblings === null) {
-          // Follow the pointer within the slot range plus one row of give, so
-          // the row never detaches into empty space; the target index still
-          // follows the raw pointer.
-          const bounded = Math.max(meta.minDy, Math.min(meta.maxDy, dy));
-          const center = row.mid + dy;
-          let to = 0;
-          meta.rows.forEach((candidate, index) => {
-            if (index !== current.from && center > candidate.mid) to += 1;
-          });
-          return { ...current, dy: bounded, started: true, to };
-        }
         // Where the row would sit if it took each slot its siblings offer.
         // Rows differ in height, so the slot is chosen by which of these the
         // row is nearest rather than by crossing midpoints: that keeps the
@@ -1006,23 +962,13 @@ export function Shell({
       const start = meta.rows[current.from];
       const slot = meta.rows[to];
       let settle = 0;
-      if (meta.siblings !== null && start && slot) {
+      if (start && slot) {
         settle = (to <= current.from ? slot.top : slot.top + slot.height - start.height) - start.top;
-      } else if (to > current.from) {
-        for (let index = current.from + 1; index <= to; index += 1) {
-          settle += (meta.rows[index]?.height ?? 0) + current.gap;
-        }
-      } else {
-        for (let index = to; index < current.from; index += 1) {
-          settle -= (meta.rows[index]?.height ?? 0) + current.gap;
-        }
       }
       setDrag({ ...current, dy: settle, settling: true, to });
       window.setTimeout(() => {
         if (refused) {
-          st.notify(refusedDrop(current.title, meta.parent, meta.siblings ?? []));
-        } else if (meta.siblings === null) {
-          st.moveOption(current.title, to);
+          st.notify(refusedDrop(current.title, meta.parent, meta.siblings));
         } else if (to !== current.from) {
           // Landing at `to` means going just after the row now there when
           // moving down, and just before it when moving up.
@@ -1080,7 +1026,7 @@ export function Shell({
     const rect = item.getBoundingClientRect();
     meta.minDy = view.top - rect.top;
     meta.maxDy = view.bottom - rect.bottom;
-    const indices = (meta.siblings ?? [])
+    const indices = meta.siblings
       .map((sibling) => rows.findIndex((entry) => entry.title === sibling))
       .filter((index) => index !== -1);
     const span: [number, number] | null = indices.length
@@ -1189,7 +1135,7 @@ export function Shell({
   /** Every light still fading out, each dropped once its fade is done. */
   const [leaving, setLeaving] = useState<readonly TrailShape[]>([]);
   const traceEdges = litTree.edges;
-  const trailKey = `${traceEdges.map((edge) => edge.join(">")).join(",")}|${dragging}|${st.prefs.width}|${gutter}|${forkKind}`;
+  const trailKey = `${traceEdges.map((edge) => edge.join(">")).join(",")}|${dragging}|${st.prefs.width}|${gutter}`;
   const replaceTrail = (next: TrailShape | null) =>
     setTrail((current) => {
       if (current?.d === next?.d) return current;
@@ -1202,7 +1148,7 @@ export function Shell({
     });
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!live || dragging || list === null || traceEdges.length === 0) {
+    if (dragging || list === null || traceEdges.length === 0) {
       replaceTrail(null);
       return;
     }
@@ -1234,7 +1180,7 @@ export function Shell({
       // Every edge is its own subpath, so a tree with forks is one path the
       // light can run down and split along.
       const d = traceEdges
-        .map(([parent, child]) => trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark], forkKind))
+        .map(([parent, child]) => trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark]))
         .join(" ");
       replaceTrail({ d, height: list.scrollHeight, marks: [...at.values()] });
     };
@@ -1246,7 +1192,7 @@ export function Shell({
     observer.observe(list);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, dragging, trailKey]);
+  }, [dragging, trailKey]);
   // Dragging the widget counts as busy too: a preview that keeps taking the
   // pointer lights up its own hover states under a drag that is not for it.
   const busy = st.resizing || dragging || widgetDragging;
@@ -2222,17 +2168,10 @@ export function Shell({
       // else: its place under its parent is a fact about the design, not a
       // preference. What it can be pushed against is decided here, so the
       // row can say so the moment it is.
-      const lineage = st.shape.order === "lineage";
-      const parent = lineage ? (st.railParents.get(title) ?? null) : null;
-      const siblings = !lineage
-        ? null
-        : parent === null
-          ? st.railRoots
-          : (st.railChildren.get(parent) ?? [title]);
+      const parent = st.railParents.get(title) ?? null;
+      const siblings = parent === null ? st.railRoots : (st.railChildren.get(parent) ?? [title]);
       const reason =
-        siblings === null
-          ? null
-          : siblings.length < 2
+        siblings.length < 2
             ? parent === null
               ? "Nothing to reorder"
               : `${st.displayName(parent)}'s only variant`
@@ -2355,9 +2294,7 @@ export function Shell({
         : 0;
     // How the row shows its depth: one indent for any variant, one per level,
     // or none at all, with the gutter carrying the lineage instead.
-    const indent = st.shape.indent === "one" && isVariant ? "pl-11" : "pl-3";
-    const treeIndent =
-      st.shape.indent === "tree" && isVariant ? { paddingLeft: 12 + 32 * depth } : undefined;
+    const indent = isVariant ? "pl-11" : "pl-3";
     const variantCount = meta?.variants ?? 0;
     const folded = meta?.folded ?? false;
     // Renaming edits the name where it sits. Replacing the whole row with a
@@ -2396,7 +2333,7 @@ export function Shell({
         data-title={title}
         key={title}
         onPointerEnter={(event) => {
-          if (live) setTraced(title);
+          setTraced(title);
           setGlow({
             height: event.currentTarget.offsetHeight,
             on: true,
@@ -2409,7 +2346,7 @@ export function Shell({
             : shift
               ? { transform: `translateY(${shift}px)` }
               : {}),
-          ...(st.shape.graph ? { viewTransitionName: `row-${rowIdent(title)}` } : {}),
+          viewTransitionName: `row-${rowIdent(title)}`,
         }}
       >
         {/* Pushed past where it can go, the row says why, in the corner the
@@ -2471,7 +2408,6 @@ export function Shell({
             }}
             onPointerDown={onRowPointerDown(title, index)}
             role="button"
-            style={treeIndent}
             tabIndex={0}
           >
             {gutter > 0 && meta?.graph ? (
@@ -2482,11 +2418,9 @@ export function Shell({
                 delay={Math.min(index, 12) * 28}
                 family={(meta?.descendants ?? 0) > 0}
                 folded={meta?.folded ?? false}
-                fork={forkKind}
                 fresh={freshFor(title)}
                 lifted={isDragged}
                 lit={litSegments?.get(title)}
-                pitch={pitch}
                 row={meta.graph}
                 tint={tint}
                 width={gutter}
@@ -2515,9 +2449,7 @@ export function Shell({
                     <button
                       aria-expanded={!folded}
                       aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
-                      className={`flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED] ${
-                        st.shape.graph ? "" : "-ml-1"
-                      }`}
+                      className="flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
                       onClick={(event) => {
                         event.stopPropagation();
                         foldFamily(title);
@@ -2885,21 +2817,17 @@ export function Shell({
 
           <div
             className="flex-1 overflow-y-auto px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            style={
-              st.shape.graph
-                ? {
-                    // Lines that run past the viewport fade out rather than
-                    // being cut, so the lineage reads as running through
-                    // the rail instead of drawn in a box.
-                    WebkitMaskImage: RAIL_FADE,
-                    maskImage: RAIL_FADE,
-                  }
-                : undefined
-            }
+            style={{
+              // Lines that run past the viewport fade out rather than being
+              // cut, so the lineage reads as running through the rail instead
+              // of drawn in a box.
+              WebkitMaskImage: RAIL_FADE,
+              maskImage: RAIL_FADE,
+            }}
           >
             <ul
               className="relative flex flex-col gap-1"
-              data-traced={live ? (traced ?? "") : undefined}
+              data-traced={traced ?? ""}
               onPointerLeave={() => {
                 setTraced(null);
                 setGlow((current) => ({ ...current, on: false }));
@@ -2919,10 +2847,10 @@ export function Shell({
               {leaving
                 .filter((entry) => entry.d !== trail?.d)
                 .map((entry) => (
-                  <Trail d={entry.d} height={entry.height} key={`leaving:${entry.d}`} leaving marks={entry.marks} palette={railPalette} still={stillMotion} width={gutter} />
+                  <Trail d={entry.d} height={entry.height} key={`leaving:${entry.d}`} leaving marks={entry.marks} still={stillMotion} width={gutter} />
                 ))}
               {trail !== null && (
-                <Trail d={trail.d} height={trail.height} key={trail.d} marks={trail.marks} palette={railPalette} still={stillMotion} width={gutter} />
+                <Trail d={trail.d} height={trail.height} key={trail.d} marks={trail.marks} still={stillMotion} width={gutter} />
               )}
             </ul>
 
@@ -3783,7 +3711,7 @@ export function Shell({
                 Capturing the design for your agent…
               </p>
             </div>
-          ) : st.shape.crumbs && activeChain.length > 0 ? (
+          ) : activeChain.length > 0 ? (
             <Crumbs
               askedFor={provenanceOf(st.previewFor(st.active))?.askedFor ?? null}
               chain={activeChain}
@@ -3794,11 +3722,11 @@ export function Shell({
               }}
               onGo={st.setActive}
               onRail={(title) => st.rows.includes(title)}
-              onTrace={live ? traceFromCrumb : undefined}
-              openAsk={live}
+              onTrace={traceFromCrumb}
+              openAsk
               self={st.active}
-              tint={live ? tint : undefined}
-              traced={live ? traced : null}
+              tint={tint}
+              traced={traced}
             />
           ) : activeOrigin === null ? null : (
             <div className="px-3 pb-2">

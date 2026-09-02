@@ -7,20 +7,15 @@ import {
   deleteDirections,
   loadPrefs,
   railOrder,
-  reorder,
   storageKey,
   type Prefs,
 } from "./prefs.js";
-import { collapseRows, familyRows, rootOf } from "./families.js";
 import {
   ancestry,
   lineageRail,
   reorderAmongSiblings,
   widestLane,
-  type Rail,
-  type RowMeta,
 } from "./lineage.js";
-import { railShape, type RailDirection } from "./rail-direction.js";
 import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
@@ -67,8 +62,6 @@ export type ShellStateProps = {
    * Hold every shortcut but help, for when something on top owns the keyboard.
    */
   suspended?: boolean | undefined;
-  /** Which rail to draw: an exploration switch, "current" unless the URL says otherwise. */
-  direction?: RailDirection | undefined;
 };
 
 export function useShellState({
@@ -80,7 +73,6 @@ export function useShellState({
   onToggleTools,
   onToggleNote,
   suspended = false,
-  direction = "current",
 }: ShellStateProps) {
   const key = storageKey(project);
   const initial = () =>
@@ -220,47 +212,14 @@ export function useShellState({
       preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
     ),
   );
-  const shape = railShape(direction);
   const showing = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
-  /** The rail as it ships: one level under each family root, in saved order. */
-  const familyRail = (): Rail => {
-    const grouped = familyRows(showing, basedOnMap);
-    const rowsWithDepth = collapseRows(grouped, new Set(foldedNow));
-    /** Per-title rail metadata: indent depth, variant count, folded state. */
-    const meta = new Map<string, RowMeta>(
-      rowsWithDepth.map((row) => {
-        const variants =
-          row.depth === 0 ? grouped.filter((entry) => entry.depth === 1 && rootOf(entry.title, basedOnMap) === row.title).length : 0;
-        return [
-          row.title,
-          {
-            depth: row.depth,
-            variants,
-            descendants: variants,
-            folded: foldedNow.includes(row.title),
-            graph: null,
-          },
-        ] as const;
-      }),
-    );
-    return {
-      rows: rowsWithDepth.map((row) => row.title),
-      meta,
-      parents: new Map(),
-      children: new Map(),
-      roots: [],
-    };
-  };
   const {
     rows,
     meta: rowMeta,
     parents: railParents,
     children: railChildren,
     roots: railRoots,
-  } =
-    shape.order === "family"
-      ? familyRail()
-      : lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
+  } = lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
   /** Move a direction among its siblings; see reorderAmongSiblings. */
   const reorderAmong = (title: string, before: string | null, siblings: readonly string[]) =>
     setPrefs((current) => ({
@@ -291,9 +250,6 @@ export function useShellState({
 
   /** Rows that would show if the search were cleared, for the empty state. */
   const visibleCount = ordered.filter((title) => !prefs.hidden.includes(title)).length;
-
-  const moveOption = (title: string, toIndex: number) =>
-    setPrefs((current) => ({ ...current, order: reorder(current, previews, title, toIndex) }));
 
   /**
    * Put a removed direction back. Order is untouched by removal, so it returns
@@ -639,7 +595,6 @@ export function useShellState({
     loaded,
     markLoaded,
     matches,
-    moveOption,
     nested,
     notify,
     onHandlePointerDown,
@@ -666,7 +621,6 @@ export function useShellState({
     setPrefs,
     setQuery,
     setShowHidden,
-    shape,
     showHidden,
     startRename,
     toasts,

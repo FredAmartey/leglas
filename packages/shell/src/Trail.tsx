@@ -44,35 +44,15 @@ const BLOOM_MS = 900;
 const FADE_MS = 420;
 
 /**
- * The current's colours, one full sweep, first and last the same so the
- * cycle repeats without a seam, and the tint a mark blooms in as the surge
- * passes it. "mark" is the Leglas mark's own palette; the others are
- * directions to compare it against.
+ * The current's colours, one full sweep, first and last the same so the cycle
+ * repeats without a seam, and the tint a mark blooms in as the surge passes
+ * it. Ember: rose through orange and pink to magenta, chosen over sixteen
+ * others.
  */
-export const PALETTES: Record<string, { current: readonly string[]; bloom: string }> = {
-  mark: { current: ["#7C38E8", "#5F7FD8", "#9EDAE8", "#3EC2A8", "#7C38E8"], bloom: "#B9E4EC" },
-  ember: { current: ["#FB7185", "#FB923C", "#F9A8D4", "#E879F9", "#FB7185"], bloom: "#FECDD3" },
-  aurora: { current: ["#34D399", "#22D3EE", "#60A5FA", "#A78BFA", "#34D399"], bloom: "#A7F3D0" },
-  ice: { current: ["#38BDF8", "#BAE6FD", "#F0F9FF", "#7DD3FC", "#38BDF8"], bloom: "#E0F2FE" },
-  gold: { current: ["#E8B04B", "#F5D08A", "#FFF3D6", "#D9A441", "#E8B04B"], bloom: "#FDE9C0" },
-  rosegold: { current: ["#E8A0BF", "#F4C2C2", "#FDE2E4", "#D98CB3", "#E8A0BF"], bloom: "#FCE7EF" },
-  lavender: { current: ["#A78BFA", "#DDD6FE", "#F5F3FF", "#C4B5FD", "#A78BFA"], bloom: "#EDE9FE" },
-  mint: { current: ["#34D399", "#A7F3D0", "#ECFDF5", "#6EE7B7", "#34D399"], bloom: "#D1FAE5" },
-  plasma: { current: ["#F0ABFC", "#C084FC", "#818CF8", "#38BDF8", "#F0ABFC"], bloom: "#F5D0FE" },
-  ocean: { current: ["#2563EB", "#06B6D4", "#67E8F9", "#3B82F6", "#2563EB"], bloom: "#A5F3FC" },
-  pearl: { current: ["#E4E4E7", "#F5F3FF", "#ECFEFF", "#FFF1F2", "#E4E4E7"], bloom: "#FAFAFA" },
-  mono: { current: ["#FFFFFF", "#A1A1AA", "#F4F4F5", "#71717A", "#FFFFFF"], bloom: "#F4F4F5" },
-  tron: { current: ["#00E5FF", "#8BF6FF", "#FFFFFF", "#22D3EE", "#00E5FF"], bloom: "#CFFAFE" },
-  clu: { current: ["#FF6A00", "#FFB35C", "#FFF1DC", "#FF8A1F", "#FF6A00"], bloom: "#FFE4C4" },
-  ps5: { current: ["#2E5BFF", "#7B61FF", "#E9F1FF", "#4F9CFF", "#2E5BFF"], bloom: "#E9F1FF" },
-  ultraviolet: { current: ["#6D28D9", "#C026D3", "#F0ABFC", "#7C3AED", "#6D28D9"], bloom: "#F5D0FE" },
-  rgb: {
-    current: ["#FF3B3B", "#FFD23B", "#3BFF6E", "#3BE0FF", "#3B5BFF", "#E23BFF", "#FF3B3B"],
-    bloom: "#FFFFFF",
-  },
-};
-/** Ember, chosen over sixteen others; the rest stay reachable as switches. */
-export const DEFAULT_PALETTE = "ember";
+export const PALETTE = {
+  current: ["#FB7185", "#FB923C", "#F9A8D4", "#E879F9", "#FB7185"],
+  bloom: "#FECDD3",
+} as const;
 
 /** A shared clock, so every trail on the page moves to the same beat. */
 const T0 = typeof performance !== "undefined" ? performance.now() : 0;
@@ -96,7 +76,6 @@ export function Trail({
   height,
   leaving = false,
   marks,
-  palette = DEFAULT_PALETTE,
   still = false,
   width,
 }: {
@@ -107,13 +86,10 @@ export function Trail({
   leaving?: boolean;
   /** The marks the lineage runs through, for the bloom as the surge passes each one. */
   marks: readonly Mark[];
-  /** Which colours the current runs in; see PALETTES. */
-  palette?: string;
   /** Less motion was asked for: the current stands still and nothing surges or blooms. */
   still?: boolean;
   width: number;
 }) {
-  const colours = PALETTES[palette] ?? (PALETTES[DEFAULT_PALETTE] as { current: readonly string[]; bloom: string });
   const id = useId().replace(/\W/g, "");
   const currentId = `current-${id}`;
   const surgeId = `surge-${id}`;
@@ -200,8 +176,8 @@ export function Trail({
           y1={0}
           y2={CYCLE}
         >
-          {colours.current.map((colour, index) => (
-            <stop key={index} offset={index / (colours.current.length - 1)} stopColor={colour} />
+          {PALETTE.current.map((colour, index) => (
+            <stop key={index} offset={index / (PALETTE.current.length - 1)} stopColor={colour} />
           ))}
         </linearGradient>
         <linearGradient
@@ -234,7 +210,7 @@ export function Trail({
         <circle
           cx={mark.x}
           cy={mark.y}
-          fill={colours.bloom}
+          fill={PALETTE.bloom}
           key={`${mark.x},${mark.y}`}
           opacity={0}
           r={2.5}

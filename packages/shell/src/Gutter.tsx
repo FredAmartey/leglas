@@ -1,4 +1,4 @@
-import { DEFAULT_FORK, forkCurve, forkKnee, type ForkKind, type LineageRow, type Segment } from "./lineage.js";
+import { forkCurve, forkKnee, type LineageRow, type Segment } from "./lineage.js";
 
 /**
  * The lineage drawn beside the titles, the way `git log --graph` draws a
@@ -57,11 +57,6 @@ const MARK_LIT = "#D1D5DB";
 const MARK_ACTIVE = "#E8E8EA";
 const EASE = "160ms cubic-bezier(0.2, 0.7, 0.2, 1)";
 
-/** How far apart the lanes sit. */
-export function lanePitch(): number {
-  return LANE;
-}
-
 /** The gutter's width for the widest lane any row touches; zero when none does. */
 export function gutterWidth(lanes: number): number {
   return lanes < 0 ? 0 : Math.max(INDENT, PAD + lanes * LANE + 10);
@@ -78,13 +73,11 @@ export function Gutter({
   delay = 0,
   family = false,
   folded = false,
-  fork = DEFAULT_FORK,
   fresh,
   lifted = false,
   lit,
-  pitch = LANE,
   row,
-  tint = "#FECDD3",
+  tint = "#FB7185",
   width,
   working = false,
 }: {
@@ -97,8 +90,6 @@ export function Gutter({
   family?: boolean;
   /** The row's family is folded away beneath it. */
   folded?: boolean;
-  /** How a fork leaves the mark; see ForkKind. */
-  fork?: ForkKind;
   /** Stagger for a slice drawing in, so a whole rail cascades rather than pops. */
   delay?: number;
   /** Segments that were not there a moment ago and should draw themselves in. */
@@ -107,8 +98,6 @@ export function Gutter({
   lifted?: boolean;
   /** Segments on the line being traced back to its root. */
   lit?: ReadonlySet<Segment> | undefined;
-  /** How far apart the lanes sit; see lanePitch. */
-  pitch?: number;
   row: LineageRow;
   /** The light's colour, for blooms and a working mark's breath. */
   tint?: string;
@@ -116,7 +105,7 @@ export function Gutter({
   /** An agent is working on this direction now. */
   working?: boolean;
 }) {
-  const x = (lane: number) => PAD + lane * pitch;
+  const x = (lane: number) => PAD + lane * LANE;
   const cx = x(row.lane);
   const cy = REACH + ROW_PAD + HALF_LINE;
   const overflow = REACH;
@@ -143,8 +132,8 @@ export function Gutter({
   for (const lane of row.forks) {
     // The curve always leaves the mark's centre; on the row on stage its
     // first stretch is cut so it starts outside the ring.
-    const knee = forkKnee(fork, cx, cy, x(lane));
-    const curve = forkCurve(fork, cx, cy, x(lane), clear);
+    const knee = forkKnee(cx, cy, x(lane));
+    const curve = forkCurve(cx, cy, x(lane), clear);
     if (curve !== "") pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, shape: "path", d: curve });
     pieces.push({ key: `ft${lane}`, lane, segment: `fork:${lane}`, shape: "line", x: x(lane), y1: knee, y2: "100%" });
   }
