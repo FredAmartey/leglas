@@ -2325,10 +2325,14 @@ export function Shell({
     // it is being moved, not acted on, and its buttons stay away. So does a
     // row being renamed, where the badge is the field's right-hand wall —
     // taking it out from under the pointer would resize the field mid-word.
+    // A row pushed past where it can go says why in the badge's corner, so
+    // the badge fades out under it and back when the row is let go.
     const badgeAside =
-      dragging || renamingThis
-        ? ""
-        : "group-hover:hidden group-has-[button:focus-visible]:hidden";
+      isDragged && drag?.blocked
+        ? "opacity-0 transition-opacity duration-150"
+        : dragging || renamingThis
+          ? "transition-opacity duration-150"
+          : "group-hover:hidden group-has-[button:focus-visible]:hidden";
 
     return (
       <li
@@ -2532,7 +2536,9 @@ export function Shell({
                   </span>
                 )}
                 {carrying > 0 ? (
-                  <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal tabular-nums text-[#E8E8EA]">
+                  <span
+                    className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal tabular-nums text-[#E8E8EA] ${badgeAside}`}
+                  >
                     +{carrying}
                   </span>
                 ) : splitting && title === compare ? (
