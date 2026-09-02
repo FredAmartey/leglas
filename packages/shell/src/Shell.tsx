@@ -2298,7 +2298,10 @@ export function Shell({
         : 0;
     // How the row shows its depth: one indent for any variant, one per level,
     // or none at all, with the gutter carrying the lineage instead.
-    const indent = isVariant ? "pl-11" : "pl-3";
+    // A root's text starts past the trunk that hangs from its mark, with room
+    // for the light's glow beside a note. At the old 12px the lit line ran
+    // hard against the first letter.
+    const indent = isVariant ? "pl-11" : "pl-5";
     const variantCount = meta?.variants ?? 0;
     const folded = meta?.folded ?? false;
     // Renaming edits the name where it sits. Replacing the whole row with a
