@@ -100,7 +100,8 @@ export function scanQueue(
   scans: PreviewScans,
 ): Preview[] {
   return previews.filter((preview) => {
-    if (!preview.url.startsWith("/")) return false;
+    // A branch preview that has not started has no url to read yet.
+    if (!preview.url?.startsWith("/")) return false;
     return currentScan(preview, scans) === null;
   });
 }
