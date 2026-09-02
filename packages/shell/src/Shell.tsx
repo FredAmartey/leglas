@@ -38,7 +38,7 @@ import {
 } from "./scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
 import { EASE } from "./prefs.js";
-import { Gutter, gutterWidth } from "./Gutter.js";
+import { Gutter, gutterWidth, railInsets } from "./Gutter.js";
 import { flushSync } from "react-dom";
 import { Crumbs } from "./Crumbs.js";
 import {
@@ -506,6 +506,7 @@ export function Shell({
   });
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
+  const insets = railInsets(st.rowMeta);
   /** The light's own colour, for a working mark's breath and for blooms. */
   const tint = PALETTE.current[0];
   /**
@@ -2306,10 +2307,10 @@ export function Shell({
         : 0;
     // How the row shows its depth. With lineage on the rail the card itself
     // starts where its text column begins, so the graph lives in the gutter
-    // outside every card: a root's card sits past its mark and the fork that
-    // leaves it at 14px, a variant's past the lanes to its left. Without
-    // lineage the card fills the row as it always did.
-    const rowIndent = gutter > 0 ? (isVariant ? "pl-8" : "pl-4") : "";
+    // outside every card: a root's card sits past its mark and the forks that
+    // leave it, a variant's past the lanes to its left. The two columns come
+    // from what the gutter draws, and are zero when it draws nothing.
+    const rowIndent = isVariant ? insets.variant : insets.root;
     const variantCount = meta?.variants ?? 0;
     const folded = meta?.folded ?? false;
     // Renaming edits the name where it sits. Replacing the whole row with a
@@ -2336,7 +2337,7 @@ export function Shell({
 
     return (
       <li
-        className={`group relative ${rowIndent} ${
+        className={`group relative ${
           isDragged
             ? `z-30 ${
                 drag?.settling
@@ -2361,6 +2362,7 @@ export function Shell({
             : shift
               ? { transform: `translateY(${shift}px)` }
               : {}),
+          paddingLeft: rowIndent,
           viewTransitionName: `row-${rowIdent(title)}`,
         }}
       >
