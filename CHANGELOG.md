@@ -36,6 +36,8 @@ it was about.
   transition; a new direction blooms where it lands. With less motion asked
   for, the line is still coloured and nothing moves. (`leglas`)
 
+![The rail with Counter's family open: Olive Night on stage, its line lit back to Counter, then the family folded away and opened again](https://raw.githubusercontent.com/FredAmartey/docs-assets/b7ebfaa5bf87e2c749757e850ba9fb0eb13116b0/projects/leglas/changelog/0.9.0-rail-lineage/rail-lineage.gif#w=368 "Olive Night traced back to Counter, the line aimed at whichever row the pointer rests on, then the family folded away and back.")
+
 ### Fixed
 
 - **The interface blanked on a project with a branch preview that had not
