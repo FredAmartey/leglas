@@ -32,7 +32,10 @@ it was about.
   on it answers 403, so your dev server never faces the internet bare. The
   panel says whether the tunnel has answered and how many people are looking,
   offers to push the rail as you have it now when it has moved since you
-  shared and stops the share; the share also stops with Leglas. Branch
+  shared and stops the share; the share also stops with Leglas. A viewer
+  reads whatever the dev server serves, so the routes a dev server mounts to
+  act on your machine are refused, Vite's editor launcher among them, and so
+  is registering a service worker that would outlive the share. Branch
   directions run on their own port and are left out of a share for now, and
   the panel says so. (`leglas`)
 

@@ -409,7 +409,15 @@ search and change the width. They cannot change anything: the share
 listener refuses every write, whoever the caller is, and answers every path
 with 403 without the cookie the link sets, so your dev server never faces
 the internet bare. Viewers do not get hot reload either, since an app's
-live-reload socket is a way in; they refresh to see a change. The panel shows whether the link is answering and how many
+live-reload socket is a way in; they refresh to see a change.
+
+What a viewer can do is read whatever your dev server serves, because
+Leglas proxies it faithfully and that is the point. Your source is part of
+that. Leglas refuses the routes a dev server mounts to act on your machine,
+Vite's editor launcher among them, and refuses to let a viewer register a
+service worker that would outlive the share. That list is what is known
+rather than a wall, so share a project you are content for the person on
+the other end to read. The panel shows whether the link is answering and how many
 people are looking. When your rail has moved since you shared, it offers to
 push what you see now; stop the share from the same place, and it stops
 with Leglas either way.

@@ -107,6 +107,43 @@ type ShareManager = {
 };
 
 const ENTRY_PREFIX = "/leglas/s/";
+
+/**
+ * Development-server routes that act on the machine instead of serving the
+ * app, refused for viewers.
+ *
+ * A dev server is not only the app. Vite mounts an editor-launch route, and
+ * so do the others in their own words: a GET with a file name in the query
+ * opens that file in an editor on the machine running the server. Leglas
+ * proxies whatever the dev server answers, so before this list a viewer
+ * holding a share link could ask for one and the sharer's editor would open.
+ * Verified against Vite 8.2.2, where the request reached the middleware and
+ * was refused only for want of a file name.
+ *
+ * This is a list of what is known, not a boundary. A framework can add a
+ * route tomorrow and a plugin can mount one today, so the share tells the
+ * user plainly that a viewer reads what their dev server serves. Adding an
+ * entry is a line here.
+ */
+export const DEV_CONTROL_ROUTES: readonly string[] = [
+  /** Vite, Nuxt and vue-cli: opens `?file=` in the machine's editor. */
+  "/__open-in-editor",
+  /** react-error-overlay and webpack-dev-server: the same, older name. */
+  "/__open-stack-frame-in-editor",
+  /** Next.js: opens a source location in the machine's editor. */
+  "/__nextjs_launch-editor",
+  /** Next.js: reads a source file to resolve a stack frame. */
+  "/__nextjs_original-stack-frame",
+  /** vite-plugin-inspect: the module graph and every transformed source. */
+  "/__inspect",
+  /** webpack-dev-server: lists what the server is serving. */
+  "/webpack-dev-server",
+];
+
+/** Whether a path is one of those routes, or sits under one that mounts a tree. */
+export function isDevControlRoute(path: string): boolean {
+  return DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+}
 /** Where file previews are served, the same prefix the server mounts them under. */
 const FILES_PREFIX_PATH = "/leglas/files/";
 /** How long a detection of tunnel programs stands before the next ask looks again. */
@@ -391,6 +428,20 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         ok: false,
         error: "Viewers can look, not change what runs.",
       });
+    }
+    // A GET that opens an editor is still a write, and the dev server will
+    // happily perform one. Refused before the proxy sees it.
+    if (isDevControlRoute(path)) {
+      return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
+    }
+    // A service worker outlives the share: it stays registered on the tunnel
+    // origin, serves from its own cache once the link is stopped, and makes
+    // fetches of its own. Nothing a viewer needs for a design review, so the
+    // registration is refused rather than cleaned up afterwards. The browser
+    // sets this destination and script cannot, which is what makes it a
+    // usable signal here.
+    if (req.headers["sec-fetch-dest"] === "serviceworker") {
+      return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
     options.request(req, res, { publicOrigin: publicOrigin(req) });
   };

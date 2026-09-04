@@ -172,8 +172,8 @@ function ShareSetup({
         {busy === "start" ? <Spinner /> : provider === "none" ? "Start on this machine" : "Start sharing"}
       </button>
       <p className="px-1 pb-0.5 pt-2 text-[10px] leading-snug text-[#84848C]">
-        They see the real app, and can flip, compare and change the width. Nothing they do reaches
-        your machine.
+        They see the real app and can flip, compare and change the width. They cannot change
+        anything, and they read whatever your dev server serves.
       </p>
     </>
   );
@@ -327,7 +327,7 @@ function ShareLive({
  * machine), then one button. During a share: the link, whether it is
  * answering yet, who is looking and the two things left to do, push what
  * you see now to them or stop. Nothing a viewer does comes back through
- * here; a share is a window, not a door.
+ * here: the panel is the sharer's, and a viewer never reaches it.
  */
 export function SharePanel({
   active,

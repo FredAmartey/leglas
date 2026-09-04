@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Preview } from "./config.js";
 import { createLiveHub } from "./live.js";
-import { createShareManager, type ShareLayout } from "./share.js";
+import { createShareManager, isDevControlRoute, type ShareLayout } from "./share.js";
 
 const previews: Preview[] = [
   { title: "Current", url: "/", note: undefined, tags: [] },
@@ -198,5 +198,22 @@ describe("createShareManager", () => {
       error: "Directions are not available to share: Missing.",
     });
     expect(manager.status()).toBeNull();
+  });
+});
+
+describe("isDevControlRoute", () => {
+  test("names the routes that act on the machine, and their subtrees", () => {
+    expect(isDevControlRoute("/__open-in-editor")).toBe(true);
+    expect(isDevControlRoute("/__nextjs_launch-editor")).toBe(true);
+    expect(isDevControlRoute("/__inspect")).toBe(true);
+    expect(isDevControlRoute("/__inspect/module")).toBe(true);
+  });
+
+  test("leaves the app alone, including paths that merely start alike", () => {
+    expect(isDevControlRoute("/")).toBe(false);
+    expect(isDevControlRoute("/__open-in-editor-not-really")).toBe(false);
+    expect(isDevControlRoute("/@vite/client")).toBe(false);
+    expect(isDevControlRoute("/src/main.tsx")).toBe(false);
+    expect(isDevControlRoute("/webpack-dev-server-ui")).toBe(false);
   });
 });

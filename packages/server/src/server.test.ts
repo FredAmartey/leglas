@@ -2663,6 +2663,31 @@ describe("startServer", () => {
     expect((await fetch(`${remote}/leglas/files/paper/.env`, { headers: { cookie } })).status).toBe(
       403,
     );
+    // A dev server mounts routes that act on the machine: Vite's editor
+    // launcher opens a file on the sharer's computer for anyone who asks.
+    // Those are refused before the proxy sees them, and so is a service
+    // worker, which would outlive the share.
+    for (const control of [
+      "/__open-in-editor?file=src/main.tsx:1:1",
+      "/__nextjs_launch-editor?file=src/main.tsx",
+      "/__inspect/",
+      "/__inspect/module?id=x",
+      "/webpack-dev-server",
+    ]) {
+      const refused = await fetch(`${remote}${control}`, { headers: { cookie } });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ ok: false, error: "Not available to viewers." });
+    }
+    expect(
+      (
+        await fetch(`${remote}/sw.js`, {
+          headers: { cookie, "sec-fetch-dest": "serviceworker" },
+        })
+      ).status,
+    ).toBe(403);
+    // The sharer's own listener is untouched by any of it.
+    expect((await fetch(`${server.url}/__open-in-editor`)).status).toBe(200);
+
     // An app's live-reload socket is a two-way channel into the dev server,
     // so only the interface's own socket upgrades on the share listener.
     await expect(
