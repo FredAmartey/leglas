@@ -207,7 +207,12 @@ describe("isDevControlRoute", () => {
     expect(isDevControlRoute("/__open-stack-frame-in-editor")).toBe(true);
     expect(isDevControlRoute("/__inspect")).toBe(true);
     expect(isDevControlRoute("/__inspect/module")).toBe(true);
+    expect(isDevControlRoute("/__get-internal-source")).toBe(true);
+    // webpack-dev-server 6.0.0 mounts a rebuild trigger and an editor
+    // launcher under its own prefix; the subtree match is what takes them.
     expect(isDevControlRoute("/webpack-dev-server/index.html")).toBe(true);
+    expect(isDevControlRoute("/webpack-dev-server/invalidate")).toBe(true);
+    expect(isDevControlRoute("/webpack-dev-server/open-editor")).toBe(true);
   });
 
   test("takes a framework's whole dev namespace, not a list of its routes", () => {
@@ -221,6 +226,9 @@ describe("isDevControlRoute", () => {
       "/__nextjs_attach-nodejs-inspector",
       "/__nextjs_error_feedback",
       "/__nextjs_something_added_later",
+      // Nuxt DevTools 4.0.0-alpha.16 serves its whole interface here.
+      "/__nuxt_devtools__",
+      "/__nuxt_devtools__/client/index.html",
     ]) {
       expect(isDevControlRoute(route)).toBe(true);
     }
@@ -234,6 +242,8 @@ describe("isDevControlRoute", () => {
     expect(isDevControlRoute("/webpack-dev-server-ui")).toBe(false);
     // The app's own build output shares a prefix shape with the dev surface.
     expect(isDevControlRoute("/_next/static/chunks/main.js")).toBe(false);
+    // Nuxt's own client bundle sits one underscore away from its devtools.
+    expect(isDevControlRoute("/__nuxt/entry.js")).toBe(false);
     expect(isDevControlRoute("/__nextjsnot-a-namespace")).toBe(false);
   });
 });

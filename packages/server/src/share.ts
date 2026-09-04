@@ -118,7 +118,8 @@ const ENTRY_PREFIX = "/leglas/s/";
  * proxies whatever the dev server answers, so before this list a viewer
  * holding a share link could ask for one and the sharer's editor would open.
  * Verified against Vite 8.2.2, where the request reached the middleware and
- * was refused only for want of a file name.
+ * was refused only for want of a file name. Every other entry was read out
+ * of the package that mounts it, at the version named beside it.
  *
  * This is a list of what is known, not a boundary. A framework can add a
  * route tomorrow and a plugin can mount one today, so the share tells the
@@ -128,11 +129,18 @@ const ENTRY_PREFIX = "/leglas/s/";
 export const DEV_CONTROL_ROUTES: readonly string[] = [
   /** Vite, Nuxt and vue-cli: opens `?file=` in the machine's editor. */
   "/__open-in-editor",
-  /** react-error-overlay and webpack-dev-server: the same, older name. */
+  /** react-dev-utils 12.0.1, the Create React App overlay: the same, older name. */
   "/__open-stack-frame-in-editor",
+  /** react-dev-utils 12.0.1 again: serves a module's source through the overlay. */
+  "/__get-internal-source",
   /** vite-plugin-inspect: the module graph and every transformed source. */
   "/__inspect",
-  /** webpack-dev-server: lists what the server is serving. */
+  /**
+   * webpack-dev-server 6.0.0 mounts its own surface here: the file listing,
+   * `/webpack-dev-server/invalidate`, which forces a rebuild, and
+   * `/webpack-dev-server/open-editor`, which calls the same launch-editor
+   * package Vite does. The subtree match below takes all three.
+   */
   "/webpack-dev-server",
 ];
 
@@ -149,7 +157,15 @@ export const DEV_CONTROL_ROUTES: readonly string[] = [
  * error overlay's source mapping, which is the sharer's tool and not
  * theirs.
  */
-export const DEV_CONTROL_PREFIXES: readonly string[] = ["/__nextjs_"];
+export const DEV_CONTROL_PREFIXES: readonly string[] = [
+  "/__nextjs_",
+  /**
+   * Nuxt DevTools 4.0.0-alpha.16 serves its whole interface here. Note the
+   * neighbour it must not take: Nuxt's own client bundle lives under
+   * `/__nuxt`, which the app needs, so the prefix is the longer one.
+   */
+  "/__nuxt_devtools__",
+];
 
 /** Whether a path is one of those routes, sits under one, or is in a dev namespace. */
 export function isDevControlRoute(path: string): boolean {
