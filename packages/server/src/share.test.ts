@@ -249,6 +249,32 @@ describe("isDevControlRequest", () => {
     }
   });
 
+  test("refuses every spelling the dev server would answer to", () => {
+    // Measured against Vite 8.2.2: it answers the uppercase form from the
+    // same middleware, so a case-sensitive list was a way through to the
+    // editor launcher. The rest are the same class, closed alongside it.
+    for (const route of [
+      "/__OPEN-IN-EDITOR",
+      "/__Open-In-Editor",
+      "/__NEXTJS_launch-editor",
+      "/__PARCEL_launch_editor",
+      "/WEBPACK-DEV-SERVER/open-editor",
+      "//__open-in-editor",
+      "/./__open-in-editor",
+      "/foo/../__open-in-editor",
+      "/%5F%5Fopen-in-editor",
+      "/%5f%5fOPEN-IN-EDITOR",
+    ]) {
+      expect(isDevControlRequest(route)).toBe(true);
+    }
+  });
+
+  test("a malformed escape is refused rather than throwing", () => {
+    expect(() => isDevControlRequest("/%zz")).not.toThrow();
+    expect(isDevControlRequest("/%zz")).toBe(false);
+    expect(isDevControlRequest("/%E0%A4%A")).toBe(false);
+  });
+
   test("catches the one that hides in the query rather than the path", () => {
     // Werkzeug's debugger hangs off whichever path raised the error, so the
     // path says nothing and the query says everything.

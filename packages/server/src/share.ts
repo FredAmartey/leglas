@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import http from "node:http";
+import { posix } from "node:path";
 import type { Duplex } from "node:stream";
 
 import type { Preview } from "./config.js";
@@ -230,18 +231,59 @@ export const DEV_CONTROL_PREFIXES: readonly string[] = [
 export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
 
 /**
+ * Every spelling of a path this code must consider, because the dev server
+ * behind the proxy does its own matching and does not agree with a plain
+ * string compare.
+ *
+ * Measured: Vite 8.2.2 answers `/__OPEN-IN-EDITOR` from the same middleware
+ * as the lowercase one, so a case-sensitive list let a viewer reach the
+ * editor launcher. Case is the confirmed gap; the rest of this is the same
+ * class, closed while it is open. `//a`, `/./a` and `/x/../a` did not reach
+ * Vite's route, but another server is free to normalize before it matches,
+ * and refusing a path the app never had costs nothing.
+ *
+ * Decoding once, not repeatedly: a server that decodes twice is its own
+ * bug, and looping here would refuse paths that legitimately contain an
+ * encoded percent.
+ */
+function spellings(path: string): string[] {
+  const seen = new Set<string>();
+  const add = (value: string): void => {
+    seen.add(value);
+    seen.add(value.toLowerCase());
+  };
+  add(path);
+  let decoded = path;
+  try {
+    decoded = decodeURIComponent(path);
+    add(decoded);
+  } catch {
+    // A malformed escape is not a spelling of anything; the raw form stands.
+  }
+  for (const value of [path, decoded]) {
+    const collapsed = value.replace(/\/{2,}/g, "/");
+    add(collapsed);
+    add(posix.normalize(collapsed));
+  }
+  return [...seen];
+}
+
+/**
  * Whether a request asks for one of those, given the url as the server
  * received it. It takes the whole url rather than the path, because one of
  * these hides in the query.
  */
 export function isDevControlRequest(url: string): boolean {
-  const [path = "/", query] = url.split("?", 2);
-  if (DEV_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
-  if (DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`))) {
-    return true;
+  const [rawPath = "/", query] = url.split("?", 2);
+  for (const path of spellings(rawPath)) {
+    if (DEV_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+    if (DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`))) {
+      return true;
+    }
   }
   if (query === undefined) return false;
-  return DEV_CONTROL_QUERY_KEYS.some((key) => new URLSearchParams(query).has(key));
+  const keys = new URLSearchParams(query);
+  return DEV_CONTROL_QUERY_KEYS.some((key) => keys.has(key) || keys.has(key.toUpperCase()));
 }
 /** Where file previews are served, the same prefix the server mounts them under. */
 const FILES_PREFIX_PATH = "/leglas/files/";
