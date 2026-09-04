@@ -48,6 +48,35 @@ export async function updateShare(body: ShareRequest): Promise<ShareStatus> {
   return payload.share;
 }
 
+async function shareWrite(path: string, body: unknown, fallback: string): Promise<ShareStatus> {
+  const response = await fetch(`/leglas/api/share${path}`, {
+    body: JSON.stringify(body ?? {}),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) throw await refusal(response, fallback);
+  const payload = (await response.json()) as { share: ShareStatus };
+  return payload.share;
+}
+
+/** A second link to the same share, named so the panel can say whose it is. */
+export function createGrant(name: string): Promise<ShareStatus> {
+  return shareWrite("/grants", { name }, "Leglas could not make another link.");
+}
+
+export function revokeGrant(id: string): Promise<ShareStatus> {
+  return shareWrite("/grants/revoke", { id }, "Leglas could not turn that link off.");
+}
+
+export function extendGrant(id: string): Promise<ShareStatus> {
+  return shareWrite("/grants/extend", { id }, "Leglas could not extend that link.");
+}
+
+/** Every link ends and the tunnel is replaced, so the address changes too. */
+export function rotateShare(): Promise<ShareStatus> {
+  return shareWrite("/rotate", {}, "Leglas could not replace the links.");
+}
+
 export async function stopShare(): Promise<void> {
   const response = await fetch("/leglas/api/share/stop", {
     body: "{}",

@@ -168,11 +168,43 @@ export function scopeLine(
   return titles.map(displayName).join(" + ");
 }
 
-/** How many are looking, said the way a person would. */
+/**
+ * How many are on a link, said the way a person would.
+ *
+ * Sessions rather than people, deliberately. One browser holds one link at a
+ * time, because two entry links on the same origin write the same cookie, so
+ * a count is a fact about tabs and not about who is at them. Saying "people"
+ * would be a guess the interface has no way to make.
+ */
 export function viewersLine(viewers: number): string {
-  if (viewers === 0) return "nobody looking yet";
-  if (viewers === 1) return "1 person looking";
-  return `${viewers} people looking`;
+  if (viewers === 0) return "nobody on it yet";
+  if (viewers === 1) return "1 watching";
+  return `${viewers} watching`;
+}
+
+/** Everyone watching, across every link into the share. */
+export function totalViewers(grants: readonly { viewers: number }[]): number {
+  return grants.reduce((count, grant) => count + grant.viewers, 0);
+}
+
+/**
+ * How long a link has, short enough to sit beside its name.
+ *
+ * Hours until it is close, then minutes, because "23h" is all anybody needs
+ * during the day and "40m" is what they need at the end of it.
+ */
+export function expiryLine(expiresAt: number, now: number): string {
+  const left = expiresAt - now;
+  if (left <= 0) return "expired";
+  const minutes = Math.round(left / 60_000);
+  if (minutes < 60) return `${Math.max(1, minutes)}m left`;
+  const hours = Math.round(left / 3_600_000);
+  return `${hours}h left`;
+}
+
+/** A link with nothing typed against it still needs calling something. */
+export function grantLabel(name: string, index: number): string {
+  return name.trim() === "" ? `Link ${index + 1}` : name;
 }
 
 /**

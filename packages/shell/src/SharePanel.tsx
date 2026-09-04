@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { copyText } from "./clipboard.js";
-import { LiveDot, Spinner, Tip, Warning } from "./kit.js";
+import { ICON_BUTTON, LiveDot, P, PIcon, Spinner, Tip, Warning } from "./kit.js";
 import type { Prefs } from "./prefs.js";
 import {
+  expiryLine,
+  grantLabel,
   railShare,
   sameShare,
   scopeLine,
@@ -12,9 +14,17 @@ import {
   viewersLine,
   type ShareRequest,
 } from "./share.js";
-import { startShare, stopShare, updateShare } from "./share-api.js";
+import {
+  createGrant,
+  extendGrant,
+  revokeGrant,
+  rotateShare,
+  startShare,
+  stopShare,
+  updateShare,
+} from "./share-api.js";
 import { TOAST_TTL } from "./toasts.js";
-import type { Preview, ShareStatus, TunnelProviderId } from "./types.js";
+import type { Preview, ShareGrant, ShareStatus, TunnelProviderId } from "./types.js";
 import type { ShellState } from "./useShellState.js";
 
 const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
@@ -28,7 +38,25 @@ const COPIED_MS = 1400;
 const PRIMARY_BUTTON =
   "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
-type Busy = "start" | "stop" | "update" | null;
+type Busy = "start" | "stop" | "update" | "grant" | "revoke" | "extend" | "rotate" | null;
+
+/** A plus, for giving a link another day. */
+function PlusGlyph() {
+  return (
+    <svg
+      aria-hidden
+      fill="none"
+      height="11"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeWidth="1.8"
+      viewBox="0 0 16 16"
+      width="11"
+    >
+      <path d="M8 3.5v9M3.5 8h9" />
+    </svg>
+  );
+}
 
 /**
  * One of the two things a share can be, drawn as a radio row: what it is on
@@ -180,25 +208,176 @@ function ShareSetup({
 }
 
 /** During a share: the link, whether it answers, who is looking, update or stop. */
+/**
+ * One link, as a row: what it is called and who is on it, then the address
+ * with what can be done to it.
+ *
+ * The actions sit under the pointer rather than in the row's width, because
+ * a share can hold sixteen of these and a panel is 368px wide. The rail's
+ * rows do the same, so the gesture is one the user already has.
+ */
+function GrantRow({
+  busy,
+  copied,
+  grant,
+  index,
+  now,
+  onCopy,
+  onExtend,
+  onRevoke,
+  only,
+}: {
+  busy: Busy;
+  copied: boolean;
+  grant: ShareGrant;
+  index: number;
+  now: number;
+  onCopy: () => void;
+  onExtend: () => void;
+  onRevoke: () => void;
+  /** The last link: revoking it leaves the share with no way in. */
+  only: boolean;
+}) {
+  const left = expiryLine(grant.expiresAt, now);
+  const ending = grant.expiresAt - now < 60 * 60 * 1000;
+  const label = grantLabel(grant.name, index);
+  return (
+    <li className="group relative flex h-8 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]">
+      <span className="min-w-0 flex-1 truncate text-xs text-[#D1D5DB]">{label}</span>
+      {/* The state gives way to the actions, so a row stays one line and
+          nothing shares its width with buttons that are only wanted under
+          the pointer. Every link on a share carries the same host, so the
+          address is said once above the list rather than sixteen times. */}
+      <span
+        className={`shrink-0 text-[10px] group-hover:hidden group-has-[button:focus-visible]:hidden ${
+          ending ? "text-amber-300/80" : grant.viewers > 0 ? "text-[#D1D5DB]" : "text-[#84848C]"
+        }`}
+      >
+        {grant.viewers > 0 ? `${viewersLine(grant.viewers)} · ${left}` : left}
+      </span>
+      {/* Faded rather than `hidden`: display:none takes a button out of the
+          accessibility tree and out of the tab order, so the row's actions
+          would be unreachable by keyboard and invisible to a screen reader.
+          The rail's rows fade for the same reason. */}
+      <span className="pointer-events-none absolute right-2 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100 motion-reduce:transition-none">
+        <Tip label={copied ? "Copied" : "Copy this link"}>
+          <button
+            aria-label={`Copy the ${label} link`}
+            className={ICON_BUTTON}
+            onClick={onCopy}
+            type="button"
+          >
+            {copied ? <span className="text-[10px] text-emerald-300">✓</span> : <PIcon d={P.link} />}
+          </button>
+        </Tip>
+        <Tip label="Another 24 hours">
+          <button
+            aria-label={`Extend the ${label} link`}
+            className={ICON_BUTTON}
+            disabled={busy !== null}
+            onClick={onExtend}
+            type="button"
+          >
+            <PlusGlyph />
+          </button>
+        </Tip>
+        {/* Short, because the list scrolls and a tip inside a scroller is
+            clipped by it. What matters beyond the verb is that this is the
+            last way in, which the label says in three words. */}
+        <Tip label={only ? "Turn off · the last link" : "Turn off"}>
+          <button
+            aria-label={`Turn the ${label} link off`}
+            className={`${ICON_BUTTON} hover:text-red-300`}
+            disabled={busy !== null}
+            onClick={onRevoke}
+            type="button"
+          >
+            <PIcon d={P.trash} size={12} />
+          </button>
+        </Tip>
+      </span>
+    </li>
+  );
+}
+
+/** The row that makes another link, with the name typed before it exists. */
+function NewLink({ busy, onCreate }: { busy: Busy; onCreate: (name: string) => void }) {
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB] disabled:opacity-50"
+        disabled={busy !== null}
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        + Another link
+      </button>
+    );
+  }
+  return (
+    <form
+      className="mt-0.5 flex items-center gap-1 px-2 py-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onCreate(name.trim());
+        setName("");
+        setOpen(false);
+      }}
+    >
+      <input
+        aria-label="Who this link is for"
+        autoFocus
+        className="min-w-0 flex-1 rounded border border-[#232328] bg-[#2E2E2E]/40 px-1.5 py-1 text-[11px] text-white placeholder:text-[#84848C] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/40"
+        maxLength={60}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          setName("");
+          setOpen(false);
+        }}
+        placeholder="Who is it for?"
+        value={name}
+      />
+      <button
+        className="shrink-0 rounded px-2 py-1 text-[11px] font-medium text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+        disabled={busy !== null}
+        type="submit"
+      >
+        {busy === "grant" ? <Spinner /> : "Make"}
+      </button>
+    </form>
+  );
+}
+
 function ShareLive({
   busy,
   changed,
-  copied,
+  copiedId,
   displayName,
-  link,
+  now,
   onCopy,
+  onCreate,
+  onExtend,
   onRetry,
+  onRevoke,
+  onRotate,
   onStop,
   onUpdate,
   share,
 }: {
   busy: Busy;
   changed: boolean;
-  copied: boolean;
+  copiedId: string | null;
   displayName: (title: string) => string;
-  link: string | null;
-  onCopy: () => void;
+  now: number;
+  onCopy: (grant: ShareGrant) => void;
+  onCreate: (name: string) => void;
+  onExtend: (grant: ShareGrant) => void;
   onRetry: () => void;
+  onRevoke: (grant: ShareGrant) => void;
+  onRotate: () => void;
   onStop: () => void;
   onUpdate: () => void;
   share: ShareStatus;
@@ -211,34 +390,13 @@ function ShareLive({
         Sharing
       </span>
 
-      <div className="flex items-center gap-1 rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-1 pl-2 pr-1">
-        <span
-          className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
-            link === null ? "text-[#84848C]" : "select-text text-[#E8E8EA]"
-          }`}
-          data-selectable={link === null ? undefined : true}
-          title={link ?? undefined}
-        >
-          {link === null ? "the link is on its way…" : shortLink(link)}
-        </span>
-        <Tip label={copied ? "Copied" : link === null ? "Not yet" : "Copy the link"}>
-          <button
-            aria-label="Copy the share link"
-            className="flex h-6 shrink-0 items-center justify-center rounded px-1.5 text-[10px] font-medium text-[#D1D5DB] transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={link === null}
-            onClick={onCopy}
-            type="button"
-          >
-            {copied ? <span className="text-emerald-300">✓</span> : "Copy"}
-          </button>
-        </Tip>
-      </div>
-
-      <div aria-live="polite" className="px-1 pt-2 text-[11px] leading-snug">
+      <div aria-live="polite" className="px-1 pb-1.5 text-[11px] leading-snug">
         {tunnel.status === "ready" ? (
-          <p className="flex items-center gap-1.5 text-[#D1D5DB]">
+          <p className="flex items-center gap-1.5">
             <LiveDot />
-            Live · {viewersLine(share.viewers)}
+            <span className="min-w-0 flex-1 truncate select-text font-mono text-[10px] text-[#D1D5DB]" data-selectable>
+              {new URL(share.grants[0]?.url ?? "http://x").host}
+            </span>
           </p>
         ) : tunnel.status === "starting" ? (
           <div className="flex items-start gap-1.5 text-[#9CA3AF]">
@@ -287,6 +445,29 @@ function ShareLive({
         )}
       </div>
 
+      <ul aria-label="Links into this share" className="max-h-64 overflow-y-auto">
+        {share.grants.map((grant, index) => (
+          <GrantRow
+            busy={busy}
+            copied={copiedId === grant.id}
+            grant={grant}
+            index={index}
+            key={grant.id}
+            now={now}
+            onCopy={() => onCopy(grant)}
+            onExtend={() => onExtend(grant)}
+            onRevoke={() => onRevoke(grant)}
+            only={share.grants.length === 1}
+          />
+        ))}
+        {share.grants.length === 0 ? (
+          <li className="px-2 py-1.5 text-[11px] text-[#84848C]">
+            No links. Nobody can open this share until you make one.
+          </li>
+        ) : null}
+      </ul>
+      <NewLink busy={busy} onCreate={onCreate} />
+
       <p className="truncate px-1 pt-1.5 text-[10px] text-[#84848C]">
         {scopeLine(share.scope, share.titles, displayName)}
       </p>
@@ -306,6 +487,29 @@ function ShareLive({
             {share.scope === "rail" ? "They see the rail as you do" : "They see what you shared"}
           </span>
         )}
+        {/* For a leak with no known source: every link ends and the address
+            changes with them, so no copy of any of them reaches anything. */}
+        <Tip
+          label={
+            <>
+              <span className="block">Replace every link.</span>
+              <span className="block text-[#9CA3AF]">
+                For when one got somewhere you did not mean to send it.
+              </span>
+            </>
+          }
+          wide
+        >
+          <button
+            aria-label="Replace every link and the address with them"
+            className="flex h-7 shrink-0 items-center justify-center rounded-md px-2 text-xs text-[#9CA3AF] transition-[color,background-color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.98] disabled:opacity-50 motion-reduce:transition-none"
+            disabled={busy !== null}
+            onClick={onRotate}
+            type="button"
+          >
+            {busy === "rotate" ? <Spinner /> : "Replace all"}
+          </button>
+        </Tip>
         <button
           className="flex h-7 shrink-0 items-center justify-center rounded-md px-2.5 text-xs text-[#9CA3AF] transition-[color,background-color,transform] duration-150 hover:bg-white/[0.06] hover:text-red-300 active:scale-[0.98] disabled:opacity-50 motion-reduce:transition-none"
           disabled={busy !== null}
@@ -359,7 +563,20 @@ export function SharePanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [choice, setChoice] = useState<"rail" | "stage">("rail");
   const [busy, setBusy] = useState<Busy>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  /**
+   * A clock the panel reads, so "23h left" becomes "40m left" while the
+   * panel is open rather than at the next poll. A minute is fine: nothing
+   * here is measured in seconds, and a faster tick would re-render a list
+   * for no visible change.
+   */
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [open]);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * The share this panel started, if any. The link is put on the clipboard
@@ -403,13 +620,14 @@ export function SharePanel({
    * tunnel is still opening, because a local link copied then only works on
    * this machine and the person it was sent to has no way to know.
    */
+  const first = share?.grants[0] ?? null;
   const link =
-    share === null
+    first === null
       ? null
-      : share.url !== null
-        ? share.url
-        : share.tunnel.status === "none"
-          ? share.localUrl
+      : first.url !== null
+        ? first.url
+        : share?.tunnel.status === "none"
+          ? first.localUrl
           : null;
 
   useEffect(() => {
@@ -444,10 +662,10 @@ export function SharePanel({
     [],
   );
 
-  const copyLink = (url: string, quiet = false) =>
+  const copyLink = (url: string, quiet = false, forId: string | null = null) =>
     copyText(url).then((outcome) => {
       if (outcome === "blocked") {
-        setCopied(false);
+        setCopiedId(null);
         // A copy nobody asked for that the browser refused (the tab was not
         // in front, or the browser wants a gesture) is not worth a warning;
         // the button is right there. A click that failed is.
@@ -461,9 +679,9 @@ export function SharePanel({
         });
         return;
       }
-      setCopied(true);
+      setCopiedId(forId);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), COPIED_MS);
+      copiedTimer.current = setTimeout(() => setCopiedId(null), COPIED_MS);
       if (!quiet) {
         notify({ kind: "share", message: "Share link copied", tone: "success", ttl: TOAST_TTL.plain });
       }
@@ -547,6 +765,26 @@ export function SharePanel({
   };
 
   /** A failed tunnel is tried again with what was shared, not with the rail now. */
+  /**
+   * One shape for the four link writes: mark what is busy, take the share
+   * the server answers with, and say what happened. The server nudges as
+   * well, so the panel is right either way; this only makes it immediate.
+   */
+  const grantWrite = (
+    kind: Exclude<Busy, null>,
+    run: () => Promise<ShareStatus>,
+    said: string,
+  ) => {
+    if (busy !== null) return;
+    setBusy(kind);
+    void run()
+      .then(() => {
+        notify({ kind: "share", message: said, tone: "success", ttl: TOAST_TTL.plain });
+      })
+      .catch((error: unknown) => fail(error, "That did not work."))
+      .finally(() => setBusy(null));
+  };
+
   const retry = () => {
     if (busy !== null || share === null) return;
     const request: ShareRequest = { scope: share.scope, titles: share.titles, layout: share.layout };
@@ -591,13 +829,26 @@ export function SharePanel({
         <ShareLive
           busy={busy}
           changed={changed}
-          copied={copied}
+          copiedId={copiedId}
           displayName={displayName}
-          link={link}
-          onCopy={() => {
-            if (link !== null) void copyLink(link);
+          now={clock}
+          onCopy={(grant) => {
+            const address = grant.url ?? grant.localUrl;
+            void copyLink(address, false, grant.id);
           }}
+          onCreate={(name) =>
+            grantWrite("grant", () => createGrant(name), name === "" ? "Link made" : `Link for ${name}`)
+          }
+          onExtend={(grant) =>
+            grantWrite("extend", () => extendGrant(grant.id), "Another 24 hours on that link")
+          }
           onRetry={retry}
+          onRevoke={(grant) =>
+            grantWrite("revoke", () => revokeGrant(grant.id), "That link is off")
+          }
+          onRotate={() =>
+            grantWrite("rotate", () => rotateShare(), "Every link replaced, and the address with them")
+          }
           onStop={stop}
           onUpdate={update}
           share={share}

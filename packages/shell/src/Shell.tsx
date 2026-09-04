@@ -57,7 +57,7 @@ import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
 import { SharePanel } from "./SharePanel.js";
-import { viewersLine } from "./share.js";
+import { totalViewers, viewersLine } from "./share.js";
 import { useShare } from "./useShare.js";
 import { ReferenceStrip } from "./ReferenceStrip.js";
 import { uploadReference } from "./references-api.js";
@@ -2830,7 +2830,7 @@ export function Shell({
                     shareState.share === null
                       ? "Share this rail"
                       : shareState.share.tunnel.status === "ready"
-                        ? `Sharing · ${viewersLine(shareState.share.viewers)}`
+                        ? `Sharing · ${viewersLine(totalViewers(shareState.share.grants))}`
                         : "Sharing"
                   }
                 >

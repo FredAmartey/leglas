@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import { DEFAULT_PREFS, loadPrefs, type Prefs } from "./prefs.js";
 import {
   adoptLayout,
+  expiryLine,
+  grantLabel,
   railShare,
   sameShare,
   scopeLine,
@@ -10,6 +12,8 @@ import {
   stageShare,
   unshareableReason,
   viewerPrefsRaw,
+  totalViewers,
+  viewersLine,
 } from "./share.js";
 import type { Preview } from "./types.js";
 
@@ -138,6 +142,35 @@ describe("words", () => {
     expect(scopeLine("rail", ["Aurora"], name)).toBe("The whole rail · 1 direction");
     expect(scopeLine("compare", ["Aurora", "Wave"], name)).toBe("Aurora + Tide");
     expect(scopeLine("direction", ["Wave"], name)).toBe("Tide");
+  });
+
+  test("viewersLine counts sessions, never people", () => {
+    expect(viewersLine(0)).toBe("nobody on it yet");
+    expect(viewersLine(1)).toBe("1 watching");
+    expect(viewersLine(4)).toBe("4 watching");
+  });
+
+  test("expiryLine reads in hours until the last hour, then minutes", () => {
+    const now = 1_700_000_000_000;
+    expect(expiryLine(now + 23 * 3_600_000, now)).toBe("23h left");
+    expect(expiryLine(now + 90 * 60_000, now)).toBe("2h left");
+    expect(expiryLine(now + 40 * 60_000, now)).toBe("40m left");
+    // Never zero while it still works, and plain once it does not.
+    expect(expiryLine(now + 20_000, now)).toBe("1m left");
+    expect(expiryLine(now, now)).toBe("expired");
+    expect(expiryLine(now - 5_000, now)).toBe("expired");
+  });
+
+  test("totalViewers counts across every link", () => {
+    expect(totalViewers([])).toBe(0);
+    expect(totalViewers([{ viewers: 0 }, { viewers: 0 }])).toBe(0);
+    expect(totalViewers([{ viewers: 2 }, { viewers: 1 }, { viewers: 0 }])).toBe(3);
+  });
+
+  test("grantLabel names an unnamed link by its place", () => {
+    expect(grantLabel("Ana", 0)).toBe("Ana");
+    expect(grantLabel("", 0)).toBe("Link 1");
+    expect(grantLabel("   ", 2)).toBe("Link 3");
   });
 
   test("shortLink keeps the host and hides the token", () => {
