@@ -71,7 +71,11 @@ it was about.
   for you with one click to let that path or its folder through, so the list
   fills by use rather than by guessing. The panel says what each choice is
   worth rather than implying more: bounded still means a viewer sees
-  everything your shared pages themselves load. (`leglas`)
+  everything your shared pages themselves load. Whichever you choose, a path
+  reaching for something hidden is refused and cannot be allowed: `.env`,
+  `.git`, `.ssh` and the rest, however the path is spelled. The rule stops at
+  `node_modules`, because the dot directories under it are how a dev server
+  hands over its dependencies. (`leglas`)
 - **A share cannot crowd out the machine it runs on.** A dev server under a
   burst does not fail, it queues inside itself, where Leglas cannot bound,
   order or cancel any of it, and your own reload joins the back of that
