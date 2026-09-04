@@ -109,8 +109,8 @@ type ShareManager = {
 const ENTRY_PREFIX = "/leglas/s/";
 
 /**
- * Development-server routes that act on the machine instead of serving the
- * app, refused for viewers.
+ * Development-server routes that act on the machine or hand out its
+ * internals, refused for viewers.
  *
  * A dev server is not only the app. Vite mounts an editor-launch route, and
  * so do the others in their own words: a GET with a file name in the query
@@ -118,13 +118,20 @@ const ENTRY_PREFIX = "/leglas/s/";
  * proxies whatever the dev server answers, so before this list a viewer
  * holding a share link could ask for one and the sharer's editor would open.
  * Verified against Vite 8.2.2, where the request reached the middleware and
- * was refused only for want of a file name. Every other entry was read out
- * of the package that mounts it, at the version named beside it.
+ * was refused only for want of a file name.
+ *
+ * The list reaches past JavaScript because `devServer` is only a URL: Leglas
+ * will proxy a Django, Rails, Laravel or Spring server as readily as a Vite
+ * one, and those ecosystems mount the same class of thing.
  *
  * This is a list of what is known, not a boundary. A framework can add a
  * route tomorrow and a plugin can mount one today, so the share tells the
  * user plainly that a viewer reads what their dev server serves. Adding an
  * entry is a line here.
+ *
+ * Entries marked "read" come from the package's own source at the version
+ * named. Entries marked "reported" come from review and are not confirmed
+ * here, so their spelling is the weaker claim.
  *
  * Read and found to need nothing of their own, so the next person need not
  * look again: Astro 7.3.1 (only `/_astro/status`, which answers `{ok:true}`),
@@ -134,27 +141,55 @@ const ENTRY_PREFIX = "/leglas/s/";
  * 2.2.3 mounts `/__open-in-editor` with the same launch-editor package Vite
  * uses, so the first entry covers it, and so it does for Vue CLI, Remix and
  * React Router, which sit on Vite or webpack-dev-server.
+ *
+ * Deliberately absent: Metro and Expo answer at `/open-url` and
+ * `/open-stack-frame`, ordinary enough words that an app could own them, and
+ * Leglas previews web pages rather than React Native targets. Absent too are
+ * the paths an app needs in order to run, `/@fs/`, `/@id/`, `/_next/`,
+ * `/_nuxt/`, `/_app/` and `/_astro/` among them.
  */
 export const DEV_CONTROL_ROUTES: readonly string[] = [
-  /** Vite, Nuxt and vue-cli: opens `?file=` in the machine's editor. */
+  /** read, Vite 8.2.2: opens `?file=` in the machine's editor. Rsbuild 2.2.3 too. */
   "/__open-in-editor",
-  /** react-dev-utils 12.0.1, the Create React App overlay: the same, older name. */
+  /** read, react-dev-utils 12.0.1: the same, older name. */
   "/__open-stack-frame-in-editor",
-  /** react-dev-utils 12.0.1 again: serves a module's source through the overlay. */
+  /** read, react-dev-utils 12.0.1: serves a module's source through the overlay. */
   "/__get-internal-source",
-  /** vite-plugin-inspect: the module graph and every transformed source. */
+  /** read, vite-plugin-inspect 12.0.2: the module graph and every transformed source. */
   "/__inspect",
+  /** read, vite-plugin-vue-devtools 8.2.1: its whole interface and RPC surface. */
+  "/__devtools__",
+  /** read, browser-sync 3.0.4: its client surface and server metadata. */
+  "/__browser_sync__",
   /**
-   * webpack-dev-server 6.0.0 mounts its own surface here: the file listing,
-   * `/webpack-dev-server/invalidate`, which forces a rebuild, and
-   * `/webpack-dev-server/open-editor`, which calls the same launch-editor
+   * read, webpack-dev-server 6.0.0, which mounts its own surface here: the
+   * file listing, `/webpack-dev-server/invalidate`, which forces a rebuild,
+   * and `/webpack-dev-server/open-editor`, which calls the same launch-editor
    * package Vite does. The subtree match below takes all three.
    */
   "/webpack-dev-server",
+  /** reported: Rails Web Console, an interactive server-side REPL. */
+  "/__web_console",
+  /** reported: the Better Errors gem, likewise. */
+  "/__better_errors",
+  /** reported: Laravel Ignition, whose solutions endpoint runs code. */
+  "/_ignition",
+  /** reported: Symfony's profiler, which serves traces, config and source. */
+  "/_profiler",
+  /** reported: Symfony's web debug toolbar. */
+  "/_wdt",
+  /** reported: Django Debug Toolbar, which serves settings, SQL and templates. */
+  "/__debug__",
+  /** reported: Go's pprof, where some GETs start expensive profiling. */
+  "/debug/pprof",
+  /** reported: Spring Boot Actuator, which can serve env, beans and heap dumps. */
+  "/actuator",
+  /** reported: Gatsby's development GraphQL surface, schema and content. */
+  "/___graphql",
 ];
 
 /**
- * Namespaces a framework mounts its whole development surface under.
+ * Namespaces a tool mounts its whole development surface under.
  *
  * Next 16.3.1 answers at least `__nextjs_launch-editor`,
  * `__nextjs_original-stack-frame`, `__nextjs_original-stack-frames`,
@@ -163,32 +198,50 @@ export const DEV_CONTROL_ROUTES: readonly string[] = [
  * serving the app. Listing them one by one would be a list to keep up with
  * and a hole every time a version adds one, and none of them is the app, so
  * the namespace goes rather than its members. What a viewer loses is the
- * error overlay's source mapping, which is the sharer's tool and not
- * theirs.
+ * error overlay's source mapping, which is the sharer's tool and not theirs.
  */
 export const DEV_CONTROL_PREFIXES: readonly string[] = [
+  /** read, Next 16.3.1. Its app assets sit at `/_next/` and stay allowed. */
   "/__nextjs_",
   /**
-   * Nuxt DevTools 4.0.0-alpha.16 serves its whole interface here. Note the
-   * neighbour it must not take: Nuxt's own client bundle lives under
-   * `/__nuxt`, which the app needs, so the prefix is the longer one.
+   * read, Nuxt DevTools 4.0.0-alpha.16. Nuxt's own bundle is at `/_nuxt/`,
+   * one underscore and a different prefix, so the app is untouched.
    */
   "/__nuxt_devtools__",
   /**
-   * Parcel 2.16.4 puts everything here, `__parcel_launch_editor` included,
-   * which reads a `file` parameter and calls the same launch-editor code
-   * Vite does. Beside it sit `__parcel_source_map`, `__parcel_source_root`
-   * and `__parcel_code_frame`, which serve source, and the HMR and health
-   * routes, which a viewer has no use for: their live-reload socket is
-   * already refused.
+   * read, Parcel 2.16.4: `__parcel_launch_editor` reads a `file` parameter
+   * and calls the same launch-editor code Vite does. Beside it sit
+   * `__parcel_source_map`, `__parcel_source_root` and `__parcel_code_frame`,
+   * which serve source, and the HMR and health routes, which a viewer has no
+   * use for: their live-reload socket is already refused.
    */
   "/__parcel_",
 ];
 
-/** Whether a path is one of those routes, sits under one, or is in a dev namespace. */
-export function isDevControlRoute(path: string): boolean {
+/**
+ * Query keys that turn an ordinary path into a control channel.
+ *
+ * Everything above reads paths, which is the shape almost every dev tool
+ * takes. Werkzeug, under Flask, is the exception worth carrying: its
+ * interactive debugger hangs off whichever path raised the error and takes
+ * its commands in the query string, so no path rule can see it coming.
+ * Reported by review rather than read here.
+ */
+export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
+
+/**
+ * Whether a request asks for one of those, given the url as the server
+ * received it. It takes the whole url rather than the path, because one of
+ * these hides in the query.
+ */
+export function isDevControlRequest(url: string): boolean {
+  const [path = "/", query] = url.split("?", 2);
   if (DEV_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
-  return DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+  if (DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`))) {
+    return true;
+  }
+  if (query === undefined) return false;
+  return DEV_CONTROL_QUERY_KEYS.some((key) => new URLSearchParams(query).has(key));
 }
 /** Where file previews are served, the same prefix the server mounts them under. */
 const FILES_PREFIX_PATH = "/leglas/files/";
@@ -477,7 +530,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     }
     // A GET that opens an editor is still a write, and the dev server will
     // happily perform one. Refused before the proxy sees it.
-    if (isDevControlRoute(path)) {
+    if (isDevControlRequest(req.url ?? "/")) {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
     // A service worker outlives the share: it stays registered on the tunnel

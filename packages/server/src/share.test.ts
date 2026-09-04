@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Preview } from "./config.js";
 import { createLiveHub } from "./live.js";
-import { createShareManager, isDevControlRoute, type ShareLayout } from "./share.js";
+import { createShareManager, isDevControlRequest, type ShareLayout } from "./share.js";
 
 const previews: Preview[] = [
   { title: "Current", url: "/", note: undefined, tags: [] },
@@ -201,23 +201,35 @@ describe("createShareManager", () => {
   });
 });
 
-describe("isDevControlRoute", () => {
+describe("isDevControlRequest", () => {
   test("names the routes that act on the machine, and their subtrees", () => {
-    expect(isDevControlRoute("/__open-in-editor")).toBe(true);
-    expect(isDevControlRoute("/__open-stack-frame-in-editor")).toBe(true);
-    expect(isDevControlRoute("/__inspect")).toBe(true);
-    expect(isDevControlRoute("/__inspect/module")).toBe(true);
-    expect(isDevControlRoute("/__get-internal-source")).toBe(true);
-    // webpack-dev-server 6.0.0 mounts a rebuild trigger and an editor
-    // launcher under its own prefix; the subtree match is what takes them.
-    expect(isDevControlRoute("/webpack-dev-server/index.html")).toBe(true);
-    expect(isDevControlRoute("/webpack-dev-server/invalidate")).toBe(true);
-    expect(isDevControlRoute("/webpack-dev-server/open-editor")).toBe(true);
+    for (const route of [
+      "/__open-in-editor",
+      "/__open-stack-frame-in-editor",
+      "/__get-internal-source",
+      "/__inspect",
+      "/__inspect/module",
+      "/__devtools__/",
+      "/__browser_sync__",
+      "/webpack-dev-server/index.html",
+      "/webpack-dev-server/invalidate",
+      "/webpack-dev-server/open-editor",
+      "/__web_console",
+      "/_ignition/execute-solution",
+      "/_profiler/latest",
+      "/__debug__/render_panel",
+      "/debug/pprof/heap",
+      "/actuator/env",
+      "/___graphql",
+    ]) {
+      expect(isDevControlRequest(route)).toBe(true);
+    }
   });
 
-  test("takes a framework's whole dev namespace, not a list of its routes", () => {
-    // Read off Next 16.3.1. The point of the prefix is the ones not listed
-    // here, including whatever the next version adds.
+  test("takes a tool's whole dev namespace, not a list of its routes", () => {
+    // Read off Next 16.3.1, Nuxt DevTools 4.0.0-alpha.16 and Parcel 2.16.4.
+    // The point of a prefix is the members not listed here, including
+    // whatever the next version adds.
     for (const route of [
       "/__nextjs_launch-editor",
       "/__nextjs_original-stack-frame",
@@ -226,30 +238,42 @@ describe("isDevControlRoute", () => {
       "/__nextjs_attach-nodejs-inspector",
       "/__nextjs_error_feedback",
       "/__nextjs_something_added_later",
-      // Nuxt DevTools 4.0.0-alpha.16 serves its whole interface here.
       "/__nuxt_devtools__",
       "/__nuxt_devtools__/client/index.html",
-      // Parcel 2.16.4: an editor launcher and three source routes. Paths
-      // only, because the caller splits the query off before asking.
       "/__parcel_launch_editor",
       "/__parcel_source_map",
       "/__parcel_source_root",
       "/__parcel_code_frame",
     ]) {
-      expect(isDevControlRoute(route)).toBe(true);
+      expect(isDevControlRequest(route)).toBe(true);
     }
   });
 
+  test("catches the one that hides in the query rather than the path", () => {
+    // Werkzeug's debugger hangs off whichever path raised the error, so the
+    // path says nothing and the query says everything.
+    expect(isDevControlRequest("/any/app/route?__debugger__=yes&cmd=resource")).toBe(true);
+    expect(isDevControlRequest("/?__debugger__=yes")).toBe(true);
+    expect(isDevControlRequest("/?v-hero=table")).toBe(false);
+  });
+
   test("leaves the app alone, including paths that merely start alike", () => {
-    expect(isDevControlRoute("/")).toBe(false);
-    expect(isDevControlRoute("/__open-in-editor-not-really")).toBe(false);
-    expect(isDevControlRoute("/@vite/client")).toBe(false);
-    expect(isDevControlRoute("/src/main.tsx")).toBe(false);
-    expect(isDevControlRoute("/webpack-dev-server-ui")).toBe(false);
-    // The app's own build output shares a prefix shape with the dev surface.
-    expect(isDevControlRoute("/_next/static/chunks/main.js")).toBe(false);
-    // Nuxt's own client bundle sits one underscore away from its devtools.
-    expect(isDevControlRoute("/__nuxt/entry.js")).toBe(false);
-    expect(isDevControlRoute("/__nextjsnot-a-namespace")).toBe(false);
+    for (const route of [
+      "/",
+      "/?v-hero=table",
+      "/__open-in-editor-not-really",
+      "/@vite/client",
+      "/src/main.tsx",
+      "/webpack-dev-server-ui",
+      // The asset paths each framework needs in order to run at all.
+      "/_next/static/chunks/main.js",
+      "/_nuxt/entry.js",
+      "/_app/immutable/start.js",
+      "/_astro/index.css",
+      "/@ng/component",
+      "/sb-manager/runtime.js",
+    ]) {
+      expect(isDevControlRequest(route)).toBe(false);
+    }
   });
 });
