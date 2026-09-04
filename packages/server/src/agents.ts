@@ -374,11 +374,15 @@ export function agentEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.P
   return { ...env, PATH: agentSearchPath(env) };
 }
 
-async function pathLookup(binary: string): Promise<boolean> {
-  const entries = agentSearchPath().split(delimiter).filter((entry) => entry !== "");
+export async function pathLookup(
+  binary: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Promise<boolean> {
+  const entries = agentSearchPath(env, platform).split(delimiter).filter((entry) => entry !== "");
   const extensions =
-    process.platform === "win32"
-      ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry !== "")
+    platform === "win32"
+      ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry !== "")
       : [""];
 
   for (const entry of entries) {

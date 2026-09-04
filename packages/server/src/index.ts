@@ -73,6 +73,15 @@ export { REQUESTS_PATH, appendRequest, clearRequests, collectRequests, composeRe
 export { startRunner } from "./runner.js";
 export { createLiveHub } from "./live.js";
 export type { LiveChange, LiveHub } from "./live.js";
+export { createShareManager } from "./share.js";
+export type { ShareLayout, ShareScope, ShareStatus } from "./share.js";
+export { detectTunnels, startTunnel } from "./tunnel.js";
+export type {
+  RunningTunnel,
+  TunnelDeps,
+  TunnelProviderId,
+  TunnelState,
+} from "./tunnel.js";
 export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";
 export type { Renames, TitleResolution } from "./renames.js";
 export { DEFAULT_PORT, FILES_PREFIX, LEGLAS_PREFIX, probe, startServer } from "./server.js";

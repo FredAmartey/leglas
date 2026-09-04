@@ -55,7 +55,10 @@ and sessions that clean up after themselves.
 - Pick any two variations for side-by-side comparison when it gets hard to choose.
 - Name each direction, drag to reorder and organise your variants, set aside the ones that
   don't feel right. Your actions on every idea survive a long exploration.
-- Send a teammate the link to a direction. They open the live version instead of a screenshot and a paragraph of explanation.
+- Share the rail with someone who has no repo: a client, a cofounder, a
+  teammate on another machine. They open a link and get the real app running,
+  in your order and under your names, and can flip and compare. They cannot
+  change anything. See [Sharing](#sharing).
 - Compare things no design tool can hold: 3 git branches, a local
   build against production, yesterday's direction against today's, or even 7 different worktrees.
 - `leglas init` teaches any coding agent the workflow, and
@@ -384,6 +387,45 @@ Frameworks paint a dev badge over the corner of the running app. It
 belongs to your app, so Leglas leaves it alone; when it lands on the part
 you are judging, the popover hides it, and does that by styling inside
 the preview frame, never by altering what the proxy forwards.
+
+## Sharing
+
+The rail is local, and the person who most needs to see it often has no
+repo. The share control in the rail's header fixes that: pick the whole rail
+as you see it, or what is on stage (one direction, or the pair being
+compared), and start sharing. Leglas opens a second listener on your
+machine, points a tunnel at it and copies the link once it answers.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-live.png" width="426" alt="The share panel under the rail's header: the link, a line reading Live, nobody looking yet, the scope The whole rail, 6 directions and a Stop button" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-viewer.png" width="426" alt="The same rail as a viewer sees it: a strip reading Shared with you, the whole rail, then the directions in the sharer's order with no composer" />
+</p>
+
+<p align="center"><i>Sharing, and what the person on the other end gets.</i></p>
+
+Whoever opens the link gets the real app, running, with your order, your
+names, your folded families and your viewport. They can flip, compare,
+search and change the width. They cannot change anything: the share
+listener refuses every write, whoever the caller is, and answers every path
+with 403 without the cookie the link sets, so your dev server never faces
+the internet bare. Viewers do not get hot reload either, since an app's
+live-reload socket is a way in; they refresh to see a change.
+
+What a viewer can do is read whatever your dev server serves, because
+Leglas proxies it faithfully and that is the point. Your source is part of
+that. Leglas refuses the routes a dev server mounts to act on your machine,
+Vite's editor launcher among them, and refuses to let a viewer register a
+service worker that would outlive the share. That list is what is known
+rather than a wall, so share a project you are content for the person on
+the other end to read. The panel shows whether the link is answering and how many
+people are looking. When your rail has moved since you shared, it offers to
+push what you see now; stop the share from the same place, and it stops
+with Leglas either way.
+
+The tunnel is borrowed, not shipped. Leglas looks for `cloudflared` or
+`ngrok` on your machine and runs whichever it finds; with neither, the link
+only works on this machine and the panel says so. Branch directions run on
+their own port and are left out of a share for now.
 
 ## Command line
 

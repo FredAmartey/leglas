@@ -101,17 +101,25 @@ export function searchCap(mac: boolean): string {
  * Takes the platform rather than reading it, so the list stays pure and the
  * caps can be tested for both.
  */
-export function shortcutList(mac: boolean): readonly Shortcut[] {
-  return [
+export function shortcutList(mac: boolean, viewer = false): readonly Shortcut[] {
+  const all: readonly (Shortcut & { changes?: boolean })[] = [
     { keys: ["↑", "↓"], label: "Move between directions" },
     { keys: ["1", "9"], join: "to", label: "Jump straight to a direction" },
     { keys: ["C"], label: "Compare against the direction you were last on" },
-    { keys: ["R"], label: "Ask for a change to this direction" },
-    { keys: ["A"], label: "Annotate the design: point at what is wrong" },
+    { keys: ["R"], label: "Ask for a change to this direction", changes: true },
+    { keys: ["A"], label: "Annotate the design: point at what is wrong", changes: true },
     { keys: [searchCap(mac)], label: "Search" },
     { keys: ["B"], label: "Collapse or open the rail" },
     { keys: ["T"], label: "Open or close the Leglas dev tool menu" },
     { keys: ["?"], label: "This list" },
     { keys: ["Esc"], label: "Clear the search, or close what is open" },
   ];
+  // A viewer of a share can look and compare, never change what runs, so the
+  // keys that ask for work are not listed: a documented key that does nothing
+  // is the drift this list exists to prevent.
+  const listed: Shortcut[] = [];
+  for (const { changes, ...shortcut } of all) {
+    if (!(viewer && changes)) listed.push(shortcut);
+  }
+  return listed;
 }

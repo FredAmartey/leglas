@@ -123,6 +123,66 @@ export function Switch({ on }: { on: boolean }) {
   );
 }
 
+/** A share that is live: the light's Ember, breathing, so "live" reads as the rail does. */
+export function LiveDot({ className = "" }: { className?: string }) {
+  return <span aria-hidden className={`leglas-live-dot block size-1.5 rounded-full ${className}`} />;
+}
+
+/** The mark on the share control: an arrow leaving a tray. */
+export function ShareGlyph({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.6"
+      viewBox="0 0 16 16"
+      width={size}
+    >
+      <path d="M8 9.75V2.75" />
+      <path d="m5.25 5.5 2.75-2.75 2.75 2.75" />
+      <path d="M3.25 8.75v3.5a1.5 1.5 0 0 0 1.5 1.5h6.5a1.5 1.5 0 0 0 1.5-1.5v-3.5" />
+    </svg>
+  );
+}
+
+/** The small spinner the status card and the share panel share. */
+export function Spinner({ size = 3 }: { size?: 3 | 3.5 }) {
+  return (
+    <span
+      aria-hidden
+      className={`block ${
+        size === 3 ? "size-3" : "size-3.5"
+      } shrink-0 animate-spin rounded-full border-[1.5px] border-white/15 border-t-white/70 motion-reduce:animate-none`}
+    />
+  );
+}
+
+/** The amber triangle a failure wears, the same one everywhere it appears. */
+export function Warning({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="shrink-0 text-amber-400/90"
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      viewBox="0 0 16 16"
+      width={size}
+    >
+      <path d="M8 2.6 14.6 13.4H1.4Z" />
+      <path d="M8 6.8v2.7" />
+      <path d="M8 11.6h.01" />
+    </svg>
+  );
+}
+
 export function PIcon({ d, size = 13 }: { d: string; size?: number }) {
   return (
     <svg aria-hidden fill="currentColor" height={size} viewBox="0 0 256 256" width={size}>

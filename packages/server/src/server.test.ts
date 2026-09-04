@@ -1,10 +1,12 @@
 import http from "node:http";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { saveAgentChoice } from "./agents.js";
@@ -16,6 +18,7 @@ import type { LiveChange, LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
+import { startTunnel as startTunnelProcess } from "./tunnel.js";
 import type { RunningWorktree } from "./worktree.js";
 
 const running: RunningServer[] = [];
@@ -71,6 +74,9 @@ function fakeLiveHub(initialListening = 0): FakeLiveHub {
     close: vi.fn(async () => {}),
     get listening() {
       return listening;
+    },
+    get viewers() {
+      return 0;
     },
     setListening: (value) => {
       listening = value;
@@ -149,6 +155,7 @@ async function start(options: Parameters<typeof startServer>[0]): Promise<Runnin
   const server = await startServer({
     codexAppServer: null,
     claudeAgentSession: null,
+    detectTunnels: async () => [],
     pool: quietPool(),
     ...options,
   });
@@ -269,6 +276,79 @@ function postRawReference(
     for (const chunk of chunks) request.write(chunk);
     request.end();
   });
+}
+
+const shareLayout = (compare: string | null = null) => ({
+  order: ["Current", "Aurora", "Paper"],
+  renames: { Aurora: "Afterglow" },
+  collapsedFamilies: [],
+  compare,
+  viewport: 390,
+});
+
+function postShare(
+  server: RunningServer,
+  body: Record<string, unknown>,
+  suffix = "",
+): Promise<Response> {
+  return fetch(`${server.url}/leglas/api/share${suffix}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function enterShare(localUrl: string): Promise<string> {
+  const response = await fetch(localUrl, { redirect: "manual" });
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("/leglas/");
+  return response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+}
+
+function openViewerSocket(
+  port: number,
+  cookie: string,
+  extraHeaders = "",
+): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1");
+    let answer = "";
+    const deadline = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("share websocket did not upgrade"));
+    }, 2000);
+    socket.once("error", reject);
+    socket.on("data", (chunk: Buffer) => {
+      answer += chunk.toString("latin1");
+      if (!answer.includes("\r\n\r\n")) return;
+      clearTimeout(deadline);
+      if (!answer.startsWith("HTTP/1.1 101")) {
+        socket.destroy();
+        reject(new Error(`share websocket answered ${answer.split("\r\n", 1)[0] ?? "nothing"}`));
+        return;
+      }
+      resolve(socket);
+    });
+    socket.once("connect", () => {
+      socket.write(
+        `GET /leglas/api/live HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n` +
+          `Cookie: ${cookie}\r\n${extraHeaders}Connection: Upgrade\r\nUpgrade: websocket\r\n` +
+          `Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
+      );
+    });
+  });
+}
+
+class ShareTunnelChild extends EventEmitter {
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly signals: Array<NodeJS.Signals | number> = [];
+
+  kill = (signal?: NodeJS.Signals | number): boolean => {
+    this.signals.push(signal ?? "SIGTERM");
+    queueMicrotask(() => this.emit("exit", null, signal ?? null));
+    return true;
+  };
 }
 
 describe("startServer", () => {
@@ -2468,6 +2548,377 @@ describe("startServer", () => {
     expect((await res.text()).toLowerCase()).toContain("leglas");
   });
 
+  test("serves a read-only share and keeps its lifecycle on the primary listener", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-"));
+    const shellDir = mkdtempSync(join(tmpdir(), "leglas-"));
+    const fileDir = mkdtempSync(join(tmpdir(), "leglas-"));
+    const draftDir = mkdtempSync(join(tmpdir(), "leglas-"));
+    writeFileSync(join(shellDir, "index.html"), "<title>shared shell</title>");
+    writeFileSync(join(fileDir, "index.html"), "<h1>paper direction</h1>");
+    writeFileSync(join(fileDir, ".env"), "SECRET=1");
+    writeFileSync(join(draftDir, "index.html"), "<h1>draft, not shared</h1>");
+    const live = fakeLiveHub();
+    const server = await start({
+      config: configFor(await startOrigin(), [
+        { title: "Current", url: "/" },
+        { title: "Aurora", url: "/aurora" },
+        { title: "Paper", url: "/leglas/files/paper/index.html", file: "paper/index.html" },
+        { title: "Draft", url: "/leglas/files/draft/index.html", file: "draft/index.html" },
+      ]),
+      cwd,
+      fileMounts: new Map([
+        ["paper", fileDir],
+        ["draft", draftDir],
+      ]),
+      live,
+      port: 0,
+      shellDir,
+    });
+    live.changes.splice(0);
+
+    const createdResponse = await postShare(server, {
+      scope: "rail",
+      titles: ["Current", "Paper"],
+      layout: shareLayout(),
+      tunnel: "none",
+    });
+    const created = (await createdResponse.json()) as {
+      ok: true;
+      share: {
+        grants: { id: string; localUrl: string; viewers: number; expiresAt: number }[];
+        sharePort: number;
+        tunnel: { status: string };
+      };
+    };
+    expect(createdResponse.status).toBe(200);
+    expect(created.share.sharePort).not.toBe(server.port);
+    expect(created.share.grants[0].localUrl).toMatch(
+      new RegExp(`^http://127\\.0\\.0\\.1:${created.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
+    );
+    expect(created.share.tunnel).toEqual({ status: "none" });
+
+    const cookie = await enterShare(created.share.grants[0].localUrl);
+    const remote = `http://127.0.0.1:${created.share.sharePort}`;
+    // The entry answers HEAD too, so a link checker sees a live link.
+    const peek = await fetch(created.share.grants[0].localUrl, { method: "HEAD", redirect: "manual" });
+    expect(peek.status).toBe(302);
+    const viewerConfig = (await (
+      await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })
+    ).json()) as {
+      project: string;
+      devServer: string;
+      previews: Array<{ title: string; url: string }>;
+      errors: string[];
+      warnings: string[];
+      viewer: { scope: string; layout: ReturnType<typeof shareLayout> };
+    };
+    // Nothing that names the sharer's machine reaches a viewer: the project
+    // id is normally the config's absolute path, and health names the
+    // working directory and the dev server's address.
+    expect(viewerConfig.project).toMatch(/^share:[0-9a-f-]{36}$/);
+    expect(viewerConfig.devServer).toBe("");
+    expect(JSON.stringify(viewerConfig)).not.toContain(cwd);
+    expect(viewerConfig.previews.map((preview) => preview.title)).toEqual([
+      "Current",
+      "Paper",
+    ]);
+    expect(viewerConfig.previews[1]?.url).toBe("/leglas/files/paper/index.html");
+    expect(viewerConfig.errors).toEqual([]);
+    expect(viewerConfig.warnings).toEqual([]);
+    expect(viewerConfig.viewer).toEqual({ scope: "rail", layout: shareLayout() });
+
+    expect((await fetch(`${remote}/leglas/api/config`)).status).toBe(403);
+    const mutation = await fetch(`${remote}/leglas/api/watch`, {
+      method: "POST",
+      headers: { cookie },
+    });
+    expect(mutation.status).toBe(403);
+    expect(await mutation.json()).toEqual({
+      ok: false,
+      error: "Viewers can look, not change what runs.",
+    });
+    for (const path of ["requests", "agents", "annotations"]) {
+      const response = await fetch(`${remote}/leglas/api/${path}`, { headers: { cookie } });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Not available to viewers." });
+    }
+    const health = await fetch(`${remote}/leglas/api/health`, { headers: { cookie } });
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ reachable: true });
+    expect(await (await fetch(`${remote}/leglas/`, { headers: { cookie } })).text()).toContain(
+      "shared shell",
+    );
+    expect(await (await fetch(`${remote}/pricing`, { headers: { cookie } })).text()).toBe(
+      "<h1>app:/pricing</h1>",
+    );
+    expect((await fetch(`${remote}/pricing`)).status).toBe(403);
+    expect(
+      await (await fetch(`${remote}/leglas/files/paper/index.html`, { headers: { cookie } })).text(),
+    ).toContain("paper direction");
+    // A mount is a whole directory keyed by a guessable slug: only the
+    // mounts behind shared directions answer, and never a dotfile in one.
+    expect(
+      (await fetch(`${remote}/leglas/files/draft/index.html`, { headers: { cookie } })).status,
+    ).toBe(403);
+    expect((await fetch(`${remote}/leglas/files/paper/.env`, { headers: { cookie } })).status).toBe(
+      403,
+    );
+    // A dev server mounts routes that act on the machine: Vite's editor
+    // launcher opens a file on the sharer's computer for anyone who asks.
+    // Those are refused before the proxy sees them, and so is a service
+    // worker, which would outlive the share.
+    for (const control of [
+      "/__open-in-editor?file=src/main.tsx:1:1",
+      "/__nextjs_launch-editor?file=src/main.tsx",
+      "/__nextjs_attach-nodejs-inspector",
+      "/__inspect/",
+      "/__inspect/module?id=x",
+      "/webpack-dev-server",
+    ]) {
+      const refused = await fetch(`${remote}${control}`, { headers: { cookie } });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ ok: false, error: "Not available to viewers." });
+    }
+    expect(
+      (
+        await fetch(`${remote}/sw.js`, {
+          headers: { cookie, "sec-fetch-dest": "serviceworker" },
+        })
+      ).status,
+    ).toBe(403);
+    // The sharer's own listener is untouched by any of it.
+    expect((await fetch(`${server.url}/__open-in-editor`)).status).toBe(200);
+
+    // An app's live-reload socket is a two-way channel into the dev server,
+    // so only the interface's own socket upgrades on the share listener.
+    await expect(
+      new Promise<string>((resolve, reject) => {
+        const socket = net.connect(created.share.sharePort, "127.0.0.1", () => {
+          socket.write(
+            `GET /_next/webpack-hmr HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ${cookie}\r\n` +
+              `Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n` +
+              `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
+          );
+        });
+        socket.once("data", (chunk: Buffer) => resolve(chunk.toString("latin1")));
+        socket.once("close", () => resolve("closed"));
+        socket.once("error", (error) => reject(error));
+      }),
+    ).resolves.toBe("closed");
+
+    const second = await postShare(server, {
+      scope: "direction",
+      titles: ["Current"],
+      layout: shareLayout(),
+    });
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({
+      ok: false,
+      error: "Stop the current share first.",
+    });
+
+    const updatedResponse = await postShare(
+      server,
+      { scope: "direction", titles: ["Current"], layout: shareLayout() },
+      "/update",
+    );
+    const updated = (await updatedResponse.json()) as typeof created;
+    expect(updatedResponse.status).toBe(200);
+    expect(updated.share.grants[0].localUrl).toBe(created.share.grants[0].localUrl);
+    // Viewers read the config, so an update nudges that too.
+    expect(live.changes.at(-1)).toBe("config");
+
+    const stopped = await postShare(server, {}, "/stop");
+    expect(stopped.status).toBe(200);
+    expect(await stopped.json()).toEqual({ ok: true });
+    await expect(fetch(`${remote}/leglas/`)).rejects.toThrow();
+    expect(await (await fetch(`${server.url}/leglas/api/share`)).json()).toEqual({
+      share: null,
+      tunnels: [],
+    });
+    expect(live.changes.filter((change) => change === "share")).toEqual([
+      "share",
+      "share",
+      "share",
+    ]);
+  });
+
+  test("validates share titles and refuses a second active share", async () => {
+    const server = await start({
+      config: configFor(await startOrigin(), [
+        { title: "Current", url: "/" },
+        { title: "Branch", url: "/branch", branch: "feature/branch" },
+      ]),
+      port: 0,
+    });
+
+    const branch = await postShare(server, {
+      scope: "direction",
+      titles: ["Branch"],
+      layout: shareLayout(),
+      tunnel: "none",
+    });
+    expect(branch.status).toBe(400);
+    expect(await branch.json()).toEqual({
+      ok: false,
+      error: "Branch directions can't be shared yet: Branch.",
+    });
+
+    const unknown = await postShare(server, {
+      scope: "direction",
+      titles: ["Missing"],
+      layout: shareLayout(),
+      tunnel: "none",
+    });
+    expect(unknown.status).toBe(400);
+
+    expect(
+      (
+        await postShare(server, {
+          scope: "direction",
+          titles: ["Current"],
+          layout: shareLayout(),
+          tunnel: "none",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await postShare(server, {
+          scope: "direction",
+          titles: ["Current"],
+          layout: shareLayout(),
+          tunnel: "none",
+        })
+      ).status,
+    ).toBe(409);
+  });
+
+  test("counts only authenticated live sockets on the share listener", async () => {
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
+      port: 0,
+    });
+    const response = await postShare(server, {
+      scope: "direction",
+      titles: ["Current"],
+      layout: shareLayout(),
+      tunnel: "none",
+    });
+    const created = (await response.json()) as {
+      share: { grants: { localUrl: string }[]; sharePort: number };
+    };
+    const cookie = await enterShare(created.share.grants[0].localUrl);
+
+    await new Promise<void>((resolve) => {
+      const refused = net.connect(created.share.sharePort, "127.0.0.1");
+      let settled = false;
+      const done = (): void => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      refused.once("error", done);
+      refused.once("close", done);
+      refused.once("connect", () => {
+        refused.write(
+          `GET /leglas/api/live HTTP/1.1\r\nHost: 127.0.0.1:${created.share.sharePort}\r\n` +
+            `Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n` +
+            `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
+        );
+      });
+    });
+    expect(
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers,
+    ).toBe(0);
+
+    const viewer = await openViewerSocket(created.share.sharePort, cookie);
+    await eventually(async () =>
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 1,
+    );
+    viewer.destroy();
+    await eventually(async () =>
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 0,
+    );
+  });
+
+  test("a viewer arriving settles a tunnel the probe has not seen answer", async () => {
+    const child = new ShareTunnelChild();
+    const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
+      port: 0,
+      detectTunnels: async () => ["cloudflared"],
+      startTunnel: (options) =>
+        startTunnelProcess(options, { spawn, probe: async () => false }),
+    });
+    const created = (await (
+      await postShare(server, {
+        scope: "direction",
+        titles: ["Current"],
+        layout: shareLayout(),
+        tunnel: "cloudflared",
+      })
+    ).json()) as { share: { localUrl: string; sharePort: number } };
+    const status = async () =>
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
+        share: {
+          grants: { url: string | null }[];
+          tunnel: { status: string; url?: string };
+        };
+      }).share;
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    child.stderr.write("| https://example-share.trycloudflare.com |\n");
+    await eventually(async () => (await status()).tunnel.url !== undefined);
+    expect((await status()).tunnel.status).toBe("starting");
+
+    // The sharer's own resolver may never see the name; the person who
+    // opened the link is proof enough that it answers. Only through the
+    // tunnel, though: the sharer opening their own local link proves nothing.
+    const cookie = await enterShare(created.share.grants[0].localUrl);
+    const local = await openViewerSocket(created.share.sharePort, cookie);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await status()).tunnel.status).toBe("starting");
+    local.destroy();
+    const viewer = await openViewerSocket(
+      created.share.sharePort,
+      cookie,
+      "X-Forwarded-For: 203.0.113.7\r\nCf-Connecting-Ip: 203.0.113.7\r\n",
+    );
+    await eventually(async () => (await status()).tunnel.status === "ready");
+    expect((await status()).grants[0].url).toMatch(
+      /^https:\/\/example-share\.trycloudflare\.com\/leglas\/s\/[A-Za-z0-9_-]{32}$/,
+    );
+    viewer.destroy();
+  });
+
+  test("closing the primary server stops its tunnel and share listener first", async () => {
+    const child = new ShareTunnelChild();
+    const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
+      port: 0,
+      detectTunnels: async () => ["cloudflared"],
+      startTunnel: (options) =>
+        startTunnelProcess(options, { spawn, probe: async () => false }),
+    });
+    const response = await postShare(server, {
+      scope: "direction",
+      titles: ["Current"],
+      layout: shareLayout(),
+      tunnel: "cloudflared",
+    });
+    const created = (await response.json()) as { share: { sharePort: number } };
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+
+    await server.close();
+
+    expect(child.signals).toContain("SIGTERM");
+    await expect(
+      fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/`),
+    ).rejects.toThrow();
+  });
+
   test("closes cleanly while a live-reload socket is still open", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 
@@ -2663,6 +3114,7 @@ describe("a body that is not an object", () => {
   const NOT_A_JSON_OBJECT: Record<string, string> = {
     "/api/references": "takes raw image bytes",
     "/api/agents/warm": "takes nothing at all",
+    "/api/share/stop": "takes nothing at all",
   };
 
   const routes = (): string[] => {
