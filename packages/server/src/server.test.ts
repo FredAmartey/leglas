@@ -2585,22 +2585,22 @@ describe("startServer", () => {
     const created = (await createdResponse.json()) as {
       ok: true;
       share: {
-        localUrl: string;
+        grants: { id: string; localUrl: string; viewers: number; expiresAt: number }[];
         sharePort: number;
         tunnel: { status: string };
       };
     };
     expect(createdResponse.status).toBe(200);
     expect(created.share.sharePort).not.toBe(server.port);
-    expect(created.share.localUrl).toMatch(
+    expect(created.share.grants[0].localUrl).toMatch(
       new RegExp(`^http://127\\.0\\.0\\.1:${created.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
     );
     expect(created.share.tunnel).toEqual({ status: "none" });
 
-    const cookie = await enterShare(created.share.localUrl);
+    const cookie = await enterShare(created.share.grants[0].localUrl);
     const remote = `http://127.0.0.1:${created.share.sharePort}`;
     // The entry answers HEAD too, so a link checker sees a live link.
-    const peek = await fetch(created.share.localUrl, { method: "HEAD", redirect: "manual" });
+    const peek = await fetch(created.share.grants[0].localUrl, { method: "HEAD", redirect: "manual" });
     expect(peek.status).toBe(302);
     const viewerConfig = (await (
       await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })
@@ -2724,7 +2724,7 @@ describe("startServer", () => {
     );
     const updated = (await updatedResponse.json()) as typeof created;
     expect(updatedResponse.status).toBe(200);
-    expect(updated.share.localUrl).toBe(created.share.localUrl);
+    expect(updated.share.grants[0].localUrl).toBe(created.share.grants[0].localUrl);
     // Viewers read the config, so an update nudges that too.
     expect(live.changes.at(-1)).toBe("config");
 
@@ -2806,9 +2806,9 @@ describe("startServer", () => {
       tunnel: "none",
     });
     const created = (await response.json()) as {
-      share: { localUrl: string; sharePort: number };
+      share: { grants: { localUrl: string }[]; sharePort: number };
     };
-    const cookie = await enterShare(created.share.localUrl);
+    const cookie = await enterShare(created.share.grants[0].localUrl);
 
     await new Promise<void>((resolve) => {
       const refused = net.connect(created.share.sharePort, "127.0.0.1");
@@ -2829,16 +2829,16 @@ describe("startServer", () => {
       });
     });
     expect(
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { viewers: number } }).share.viewers,
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers,
     ).toBe(0);
 
     const viewer = await openViewerSocket(created.share.sharePort, cookie);
     await eventually(async () =>
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { viewers: number } }).share.viewers === 1,
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 1,
     );
     viewer.destroy();
     await eventually(async () =>
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { viewers: number } }).share.viewers === 0,
+      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 0,
     );
   });
 
@@ -2862,7 +2862,10 @@ describe("startServer", () => {
     ).json()) as { share: { localUrl: string; sharePort: number } };
     const status = async () =>
       ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-        share: { url: string | null; tunnel: { status: string; url?: string } };
+        share: {
+          grants: { url: string | null }[];
+          tunnel: { status: string; url?: string };
+        };
       }).share;
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
     child.stderr.write("| https://example-share.trycloudflare.com |\n");
@@ -2872,7 +2875,7 @@ describe("startServer", () => {
     // The sharer's own resolver may never see the name; the person who
     // opened the link is proof enough that it answers. Only through the
     // tunnel, though: the sharer opening their own local link proves nothing.
-    const cookie = await enterShare(created.share.localUrl);
+    const cookie = await enterShare(created.share.grants[0].localUrl);
     const local = await openViewerSocket(created.share.sharePort, cookie);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await status()).tunnel.status).toBe("starting");
@@ -2883,7 +2886,7 @@ describe("startServer", () => {
       "X-Forwarded-For: 203.0.113.7\r\nCf-Connecting-Ip: 203.0.113.7\r\n",
     );
     await eventually(async () => (await status()).tunnel.status === "ready");
-    expect((await status()).url).toMatch(
+    expect((await status()).grants[0].url).toMatch(
       /^https:\/\/example-share\.trycloudflare\.com\/leglas\/s\/[A-Za-z0-9_-]{32}$/,
     );
     viewer.destroy();

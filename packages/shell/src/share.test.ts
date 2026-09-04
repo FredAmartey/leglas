@@ -3,6 +3,10 @@ import { describe, expect, test } from "vitest";
 import { DEFAULT_PREFS, loadPrefs, type Prefs } from "./prefs.js";
 import {
   adoptLayout,
+  directoryOf,
+  expiryLine,
+  grantLabel,
+  observedRoutes,
   railShare,
   sameShare,
   scopeLine,
@@ -10,6 +14,8 @@ import {
   stageShare,
   unshareableReason,
   viewerPrefsRaw,
+  totalViewers,
+  viewersLine,
 } from "./share.js";
 import type { Preview } from "./types.js";
 
@@ -131,6 +137,49 @@ describe("viewerPrefsRaw", () => {
   });
 });
 
+describe("observedRoutes", () => {
+  const frameFor = (title: string, names: string[], readable = true): HTMLIFrameElement =>
+    ({
+      dataset: { preview: title },
+      get contentWindow() {
+        if (!readable) throw new Error("cross-origin");
+        return {
+          performance: { getEntriesByType: () => names.map((name) => ({ name })) },
+        } as unknown as Window;
+      },
+    }) as unknown as HTMLIFrameElement;
+
+  test("takes the paths a shared direction loaded, from this origin only", () => {
+    const origin = "http://localhost:4100";
+    const routes = observedRoutes(
+      [
+        frameFor("Table", [
+          `${origin}/src/main.tsx`,
+          `${origin}/@vite/client`,
+          `${origin}/src/main.tsx`,
+          "https://fonts.example.com/inter.woff2",
+        ]),
+        frameFor("Hidden", [`${origin}/not/shared.js`]),
+      ],
+      ["Table"],
+      origin,
+    );
+    // Sorted, deduplicated, this origin only, and nothing from a direction
+    // the share does not carry.
+    expect(routes).toEqual(["/@vite/client", "/src/main.tsx"]);
+  });
+
+  test("a frame it cannot read costs nothing", () => {
+    const origin = "http://localhost:4100";
+    const routes = observedRoutes(
+      [frameFor("Table", [], false), frameFor("Menu", [`${origin}/menu.js`])],
+      ["Table", "Menu"],
+      origin,
+    );
+    expect(routes).toEqual(["/menu.js"]);
+  });
+});
+
 describe("words", () => {
   test("scopeLine says the rail with its count, or names the pair", () => {
     const name = (title: string) => (title === "Wave" ? "Tide" : title);
@@ -138,6 +187,44 @@ describe("words", () => {
     expect(scopeLine("rail", ["Aurora"], name)).toBe("The whole rail · 1 direction");
     expect(scopeLine("compare", ["Aurora", "Wave"], name)).toBe("Aurora + Tide");
     expect(scopeLine("direction", ["Wave"], name)).toBe("Tide");
+  });
+
+  test("viewersLine counts sessions, never people", () => {
+    expect(viewersLine(0)).toBe("nobody on it yet");
+    expect(viewersLine(1)).toBe("1 watching");
+    expect(viewersLine(4)).toBe("4 watching");
+  });
+
+  test("expiryLine reads in hours until the last hour, then minutes", () => {
+    const now = 1_700_000_000_000;
+    expect(expiryLine(now + 23 * 3_600_000, now)).toBe("23h left");
+    expect(expiryLine(now + 90 * 60_000, now)).toBe("2h left");
+    expect(expiryLine(now + 40 * 60_000, now)).toBe("40m left");
+    // Never zero while it still works, and plain once it does not.
+    expect(expiryLine(now + 20_000, now)).toBe("1m left");
+    expect(expiryLine(now, now)).toBe("expired");
+    expect(expiryLine(now - 5_000, now)).toBe("expired");
+  });
+
+  test("totalViewers counts across every link", () => {
+    expect(totalViewers([])).toBe(0);
+    expect(totalViewers([{ viewers: 0 }, { viewers: 0 }])).toBe(0);
+    expect(totalViewers([{ viewers: 2 }, { viewers: 1 }, { viewers: 0 }])).toBe(3);
+  });
+
+  test("directoryOf offers the folder beside a refused path, never the root", () => {
+    expect(directoryOf("/node_modules/.vite/deps/react.js")).toBe("/node_modules/.vite/deps/");
+    expect(directoryOf("/assets/app.js")).toBe("/assets/");
+    // A path at the root has no folder worth offering: it would be every
+    // path there is.
+    expect(directoryOf("/favicon.ico")).toBeNull();
+    expect(directoryOf("/")).toBeNull();
+  });
+
+  test("grantLabel names an unnamed link by its place", () => {
+    expect(grantLabel("Ana", 0)).toBe("Ana");
+    expect(grantLabel("", 0)).toBe("Link 1");
+    expect(grantLabel("   ", 2)).toBe("Link 3");
   });
 
   test("shortLink keeps the host and hides the token", () => {

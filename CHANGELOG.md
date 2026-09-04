@@ -38,6 +38,58 @@ it was about.
   is registering a service worker that would outlive the share. Branch
   directions run on their own port and are left out of a share for now, and
   the panel says so. (`leglas`)
+- **A share hands out links, not one link, and each one can be turned off.**
+  Sharing the same rail with a client and a contractor used to mean one
+  address between them, so calling it off for one called it off for both. A
+  share now holds up to sixteen links, each named by whoever it is for,
+  listed in the panel with when it ends and how many sessions are on it, and
+  each revoked on its own without touching the others. Every link expires
+  twenty-four hours after it is made, which is long enough to survive a
+  reviewer in another timezone starting their day, and one click extends a
+  live link or replaces a lapsed one under the same name with the new address
+  already on the clipboard. A link that has ended says which of the two
+  happened to it, because a lapsed link can be replaced and one that was
+  turned off will not come back, and turning a link off cuts what it is
+  already doing rather than waiting for it to finish. "Rotate everything"
+  drops every link at once and starts a fresh tunnel, for when one has gone
+  somewhere you cannot follow. A link is a browser profile rather than a
+  person: two links opened in one browser leave the second one holding the
+  door, so the panel says links and sessions and never says people.
+  (`leglas`)
+- **Choose how far a viewer can go.** A share used to put the whole dev
+  server behind the link over GET, which suits a demo and not much else: a
+  console on the viewer's page could ask for an internal route, or for source
+  through the dev server's own filesystem route. The panel now offers "only
+  what you shared", which serves the pages you shared and the files they
+  load, and refuses everything else server-side, so it holds against a
+  console, a service worker or curl alike. The list is not written by hand,
+  because nobody can enumerate an app's asset prefixes and a wrong list
+  breaks the app silently: it is read from what your own directions loaded
+  while you were looking at them, twenty-two files for a small app, and the
+  panel says the count before you start. What no list can predict, a chunk
+  that loads on scroll or a call made after a click, is refused and listed
+  for you with one click to let that path or its folder through, so the list
+  fills by use rather than by guessing. The panel says what each choice is
+  worth rather than implying more: bounded still means a viewer sees
+  everything your shared pages themselves load. Whichever you choose, a path
+  reaching for something hidden is refused and cannot be allowed: `.env`,
+  `.git`, `.ssh` and the rest, however the path is spelled. The rule stops at
+  `node_modules`, because the dot directories under it are how a dev server
+  hands over its dependencies, though a dotfile sitting under one is still a
+  dotfile. Allowing a folder allows that folder: a path that climbs back out
+  of it is refused however it is spelled, and so is one that only looks like
+  it belongs to Leglas itself. (`leglas`)
+- **A share cannot crowd out the machine it runs on.** A dev server under a
+  burst does not fail, it queues inside itself, where Leglas cannot bound,
+  order or cancel any of it, and your own reload joins the back of that
+  queue. Viewer traffic is now held to twelve requests inside the dev server
+  at once, which is twice what one browser will ask for, so an ordinary page
+  load never waits, and everything above it waits in Leglas instead where it
+  can be ordered fairly between links and given up on. Measured against a
+  three hundred request burst through a real share: the interface on the
+  sharing machine answered in two milliseconds, and the burst itself ran
+  faster held than loose. The interface is never counted or made to wait,
+  since a viewer needs it to be a viewer at all. (`leglas`)
 
 ## 0.9.0 (2026-09-03): The rail shows where each direction came from
 

@@ -76,6 +76,9 @@ export type ShareLayout = {
   viewport: number | null;
 };
 
+/** How far a viewer may reach into the dev server behind a share. */
+export type ShareReach = "open" | "listed";
+
 export type ViewerInfo = {
   scope: ShareScope;
   layout: ShareLayout;
@@ -95,17 +98,40 @@ export type TunnelState =
   | { status: "ready"; provider: TunnelProviderId; url: string }
   | { status: "failed"; provider: TunnelProviderId; reason: string; url?: string | undefined };
 
+/**
+ * One link into a share. A share can hold several, so a sharer can send one
+ * per person and cut one without disturbing the rest.
+ *
+ * A link is a capability, not a person: one browser holds one at a time,
+ * because two entry links on the same origin write the same cookie. So the
+ * count below is sessions on this link, and the interface says so.
+ */
+export type ShareGrant = {
+  id: string;
+  /** Whatever the sharer typed, or empty until they name it. */
+  name: string;
+  /** Public entry link once a tunnel has a URL, else null. */
+  url: string | null;
+  /** Entry link on the share listener, for a tunnel the user runs themselves. */
+  localUrl: string;
+  viewers: number;
+  createdAt: number;
+  /** When it stops working, absolute, unless the sharer extends it. */
+  expiresAt: number;
+};
+
 export type ShareStatus = {
   id: string;
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
-  /** Entry link on the share listener, for a tunnel the user runs themselves. */
-  localUrl: string;
+  reach: ShareReach;
+  /** Paths a viewer may load in `listed` reach. A trailing slash is a directory. */
+  routes: string[];
+  /** What `listed` turned away, newest last, for the panel to offer. */
+  refused: string[];
   sharePort: number;
-  /** Public entry link once a tunnel has a URL, else null. */
-  url: string | null;
+  grants: ShareGrant[];
   tunnel: TunnelState;
-  viewers: number;
   startedAt: number;
 };
