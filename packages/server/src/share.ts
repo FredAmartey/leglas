@@ -100,16 +100,19 @@ const MAX_REFUSED = 40;
  */
 export function routeAllowed(routes: readonly string[], url: string): boolean {
   const [rawPath = "/"] = url.split("?", 2);
-  const spelled = spellings(rawPath);
+  // The settled path, never a list of readings. Asking whether *any*
+  // spelling is allowed hands the answer to the most permissive one, and
+  // the raw form still holds its `..`: with a folder allowed by one click,
+  // "/assets/../secrets" starts with "/assets/" as a string while naming
+  // something else entirely.
+  const path = canonical(rawPath);
   return routes.some((route) => {
     // A trailing slash means a directory, and the root is not one: an app
     // served at "/" would otherwise stand for every path there is, which
     // turns the whole list into "allow anything". Found by a test that
     // expected a refusal and got the app.
     const prefix = route.endsWith("/") && route !== "/";
-    return prefix
-      ? spelled.some((path) => path.startsWith(route) || `${path}/` === route)
-      : spelled.includes(route);
+    return prefix ? path.startsWith(route) || `${path}/` === route : path === route;
   });
 }
 
@@ -206,7 +209,10 @@ type ShareManager = {
   close(): Promise<void>;
 };
 
-const ENTRY_PREFIX = "/leglas/s/";
+/** Everything Leglas serves itself. Kept here rather than imported from the
+ * server, which imports this file. */
+const OWN_PREFIX = "/leglas";
+const ENTRY_PREFIX = `${OWN_PREFIX}/s/`;
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_GRANTS = 16;
 export const MAX_TOMBSTONES = 32;
@@ -386,6 +392,25 @@ export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
  * `/x`, so a server that reaches for either sees a path this code would not
  * have, unless it looks the same way. Found in a reviewer's probe.
  */
+/**
+ * The one reading of a path that says what will actually be served.
+ *
+ * {@link spellings} exists to refuse: it lists every way a dev server might
+ * read a path so that any dangerous reading wins. That bias inverts when the
+ * question is whether to *allow*, where the most permissive reading would
+ * win instead, and the raw form is always the most permissive one. So an
+ * allow decision is made here, on the settled path, and nowhere else.
+ */
+function canonical(path: string): string {
+  let form = path;
+  try {
+    form = decodeURIComponent(path);
+  } catch {
+    // A malformed escape is not a spelling of anything; the raw form stands.
+  }
+  return posix.normalize(form.replaceAll("\\", "/").replace(/\/{2,}/g, "/"));
+}
+
 function spellings(path: string): string[] {
   const seen = new Set<string>();
   const add = (value: string): void => {
@@ -447,13 +472,14 @@ export function isHiddenPath(path: string): boolean {
   return spellings(path).some((form) => {
     const segments = form.split("/");
     const modules = segments.indexOf("node_modules");
-    return segments.some(
-      (segment, at) =>
-        segment.startsWith(".") &&
-        segment !== "." &&
-        segment !== ".." &&
-        !(modules >= 0 && at > modules),
-    );
+    return segments.some((segment, at) => {
+      if (!segment.startsWith(".") || segment === "." || segment === "..") return false;
+      // The carve-out is for the dot *directories* a dev server serves
+      // from, never for a dotfile that happens to sit under one: a package
+      // carrying its own `.env` is still a `.env`.
+      const last = at === segments.length - 1;
+      return last || !(modules >= 0 && at > modules);
+    });
   });
 }
 
@@ -1093,9 +1119,12 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     pump(share);
     if (!queued) return;
 
-    // A viewer who closed the tab must not be given a slot later.
+    // A viewer who closed the tab must not be given a slot later. Revoking a
+    // link answers what it left waiting the same way, so this is also where
+    // that request stops holding a budget nobody is going to spend.
     res.once("close", () => {
-      if (!held.drop()) return;
+      held.drop();
+      if (running) return;
       over = true;
       clearTimeout(deadline);
     });
@@ -1154,12 +1183,14 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // Everything Leglas serves itself is the interface, which a viewer needs
     // in order to be a viewer at all. The list is about the app behind it.
     const url = req.url ?? "/";
-    if (
-      share.reach === "listed" &&
-      !path.startsWith("/leglas/") &&
-      path !== "/leglas" &&
-      !routeAllowed(share.routes, url)
-    ) {
+    // Everything Leglas serves itself is the interface, which a viewer needs
+    // in order to be a viewer at all, so it skips the list and the ceiling
+    // alike. Asked of the settled path, because "/leglas/../secrets" begins
+    // with the interface's prefix as a string while naming something the
+    // dev server would happily serve.
+    const own = canonical(path);
+    const interfaceOwn = own === OWN_PREFIX || own.startsWith(`${OWN_PREFIX}/`);
+    if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
       // Remembered so the sharer can see what their app wanted and let it
       // in, because no list written in advance survives a lazy chunk.
       const asked = url.split("?", 1)[0] ?? "/";
@@ -1191,9 +1222,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       res.once("close", release);
       options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
     };
-    // The interface is not the dev server, and a viewer needs it in order to
-    // be a viewer at all, so it is never counted and never made to wait.
-    if (path === "/leglas" || path.startsWith("/leglas/")) return run();
+    // The interface is not the dev server, so it is never counted and never
+    // made to wait. Same settled path as the list uses, so a request cannot
+    // dodge the ceiling by wearing the interface's prefix either.
+    if (interfaceOwn) return run();
     admit(share, grant, req, res, run);
   };
 

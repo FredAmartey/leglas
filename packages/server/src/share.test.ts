@@ -27,6 +27,37 @@ const layout: ShareLayout = {
   viewport: 390,
 };
 
+/**
+ * One request on its own socket.
+ *
+ * `fetch` pools connections and decides for itself when to put a request
+ * on the wire, which is fine when a test only cares about the answer and
+ * useless when it cares about how many requests are at the server at once.
+ * `sent` resolves when this one is actually written.
+ *
+ * It is also the only way to send a path with `..` still in it. `fetch`
+ * resolves the URL before it reaches the wire, so a traversal test written
+ * with it proves nothing about the server: it never sees the traversal.
+ */
+function raw(port: number, path: string, cookie: string) {
+  const request = http.request({
+    host: "127.0.0.1",
+    port,
+    path,
+    headers: { cookie, connection: "keep-alive" },
+  });
+  const status = new Promise<number | null>((resolve) => {
+    request.on("response", (response) => {
+      response.resume();
+      resolve(response.statusCode ?? null);
+    });
+    request.on("error", () => resolve(null));
+  });
+  const sent = new Promise<void>((resolve) => request.once("finish", () => resolve()));
+  request.end();
+  return { status, sent, stop: () => request.destroy() };
+}
+
 const managers: Array<ReturnType<typeof createShareManager>> = [];
 
 afterEach(async () => {
@@ -445,7 +476,7 @@ describe("how far a viewer reaches", () => {
     const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     const origin = created.share.grants[0].localUrl.replace(/\/leglas\/s\/.+$/, "");
     const get = (path: string) => fetch(`${origin}${path}`, { headers: { cookie } });
-    return { manager, get, share: created.share };
+    return { manager, get, share: created.share, cookie, port: created.share.sharePort };
   };
 
   test("open reach serves the app, as it did before there was a list", async () => {
@@ -475,6 +506,40 @@ describe("how far a viewer reaches", () => {
     expect(manager.status()?.refused).toEqual(["/api/internal/keys"]);
   });
 
+  test("a folder allowed by one click does not open what is beside it", async () => {
+    // The one-click "+ folder" action is the ordinary way to clear a
+    // refusal, so an allowed folder is the attacker's foothold: climbing
+    // back out of it must not carry the folder's permission along.
+    const { get, port, cookie } = await startWith({ reach: "listed", routes: ["/assets/"] });
+    expect((await get("/assets/app.js")).status).toBe(200);
+
+    for (const path of [
+      "/assets/../secrets/config.json",
+      "/assets/%2e%2e/secrets/config.json",
+      "/assets/..%2fsecrets/config.json",
+      "/assets/../../etc/hosts",
+      "/assets/..\\secrets/config.json",
+    ]) {
+      expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
+    }
+  });
+
+  test("the interface prefix is not a way around the list", async () => {
+    // Everything under /leglas is served without being listed, because a
+    // viewer needs the interface to be a viewer. A path that only looks
+    // like it lives there must not inherit that.
+    const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
+    for (const path of [
+      "/leglas/../secrets/config.json",
+      "/leglas/../../etc/hosts",
+      "/leglas/%2e%2e/secrets/config.json",
+    ]) {
+      expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
+    }
+    // And the interface itself still answers.
+    expect((await get("/leglas/api/health")).status).toBe(200);
+  });
+
   test("allowing a refused path lets it through and clears it from the list", async () => {
     const { get, manager } = await startWith({ reach: "listed", routes: [] });
     expect((await get("/late/chunk-a.js")).status).toBe(403);
@@ -492,16 +557,31 @@ describe("how far a viewer reaches", () => {
     expect(manager.allowRoute({ path: "no-slash" }).ok).toBe(false);
   });
 
-  test("the list is read in every spelling, like the control routes", async () => {
+  test("the list is read on the settled path, never on the readiest one", async () => {
     const { get } = await startWith({ reach: "listed", routes: ["/assets/app.js"] });
-    // A dev server that lowercases or normalises must not find a way in that
-    // this list did not consider.
     expect((await get("/assets/app.js")).status).toBe(200);
-    expect(routeAllowed(["/assets/app.js"], "/ASSETS/APP.JS")).toBe(true);
+
+    // Refusing asks every spelling, so any dangerous reading wins. Allowing
+    // has to ask one, or the most permissive reading wins instead. These two
+    // resolve inside the folder, so they are the same request as far as the
+    // dev server is concerned.
     expect(routeAllowed(["/assets/"], "/foo/../assets/app.js")).toBe(true);
+    expect(routeAllowed(["/assets/"], "/assets/./app.js")).toBe(true);
+    expect(routeAllowed(["/assets/"], "//assets//app.js")).toBe(true);
     expect(routeAllowed(["/assets/"], "/assets")).toBe(true);
+
+    // And these do not, however much of the route they start with.
+    expect(routeAllowed(["/assets/"], "/assets/../secrets/config.json")).toBe(false);
+    expect(routeAllowed(["/assets/"], "/assets/%2e%2e/secrets/config.json")).toBe(false);
     expect(routeAllowed(["/assets/app.js"], "/assets/app.js.map")).toBe(false);
     expect(routeAllowed([], "/anything")).toBe(false);
+
+    // Case is not folded either. The list is read off what the app itself
+    // loaded, so a case it never asked for is a path nobody has shown to be
+    // part of this share; if an app does ask, the refusal list offers it in
+    // one click.
+    expect(routeAllowed(["/assets/app.js"], "/ASSETS/APP.JS")).toBe(false);
+
     // The root is a page, never a prefix over everything beneath it.
     expect(routeAllowed(["/"], "/")).toBe(true);
     expect(routeAllowed(["/"], "/api/keys")).toBe(false);
@@ -645,33 +725,6 @@ describe("the ceiling on viewer traffic", () => {
       },
       port,
     };
-  }
-
-  /**
-   * One request on its own socket.
-   *
-   * `fetch` pools connections and decides for itself when to put a request
-   * on the wire, which is fine when a test only cares about the answer and
-   * useless when it cares about how many requests are at the server at once.
-   * `sent` resolves when this one is actually written.
-   */
-  function raw(port: number, path: string, cookie: string) {
-    const request = http.request({
-      host: "127.0.0.1",
-      port,
-      path,
-      headers: { cookie, connection: "keep-alive" },
-    });
-    const status = new Promise<number | null>((resolve) => {
-      request.on("response", (response) => {
-        response.resume();
-        resolve(response.statusCode ?? null);
-      });
-      request.on("error", () => resolve(null));
-    });
-    const sent = new Promise<void>((resolve) => request.once("finish", () => resolve()));
-    request.end();
-    return { status, sent, stop: () => request.destroy() };
   }
 
   /** Answer everything, including whatever the queue lets in as slots free. */
@@ -977,6 +1030,18 @@ describe("isHiddenPath", () => {
       "/node_modules/../../.ssh/id_rsa",
     ]) {
       expect(isHiddenPath(path)).toBe(true);
+    }
+  });
+
+  test("a dotfile is hidden wherever it sits, node_modules included", () => {
+    // The carve-out is for dot *directories* a dev server serves from, not
+    // for a dotfile that happens to live under one.
+    for (const path of [
+      "/node_modules/.pnpm/x/node_modules/y/.env",
+      "/node_modules/some-package/.env",
+      "/node_modules/.vite/deps/.env",
+    ]) {
+      expect([path, isHiddenPath(path)]).toEqual([path, true]);
     }
   });
 
