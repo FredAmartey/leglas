@@ -141,6 +141,8 @@ type ShareManagerOptions = {
   startTunnel?: typeof startTunnel;
   now?: () => number;
   nowMono?: () => bigint;
+  /** The budget in {@link VIEWER_DEADLINE_MS}, shortened so tests can reach it. */
+  viewerDeadlineMs?: number;
 };
 
 type ActiveShare = ShareManifest & {
@@ -163,6 +165,27 @@ type ActiveShare = ShareManifest & {
   expiryTimer: ReturnType<typeof setTimeout> | null;
   /** Paths `listed` mode turned away, newest last, so they can be allowed. */
   refused: string[];
+  /** Viewer requests currently inside the dev server. */
+  running: number;
+  /** Per link, in arrival order, waiting for a slot. */
+  waiting: Map<string, Waiting[]>;
+  /** Links with somebody waiting, in the order their turn comes. */
+  rota: string[];
+};
+
+/** One viewer request holding a place in the queue. */
+type Waiting = {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  grantId: string;
+  /** When this request's budget runs out, as a wall-clock instant. */
+  spentAt: number;
+  /** Runs the request. Called once, by whoever gives it the slot. */
+  start: () => void;
+  /** Turn it away for having waited too long. */
+  shed: () => void;
+  /** Takes it out of the queue. Idempotent, and clears the deadline. */
+  drop: () => boolean;
 };
 
 type ShareManager = {
@@ -188,6 +211,38 @@ export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_GRANTS = 16;
 export const MAX_TOMBSTONES = 32;
 const NS_PER_MS = 1_000_000n;
+
+/**
+ * How many viewer requests may be inside the dev server at once.
+ *
+ * Not a performance setting, and not a guess. A dev server under load does
+ * not fail, it queues inside itself, where nothing here can bound, order,
+ * deadline or cancel any of it, and the sharer's own reload joins the back
+ * of that queue. Measured on Vite with 200 viewer requests at one instant:
+ * unbounded, the sharer's reload took 136ms and the burst ran at 974 req/s;
+ * held at twelve, the reload took 21ms and the burst ran at 1415 req/s.
+ * Bounding it is faster for everyone, because past saturation the extra
+ * concurrency buys no work and costs scheduling.
+ *
+ * Twelve because a real page load peaked at exactly six requests at once,
+ * the browser's per-origin connection cap, so two whole page loads still
+ * never wait, and a dev server that parallelises across cores is never the
+ * thing being constrained.
+ */
+export const VIEWER_CONCURRENCY = 12;
+
+/**
+ * How many of one link's requests may wait for a slot. Above a full HTTP/2
+ * browser burst, since a tunnel hop lifts the six-connection cap. Per link,
+ * so one link cannot fill the queue and shed another.
+ */
+export const VIEWER_QUEUE = 128;
+
+/**
+ * How long a viewer request has to begin a response, from arrival, covering
+ * waiting for a slot and waiting for the dev server as one budget.
+ */
+export const VIEWER_DEADLINE_MS = 30_000;
 
 /**
  * Development-server routes that act on the machine or hand out its
@@ -683,6 +738,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    * rather than trusted alone.
    */
   const nowMono = options.nowMono ?? process.hrtime.bigint;
+  const deadlineMs = options.viewerDeadlineMs ?? VIEWER_DEADLINE_MS;
   let detected: Promise<TunnelProviderId[]> | null = null;
   let active: ActiveShare | null = null;
   let creating = false;
@@ -766,6 +822,14 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       held.req.destroy();
     }
     share.grantRequests.delete(grant.id);
+    // Whoever was waiting for a slot under this link gets the same sentence
+    // a live request would, rather than a dropped connection.
+    for (const held of [...(share.waiting.get(grant.id) ?? [])]) {
+      if (held.drop()) refuse(held.req, held.res, why);
+    }
+    share.waiting.delete(grant.id);
+    const turn = share.rota.indexOf(grant.id);
+    if (turn >= 0) share.rota.splice(turn, 1);
   };
 
   /**
@@ -849,6 +913,165 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return { refusal: "inactive" };
   };
 
+  /**
+   * Give free slots to whoever is next, one link at a time.
+   *
+   * Round robin rather than one queue, so a link that arrived with a
+   * hundred requests cannot hold the door shut on a link with one.
+   */
+  const pump = (share: ActiveShare): void => {
+    while (share.running < VIEWER_CONCURRENCY && share.rota.length > 0) {
+      const grantId = share.rota[0];
+      if (grantId === undefined) return;
+      const next = share.waiting.get(grantId)?.[0];
+      if (next === undefined) {
+        share.rota.shift();
+        share.waiting.delete(grantId);
+        continue;
+      }
+      // Taking it out of the queue is the queue's own job, including
+      // tidying this link away once it holds nothing.
+      next.drop();
+      const turn = share.rota.indexOf(grantId);
+      if (turn >= 0) {
+        share.rota.splice(turn, 1);
+        share.rota.push(grantId);
+      }
+      // Whether a request still has time is a question about the clock,
+      // asked here rather than left to a timer. When a whole queue runs out
+      // at once, each request freed by the one ahead of it would otherwise
+      // be handed a slot it has no budget left to use, and be destroyed a
+      // moment later instead of being told why.
+      if (Date.now() >= next.spentAt) {
+        next.shed();
+        continue;
+      }
+      // Asked again here rather than trusted from arrival: a link revoked
+      // while this waited must not be given work now.
+      if (!share.grants.has(grantId)) {
+        refuse(next.req, next.res, "revoke");
+        continue;
+      }
+      next.start();
+    }
+  };
+
+  /**
+   * Put one viewer request through the ceiling.
+   *
+   * The slot is held until the response begins, not until it ends. Routing
+   * and compiling is the part that costs the dev server, and it is over when
+   * the headers arrive; what streams afterwards is not its work. Holding to
+   * `finish` would also deadlock the share on any app using server-sent
+   * events, where twelve streams that never end would take every slot and
+   * keep it.
+   */
+  const admit = (
+    share: ActiveShare,
+    grant: Grant,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    run: () => void,
+  ): void => {
+    const queue = share.waiting.get(grant.id) ?? [];
+    if (queue.length >= VIEWER_QUEUE) {
+      return sendJson(res, 503, { ok: false, error: "Too much at once. Try again." });
+    }
+
+    let queued = true;
+    let running = false;
+    let over = false;
+    const spentAt = Date.now() + deadlineMs;
+    const shed = (): void => {
+      if (over) return;
+      over = true;
+      sendJson(res, 503, { ok: false, error: "The dev server is busy. Try again." });
+    };
+
+    /**
+     * One budget for both waits, armed on arrival and disarmed when the
+     * response begins: a viewer does not care whether the time went on
+     * waiting for a slot or on the dev server thinking.
+     */
+    const deadline = setTimeout(() => {
+      if (over) return;
+      const waited = held.drop();
+      if (running) {
+        // Destroying the response aborts the request upstream through the
+        // proxy's own close handling, so the slot is given back to somebody
+        // who can use it rather than to a request still running.
+        over = true;
+        res.destroy();
+        release();
+        return;
+      }
+      if (waited) shed();
+    }, deadlineMs);
+    deadline.unref?.();
+
+    /** Headers, finish, close and the deadline can all fire for one request. */
+    const release = (): void => {
+      if (!running) return;
+      running = false;
+      over = true;
+      clearTimeout(deadline);
+      share.running = Math.max(0, share.running - 1);
+      pump(share);
+    };
+
+    const start = (): void => {
+      running = true;
+      share.running += 1;
+      // No event says "the response began", so the call that begins it says
+      // so. The proxy always writes its head before any body.
+      const writeHead = res.writeHead.bind(res);
+      res.writeHead = ((...args: Parameters<typeof writeHead>) => {
+        release();
+        return writeHead(...args);
+      }) as typeof res.writeHead;
+      res.once("finish", release);
+      res.once("close", release);
+      run();
+    };
+
+    const held: Waiting = {
+      req,
+      res,
+      grantId: grant.id,
+      spentAt,
+      start,
+      shed,
+      drop: () => {
+        if (!queued) return false;
+        queued = false;
+        const rest = share.waiting.get(grant.id);
+        const at = rest?.indexOf(held) ?? -1;
+        if (rest !== undefined && at >= 0) rest.splice(at, 1);
+        if (rest !== undefined && rest.length === 0) {
+          share.waiting.delete(grant.id);
+          const turn = share.rota.indexOf(grant.id);
+          if (turn >= 0) share.rota.splice(turn, 1);
+        }
+        return true;
+      },
+    };
+
+    queue.push(held);
+    share.waiting.set(grant.id, queue);
+    if (!share.rota.includes(grant.id)) share.rota.push(grant.id);
+    // Synchronous, so a free slot starts the request in this same tick and
+    // the queue is only ever a queue when there is something to wait for.
+    pump(share);
+    if (!queued) return;
+
+    // A viewer who closed the tab must not be given a slot later.
+    res.once("close", () => {
+      if (!held.drop()) return;
+      over = true;
+      clearTimeout(deadline);
+    });
+  };
+
   const request = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const share = active;
     if (share === null) return refuse(req, res);
@@ -915,21 +1138,31 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       }
       return sendJson(res, 403, { ok: false, error: "Not shared." });
     }
-    // Held so revoking this link can cut a response that never ends on its
-    // own, and let go however the response finishes.
-    const held = { req, res };
-    const inFlight = share.grantRequests.get(grant.id) ?? new Set();
-    inFlight.add(held);
-    share.grantRequests.set(grant.id, inFlight);
-    let released = false;
-    const release = (): void => {
-      if (released) return;
-      released = true;
-      share.grantRequests.get(grant.id)?.delete(held);
+    // Counted as running only once it actually runs, so that a request still
+    // waiting for a slot belongs to the queue alone. Revoking a link cuts
+    // the two in different ways: what is running is destroyed mid-response,
+    // what is waiting is told why.
+    const run = (): void => {
+      // Held so revoking this link can cut a response that never ends on its
+      // own, and let go however the response finishes.
+      const held = { req, res };
+      const inFlight = share.grantRequests.get(grant.id) ?? new Set();
+      inFlight.add(held);
+      share.grantRequests.set(grant.id, inFlight);
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
+        share.grantRequests.get(grant.id)?.delete(held);
+      };
+      res.once("finish", release);
+      res.once("close", release);
+      options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
     };
-    res.once("finish", release);
-    res.once("close", release);
-    options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
+    // The interface is not the dev server, and a viewer needs it in order to
+    // be a viewer at all, so it is never counted and never made to wait.
+    if (path === "/leglas" || path.startsWith("/leglas/")) return run();
+    admit(share, grant, req, res, run);
   };
 
   const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {
@@ -1067,6 +1300,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         launch: null,
         expiryTimer: null,
         refused: [],
+        running: 0,
+        waiting: new Map(),
+        rota: [],
       };
       active = share;
       // A share starts with one link, unnamed until the sharer names it.

@@ -1,4 +1,4 @@
-import type { ServerResponse } from "node:http";
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -8,6 +8,8 @@ import {
   createShareManager,
   isDevControlRequest,
   routeAllowed,
+  VIEWER_CONCURRENCY,
+  VIEWER_QUEUE,
   type ShareLayout,
 } from "./share.js";
 
@@ -32,14 +34,14 @@ afterEach(async () => {
 
 function managerFor(
   current: Preview[] = previews,
-  request: (res: ServerResponse) => void = (res) => {
+  request: (res: ServerResponse, req: IncomingMessage) => void = (res) => {
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("passed gate");
   },
   /** Held open to widen the window between asking to share and holding a port. */
   beforePreviews: () => Promise<void> = async () => {},
   /** Both clocks, so a deadline can be reached without waiting for one. */
-  clocks: { now?: () => number; nowMono?: () => bigint } = {},
+  clocks: { now?: () => number; nowMono?: () => bigint; deadlineMs?: number } = {},
 ) {
   const live = createLiveHub();
   const nudge = vi.spyOn(live, "nudge");
@@ -55,7 +57,7 @@ function managerFor(
       devServer: "http://127.0.0.1:3000",
       scanPreviews: true,
     },
-    request: (_req, res) => request(res),
+    request: (req, res) => request(res, req),
     upgrade: (_req, socket) => {
       socket.destroy();
       return false;
@@ -63,6 +65,7 @@ function managerFor(
     detectTunnels: async () => [],
     ...(clocks.now === undefined ? {} : { now: clocks.now }),
     ...(clocks.nowMono === undefined ? {} : { nowMono: clocks.nowMono }),
+    ...(clocks.deadlineMs === undefined ? {} : { viewerDeadlineMs: clocks.deadlineMs }),
   });
   managers.push(manager);
   return { live, manager, nudge };
@@ -609,5 +612,347 @@ describe("isDevControlRequest", () => {
     ]) {
       expect(isDevControlRequest(route)).toBe(false);
     }
+  });
+});
+
+describe("the ceiling on viewer traffic", () => {
+  /** A share with one link, and the cookie a viewer would be holding. */
+  async function shareWith(
+    request: (res: ServerResponse, req: IncomingMessage) => void,
+    clocks: { deadlineMs?: number } = {},
+  ) {
+    const { manager } = managerFor(previews, request, undefined, clocks);
+    const created = await manager.create({ scope: "rail", titles: ["Current"], layout });
+    if (!created.ok) throw new Error(created.error);
+    const first = created.share.grants[0];
+    if (first === undefined) throw new Error("no link");
+    const entry = await fetch(first.localUrl, { redirect: "manual" });
+    const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+    const port = created.share.sharePort;
+    return {
+      manager,
+      share: created.share,
+      get: (path: string, init: RequestInit = {}) =>
+        fetch(`http://127.0.0.1:${port}${path}`, {
+          ...init,
+          headers: { cookie, ...(init.headers ?? {}) },
+        }),
+      cookie,
+      cookieFor: async (localUrl: string) => {
+        const other = await fetch(localUrl, { redirect: "manual" });
+        return other.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+      },
+      port,
+    };
+  }
+
+  /**
+   * One request on its own socket.
+   *
+   * `fetch` pools connections and decides for itself when to put a request
+   * on the wire, which is fine when a test only cares about the answer and
+   * useless when it cares about how many requests are at the server at once.
+   * `sent` resolves when this one is actually written.
+   */
+  function raw(port: number, path: string, cookie: string) {
+    const request = http.request({
+      host: "127.0.0.1",
+      port,
+      path,
+      headers: { cookie, connection: "keep-alive" },
+    });
+    const status = new Promise<number | null>((resolve) => {
+      request.on("response", (response) => {
+        response.resume();
+        resolve(response.statusCode ?? null);
+      });
+      request.on("error", () => resolve(null));
+    });
+    const sent = new Promise<void>((resolve) => request.once("finish", () => resolve()));
+    request.end();
+    return { status, sent, stop: () => request.destroy() };
+  }
+
+  /** Answer everything, including whatever the queue lets in as slots free. */
+  async function drain(holding: Array<() => void>, expected: number): Promise<void> {
+    let answered = 0;
+    const until = Date.now() + 10_000;
+    while (answered < expected && Date.now() < until) {
+      const next = holding.shift();
+      if (next === undefined) await new Promise((resolve) => setTimeout(resolve, 2));
+      else {
+        next();
+        answered += 1;
+      }
+    }
+  }
+
+  test("holds viewer traffic at twelve inside the dev server at once", async () => {
+    // Unbounded, a burst queues inside the dev server instead, where nothing
+    // here can bound, order, deadline or cancel it, and the sharer's own
+    // reload joins the back of that queue.
+    let inside = 0;
+    let peak = 0;
+    let answered = 0;
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res) => {
+      inside += 1;
+      peak = Math.max(peak, inside);
+      holding.push(() => {
+        inside -= 1;
+        answered += 1;
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      });
+    });
+
+    const all = Array.from({ length: 40 }, (_, i) => share.get(`/asset-${i}.js`));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+    // Nothing else gets in until one of those twelve answers.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(holding.length).toBe(VIEWER_CONCURRENCY);
+
+    while (answered < 40) {
+      const next = holding.shift();
+      if (next === undefined) await new Promise((resolve) => setTimeout(resolve, 2));
+      else next();
+    }
+    const responses = await Promise.all(all);
+
+    expect(peak).toBe(VIEWER_CONCURRENCY);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+  });
+
+  test("lets the interface through while every slot is taken", async () => {
+    // A viewer needs the shell, its config and its socket in order to be a
+    // viewer at all, and none of that is the dev server.
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res, req) => {
+      if ((req.url ?? "").startsWith("/leglas/")) {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("interface");
+        return;
+      }
+      holding.push(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("app");
+      });
+    });
+
+    const app = Array.from({ length: 30 }, (_, i) => share.get(`/asset-${i}.js`));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+
+    const config = await share.get("/leglas/api/config");
+    expect(config.status).toBe(200);
+    expect(await config.text()).toBe("interface");
+
+    await drain(holding, 30);
+    await Promise.all(app.map((pending) => pending.catch(() => undefined)));
+  });
+
+  test("a response that never ends does not keep its slot", async () => {
+    // Server-sent events are an ordinary GET that stays open. Holding the
+    // slot until the response finished would let twelve of them take every
+    // slot permanently and deadlock the share.
+    const open: ServerResponse[] = [];
+    const share = await shareWith((res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(": open\n\n");
+      open.push(res);
+    });
+
+    const streams = await Promise.all(
+      Array.from({ length: VIEWER_CONCURRENCY * 2 }, (_, i) => share.get(`/events-${i}`)),
+    );
+
+    expect(streams.every((response) => response.status === 200)).toBe(true);
+    // And an ordinary request still gets through behind all of them.
+    const after = await share.get("/still-served");
+    expect(after.status).toBe(200);
+    for (const response of open) response.end();
+    await Promise.all(streams.map((response) => response.body?.cancel()));
+  });
+
+  test("gives a quiet link its turn rather than draining a loud one first", async () => {
+    const served: string[] = [];
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res, req) => {
+      served.push(req.url ?? "/");
+      holding.push(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      });
+    });
+    const second = share.manager.createGrant({ name: "Second" });
+    if (!second.ok) throw new Error(second.error);
+    const other = second.share.grants.at(-1);
+    if (other === undefined) throw new Error("no second link");
+    const otherCookie = await share.cookieFor(other.localUrl);
+
+    // The loud link takes every slot and queues eighteen more behind it.
+    const loud = Array.from({ length: 30 }, (_, i) =>
+      raw(share.port, `/loud-${i}`, share.cookie),
+    );
+    await Promise.all(loud.map((request) => request.sent));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+
+    // Then one request on the other link, behind all eighteen of them.
+    const quiet = raw(share.port, "/quiet", otherCookie);
+    await quiet.sent;
+
+    // Free slots one at a time, paced so the quiet request has landed. Taken
+    // in order it waits behind all eighteen, so anywhere near the front is
+    // only reachable by giving its link a turn of its own.
+    const admitted = served.length;
+    for (let i = 0; i < 6 && !served.includes("/quiet"); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      holding.shift()?.();
+      await vi.waitFor(() => expect(served.length).toBeGreaterThan(admitted + i));
+    }
+    expect(served).toContain("/quiet");
+    expect(served.indexOf("/quiet")).toBeLessThan(VIEWER_CONCURRENCY + 6);
+
+    for (const request of [...loud, quiet]) request.stop();
+    while (holding.length > 0) holding.shift()?.();
+  });
+
+  test("turns away a link that queues more than it may", async () => {
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res) => {
+      holding.push(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      });
+    });
+
+    const full = VIEWER_CONCURRENCY + VIEWER_QUEUE;
+    const filling = Array.from({ length: full }, (_, i) =>
+      raw(share.port, `/fill-${i}`, share.cookie),
+    );
+    await Promise.all(filling.map((request) => request.sent));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+
+    const over = raw(share.port, "/one-too-many", share.cookie);
+    expect(await over.status).toBe(503);
+
+    for (const request of filling) request.stop();
+    while (holding.length > 0) holding.shift()?.();
+  });
+
+  test("answers what a revoked link left waiting", async () => {
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res) => {
+      holding.push(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      });
+    });
+    const live = share.manager.status();
+    const grantId = live?.grants[0]?.id;
+    if (grantId === undefined) throw new Error("no link");
+
+    const pending = Array.from({ length: 20 }, (_, i) => share.get(`/waiting-${i}`));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    share.manager.revokeGrant({ id: grantId });
+
+    const answers = await Promise.all(pending.map((p) => p.catch(() => null)));
+    const shed = answers.filter((response) => response !== null && response.status === 410);
+    // The twelve inside were cut off mid-request; the eight waiting are told.
+    expect(shed).toHaveLength(20 - VIEWER_CONCURRENCY);
+    expect(await shed[0]?.json()).toEqual({
+      ok: false,
+      error: "This link was turned off.",
+    });
+    for (const release of holding.splice(0)) release();
+  });
+
+  test("sheds a request that waited out its budget", async () => {
+    // The budget is one clock over both waits, so a request reaches the
+    // queue's own refusal when the slots ahead of it stay busy for longer
+    // than it has left. Twelve at a hundred and fifty milliseconds against a
+    // two hundred millisecond budget: the first twelve are served, the
+    // twelve behind them are let in with too little left, and the rest are
+    // turned away while still waiting.
+    const share = await shareWith(
+      (res) => {
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("ok");
+        }, 150);
+      },
+      { deadlineMs: 200 },
+    );
+
+    const all = Array.from({ length: 40 }, (_, i) => share.get(`/steady-${i}`));
+    const answers = await Promise.all(all.map((pending) => pending.catch(() => null)));
+    const shed = answers.filter((response) => response?.status === 503);
+
+    expect(answers.filter((response) => response?.status === 200).length).toBe(
+      VIEWER_CONCURRENCY,
+    );
+    expect(shed.length).toBeGreaterThan(0);
+    expect(await shed[0]?.json()).toEqual({
+      ok: false,
+      error: "The dev server is busy. Try again.",
+    });
+    // Everything that was answered was answered properly, and the share is
+    // still usable rather than wedged.
+    for (const response of answers) {
+      if (response !== null) expect([200, 503]).toContain(response.status);
+    }
+    expect((await share.get("/after-the-rush")).status).toBe(200);
+  });
+
+  test("takes back the slot when the dev server never answers", async () => {
+    // Nothing releases a slot on its own if the upstream hangs, so the
+    // budget covers the waiting and the running as one.
+    let started = 0;
+    const share = await shareWith(
+      () => {
+        started += 1;
+      },
+      { deadlineMs: 60 },
+    );
+
+    const stuck = Array.from({ length: VIEWER_CONCURRENCY }, (_, i) => share.get(`/hang-${i}`));
+    await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY));
+    // Every slot is held by a request the dev server will never answer.
+    await Promise.all(stuck.map((pending) => pending.catch(() => null)));
+
+    // The share is usable again rather than deadlocked on twelve dead slots.
+    const after = share.get("/after-the-hang");
+    await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY + 1));
+    await after.catch(() => null);
+  });
+
+  test("a viewer who gives up while waiting frees the place they held", async () => {
+    let started = 0;
+    const holding: Array<() => void> = [];
+    const share = await shareWith((res) => {
+      started += 1;
+      holding.push(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("ok");
+      });
+    });
+
+    const inside = Array.from({ length: VIEWER_CONCURRENCY }, (_, i) => share.get(`/in-${i}`));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+
+    const giveUp = new AbortController();
+    const abandoned = share.get("/abandoned", { signal: giveUp.signal });
+    const following = share.get("/after");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toBe(VIEWER_CONCURRENCY);
+    giveUp.abort();
+    await abandoned.catch(() => undefined);
+
+    holding.shift()?.();
+    // The freed slot goes to the request behind it, not to the one that left.
+    await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY + 1));
+    await drain(holding, VIEWER_CONCURRENCY + 1);
+    await Promise.all([...inside, following].map((pending) => pending.catch(() => undefined)));
   });
 });
