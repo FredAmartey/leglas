@@ -84,7 +84,7 @@ import {
 } from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
-import { createShareManager } from "./share.js";
+import { createShareManager, type ShareResult } from "./share.js";
 import {
   detectTunnels as detectShareTunnels,
   startTunnel as startShareTunnel,
@@ -770,12 +770,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const browserPool = options.pool ?? createBrowserPool();
   let shares: ReturnType<typeof createShareManager> | null = null;
   let liveHealth: HealthWatch | null = null;
-  let live: LiveHub;
-  live =
-    options.live ??
-    createLiveHub({
-      onViewers: () => shares?.viewersChanged(),
-    });
+  const live: LiveHub = options.live ?? createLiveHub();
   const branches = createBranchRegistry({
     cwd,
     previews: (config?.previews ?? []).flatMap((preview) =>
@@ -918,10 +913,36 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // The endpoint can retry on demand; startup itself must stay available.
   });
 
+  /**
+   * Read a JSON object, hand it to one of the share writes and answer what
+   * it says. The body is refused before the write is reached, which is the
+   * rule every POST here keeps.
+   */
+  const readShareBody = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    run: (body: Record<string, unknown>) => ShareResult | Promise<ShareResult> | undefined,
+  ): void => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const parsed = jsonBody<Record<string, unknown>>(body);
+      if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+      void Promise.resolve(run(parsed)).then((result) => {
+        if (result === undefined) {
+          return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
+        }
+        return result.ok
+          ? sendJson(res, 200, result)
+          : sendJson(res, result.status, { ok: false, error: result.error });
+      });
+    });
+  };
+
   const handleRequest = (
     req: http.IncomingMessage,
     res: http.ServerResponse,
-    context: { remote: boolean; publicOrigin: string },
+    context: { remote: boolean; publicOrigin: string; grantId?: string },
   ): void => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
@@ -937,7 +958,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (context.remote && path === `${LEGLAS_PREFIX}/api/config`) {
-      return void shares?.viewerConfig().then((payload) => {
+      return void shares?.viewerConfig(context.grantId ?? "").then((payload) => {
         if (payload === null) {
           return sendJson(res, 403, { ok: false, error: "This link isn't active." });
         }
@@ -1014,6 +1035,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           ? sendJson(res, 200, result)
           : sendJson(res, result.status, { ok: false, error: result.error });
       });
+    }
+
+    // Each of these is written out rather than looped, because the body
+    // guard's test finds POST routes by reading this file for exactly this
+    // shape. A route it cannot see is a route nobody checks.
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/grants` && req.method === "POST") {
+      return void readShareBody(req, res, (body) => shares?.createGrant(body));
+    }
+
+    if (
+      !context.remote &&
+      path === `${LEGLAS_PREFIX}/api/share/grants/revoke` &&
+      req.method === "POST"
+    ) {
+      return void readShareBody(req, res, (body) => shares?.revokeGrant(body));
+    }
+
+    if (
+      !context.remote &&
+      path === `${LEGLAS_PREFIX}/api/share/grants/extend` &&
+      req.method === "POST"
+    ) {
+      return void readShareBody(req, res, (body) => shares?.extendGrant(body));
+    }
+
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/rotate` && req.method === "POST") {
+      return void readShareBody(req, res, () => shares?.rotate());
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/stop` && req.method === "POST") {
@@ -2006,7 +2054,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (relative.split("/").some((segment) => segment.startsWith("."))) {
         return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
       }
-      return void (shares?.fileSlugAllowed(slug) ?? Promise.resolve(false)).then((allowed) => {
+      return void (
+        shares?.fileSlugAllowed(slug, context.grantId ?? "") ?? Promise.resolve(false)
+      ).then((allowed) => {
         if (!allowed) return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
         serveMount();
       });
@@ -2052,24 +2102,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     socket: Duplex,
     head: Buffer,
     context: { remote: boolean },
-  ): void => {
+  ): boolean => {
+    // Answers whether the socket was taken, so the share manager knows
+    // whether there is a viewer to count against the link that let it in.
     const liveUpgrade = context.remote
       ? live.upgrade(req, socket, head, { viewer: true })
       : live.upgrade(req, socket, head);
-    if (liveUpgrade) return;
+    if (liveUpgrade) return true;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
     // The live hub owns one shell upgrade. Other Leglas upgrades are refused;
     // everything outside the prefix still belongs to the app.
     if (path.startsWith(`${LEGLAS_PREFIX}/`)) {
       socket.destroy();
-      return;
+      return false;
     }
     proxy.upgrade(req, socket, head);
+    return false;
   };
 
-  server.on("upgrade", (req, socket, head) =>
-    handleUpgrade(req, socket, head, { remote: false }),
-  );
+  server.on("upgrade", (req, socket, head) => {
+    handleUpgrade(req, socket, head, { remote: false });
+  });
 
   shares = createShareManager({
     live,
@@ -2081,9 +2134,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       scanPreviews: config?.scanPreviews ?? true,
     },
     request: (req, res, context) =>
-      handleRequest(req, res, { remote: true, publicOrigin: context.publicOrigin }),
-    upgrade: (req, socket, head) =>
-      handleUpgrade(req, socket, head, { remote: true }),
+      handleRequest(req, res, {
+        remote: true,
+        publicOrigin: context.publicOrigin,
+        grantId: context.grantId,
+      }),
+    upgrade: (req, socket, head) => handleUpgrade(req, socket, head, { remote: true }),
     ...(options.detectTunnels === undefined ? {} : { detectTunnels: options.detectTunnels }),
     ...(options.startTunnel === undefined ? {} : { startTunnel: options.startTunnel }),
   });

@@ -32,14 +32,33 @@ export type ShareStatus = {
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
-  /** Entry link on the share listener, for a tunnel the user runs themselves. */
-  localUrl: string;
   sharePort: number;
-  /** Public entry link once a tunnel has a URL, else null. */
-  url: string | null;
+  grants: Array<{
+    id: string;
+    name: string;
+    url: string | null;
+    localUrl: string;
+    viewers: number;
+    createdAt: number;
+    expiresAt: number;
+  }>;
   tunnel: TunnelState;
-  viewers: number;
   startedAt: number;
+};
+
+export type Grant = {
+  id: string;
+  name: string;
+  token: string;
+  createdAt: number;
+  expiresAt: number;
+  /** Monotonic deadline for the same instant; the earlier one wins. */
+  expiresAtMono: bigint;
+  /** Set when it is over, which is why the viewer can be told which. */
+  endedAt: number | null;
+  endedBy: "expiry" | "revoke" | null;
+  /** Live sockets attached under this grant. */
+  viewers: number;
 };
 
 type ShareManifest = {
@@ -48,12 +67,13 @@ type ShareManifest = {
   layout: ShareLayout;
 };
 
-type ShareResult =
+export type ShareResult =
   | { ok: true; share: ShareStatus }
-  | { ok: false; status: 400 | 409 | 500; error: string };
+  | { ok: false; status: 400 | 404 | 409 | 500; error: string };
 
 type RequestContext = {
   publicOrigin: string;
+  grantId: string;
 };
 
 type ShareManagerOptions = {
@@ -70,44 +90,55 @@ type ShareManagerOptions = {
     res: http.ServerResponse,
     context: RequestContext,
   ) => void;
-  upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => void;
+  upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => boolean;
   detectTunnels?: typeof detectTunnels;
   startTunnel?: typeof startTunnel;
   now?: () => number;
+  nowMono?: () => bigint;
 };
 
 type ActiveShare = ShareManifest & {
   id: string;
-  token: string;
+  grants: Map<string, Grant>;
+  tombstones: Grant[];
   port: number;
   startedAt: number;
   tunnel: TunnelState;
   runningTunnel: RunningTunnel | null;
+  tunnelGeneration: number;
   server: http.Server;
   sockets: Set<Duplex>;
+  grantSockets: Map<string, Set<Duplex>>;
+  grantRequests: Map<
+    string,
+    Set<{ req: http.IncomingMessage; res: http.ServerResponse }>
+  >;
   launch: ReturnType<typeof setImmediate> | null;
+  expiryTimer: ReturnType<typeof setTimeout> | null;
 };
 
 type ShareManager = {
   tunnels(): Promise<TunnelProviderId[]>;
   status(): ShareStatus | null;
   /** Whether a file-preview mount belongs to a direction in the share. */
-  fileSlugAllowed(slug: string): Promise<boolean>;
-  /**
-   * The live hub's viewer count moved. A viewer arriving is the one proof the
-   * link answers that no probe from this machine can beat, so it also settles
-   * a tunnel still being asked about.
-   */
-  viewersChanged(): void;
+  fileSlugAllowed(slug: string, grantId: string): Promise<boolean>;
   create(input: unknown): Promise<ShareResult>;
-  update(input: unknown): Promise<ShareResult | { ok: false; status: 404; error: string }>;
-  viewerConfig(): Promise<unknown | null>;
+  createGrant(input: unknown): ShareResult;
+  revokeGrant(input: unknown): ShareResult;
+  extendGrant(input: unknown): ShareResult;
+  rotate(): Promise<ShareResult>;
+  update(input: unknown): Promise<ShareResult>;
+  viewerConfig(grantId: string): Promise<unknown | null>;
   stop(): Promise<void>;
   /** Stop, and refuse every share from now on: the server is going. */
   close(): Promise<void>;
 };
 
 const ENTRY_PREFIX = "/leglas/s/";
+export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+export const MAX_GRANTS = 16;
+export const MAX_TOMBSTONES = 32;
+const NS_PER_MS = 1_000_000n;
 
 /**
  * Development-server routes that act on the machine or hand out its
@@ -394,10 +425,46 @@ function manifestFrom(
   return { ok: true, manifest: { scope, titles, layout } };
 }
 
-function matches(secret: string, candidate: string): boolean {
-  const expected = Buffer.from(secret);
-  const received = Buffer.from(candidate);
-  return expected.length === received.length && timingSafeEqual(expected, received);
+/**
+ * Find the grant a token names, in constant time across the live ones.
+ *
+ * The candidate is compared as it was written rather than as it decodes.
+ * `Buffer.from(x, "base64url")` drops characters it does not recognise, so
+ * decoding first would make a token stand for a family of spellings instead
+ * of itself: a trailing invalid character would decode to the same bytes and
+ * match. Every grant is compared and none exits early, so the loop tells a
+ * caller nothing about how many links exist or which one they hit.
+ */
+function matchOne(candidate: string, grants: Iterable<Grant>): Grant | null {
+  const received = Buffer.from(candidate, "utf8");
+  let found: Grant | null = null;
+  for (const grant of grants) {
+    const expected = Buffer.from(grant.token, "utf8");
+    if (expected.length !== received.length) continue;
+    if (timingSafeEqual(expected, received)) found = grant;
+  }
+  return found;
+}
+
+function grantFor(share: ActiveShare, candidate: string): Grant | null {
+  return matchOne(candidate, share.grants.values());
+}
+
+/** The same, over the links that have ended, so a viewer can be told which. */
+function endedGrantFor(share: ActiveShare, candidate: string): Grant | null {
+  return matchOne(candidate, share.tombstones);
+}
+
+/**
+ * Whether a link is over, read from two clocks with the earlier winning.
+ *
+ * A suspended process wakes with a correct wall clock and a monotonic one
+ * that under-counted the sleep, so the wall clock is what expires a link
+ * across a closed laptop. A wall clock dragged backwards by a correction
+ * loses to the monotonic one. Neither can extend a link on its own.
+ */
+function expired(grant: Grant, now: number, nowMono: bigint): boolean {
+  return now >= grant.expiresAt || nowMono >= grant.expiresAtMono;
 }
 
 function cookieToken(req: http.IncomingMessage): string | null {
@@ -453,23 +520,48 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   res.end(JSON.stringify(body));
 }
 
-function refuse(req: http.IncomingMessage, res: http.ServerResponse): void {
+type Refusal = "inactive" | "expiry" | "revoke";
+
+const REFUSALS: Record<Refusal, { status: 403 | 410; sentence: string; title: string }> = {
+  inactive: {
+    status: 403,
+    sentence: "This link isn't active.",
+    title: "This Leglas link isn't active",
+  },
+  expiry: {
+    status: 410,
+    sentence: "This link expired. The person sharing it can send a new one.",
+    title: "This Leglas link expired",
+  },
+  revoke: {
+    status: 410,
+    sentence: "This link was turned off.",
+    title: "This Leglas link was turned off",
+  },
+};
+
+function refuse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  cause: Refusal = "inactive",
+): void {
+  const refusal = REFUSALS[cause];
   const accept = req.headers.accept;
   const html = (Array.isArray(accept) ? accept.join(",") : accept ?? "").includes("text/html");
   if (!html) {
-    return sendJson(res, 403, { ok: false, error: "This link isn't active." });
+    return sendJson(res, refusal.status, { ok: false, error: refusal.sentence });
   }
-  res.writeHead(403, {
+  res.writeHead(refusal.status, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
   });
   res.end(`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>This Leglas link isn't active</title>
+<title>${refusal.title}</title>
 <body style="margin:0;background:#1C1C20;color:#f5f4f1;font:16px/1.5 ui-sans-serif,system-ui;display:grid;min-height:100vh;place-items:center">
-<main style="max-width:34rem;padding:2rem"><h1 style="font-size:1.25rem">This Leglas link isn't active</h1>
-<p>The person sharing it may have stopped, or this is not the link they sent.</p></main>
+<main style="max-width:34rem;padding:2rem"><h1 style="font-size:1.25rem">${refusal.title}</h1>
+<p>${refusal.sentence}</p></main>
 </body>`);
 }
 
@@ -492,6 +584,10 @@ function bind(server: http.Server): Promise<number> {
 
 function closeListener(share: ActiveShare): Promise<void> {
   return new Promise((resolve) => {
+    if (share.expiryTimer !== null) {
+      clearTimeout(share.expiryTimer);
+      share.expiryTimer = null;
+    }
     for (const socket of share.sockets) socket.destroy();
     share.sockets.clear();
     share.server.closeAllConnections();
@@ -507,6 +603,12 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const detect = options.detectTunnels ?? detectTunnels;
   const runTunnel = options.startTunnel ?? startTunnel;
   const now = options.now ?? Date.now;
+  /**
+   * A clock that cannot be moved. `hrtime` does not advance while the
+   * machine sleeps, which is exactly why it is paired with the wall clock
+   * rather than trusted alone.
+   */
+  const nowMono = options.nowMono ?? process.hrtime.bigint;
   let detected: Promise<TunnelProviderId[]> | null = null;
   let active: ActiveShare | null = null;
   let creating = false;
@@ -537,23 +639,137 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const status = (): ShareStatus | null => {
     const share = active;
     if (share === null) return null;
-    const entryPath = `${ENTRY_PREFIX}${share.token}`;
     const tunnelUrl = "url" in share.tunnel ? share.tunnel.url : undefined;
+    const origin = tunnelUrl === undefined ? null : tunnelUrl.replace(/\/$/, "");
     return {
       id: share.id,
       scope: share.scope,
       titles: [...share.titles],
       layout: cloneLayout(share.layout),
-      localUrl: `http://127.0.0.1:${share.port}${entryPath}`,
       sharePort: share.port,
-      url:
-        tunnelUrl === undefined
-          ? null
-          : `${tunnelUrl.replace(/\/$/, "")}${entryPath}`,
+      grants: [...share.grants.values()]
+        .toSorted((a, b) => a.createdAt - b.createdAt)
+        .map((grant) => {
+          const entryPath = `${ENTRY_PREFIX}${grant.token}`;
+          return {
+            id: grant.id,
+            name: grant.name,
+            url: origin === null ? null : `${origin}${entryPath}`,
+            localUrl: `http://127.0.0.1:${share.port}${entryPath}`,
+            viewers: grant.viewers,
+            createdAt: grant.createdAt,
+            expiresAt: grant.expiresAt,
+          };
+        }),
       tunnel: { ...share.tunnel },
-      viewers: options.live.viewers,
       startedAt: share.startedAt,
     };
+  };
+
+  /**
+   * End one link and let go of everything it is holding.
+   *
+   * Its sockets go, and so do the proxied requests still running under it. A
+   * server-sent events stream is an ordinary GET that never finishes, so
+   * letting in-flight responses run to completion would leave somebody who
+   * was cut off still receiving. The tombstone is what lets the next request
+   * on that token be told which of the two things happened to it.
+   */
+  const endGrant = (share: ActiveShare, grant: Grant, why: "expiry" | "revoke"): void => {
+    if (!share.grants.delete(grant.id)) return;
+    grant.endedAt = now();
+    grant.endedBy = why;
+    grant.viewers = 0;
+    share.tombstones.push(grant);
+    while (share.tombstones.length > MAX_TOMBSTONES) share.tombstones.shift();
+    for (const socket of share.grantSockets.get(grant.id) ?? []) socket.destroy();
+    share.grantSockets.delete(grant.id);
+    for (const held of share.grantRequests.get(grant.id) ?? []) {
+      held.res.destroy();
+      held.req.destroy();
+    }
+    share.grantRequests.delete(grant.id);
+  };
+
+  /**
+   * Drop whatever has run out, then ask again when the next one is due.
+   *
+   * The timer only makes the end prompt. Whether a link is over is a
+   * question about the clock, asked wherever work begins, because a
+   * suspended process can wake long past a timer that never fired.
+   */
+  const sweepExpiry = (): void => {
+    const share = active;
+    if (share === null) return;
+    if (share.expiryTimer !== null) {
+      clearTimeout(share.expiryTimer);
+      share.expiryTimer = null;
+    }
+    const at = now();
+    const mono = nowMono();
+    let ended = false;
+    for (const grant of [...share.grants.values()]) {
+      if (!expired(grant, at, mono)) continue;
+      endGrant(share, grant, "expiry");
+      ended = true;
+    }
+    const next = [...share.grants.values()].reduce<number | null>(
+      (soonest, grant) => (soonest === null ? grant.expiresAt : Math.min(soonest, grant.expiresAt)),
+      null,
+    );
+    if (next !== null) {
+      share.expiryTimer = setTimeout(sweepExpiry, Math.max(1, next - at));
+      share.expiryTimer.unref?.();
+    }
+    if (ended) options.live.nudge("share");
+  };
+
+  /** A fresh link, its deadline written on both clocks at once. */
+  const mintGrant = (share: ActiveShare, name: string): Grant => {
+    let token = randomBytes(24).toString("base64url");
+    // Unique is an invariant, not a probability: a repeat would leave one
+    // token valid through a second grant after the first was revoked.
+    const taken = new Set([...share.grants.values(), ...share.tombstones].map((g) => g.token));
+    while (taken.has(token)) token = randomBytes(24).toString("base64url");
+    const at = now();
+    const grant: Grant = {
+      id: randomUUID(),
+      name,
+      token,
+      createdAt: at,
+      expiresAt: at + DEFAULT_TTL_MS,
+      expiresAtMono: nowMono() + BigInt(DEFAULT_TTL_MS) * 1_000_000n,
+      endedAt: null,
+      endedBy: null,
+      viewers: 0,
+    };
+    share.grants.set(grant.id, grant);
+    return grant;
+  };
+
+  /**
+   * Which link a token names, and whether it still stands.
+   *
+   * A token that no live link answers to may still be one that has ended,
+   * and those are two different sentences for the viewer: a link that lapsed
+   * can be replaced, one that was turned off will not come back. Anything
+   * else is simply not a link here, and says so without confirming whether
+   * it ever was.
+   */
+  const resolve = (
+    share: ActiveShare,
+    candidate: string,
+  ): { grant: Grant } | { refusal: Refusal } => {
+    const grant = grantFor(share, candidate);
+    if (grant !== null) {
+      if (!expired(grant, now(), nowMono())) return { grant };
+      endGrant(share, grant, "expiry");
+      options.live.nudge("share");
+      return { refusal: "expiry" };
+    }
+    const ended = endedGrantFor(share, candidate);
+    if (ended !== null) return { refusal: ended.endedBy === "revoke" ? "revoke" : "expiry" };
+    return { refusal: "inactive" };
   };
 
   const request = (req: http.IncomingMessage, res: http.ServerResponse): void => {
@@ -563,15 +779,15 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     if (path.startsWith(ENTRY_PREFIX)) {
       const candidate = path.slice(ENTRY_PREFIX.length);
-      if (
-        (req.method !== "GET" && req.method !== "HEAD") ||
-        candidate.includes("/") ||
-        !matches(share.token, candidate)
-      ) return refuse(req, res);
+      if ((req.method !== "GET" && req.method !== "HEAD") || candidate.includes("/")) {
+        return refuse(req, res);
+      }
+      const found = resolve(share, candidate);
+      if ("refusal" in found) return refuse(req, res, found.refusal);
       const secure = forwardedProto(req) === "https" ? "; Secure" : "";
       res.writeHead(302, {
         location: "/leglas/",
-        "set-cookie": `${SHARE_COOKIE}=${share.token}; Path=/; HttpOnly; SameSite=Lax${secure}`,
+        "set-cookie": `${SHARE_COOKIE}=${found.grant.token}; Path=/; HttpOnly; SameSite=Lax${secure}`,
         "cache-control": "no-store",
       });
       res.end();
@@ -579,7 +795,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     }
 
     const cookie = cookieToken(req);
-    if (cookie === null || !matches(share.token, cookie)) return refuse(req, res);
+    if (cookie === null) return refuse(req, res);
+    const found = resolve(share, cookie);
+    if ("refusal" in found) return refuse(req, res, found.refusal);
+    const grant = found.grant;
     if (req.method !== "GET" && req.method !== "HEAD") {
       return sendJson(res, 403, {
         ok: false,
@@ -600,16 +819,36 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     if (req.headers["sec-fetch-dest"] === "serviceworker") {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
-    options.request(req, res, { publicOrigin: publicOrigin(req) });
+    // Held so revoking this link can cut a response that never ends on its
+    // own, and let go however the response finishes.
+    const held = { req, res };
+    const inFlight = share.grantRequests.get(grant.id) ?? new Set();
+    inFlight.add(held);
+    share.grantRequests.set(grant.id, inFlight);
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      share.grantRequests.get(grant.id)?.delete(held);
+    };
+    res.once("finish", release);
+    res.once("close", release);
+    options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
   };
 
   const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {
     const share = active;
     const cookie = cookieToken(req);
-    if (share === null || cookie === null || !matches(share.token, cookie)) {
+    if (share === null || cookie === null) {
       socket.destroy();
       return;
     }
+    const found = resolve(share, cookie);
+    if ("refusal" in found) {
+      socket.destroy();
+      return;
+    }
+    const grant = found.grant;
     // Only the interface's own socket. An app's live-reload socket is a
     // two-way channel into the dev server, which is a write by another
     // name; a viewer refreshes to see a change instead.
@@ -622,7 +861,31 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // link answers that no probe from this machine can beat. A socket from
     // this machine (the sharer opening their own local link) proves nothing.
     if (throughTunnel(req)) share.runningTunnel?.settle();
-    options.upgrade(req, socket, head);
+    if (!options.upgrade(req, socket, head)) return;
+    // The count belongs to the link, so the panel can say which one is being
+    // watched. Tracked here rather than in the live hub, which has no
+    // business knowing what a grant is.
+    const held = share.grantSockets.get(grant.id) ?? new Set<Duplex>();
+    held.add(socket);
+    share.grantSockets.set(grant.id, held);
+    grant.viewers += 1;
+    options.live.nudge("share");
+    // Three ways a socket goes, and `close` is not always one of them: a
+    // viewer whose browser drops the connection can leave an `error` and an
+    // `end` with no `close` behind them, which would have left the panel
+    // counting somebody who is gone for as long as the share ran. The live
+    // hub lets go on the same three, so this follows it.
+    let gone = false;
+    const letGo = (): void => {
+      if (gone) return;
+      gone = true;
+      share.grantSockets.get(grant.id)?.delete(socket);
+      grant.viewers = Math.max(0, grant.viewers - 1);
+      options.live.nudge("share");
+    };
+    socket.once("close", letGo);
+    socket.once("end", letGo);
+    socket.once("error", letGo);
   };
 
   const create = async (input: unknown): Promise<ShareResult> => {
@@ -691,7 +954,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       const share: ActiveShare = {
         ...parsed.manifest,
         id: randomUUID(),
-        token: randomBytes(24).toString("base64url"),
+        grants: new Map(),
+        tombstones: [],
         port,
         startedAt: now(),
         tunnel:
@@ -699,11 +963,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
             ? { status: "none" }
             : { status: "starting", provider },
         runningTunnel: null,
+        tunnelGeneration: 0,
         server,
         sockets,
+        grantSockets: new Map(),
+        grantRequests: new Map(),
         launch: null,
+        expiryTimer: null,
       };
       active = share;
+      // A share starts with one link, unnamed until the sharer names it.
+      mintGrant(share, "");
+      sweepExpiry();
       options.live.nudge("share");
 
       if (provider !== "none") {
@@ -714,7 +985,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
             {
               provider,
               port,
-              entryPath: `${ENTRY_PREFIX}${share.token}`,
+              // Whichever link exists when the tunnel starts: the probe only
+              // needs a path the listener answers, and a share always has one.
+              entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
               onState: (next) => {
                 if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
                 share.tunnel = next;
@@ -729,6 +1002,105 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     } finally {
       creating = false;
     }
+  };
+
+  /** A second link to the same share, named by whoever asks for it. */
+  const createGrant = (input: unknown): ShareResult => {
+    const share = active;
+    if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+    const name = isRecord(input) && typeof input.name === "string" ? input.name.trim() : "";
+    if (name.length > 60) {
+      return { ok: false, status: 400, error: "That name is too long for a link." };
+    }
+    sweepExpiry();
+    if (share.grants.size >= MAX_GRANTS) {
+      return {
+        ok: false,
+        status: 409,
+        error: `A share can hold ${MAX_GRANTS} links. Revoke one to make another.`,
+      };
+    }
+    mintGrant(share, name);
+    sweepExpiry();
+    options.live.nudge("share");
+    return { ok: true, share: status() as ShareStatus };
+  };
+
+  /**
+   * Cut one link without disturbing the others.
+   *
+   * What it cannot reach is worth knowing: a page already rendered, the
+   * browser's cache and its back-forward cache are all beyond this. Revoke
+   * stops what has not been served yet, which is the promise it can keep.
+   */
+  const revokeGrant = (input: unknown): ShareResult => {
+    const share = active;
+    if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+    const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
+    const grant = share.grants.get(id);
+    if (grant === undefined) return { ok: false, status: 404, error: "No such link." };
+    endGrant(share, grant, "revoke");
+    sweepExpiry();
+    options.live.nudge("share");
+    return { ok: true, share: status() as ShareStatus };
+  };
+
+  /**
+   * Push one link's deadline out again, to a new absolute time rather than
+   * by an amount, so repeated clicks cannot walk it into next week unnoticed.
+   * Only a live link: an ended one is ended, and the answer to that is a new
+   * link, which the sharer has to send anyway.
+   */
+  const extendGrant = (input: unknown): ShareResult => {
+    const share = active;
+    if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+    const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
+    sweepExpiry();
+    const grant = share.grants.get(id);
+    if (grant === undefined) {
+      return { ok: false, status: 404, error: "That link has ended. Make a new one." };
+    }
+    const at = now();
+    grant.expiresAt = at + DEFAULT_TTL_MS;
+    grant.expiresAtMono = nowMono() + BigInt(DEFAULT_TTL_MS) * 1_000_000n;
+    sweepExpiry();
+    options.live.nudge("share");
+    return { ok: true, share: status() as ShareStatus };
+  };
+
+  /**
+   * For a leak the sharer cannot place: every link ends and the tunnel is
+   * replaced, so the origin changes too and no copy of any old address
+   * reaches anything.
+   */
+  const rotate = async (): Promise<ShareResult> => {
+    const share = active;
+    if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+    for (const grant of [...share.grants.values()]) endGrant(share, grant, "revoke");
+    const provider = "provider" in share.tunnel ? share.tunnel.provider : null;
+    await share.runningTunnel?.stop().catch(() => {});
+    share.runningTunnel = null;
+    if (active !== share) return { ok: false, status: 404, error: "Nothing is being shared." };
+    mintGrant(share, "");
+    sweepExpiry();
+    if (provider !== null) {
+      share.tunnelGeneration += 1;
+      const generation = share.tunnelGeneration;
+      share.tunnel = { status: "starting", provider };
+      share.runningTunnel = runTunnel({
+        provider,
+        port: share.port,
+        entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
+        onState: (next) => {
+          if (active !== share || share.tunnelGeneration !== generation) return;
+          if (JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
+          share.tunnel = next;
+          options.live.nudge("share");
+        },
+      });
+    }
+    options.live.nudge("share");
+    return { ok: true, share: status() as ShareStatus };
   };
 
   const update = async (
@@ -753,9 +1125,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return { ok: true, share: status() as ShareStatus };
   };
 
-  const viewerConfig = async (): Promise<unknown | null> => {
+  const viewerConfig = async (grantId: string): Promise<unknown | null> => {
     const share = active;
-    if (share === null) return null;
+    if (share === null || !share.grants.has(grantId)) return null;
     const titles = new Set(share.titles);
     const previews = (await options.previews()).filter((preview) => titles.has(preview.title));
     if (active !== share) return null;
@@ -780,9 +1152,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    * from its title, so a viewer could ask for any mount by guessing the
    * name. Only mounts behind directions in the share answer.
    */
-  const fileSlugAllowed = async (slug: string): Promise<boolean> => {
+  const fileSlugAllowed = async (slug: string, grantId: string): Promise<boolean> => {
     const share = active;
-    if (share === null) return false;
+    if (share === null || !share.grants.has(grantId)) return false;
     const titles = new Set(share.titles);
     const previews = await options.previews();
     return previews.some((preview) => {
@@ -791,10 +1163,6 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       const slash = rest.indexOf("/");
       return (slash === -1 ? rest : rest.slice(0, slash)) === slug;
     });
-  };
-
-  const viewersChanged = (): void => {
-    if (active !== null) options.live.nudge("share");
   };
 
   const stop = (): Promise<void> => {
@@ -822,5 +1190,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     await stop();
   };
 
-  return { tunnels, status, fileSlugAllowed, viewersChanged, create, update, viewerConfig, stop, close };
+  return {
+    tunnels,
+    status,
+    fileSlugAllowed,
+    create,
+    createGrant,
+    revokeGrant,
+    extendGrant,
+    rotate,
+    update,
+    viewerConfig,
+    stop,
+    close,
+  };
 }

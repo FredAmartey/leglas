@@ -33,6 +33,8 @@ function managerFor(
   },
   /** Held open to widen the window between asking to share and holding a port. */
   beforePreviews: () => Promise<void> = async () => {},
+  /** Both clocks, so a deadline can be reached without waiting for one. */
+  clocks: { now?: () => number; nowMono?: () => bigint } = {},
 ) {
   const live = createLiveHub();
   const nudge = vi.spyOn(live, "nudge");
@@ -49,8 +51,13 @@ function managerFor(
       scanPreviews: true,
     },
     request: (_req, res) => request(res),
-    upgrade: (_req, socket) => socket.destroy(),
+    upgrade: (_req, socket) => {
+      socket.destroy();
+      return false;
+    },
     detectTunnels: async () => [],
+    ...(clocks.now === undefined ? {} : { now: clocks.now }),
+    ...(clocks.nowMono === undefined ? {} : { nowMono: clocks.nowMono }),
   });
   managers.push(manager);
   return { live, manager, nudge };
@@ -69,12 +76,13 @@ describe("createShareManager", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.share.sharePort).toBeGreaterThan(0);
-    expect(result.share.localUrl).toMatch(
+    expect(result.share.grants[0].localUrl).toMatch(
       new RegExp(`^http://127\\.0\\.0\\.1:${result.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
     );
     expect(result.share.tunnel).toEqual({ status: "none" });
-    expect(result.share.url).toBeNull();
-    expect(result.share.viewers).toBe(0);
+    expect(result.share.grants[0].url).toBeNull();
+    expect(result.share.grants[0].viewers).toBe(0);
+    expect(result.share.grants).toHaveLength(1);
     expect(nudge).toHaveBeenCalledWith("share");
   });
 
@@ -87,7 +95,7 @@ describe("createShareManager", () => {
     });
     if (!created.ok) throw new Error(created.error);
 
-    const entry = await fetch(created.share.localUrl, {
+    const entry = await fetch(created.share.grants[0].localUrl, {
       redirect: "manual",
       headers: { "x-forwarded-proto": "https" },
     });
@@ -132,7 +140,7 @@ describe("createShareManager", () => {
       layout,
     });
     if (!created.ok) throw new Error(created.error);
-    const entry = await fetch(created.share.localUrl, { redirect: "manual" });
+    const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 
     const response = await fetch(
@@ -148,6 +156,19 @@ describe("createShareManager", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  test("gives a viewer config to a live link and nothing to a stranger", async () => {
+    const { manager } = managerFor();
+    const created = await manager.create({ scope: "rail", titles: ["Aurora"], layout, tunnel: "none" });
+    if (!created.ok) throw new Error(created.error);
+    const id = created.share.grants[0].id;
+    expect(await manager.viewerConfig(id)).not.toBeNull();
+    // Revoked between the request being admitted and the config being read:
+    // the read is checked against the link, not against the share.
+    manager.revokeGrant({ id });
+    expect(await manager.viewerConfig(id)).toBeNull();
+    expect(await manager.viewerConfig("not-a-grant")).toBeNull();
+  });
+
   test("builds viewer config from shared titles in config order", async () => {
     const { manager } = managerFor();
     const compareLayout = { ...layout, compare: "Current" };
@@ -158,7 +179,7 @@ describe("createShareManager", () => {
     });
     if (!created.ok) throw new Error(created.error);
 
-    const config = (await manager.viewerConfig()) as {
+    const config = (await manager.viewerConfig(created.share.grants[0].id)) as {
       previews: Array<{ title: string }>;
       errors: string[];
       warnings: string[];
@@ -231,6 +252,169 @@ describe("stopping while a share is still starting", () => {
     expect(result.ok).toBe(false);
     expect(result).toMatchObject({ status: 409 });
     expect(manager.status()).toBeNull();
+  });
+});
+
+describe("many links to one share", () => {
+  const start = async (clocks?: { now?: () => number; nowMono?: () => bigint }) => {
+    const { manager, live } = managerFor(previews, undefined, undefined, clocks ?? {});
+    const created = await manager.create({
+      scope: "rail",
+      titles: ["Current", "Aurora"],
+      layout,
+      tunnel: "none",
+    });
+    if (!created.ok) throw new Error(created.error);
+    return { manager, live, share: created.share };
+  };
+  const enter = async (url: string): Promise<Response> =>
+    fetch(url, { redirect: "manual" });
+
+  test("a share opens with one link, and every later one is its own", async () => {
+    const { manager, share } = await start();
+    expect(share.grants).toHaveLength(1);
+    expect(share.grants[0].name).toBe("");
+
+    const second = manager.createGrant({ name: "  Ana  " });
+    if (!second.ok) throw new Error(second.error);
+    expect(second.share.grants).toHaveLength(2);
+    expect(second.share.grants[1].name).toBe("Ana");
+    // Two links, two tokens: one cannot be read off the other.
+    const [a, b] = second.share.grants;
+    expect(a.localUrl).not.toBe(b.localUrl);
+    expect((await enter(a.localUrl)).status).toBe(302);
+    expect((await enter(b.localUrl)).status).toBe(302);
+  });
+
+  test("refuses a seventeenth link rather than growing without end", async () => {
+    const { manager } = await start();
+    for (let made = 1; made < 16; made += 1) {
+      expect(manager.createGrant({}).ok).toBe(true);
+    }
+    const past = manager.createGrant({});
+    expect(past.ok).toBe(false);
+    if (past.ok) return;
+    expect(past.status).toBe(409);
+    expect(past.error).toMatch(/Revoke one/);
+  });
+
+  test("revoking one link leaves the others, and says which happened", async () => {
+    const { manager, share } = await start();
+    const second = manager.createGrant({ name: "Ana" });
+    if (!second.ok) throw new Error(second.error);
+    const [kept, cut] = second.share.grants;
+
+    const revoked = manager.revokeGrant({ id: cut.id });
+    expect(revoked.ok).toBe(true);
+    if (!revoked.ok) return;
+    expect(revoked.share.grants).toHaveLength(1);
+    expect(revoked.share.grants[0].id).toBe(kept.id);
+
+    expect((await enter(kept.localUrl)).status).toBe(302);
+    // A link that was turned off is not the same news as one that lapsed,
+    // and neither is the same as a token that was never a link here.
+    const gone = await enter(cut.localUrl);
+    expect(gone.status).toBe(410);
+    expect(await gone.text()).toMatch(/turned off/);
+    const stranger = await enter(kept.localUrl.replace(/\/s\/.+$/, "/s/notatokenatallnotatokenatall12"));
+    expect(stranger.status).toBe(403);
+  });
+
+  test("a link past its deadline is expired, not merely unknown", async () => {
+    let at = 1_000_000;
+    const { manager, share } = await start({ now: () => at, nowMono: () => BigInt(at) * 1_000_000n });
+    const link = share.grants[0];
+    expect((await enter(link.localUrl)).status).toBe(302);
+
+    at += 24 * 60 * 60 * 1000 + 1;
+    const lapsed = await enter(link.localUrl);
+    expect(lapsed.status).toBe(410);
+    expect(await lapsed.text()).toMatch(/expired/);
+    // And it is gone from the share rather than lingering as a live row.
+    expect(manager.status()?.grants ?? []).toHaveLength(0);
+  });
+
+  test("the monotonic clock expires a link whose wall clock went backwards", async () => {
+    let wall = 5_000_000;
+    let mono = 5_000_000n * 1_000_000n;
+    const { manager, share } = await start({ now: () => wall, nowMono: () => mono });
+    const link = share.grants[0];
+
+    // A correction drags the wall clock back a day while real time moves on.
+    wall -= 12 * 60 * 60 * 1000;
+    mono += BigInt(25 * 60 * 60 * 1000) * 1_000_000n;
+    const lapsed = await enter(link.localUrl);
+    expect(lapsed.status).toBe(410);
+    expect(manager.status()?.grants ?? []).toHaveLength(0);
+  });
+
+  test("extend moves a live link's deadline and will not raise a dead one", async () => {
+    let at = 2_000_000;
+    const { manager, share } = await start({ now: () => at, nowMono: () => BigInt(at) * 1_000_000n });
+    const link = share.grants[0];
+    const first = link.expiresAt;
+
+    at += 60 * 60 * 1000;
+    const extended = manager.extendGrant({ id: link.id });
+    if (!extended.ok) throw new Error(extended.error);
+    expect(extended.share.grants[0].expiresAt).toBeGreaterThan(first);
+    // A new absolute time, not an addition, so clicking twice cannot walk it
+    // into next week.
+    expect(extended.share.grants[0].expiresAt).toBe(at + 24 * 60 * 60 * 1000);
+
+    manager.revokeGrant({ id: link.id });
+    const raising = manager.extendGrant({ id: link.id });
+    expect(raising.ok).toBe(false);
+    if (raising.ok) return;
+    expect(raising.status).toBe(404);
+    expect(raising.error).toMatch(/Make a new one/);
+  });
+
+  test("revoking a link drops the sockets and the requests it was holding", async () => {
+    // A stream that never finishes on its own is exactly what "in-flight
+    // responses are allowed to finish" would have left running: cut off in
+    // name and still receiving in fact.
+    let hold: ServerResponse | null = null;
+    const { manager } = managerFor(previews, (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(": open\n\n");
+      hold = res;
+    });
+    const created = await manager.create({
+      scope: "rail",
+      titles: ["Current"],
+      layout,
+      tunnel: "none",
+    });
+    if (!created.ok) throw new Error(created.error);
+    const link = created.share.grants[0];
+    const entry = await fetch(link.localUrl, { redirect: "manual" });
+    const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+
+    const origin = link.localUrl.replace(/\/leglas\/s\/.+$/, "");
+    const streaming = fetch(`${origin}/stream`, { headers: { cookie } });
+    await vi.waitFor(() => expect(hold).not.toBeNull());
+
+    manager.revokeGrant({ id: link.id });
+    await expect(streaming.then((r) => r.text())).rejects.toThrow();
+    expect((hold as unknown as ServerResponse).destroyed).toBe(true);
+  });
+
+  test("rotate ends every link and issues one nobody has seen", async () => {
+    const { manager, share } = await start();
+    manager.createGrant({ name: "Ana" });
+    const before = manager.status()?.grants.map((grant) => grant.localUrl) ?? [];
+    expect(before).toHaveLength(2);
+
+    const rotated = await manager.rotate();
+    if (!rotated.ok) throw new Error(rotated.error);
+    expect(rotated.share.grants).toHaveLength(1);
+    for (const url of before) {
+      expect(rotated.share.grants[0].localUrl).not.toBe(url);
+      const gone = await enter(url);
+      expect(gone.status).toBe(410);
+    }
+    expect((await enter(rotated.share.grants[0].localUrl)).status).toBe(302);
   });
 });
 
