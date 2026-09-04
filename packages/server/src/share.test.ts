@@ -204,9 +204,26 @@ describe("createShareManager", () => {
 describe("isDevControlRoute", () => {
   test("names the routes that act on the machine, and their subtrees", () => {
     expect(isDevControlRoute("/__open-in-editor")).toBe(true);
-    expect(isDevControlRoute("/__nextjs_launch-editor")).toBe(true);
+    expect(isDevControlRoute("/__open-stack-frame-in-editor")).toBe(true);
     expect(isDevControlRoute("/__inspect")).toBe(true);
     expect(isDevControlRoute("/__inspect/module")).toBe(true);
+    expect(isDevControlRoute("/webpack-dev-server/index.html")).toBe(true);
+  });
+
+  test("takes a framework's whole dev namespace, not a list of its routes", () => {
+    // Read off Next 16.3.1. The point of the prefix is the ones not listed
+    // here, including whatever the next version adds.
+    for (const route of [
+      "/__nextjs_launch-editor",
+      "/__nextjs_original-stack-frame",
+      "/__nextjs_original-stack-frames",
+      "/__nextjs_source-map",
+      "/__nextjs_attach-nodejs-inspector",
+      "/__nextjs_error_feedback",
+      "/__nextjs_something_added_later",
+    ]) {
+      expect(isDevControlRoute(route)).toBe(true);
+    }
   });
 
   test("leaves the app alone, including paths that merely start alike", () => {
@@ -215,5 +232,8 @@ describe("isDevControlRoute", () => {
     expect(isDevControlRoute("/@vite/client")).toBe(false);
     expect(isDevControlRoute("/src/main.tsx")).toBe(false);
     expect(isDevControlRoute("/webpack-dev-server-ui")).toBe(false);
+    // The app's own build output shares a prefix shape with the dev surface.
+    expect(isDevControlRoute("/_next/static/chunks/main.js")).toBe(false);
+    expect(isDevControlRoute("/__nextjsnot-a-namespace")).toBe(false);
   });
 });

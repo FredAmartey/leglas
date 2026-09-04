@@ -130,18 +130,30 @@ export const DEV_CONTROL_ROUTES: readonly string[] = [
   "/__open-in-editor",
   /** react-error-overlay and webpack-dev-server: the same, older name. */
   "/__open-stack-frame-in-editor",
-  /** Next.js: opens a source location in the machine's editor. */
-  "/__nextjs_launch-editor",
-  /** Next.js: reads a source file to resolve a stack frame. */
-  "/__nextjs_original-stack-frame",
   /** vite-plugin-inspect: the module graph and every transformed source. */
   "/__inspect",
   /** webpack-dev-server: lists what the server is serving. */
   "/webpack-dev-server",
 ];
 
-/** Whether a path is one of those routes, or sits under one that mounts a tree. */
+/**
+ * Namespaces a framework mounts its whole development surface under.
+ *
+ * Next 16.3.1 answers at least `__nextjs_launch-editor`,
+ * `__nextjs_original-stack-frame`, `__nextjs_original-stack-frames`,
+ * `__nextjs_source-map`, `__nextjs_error_feedback` and
+ * `__nextjs_attach-nodejs-inspector`, which is a debugger for the process
+ * serving the app. Listing them one by one would be a list to keep up with
+ * and a hole every time a version adds one, and none of them is the app, so
+ * the namespace goes rather than its members. What a viewer loses is the
+ * error overlay's source mapping, which is the sharer's tool and not
+ * theirs.
+ */
+export const DEV_CONTROL_PREFIXES: readonly string[] = ["/__nextjs_"];
+
+/** Whether a path is one of those routes, sits under one, or is in a dev namespace. */
 export function isDevControlRoute(path: string): boolean {
+  if (DEV_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
   return DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
 }
 /** Where file previews are served, the same prefix the server mounts them under. */

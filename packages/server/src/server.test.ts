@@ -2670,6 +2670,7 @@ describe("startServer", () => {
     for (const control of [
       "/__open-in-editor?file=src/main.tsx:1:1",
       "/__nextjs_launch-editor?file=src/main.tsx",
+      "/__nextjs_attach-nodejs-inspector",
       "/__inspect/",
       "/__inspect/module?id=x",
       "/webpack-dev-server",
