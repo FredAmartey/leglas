@@ -75,7 +75,10 @@ it was about.
   reaching for something hidden is refused and cannot be allowed: `.env`,
   `.git`, `.ssh` and the rest, however the path is spelled. The rule stops at
   `node_modules`, because the dot directories under it are how a dev server
-  hands over its dependencies. (`leglas`)
+  hands over its dependencies, though a dotfile sitting under one is still a
+  dotfile. Allowing a folder allows that folder: a path that climbs back out
+  of it is refused however it is spelled, and so is one that only looks like
+  it belongs to Leglas itself. (`leglas`)
 - **A share cannot crowd out the machine it runs on.** A dev server under a
   burst does not fail, it queues inside itself, where Leglas cannot bound,
   order or cancel any of it, and your own reload joins the back of that
