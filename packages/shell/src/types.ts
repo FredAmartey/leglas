@@ -49,4 +49,64 @@ export type ConfigPayload = {
   previews: Preview[];
   errors: string[];
   warnings?: string[];
+  /**
+   * Present when this interface was opened through a share link. The server
+   * has already cut the previews down to what was shared; this carries how
+   * the sharer had them arranged, and says the interface is somebody else's.
+   */
+  viewer?: ViewerInfo | undefined;
+};
+
+/** Which directions a share carries: one, a pair on stage, or the rail. */
+export type ShareScope = "direction" | "compare" | "rail";
+
+/**
+ * The rail as the sharer sees it, at the moment they shared. Snapshot rather
+ * than mirror: the sharer can keep reordering for themselves without the
+ * viewer's rail moving underneath them, and pushes an update when they mean
+ * to.
+ */
+export type ShareLayout = {
+  order: string[];
+  renames: Record<string, string>;
+  hidden: string[];
+  collapsedFamilies: string[];
+  /** The right pane when the scope is compare; null otherwise. */
+  compare: string | null;
+  /** null is Full. */
+  viewport: number | null;
+};
+
+export type ViewerInfo = {
+  scope: ShareScope;
+  layout: ShareLayout;
+};
+
+export type TunnelProviderId = "cloudflared" | "ngrok";
+
+export type TunnelState =
+  | { status: "none" }
+  | {
+      status: "starting";
+      provider: TunnelProviderId;
+      url?: string | undefined;
+      /** Not answering from here yet, past the time it usually takes. */
+      slow?: boolean | undefined;
+    }
+  | { status: "ready"; provider: TunnelProviderId; url: string }
+  | { status: "failed"; provider: TunnelProviderId; reason: string; url?: string | undefined };
+
+export type ShareStatus = {
+  id: string;
+  scope: ShareScope;
+  titles: string[];
+  layout: ShareLayout;
+  /** Entry link on the share listener, for a tunnel the user runs themselves. */
+  localUrl: string;
+  sharePort: number;
+  /** Public entry link once a tunnel has a URL, else null. */
+  url: string | null;
+  tunnel: TunnelState;
+  viewers: number;
+  startedAt: number;
 };

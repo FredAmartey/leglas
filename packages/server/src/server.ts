@@ -12,6 +12,7 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import { basename, dirname, extname, join, normalize, relative } from "node:path";
+import type { Duplex } from "node:stream";
 
 import { parseTemplate } from "./agent-command.js";
 import {
@@ -83,6 +84,11 @@ import {
 } from "./requests.js";
 import { startRunner, type RunningAgent } from "./runner.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
+import { createShareManager } from "./share.js";
+import {
+  detectTunnels as detectShareTunnels,
+  startTunnel as startShareTunnel,
+} from "./tunnel.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -163,6 +169,9 @@ export type ServerOptions = {
   pool?: BrowserPool;
   /** Live change channel, injectable so server tests need no websocket client. */
   live?: LiveHub;
+  /** Tunnel discovery and startup, injectable so tests never touch installed providers. */
+  detectTunnels?: typeof detectShareTunnels;
+  startTunnel?: typeof startShareTunnel;
   /** Branch checkout lifecycle, injectable so server tests need no real git worktree. */
   startWorktree?: StartBranchWorktree;
 };
@@ -753,7 +762,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detect = () => detectAgents(),
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
-  const live = options.live ?? createLiveHub();
+  let shares: ReturnType<typeof createShareManager> | null = null;
+  let live: LiveHub;
+  live =
+    options.live ??
+    createLiveHub({
+      onViewers: (count) => shares?.viewersChanged(count),
+    });
   const branches = createBranchRegistry({
     cwd,
     previews: (config?.previews ?? []).flatMap((preview) =>
@@ -896,17 +911,93 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // The endpoint can retry on demand; startup itself must stay available.
   });
 
-  const server = http.createServer((req, res) => {
+  const handleRequest = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    context: { remote: boolean; publicOrigin: string },
+  ): void => {
     const url = req.url ?? "/";
     const path = url.split("?")[0] ?? "/";
     const query = new URLSearchParams(url.includes("?") ? url.slice(url.indexOf("?") + 1) : "");
 
     if (
+      !context.remote &&
       req.method === "POST" &&
       path.startsWith(`${LEGLAS_PREFIX}/api/`) &&
       !isTrustedMutation(req)
     ) {
       return sendJson(res, 403, { ok: false, error: "Cross-origin API mutations are refused." });
+    }
+
+    if (context.remote && path === `${LEGLAS_PREFIX}/api/config`) {
+      return void shares?.viewerConfig().then((payload) => {
+        if (payload === null) {
+          return sendJson(res, 403, { ok: false, error: "This link isn't active." });
+        }
+        sendConditionalJson(req, res, payload);
+      });
+    }
+
+    if (context.remote && path === `${LEGLAS_PREFIX}/api/health`) {
+      // Only the verdict. The full answer names the working directory so a
+      // command on this machine can tell one server from another, and a
+      // viewer has no business with either the directory or the dev server's
+      // address.
+      return void probe(target).then((reachable) =>
+        sendConditionalJson(req, res, { reachable }),
+      );
+    }
+
+    if (context.remote && path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
+      return sendJson(res, 403, { error: "Not available to viewers." });
+    }
+
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "GET") {
+      return void shares?.tunnels().then((tunnels) =>
+        sendJson(res, 200, { share: shares?.status() ?? null, tunnels }),
+      );
+    }
+
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        const parsed = jsonBody<Record<string, unknown>>(body);
+        if (parsed === null) {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        const result = await shares?.create(parsed);
+        if (result === undefined) {
+          return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
+        }
+        return result.ok
+          ? sendJson(res, 200, result)
+          : sendJson(res, result.status, { ok: false, error: result.error });
+      });
+    }
+
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/update` && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", async () => {
+        const parsed = jsonBody<Record<string, unknown>>(body);
+        if (parsed === null) {
+          return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        }
+        const result = await shares?.update(parsed);
+        if (result === undefined) {
+          return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
+        }
+        return result.ok
+          ? sendJson(res, 200, result)
+          : sendJson(res, result.status, { ok: false, error: result.error });
+      });
+    }
+
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/stop` && req.method === "POST") {
+      return void (shares?.stop() ?? Promise.resolve()).then(() =>
+        sendJson(res, 200, { ok: true }),
+      );
     }
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
@@ -1882,7 +1973,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const dir = fileMounts.get(slug);
       if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
-      return res.end("Leglas: no such preview file.");
+      res.end("Leglas: no such preview file.");
+      return;
     }
 
     if (path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
@@ -1893,14 +1985,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (shellDir !== null && serveShellFile(res, shellDir, path)) return;
       if (shellDir !== null) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
-        return res.end("Leglas: no such path.");
+        res.end("Leglas: no such path.");
+        return;
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      return res.end(PLACEHOLDER);
+      res.end(PLACEHOLDER);
+      return;
     }
 
-    return proxy.request(req, res, `http://localhost:${port}`);
-  });
+    return proxy.request(req, res, context.publicOrigin);
+  };
+
+  let port = 0;
+  const server = http.createServer((req, res) =>
+    handleRequest(req, res, {
+      remote: false,
+      publicOrigin: `http://localhost:${port}`,
+    }),
+  );
 
   // An upgraded socket detaches from its server, so close() would otherwise
   // wait forever on any open live-reload connection.
@@ -1910,16 +2012,48 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     socket.once("close", () => sockets.delete(socket));
   });
 
-  server.on("upgrade", (req, socket, head) => {
-    if (live.upgrade(req, socket, head)) return;
+  const handleUpgrade = (
+    req: http.IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    context: { remote: boolean },
+  ): void => {
+    const liveUpgrade = context.remote
+      ? live.upgrade(req, socket, head, { viewer: true })
+      : live.upgrade(req, socket, head);
+    if (liveUpgrade) return;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
     // The live hub owns one shell upgrade. Other Leglas upgrades are refused;
     // everything outside the prefix still belongs to the app.
-    if (path.startsWith(`${LEGLAS_PREFIX}/`)) return socket.destroy();
+    if (path.startsWith(`${LEGLAS_PREFIX}/`)) {
+      socket.destroy();
+      return;
+    }
     proxy.upgrade(req, socket, head);
+  };
+
+  server.on("upgrade", (req, socket, head) =>
+    handleUpgrade(req, socket, head, { remote: false }),
+  );
+
+  shares = createShareManager({
+    live,
+    previews: livePreviewDefinitions,
+    previewsForConfig,
+    viewerConfig: {
+      project,
+      devServer: target,
+      scanPreviews: config?.scanPreviews ?? true,
+    },
+    request: (req, res, context) =>
+      handleRequest(req, res, { remote: true, publicOrigin: context.publicOrigin }),
+    upgrade: (req, socket, head) =>
+      handleUpgrade(req, socket, head, { remote: true }),
+    ...(options.detectTunnels === undefined ? {} : { detectTunnels: options.detectTunnels }),
+    ...(options.startTunnel === undefined ? {} : { startTunnel: options.startTunnel }),
   });
 
-  const port = await bind(server, options.port ?? DEFAULT_PORT);
+  port = await bind(server, options.port ?? DEFAULT_PORT);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
   const liveHealth = watchHealth(target, live);
   await pruneCaptures(
@@ -1951,24 +2085,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://localhost:${port}`,
     close: () => {
       if (closePromise !== null) return closePromise;
-      liveFiles.close();
-      liveHealth.close();
-      closePromise = Promise.all([
-        branches.stop(),
-        runner.stop(),
-        browserPool.close(),
-        live.close(),
-      ])
-        .then(
-          () =>
-          new Promise<void>((done) => {
-            for (const socket of sockets) socket.destroy();
-            sockets.clear();
-            server.closeAllConnections();
-            server.close(() => done());
-          }),
-        )
-        .then(() => removeServerInfo(cwd, { port, pid: process.pid }).catch(() => {}));
+      closePromise = (async () => {
+        await shares?.stop();
+        liveFiles.close();
+        liveHealth.close();
+        await Promise.all([
+          branches.stop(),
+          runner.stop(),
+          browserPool.close(),
+          live.close(),
+        ]);
+        await new Promise<void>((done) => {
+          for (const socket of sockets) socket.destroy();
+          sockets.clear();
+          server.closeAllConnections();
+          server.close(() => done());
+        });
+        await removeServerInfo(cwd, { port, pid: process.pid }).catch(() => {});
+      })();
       return closePromise;
     },
   };

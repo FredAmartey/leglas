@@ -12,6 +12,30 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Added
+
+- **Share what is on your rail with someone who has no repo.** The rail is
+  local, and the README has promised for a while that a teammate could open a
+  direction live rather than a screenshot; that was only ever true on the same
+  machine. The rail's header now carries a share control. Pick the whole rail
+  as you see it, or what is on stage, a direction or the pair being compared,
+  and Leglas opens a second listener on this machine, points a tunnel at it
+  (cloudflared or ngrok, whichever is installed; nothing is bundled and no
+  account is needed) and puts the link on your clipboard the moment it
+  answers. Whoever opens it gets the real app running, in your order, under
+  your names, with your families folded and your viewport, and can flip,
+  compare, search and change the width. They cannot change anything: every
+  request that arrives through the share listener is remote by construction,
+  so nothing on it may write, and without the cookie the link sets nothing on
+  it is served at all, so your dev server never faces the internet bare. The
+  panel says whether the tunnel has answered and how many people are looking,
+  offers to push the rail as you have it now when it has moved since you
+  shared, and stops the share; the share also stops with Leglas. Branch
+  directions run on their own port and are left out of a share for now, and
+  the panel says so. (`leglas`)
+
 ## 0.9.0 (2026-09-03): The rail shows where each direction came from
 
 ### Changed

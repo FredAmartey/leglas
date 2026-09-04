@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 
 import { Mark } from "./kit.js";
 import { FALLBACK_MS, liveConnection } from "./live.js";
@@ -9,7 +9,13 @@ import type { ConfigPayload } from "./types.js";
 type Load =
   | { status: "loading" }
   | { status: "ready"; config: ConfigPayload }
-  | { status: "failed"; message: string };
+  | { status: "failed"; message: string }
+  /**
+   * A shared interface whose server stopped answering. The person sharing
+   * stops, or their Leglas goes, and the link goes with it; the rail that
+   * was on screen is kept behind this so a return brings it straight back.
+   */
+  | { status: "ended"; config: ConfigPayload };
 
 /** A quiet full-screen message, used for both startup and config problems. */
 function Notice({ children, title }: { children: React.ReactNode; title: string }) {
@@ -27,6 +33,8 @@ function Notice({ children, title }: { children: React.ReactNode; title: string 
 
 export function App() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
+  /** A viewer asking again, after the share went quiet. */
+  const [retries, retry] = useReducer((count: number) => count + 1, 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,9 +70,16 @@ export function App() {
           .catch((error: unknown) => {
             if (cancelled) return;
             setLoad((current) =>
-              current.status === "ready"
-                ? current
-                : {
+              // A viewer's server going quiet is news: the share is over, or
+              // the machine behind it is. The poll's own deadline is not.
+              (current.status === "ready" || current.status === "ended") &&
+              current.config.viewer !== undefined
+                ? wasAborted(error)
+                  ? current
+                  : { status: "ended", config: current.config }
+                : current.status === "ready"
+                  ? current
+                  : {
                     status: "failed",
                     // An abandoned read is the poll's own deadline, not
                     // anything the server said, and its wording is internal.
@@ -86,9 +101,27 @@ export function App() {
       cancelled = true;
       stop();
     };
-  }, []);
+  }, [retries]);
 
   if (load.status === "loading") return <Notice title="Starting Leglas…">{null}</Notice>;
+
+  if (load.status === "ended") {
+    return (
+      <Notice title="This share isn’t live any more">
+        The person sharing it stopped, or their Leglas is no longer running. If they start it
+        again, the same link works.
+        <p className="mt-4">
+          <button
+            className="rounded-md bg-[#2E2E2E] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#3A3A40]"
+            onClick={retry}
+            type="button"
+          >
+            Try again
+          </button>
+        </p>
+      </Notice>
+    );
+  }
 
   if (load.status === "failed") {
     return (
@@ -119,6 +152,7 @@ export function App() {
       previews={load.config.previews}
       project={load.config.project}
       scanPreviews={load.config.scanPreviews ?? true}
+      viewer={load.config.viewer}
       warnings={load.config.warnings ?? []}
     />
   );
