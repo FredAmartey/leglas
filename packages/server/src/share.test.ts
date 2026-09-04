@@ -229,6 +229,12 @@ describe("isDevControlRoute", () => {
       // Nuxt DevTools 4.0.0-alpha.16 serves its whole interface here.
       "/__nuxt_devtools__",
       "/__nuxt_devtools__/client/index.html",
+      // Parcel 2.16.4: an editor launcher and three source routes. Paths
+      // only, because the caller splits the query off before asking.
+      "/__parcel_launch_editor",
+      "/__parcel_source_map",
+      "/__parcel_source_root",
+      "/__parcel_code_frame",
     ]) {
       expect(isDevControlRoute(route)).toBe(true);
     }

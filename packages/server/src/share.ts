@@ -125,6 +125,15 @@ const ENTRY_PREFIX = "/leglas/s/";
  * route tomorrow and a plugin can mount one today, so the share tells the
  * user plainly that a viewer reads what their dev server serves. Adding an
  * entry is a line here.
+ *
+ * Read and found to need nothing of their own, so the next person need not
+ * look again: Astro 7.3.1 (only `/_astro/status`, which answers `{ok:true}`),
+ * SvelteKit 2.70.3, Angular 22.1.7 (only its `/@ng/` update routes) and
+ * Storybook 10.6.0, whose open-in-editor rides its own websocket channel
+ * rather than a route, and viewers cannot upgrade an app's socket. Rsbuild
+ * 2.2.3 mounts `/__open-in-editor` with the same launch-editor package Vite
+ * uses, so the first entry covers it, and so it does for Vue CLI, Remix and
+ * React Router, which sit on Vite or webpack-dev-server.
  */
 export const DEV_CONTROL_ROUTES: readonly string[] = [
   /** Vite, Nuxt and vue-cli: opens `?file=` in the machine's editor. */
@@ -165,6 +174,15 @@ export const DEV_CONTROL_PREFIXES: readonly string[] = [
    * `/__nuxt`, which the app needs, so the prefix is the longer one.
    */
   "/__nuxt_devtools__",
+  /**
+   * Parcel 2.16.4 puts everything here, `__parcel_launch_editor` included,
+   * which reads a `file` parameter and calls the same launch-editor code
+   * Vite does. Beside it sit `__parcel_source_map`, `__parcel_source_root`
+   * and `__parcel_code_frame`, which serve source, and the HMR and health
+   * routes, which a viewer has no use for: their live-reload socket is
+   * already refused.
+   */
+  "/__parcel_",
 ];
 
 /** Whether a path is one of those routes, sits under one, or is in a dev namespace. */
