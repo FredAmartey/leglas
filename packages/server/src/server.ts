@@ -1060,6 +1060,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return void readShareBody(req, res, (body) => shares?.extendGrant(body));
     }
 
+    if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/allow` && req.method === "POST") {
+      return void readShareBody(req, res, (body) => shares?.allowRoute(body));
+    }
+
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/rotate` && req.method === "POST") {
       return void readShareBody(req, res, () => shares?.rotate());
     }

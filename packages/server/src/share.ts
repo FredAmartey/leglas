@@ -32,6 +32,10 @@ export type ShareStatus = {
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
+  reach: ShareReach;
+  routes: string[];
+  /** What `listed` turned away, so the sharer can see it and decide. */
+  refused: string[];
   sharePort: number;
   grants: Array<{
     id: string;
@@ -61,11 +65,53 @@ export type Grant = {
   viewers: number;
 };
 
+/**
+ * How far a viewer may reach into the dev server.
+ *
+ * `open` is the whole thing over GET, minus the control routes every share
+ * refuses. `listed` is only what the share's own list holds, which is the
+ * one mechanism here that a page's own JavaScript cannot walk around: it is
+ * decided by path on the server, so a console, a service worker and curl
+ * all meet it the same way.
+ */
+export type ShareReach = "open" | "listed";
+
 type ShareManifest = {
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
+  reach: ShareReach;
+  /**
+   * Paths a viewer may load in `listed` mode. An entry ending in `/` stands
+   * for everything beneath it; anything else is one exact path. Seeded from
+   * what the sharer's own browser already loaded for these directions, which
+   * is the only honest source: nobody can enumerate a bundler's asset graph
+   * by hand, and a list written by guessing breaks the app silently.
+   */
+  routes: string[];
 };
+
+/** How many refusals a share remembers, so the panel can offer to allow them. */
+const MAX_REFUSED = 40;
+
+/**
+ * Whether the list lets this path through. Compared over every spelling a
+ * dev server would answer to, for the same reason the control list is.
+ */
+export function routeAllowed(routes: readonly string[], url: string): boolean {
+  const [rawPath = "/"] = url.split("?", 2);
+  const spelled = spellings(rawPath);
+  return routes.some((route) => {
+    // A trailing slash means a directory, and the root is not one: an app
+    // served at "/" would otherwise stand for every path there is, which
+    // turns the whole list into "allow anything". Found by a test that
+    // expected a refusal and got the app.
+    const prefix = route.endsWith("/") && route !== "/";
+    return prefix
+      ? spelled.some((path) => path.startsWith(route) || `${path}/` === route)
+      : spelled.includes(route);
+  });
+}
 
 export type ShareResult =
   | { ok: true; share: ShareStatus }
@@ -115,6 +161,8 @@ type ActiveShare = ShareManifest & {
   >;
   launch: ReturnType<typeof setImmediate> | null;
   expiryTimer: ReturnType<typeof setTimeout> | null;
+  /** Paths `listed` mode turned away, newest last, so they can be allowed. */
+  refused: string[];
 };
 
 type ShareManager = {
@@ -122,6 +170,7 @@ type ShareManager = {
   status(): ShareStatus | null;
   /** Whether a file-preview mount belongs to a direction in the share. */
   fileSlugAllowed(slug: string, grantId: string): Promise<boolean>;
+  allowRoute(input: unknown): ShareResult;
   create(input: unknown): Promise<ShareResult>;
   createGrant(input: unknown): ShareResult;
   revokeGrant(input: unknown): ShareResult;
@@ -422,7 +471,32 @@ function manifestFrom(
   if (scope !== "compare" && layout.compare !== null) {
     return { ok: false, error: "Only a comparison share can name a right pane." };
   }
-  return { ok: true, manifest: { scope, titles, layout } };
+  const reach = value.reach === "listed" ? "listed" : "open";
+  if (value.reach !== undefined && value.reach !== "open" && value.reach !== "listed") {
+    return { ok: false, error: "Reach is either open or listed." };
+  }
+  if (value.routes !== undefined && !stringArray(value.routes)) {
+    return { ok: false, error: "The route list must be an array of paths." };
+  }
+  // Only paths, and only ones that could be asked for: a route that does not
+  // begin with a slash can never match a request, so it is a mistake worth
+  // naming rather than dead weight in the list.
+  const routes = [...new Set((value.routes ?? []).map((route) => route.split("?", 1)[0] ?? ""))]
+    .filter((route) => route !== "")
+    .slice(0, 400);
+  if (routes.some((route) => !route.startsWith("/"))) {
+    return { ok: false, error: "Every route must be a path beginning with a slash." };
+  }
+  // The shared directions themselves are always in: a share whose own pages
+  // are refused is not a share.
+  const own = titles.flatMap((title) => {
+    const url = byTitle.get(title)?.url;
+    return url === undefined ? [] : [url.split("?", 1)[0] ?? ""];
+  });
+  return {
+    ok: true,
+    manifest: { scope, titles, layout, reach, routes: [...new Set([...routes, ...own])] },
+  };
 }
 
 /**
@@ -661,6 +735,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
             expiresAt: grant.expiresAt,
           };
         }),
+      reach: share.reach,
+      routes: [...share.routes],
+      refused: [...share.refused],
       tunnel: { ...share.tunnel },
       startedAt: share.startedAt,
     };
@@ -819,6 +896,25 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     if (req.headers["sec-fetch-dest"] === "serviceworker") {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
+    // Everything Leglas serves itself is the interface, which a viewer needs
+    // in order to be a viewer at all. The list is about the app behind it.
+    const url = req.url ?? "/";
+    if (
+      share.reach === "listed" &&
+      !path.startsWith("/leglas/") &&
+      path !== "/leglas" &&
+      !routeAllowed(share.routes, url)
+    ) {
+      // Remembered so the sharer can see what their app wanted and let it
+      // in, because no list written in advance survives a lazy chunk.
+      const asked = url.split("?", 1)[0] ?? "/";
+      if (!share.refused.includes(asked)) {
+        share.refused.push(asked);
+        while (share.refused.length > MAX_REFUSED) share.refused.shift();
+        options.live.nudge("share");
+      }
+      return sendJson(res, 403, { ok: false, error: "Not shared." });
+    }
     // Held so revoking this link can cut a response that never ends on its
     // own, and let go however the response finishes.
     const held = { req, res };
@@ -970,6 +1066,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         grantRequests: new Map(),
         launch: null,
         expiryTimer: null,
+        refused: [],
       };
       active = share;
       // A share starts with one link, unnamed until the sharer names it.
@@ -1103,6 +1200,30 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return { ok: true, share: status() as ShareStatus };
   };
 
+  /**
+   * Let a path through that `listed` turned away.
+   *
+   * A trailing slash means everything beneath it, which is what a bundler's
+   * asset directory wants; anything else is the one path. The refusal it
+   * answers leaves the list of what was turned away, so the panel empties as
+   * the sharer works through it.
+   */
+  const allowRoute = (input: unknown): ShareResult => {
+    const share = active;
+    if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+    const asked = isRecord(input) && typeof input.path === "string" ? input.path.trim() : "";
+    if (!asked.startsWith("/")) {
+      return { ok: false, status: 400, error: "A route is a path beginning with a slash." };
+    }
+    if (share.routes.length >= 400) {
+      return { ok: false, status: 409, error: "That share is holding as many routes as it can." };
+    }
+    if (!share.routes.includes(asked)) share.routes.push(asked);
+    share.refused = share.refused.filter((path) => !routeAllowed([asked], path));
+    options.live.nudge("share");
+    return { ok: true, share: status() as ShareStatus };
+  };
+
   const update = async (
     input: unknown,
   ): Promise<ShareResult | { ok: false; status: 404; error: string }> => {
@@ -1194,6 +1315,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     tunnels,
     status,
     fileSlugAllowed,
+    allowRoute,
     create,
     createGrant,
     revokeGrant,

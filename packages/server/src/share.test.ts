@@ -4,7 +4,12 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Preview } from "./config.js";
 import { createLiveHub } from "./live.js";
-import { createShareManager, isDevControlRequest, type ShareLayout } from "./share.js";
+import {
+  createShareManager,
+  isDevControlRequest,
+  routeAllowed,
+  type ShareLayout,
+} from "./share.js";
 
 const previews: Preview[] = [
   { title: "Current", url: "/", note: undefined, tags: [] },
@@ -415,6 +420,87 @@ describe("many links to one share", () => {
       expect(gone.status).toBe(410);
     }
     expect((await enter(rotated.share.grants[0].localUrl)).status).toBe(302);
+  });
+});
+
+describe("how far a viewer reaches", () => {
+  const startWith = async (extra: Record<string, unknown>) => {
+    const { manager } = managerFor(previews, (res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("the app");
+    });
+    const created = await manager.create({
+      scope: "rail",
+      titles: ["Current"],
+      layout,
+      tunnel: "none",
+      ...extra,
+    });
+    if (!created.ok) throw new Error(created.error);
+    const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
+    const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const origin = created.share.grants[0].localUrl.replace(/\/leglas\/s\/.+$/, "");
+    const get = (path: string) => fetch(`${origin}${path}`, { headers: { cookie } });
+    return { manager, get, share: created.share };
+  };
+
+  test("open reach serves the app, as it did before there was a list", async () => {
+    const { get, share } = await startWith({});
+    expect(share.reach).toBe("open");
+    expect((await get("/anything/at/all")).status).toBe(200);
+  });
+
+  test("listed reach serves the list and refuses the rest, remembering what it refused", async () => {
+    const { get, manager } = await startWith({
+      reach: "listed",
+      routes: ["/src/main.tsx", "/node_modules/.vite/deps/"],
+    });
+    // The shared direction is always in: a share whose own page is refused
+    // is not a share.
+    expect((await get("/")).status).toBe(200);
+    expect((await get("/src/main.tsx")).status).toBe(200);
+    // A trailing slash stands for everything beneath it.
+    expect((await get("/node_modules/.vite/deps/react.js")).status).toBe(200);
+
+    const turned = await get("/api/internal/keys");
+    expect(turned.status).toBe(403);
+    expect(await turned.json()).toEqual({ ok: false, error: "Not shared." });
+    // The interface itself is never the app's business to be listed for.
+    expect((await get("/leglas/api/health")).status).toBe(200);
+
+    expect(manager.status()?.refused).toEqual(["/api/internal/keys"]);
+  });
+
+  test("allowing a refused path lets it through and clears it from the list", async () => {
+    const { get, manager } = await startWith({ reach: "listed", routes: [] });
+    expect((await get("/late/chunk-a.js")).status).toBe(403);
+    expect((await get("/late/chunk-b.js")).status).toBe(403);
+    expect(manager.status()?.refused).toEqual(["/late/chunk-a.js", "/late/chunk-b.js"]);
+
+    // A directory takes everything under it, which is what a bundler's
+    // asset folder wants, and both refusals go with it.
+    const allowed = manager.allowRoute({ path: "/late/" });
+    expect(allowed.ok).toBe(true);
+    expect(manager.status()?.refused).toEqual([]);
+    expect((await get("/late/chunk-a.js")).status).toBe(200);
+    expect((await get("/late/chunk-c.js")).status).toBe(200);
+
+    expect(manager.allowRoute({ path: "no-slash" }).ok).toBe(false);
+  });
+
+  test("the list is read in every spelling, like the control routes", async () => {
+    const { get } = await startWith({ reach: "listed", routes: ["/assets/app.js"] });
+    // A dev server that lowercases or normalises must not find a way in that
+    // this list did not consider.
+    expect((await get("/assets/app.js")).status).toBe(200);
+    expect(routeAllowed(["/assets/app.js"], "/ASSETS/APP.JS")).toBe(true);
+    expect(routeAllowed(["/assets/"], "/foo/../assets/app.js")).toBe(true);
+    expect(routeAllowed(["/assets/"], "/assets")).toBe(true);
+    expect(routeAllowed(["/assets/app.js"], "/assets/app.js.map")).toBe(false);
+    expect(routeAllowed([], "/anything")).toBe(false);
+    // The root is a page, never a prefix over everything beneath it.
+    expect(routeAllowed(["/"], "/")).toBe(true);
+    expect(routeAllowed(["/"], "/api/keys")).toBe(false);
   });
 });
 
