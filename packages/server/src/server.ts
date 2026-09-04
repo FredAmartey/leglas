@@ -636,7 +636,12 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
   };
 }
 
-function watchHealth(target: string, live: LiveHub): LiveFiles {
+type HealthWatch = LiveFiles & {
+  /** The last verdict, or null while nobody is listening and nothing has been asked. */
+  reachable(): boolean | null;
+};
+
+function watchHealth(target: string, live: LiveHub): HealthWatch {
   let previous: boolean | null = null;
   let probing = false;
   let closed = false;
@@ -667,6 +672,7 @@ function watchHealth(target: string, live: LiveHub): LiveFiles {
       closed = true;
       clearInterval(timer);
     },
+    reachable: () => previous,
   };
 }
 
@@ -763,11 +769,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   } = options;
   const browserPool = options.pool ?? createBrowserPool();
   let shares: ReturnType<typeof createShareManager> | null = null;
+  let liveHealth: HealthWatch | null = null;
   let live: LiveHub;
   live =
     options.live ??
     createLiveHub({
-      onViewers: (count) => shares?.viewersChanged(count),
+      onViewers: () => shares?.viewersChanged(),
     });
   const branches = createBranchRegistry({
     cwd,
@@ -939,11 +946,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (context.remote && path === `${LEGLAS_PREFIX}/api/health`) {
-      // Only the verdict. The full answer names the working directory so a
-      // command on this machine can tell one server from another, and a
-      // viewer has no business with either the directory or the dev server's
-      // address.
-      return void probe(target).then((reachable) =>
+      // Only the verdict, and the one the watcher already holds: every viewer
+      // asks on the same beat the watcher's nudge started, so a probe per
+      // viewer would be that many sockets to the dev server for one answer.
+      // The full answer names the working directory so a command on this
+      // machine can tell one server from another, and a viewer has no
+      // business with either the directory or the dev server's address.
+      const known = liveHealth?.reachable() ?? null;
+      return void (known === null ? probe(target) : Promise.resolve(known)).then((reachable) =>
         sendConditionalJson(req, res, { reachable }),
       );
     }
@@ -959,6 +969,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Share details must be JSON." });
+      }
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
@@ -966,7 +979,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        const result = await shares?.create(parsed);
+        const result = await shares?.create(parsed).catch((error: unknown) => ({
+          ok: false as const,
+          status: 500 as const,
+          error: `Leglas could not start the share (${
+            error instanceof Error ? error.message : String(error)
+          }).`,
+        }));
         if (result === undefined) {
           return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
         }
@@ -977,6 +996,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/update` && req.method === "POST") {
+      if (!hasJsonBody(req)) {
+        return sendJson(res, 400, { ok: false, error: "Share details must be JSON." });
+      }
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", async () => {
@@ -1971,10 +1993,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         relative = "";
       }
       const dir = fileMounts.get(slug);
-      if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
-      res.end("Leglas: no such preview file.");
-      return;
+      const serveMount = (): void => {
+        if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        res.end("Leglas: no such preview file.");
+      };
+      if (!context.remote) return serveMount();
+      // A mount is the preview's whole directory, keyed by a slug made from
+      // its title, so the share's own manifest decides which mounts a viewer
+      // may read, and nothing that starts with a dot is served there: a file
+      // preview at the project root mounts the project.
+      if (relative.split("/").some((segment) => segment.startsWith("."))) {
+        return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
+      }
+      return void (shares?.fileSlugAllowed(slug) ?? Promise.resolve(false)).then((allowed) => {
+        if (!allowed) return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
+        serveMount();
+      });
     }
 
     if (path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
@@ -2055,7 +2090,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   port = await bind(server, options.port ?? DEFAULT_PORT);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
-  const liveHealth = watchHealth(target, live);
+  liveHealth = watchHealth(target, live);
   await pruneCaptures(
     cwd,
     (await readRequests(cwd).catch(() => [])).map((request) => request.id),
@@ -2086,10 +2121,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     close: () => {
       if (closePromise !== null) return closePromise;
       closePromise = (async () => {
-        await shares?.stop();
         liveFiles.close();
-        liveHealth.close();
+        liveHealth?.close();
+        // The share goes with the rest rather than ahead of it: a tunnel that
+        // sits on SIGTERM for its three seconds must not hold the browser,
+        // the runner and the branches open meanwhile.
         await Promise.all([
+          shares?.close() ?? Promise.resolve(),
           branches.stop(),
           runner.stop(),
           browserPool.close(),

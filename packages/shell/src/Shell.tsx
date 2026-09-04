@@ -5,10 +5,12 @@ import {
   BranchOverlay,
   ErrorOverlay,
   ICON_BUTTON,
+  LiveDot,
   Mark,
   BrandMark,
   P,
   PIcon,
+  ShareGlyph,
   RenameForm,
   SkeletonOverlay,
   Switch,
@@ -54,7 +56,7 @@ import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
-import { LiveDot, ShareGlyph, SharePanel } from "./SharePanel.js";
+import { SharePanel } from "./SharePanel.js";
 import { viewersLine } from "./share.js";
 import { useShare } from "./useShare.js";
 import { ReferenceStrip } from "./ReferenceStrip.js";
@@ -1241,8 +1243,21 @@ export function Shell({
 
   // Flipping shows a difference over time; a split shows it at once, which is
   // what you want for the last two directions still in contention.
-  const [split, setSplit] = useState(false);
-  const [comparePin, setComparePin] = useState<string | null>(null);
+  // A comparison share opens as the comparison: the pair the sharer had on
+  // stage, side by side, before the viewer touches anything.
+  const [split, setSplit] = useState(viewer?.scope === "compare");
+  const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
+  // A pushed share moves the stage with it, settled while rendering so the
+  // frame never shows the old pair first.
+  const viewerStage = viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
+  const [seenStage, setSeenStage] = useState(viewerStage);
+  if (viewerStage !== seenStage) {
+    setSeenStage(viewerStage);
+    if (viewer !== undefined) {
+      setSplit(viewer.scope === "compare");
+      setComparePin(viewer.layout.compare);
+    }
+  }
   const previousRef = useRef<string | null>(null);
   useEffect(() => {
     // Cleanup runs just before the next change, so this holds the direction
@@ -1486,7 +1501,7 @@ export function Shell({
     return () => {
       cancelled = true;
     };
-  }, [agentsTick]);
+  }, [agentsTick, viewing]);
   // Bumped after a submit so the hint updates without waiting out the
   // interval; the effect restarting is the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
@@ -1544,7 +1559,7 @@ export function Shell({
       cancelled = true;
       stop();
     };
-  }, [requestsTick]);
+  }, [requestsTick, viewing]);
   // Two independent readings of one snapshot: the chip says who Enter sends
   // to, the card says what is happening right now. They used to fight over a
   // single footer slot, which is how a running request could hide the chooser.
@@ -2865,7 +2880,6 @@ export function Shell({
                 open={shareOpen}
                 prefs={st.prefs}
                 previews={previews}
-                refresh={shareState.refresh}
                 share={shareState.share}
                 triggerRef={shareButtonRef}
                 tunnels={shareState.tunnels}

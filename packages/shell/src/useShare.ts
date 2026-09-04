@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FALLBACK_MS, liveConnection } from "./live.js";
 import { startPoll } from "./poll.js";
@@ -20,11 +20,12 @@ const NOTHING: SharePayload = { share: null, tunnels: [] };
  * The loop follows the same two rules as every other read in the shell: one
  * in flight at a time, a slow interval as the fallback. It ticks faster while
  * a share is live, because that is when the state moves (the tunnel coming
- * up, a viewer arriving) and when someone is looking at it.
+ * up, a viewer arriving) and when someone is looking at it. The panel never
+ * asks for a read after a change it made: the server nudges `share` on
+ * every one, and that is the read.
  */
-export function useShare(enabled: boolean): SharePayload & { refresh: () => void } {
+export function useShare(enabled: boolean): SharePayload {
   const [payload, setPayload] = useState<SharePayload>(NOTHING);
-  const [tick, refresh] = useReducer((count: number) => count + 1, 0);
   const live = payload.share !== null;
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export function useShare(enabled: boolean): SharePayload & { refresh: () => void
       cancelled = true;
       stop();
     };
-  }, [enabled, live, tick]);
+  }, [enabled, live]);
 
-  return { ...payload, refresh };
+  return payload;
 }

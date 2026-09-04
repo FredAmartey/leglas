@@ -397,7 +397,7 @@ compared), and start sharing. Leglas opens a second listener on your
 machine, points a tunnel at it and copies the link once it answers.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-live.png" width="426" alt="The share panel under the rail's header: the link, a line reading Live, nobody looking yet, the scope The whole rail, 6 directions, and a Stop button" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-live.png" width="426" alt="The share panel under the rail's header: the link, a line reading Live, nobody looking yet, the scope The whole rail, 6 directions and a Stop button" />
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-viewer.png" width="426" alt="The same rail as a viewer sees it: a strip reading Shared with you, the whole rail, then the directions in the sharer's order with no composer" />
 </p>
 
@@ -406,9 +406,10 @@ machine, points a tunnel at it and copies the link once it answers.
 Whoever opens the link gets the real app, running, with your order, your
 names, your folded families and your viewport. They can flip, compare,
 search and change the width. They cannot change anything: the share
-listener refuses every write, whoever the caller is, and serves nothing at
-all without the cookie the link sets, so your dev server never faces the
-internet bare. The panel shows whether the link is answering and how many
+listener refuses every write, whoever the caller is, and answers every path
+with 403 without the cookie the link sets, so your dev server never faces
+the internet bare. Viewers do not get hot reload either, since an app's
+live-reload socket is a way in; they refresh to see a change. The panel shows whether the link is answering and how many
 people are looking. When your rail has moved since you shared, it offers to
 push what you see now; stop the share from the same place, and it stops
 with Leglas either way.

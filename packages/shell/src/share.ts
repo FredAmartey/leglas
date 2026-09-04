@@ -1,11 +1,11 @@
-import { railOrder, type Prefs } from "./prefs.js";
+import { loadPrefs, railOrder, type Prefs } from "./prefs.js";
 import type { Preview, ShareLayout, ShareScope } from "./types.js";
 
 /**
  * What a share carries, worked out from the rail as the sharer sees it.
  *
  * A share is a manifest: which directions, in what order, under what names,
- * with which families folded, and the pair on stage when there is one. This
+ * with which families folded and the pair on stage when there is one. This
  * module turns the sharer's preferences into that manifest and back, and
  * says which directions cannot go. It knows nothing about the network; the
  * panel and the server do that part.
@@ -15,6 +15,9 @@ export type ShareRequest = {
   titles: string[];
   layout: ShareLayout;
 };
+
+/** The preference fields a share carries. The rest are the viewer's own. */
+const LAYOUT_KEYS = ["order", "renames", "collapsedFamilies", "viewport"] as const;
 
 /**
  * Why a direction cannot be shared, or null when it can.
@@ -41,8 +44,7 @@ function restrictedLayout(
       Object.entries(prefs.renames).filter(([title]) => included.has(title)),
     ),
     // Hidden directions are simply not sent, so nothing needs hiding on the
-    // other side, and the viewer never learns what was set aside.
-    hidden: [],
+    // other side and the viewer never learns what was set aside.
     collapsedFamilies: prefs.collapsedFamilies.filter((title) => included.has(title)),
     compare,
     viewport: prefs.viewport,
@@ -58,12 +60,16 @@ export function railShare(
   previews: readonly Preview[],
 ): { request: ShareRequest; leftOut: string[] } {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
+  const gone = new Set([...prefs.deleted, ...prefs.hidden]);
   const titles = railOrder(
     prefs.order,
     previews.map((preview) => preview.title),
-  ).filter((title) => !prefs.deleted.includes(title) && !prefs.hidden.includes(title));
-  const leftOut = titles.filter((title) => unshareableReason(byTitle.get(title)) !== null);
-  const shared = titles.filter((title) => !leftOut.includes(title));
+  ).filter((title) => !gone.has(title));
+  const leftOut: string[] = [];
+  const shared: string[] = [];
+  for (const title of titles) {
+    (unshareableReason(byTitle.get(title)) === null ? shared : leftOut).push(title);
+  }
   return {
     request: { scope: "rail", titles: shared, layout: restrictedLayout(prefs, shared, null) },
     leftOut,
@@ -114,7 +120,6 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   const renamesY = Object.entries(y.renames).toSorted();
   return (
     sameList(x.order, y.order) &&
-    sameList(x.hidden, y.hidden) &&
     sameList([...x.collapsedFamilies].toSorted(), [...y.collapsedFamilies].toSorted()) &&
     x.compare === y.compare &&
     x.viewport === y.viewport &&
@@ -131,11 +136,24 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
 export function viewerPrefsRaw(layout: ShareLayout): string {
   return JSON.stringify({
     collapsedFamilies: layout.collapsedFamilies,
-    hidden: layout.hidden,
     order: layout.order,
     renames: layout.renames,
     viewport: layout.viewport,
   });
+}
+
+/**
+ * A viewer's prefs after the sharer pushed a new layout: the layout's fields
+ * as the sharer has them, everything else (the rail's width, the typeface,
+ * the widget's corner) as the viewer left it. The same validation as the
+ * first seeding, so an unknown title or an odd viewport is dropped the same
+ * way.
+ */
+export function adoptLayout(current: Prefs, layout: ShareLayout, previews: readonly Preview[]): Prefs {
+  const seeded = loadPrefs(viewerPrefsRaw(layout), previews);
+  const next = { ...current };
+  for (const key of LAYOUT_KEYS) (next as Record<string, unknown>)[key] = seeded[key];
+  return next;
 }
 
 /** What is being shared, in a few words, for the panel and the tip. */

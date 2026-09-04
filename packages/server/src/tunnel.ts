@@ -1,5 +1,5 @@
 import { spawn as spawnChild } from "node:child_process";
-import { Resolver } from "node:dns/promises";
+import { Resolver, lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 
@@ -25,7 +25,15 @@ export type TunnelState =
   | { status: "ready"; provider: TunnelProviderId; url: string }
   | { status: "failed"; provider: TunnelProviderId; reason: string; url?: string };
 
-export type RunningTunnel = { stop(): Promise<void> };
+export type RunningTunnel = {
+  stop(): Promise<void>;
+  /**
+   * Declare the link answering on evidence better than the probe's: a viewer
+   * has arrived through it. Stops asking and reports `ready`. Nothing
+   * happens without a URL to be ready at, or once the tunnel is settled.
+   */
+  settle(): void;
+};
 
 export type TunnelDeps = {
   spawn?: typeof spawnChild;
@@ -39,7 +47,9 @@ const URL_DEADLINE_MS = 30_000;
 const PROBE_DEADLINE_MS = 30_000;
 const PROBE_INTERVAL_MS = 1500;
 /** Past the deadline the link is asked about less often, for as long as it takes. */
+/** After the deadline the asks back off, doubling from here to the cap. */
 const SLOW_PROBE_INTERVAL_MS = 4000;
+const SLOW_PROBE_CAP_MS = 30_000;
 const STOP_GRACE_MS = 3000;
 const STOP_LIMIT_MS = STOP_GRACE_MS + 2000;
 const PROBE_TIMEOUT_MS = 3000;
@@ -56,18 +66,25 @@ const PROBE_TIMEOUT_MS = 3000;
  * kept for TLS and the Host header. Measured on a Mac whose resolver held
  * the miss for the length of a five-minute share.
  */
-async function askLink(url: string, entryPath: string): Promise<boolean> {
+async function askLink(resolver: Resolver, url: string, entryPath: string): Promise<boolean> {
   let target: URL;
   try {
     target = new URL(url);
   } catch {
     return false;
   }
+  // The direct ask first, because it forgets a miss; the system's own lookup
+  // second, because a VPN or a scoped resolver may be the only thing that
+  // knows the name at all.
   let address: string | undefined;
   try {
-    [address] = await new Resolver().resolve4(target.hostname);
+    [address] = await resolver.resolve4(target.hostname);
   } catch {
-    return false;
+    try {
+      address = (await lookup(target.hostname, { family: 4 })).address;
+    } catch {
+      return false;
+    }
   }
   if (address === undefined) return false;
   const secure = target.protocol === "https:";
@@ -134,7 +151,12 @@ export function startTunnel(
   const now = deps.now ?? Date.now;
   const urlDeadlineMs = deps.urlDeadlineMs ?? URL_DEADLINE_MS;
   const probeDeadlineMs = deps.probeDeadlineMs ?? PROBE_DEADLINE_MS;
-  const probe = deps.probe ?? ((url: string) => askLink(url, options.entryPath));
+  // One resolver for the tunnel's life: a channel to the configured
+  // nameservers that forgets nothing between asks, made once rather than per
+  // probe.
+  const resolver = deps.probe === undefined ? new Resolver() : null;
+  const probe =
+    deps.probe ?? ((url: string) => askLink(resolver as Resolver, url, options.entryPath));
 
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const later = (callback: () => void, ms: number): ReturnType<typeof setTimeout> => {
@@ -204,7 +226,7 @@ export function startTunnel(
     });
   } catch {
     fail(`${options.provider} exited before the tunnel came up.`);
-    return { stop: async () => {} };
+    return { settle: () => {}, stop: async () => {} };
   }
 
   const beginProbe = (found: string): void => {
@@ -227,9 +249,15 @@ export function startTunnel(
       report({ status: "starting", provider: options.provider, url, slow: true });
     }, probeDeadlineMs);
 
+    let slowWait = SLOW_PROBE_INTERVAL_MS;
     const again = (): void => {
       if (terminal || stopping || url === null) return;
-      later(poll, now() - urlAt < probeDeadlineMs ? PROBE_INTERVAL_MS : SLOW_PROBE_INTERVAL_MS);
+      if (now() - urlAt < probeDeadlineMs) {
+        later(poll, PROBE_INTERVAL_MS);
+        return;
+      }
+      later(poll, slowWait);
+      slowWait = Math.min(SLOW_PROBE_CAP_MS, slowWait * 2);
     };
     const poll = (): void => {
       if (terminal || stopping || url === null) return;
@@ -256,7 +284,9 @@ export function startTunnel(
     if (url !== null || trimmed === "") return;
 
     if (options.provider === "cloudflared") {
-      const found = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(trimmed)?.[0];
+      // Never the API host: a failed quick-tunnel request names it in the
+      // error, and that is not a link to hand anyone.
+      const found = /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/.exec(trimmed)?.[0];
       if (found !== undefined) beginProbe(found);
       return;
     }
@@ -316,6 +346,12 @@ export function startTunnel(
   );
 
   return {
+    settle(): void {
+      if (terminal || stopping || url === null) return;
+      terminal = true;
+      clearTimers();
+      report({ status: "ready", provider: options.provider, url });
+    },
     stop(): Promise<void> {
       if (stopPromise !== null) return stopPromise;
       stopping = true;

@@ -3,7 +3,8 @@ import http from "node:http";
 import type { Duplex } from "node:stream";
 
 import type { Preview } from "./config.js";
-import type { LiveHub } from "./live.js";
+import { LIVE_PATH, type LiveHub } from "./live.js";
+import { SHARE_COOKIE } from "./proxy.js";
 import {
   detectTunnels,
   startTunnel,
@@ -18,7 +19,6 @@ export type ShareLayout = {
   /** Rail order, whole rail; viewers only see `titles`, in this order. */
   order: string[];
   renames: Record<string, string>;
-  hidden: string[];
   collapsedFamilies: string[];
   /** The right pane when the scope is compare; null otherwise. */
   compare: string | null;
@@ -49,7 +49,7 @@ type ShareManifest = {
 
 type ShareResult =
   | { ok: true; share: ShareStatus }
-  | { ok: false; status: 400 | 409; error: string };
+  | { ok: false; status: 400 | 409 | 500; error: string };
 
 type RequestContext = {
   publicOrigin: string;
@@ -90,20 +90,27 @@ type ActiveShare = ShareManifest & {
 type ShareManager = {
   tunnels(): Promise<TunnelProviderId[]>;
   status(): ShareStatus | null;
+  /** Whether a file-preview mount belongs to a direction in the share. */
+  fileSlugAllowed(slug: string): Promise<boolean>;
   /**
    * The live hub's viewer count moved. A viewer arriving is the one proof the
    * link answers that no probe from this machine can beat, so it also settles
    * a tunnel still being asked about.
    */
-  viewersChanged(count: number): void;
+  viewersChanged(): void;
   create(input: unknown): Promise<ShareResult>;
   update(input: unknown): Promise<ShareResult | { ok: false; status: 404; error: string }>;
   viewerConfig(): Promise<unknown | null>;
   stop(): Promise<void>;
+  /** Stop, and refuse every share from now on: the server is going. */
+  close(): Promise<void>;
 };
 
 const ENTRY_PREFIX = "/leglas/s/";
-const SHARE_COOKIE = "leglas-share";
+/** Where file previews are served, the same prefix the server mounts them under. */
+const FILES_PREFIX_PATH = "/leglas/files/";
+/** How long a detection of tunnel programs stands before the next ask looks again. */
+const DETECT_TTL_MS = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -125,7 +132,6 @@ function layoutFrom(value: unknown): ShareLayout | null {
   if (
     !stringArray(value.order) ||
     !stringRecord(value.renames) ||
-    !stringArray(value.hidden) ||
     !stringArray(value.collapsedFamilies) ||
     (value.compare !== null && typeof value.compare !== "string") ||
     (value.viewport !== null &&
@@ -136,7 +142,6 @@ function layoutFrom(value: unknown): ShareLayout | null {
   return {
     order: [...value.order],
     renames: { ...value.renames },
-    hidden: [...value.hidden],
     collapsedFamilies: [...value.collapsedFamilies],
     compare: value.compare,
     viewport: value.viewport,
@@ -222,11 +227,37 @@ function cookieToken(req: http.IncomingMessage): string | null {
   return null;
 }
 
-function publicOrigin(req: http.IncomingMessage): string {
+/** The scheme the viewer used, as the tunnel reports it; http when nobody says. */
+function forwardedProto(req: http.IncomingMessage): string {
   const forwarded = req.headers["x-forwarded-proto"];
   const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const protocol = first?.split(",", 1)[0]?.trim() || "http";
-  return `${protocol}://${req.headers.host ?? "127.0.0.1"}`;
+  return first?.split(",", 1)[0]?.trim() || "http";
+}
+
+function publicOrigin(req: http.IncomingMessage): string {
+  return `${forwardedProto(req)}://${req.headers.host ?? "127.0.0.1"}`;
+}
+
+/**
+ * Whether a request came through a tunnel rather than straight to the
+ * listener from this machine. cloudflared and ngrok both name the real
+ * client; a sharer opening their own local link names nobody.
+ */
+function throughTunnel(req: http.IncomingMessage): boolean {
+  return (
+    req.headers["x-forwarded-for"] !== undefined ||
+    req.headers["cf-connecting-ip"] !== undefined ||
+    req.headers["x-forwarded-proto"] !== undefined
+  );
+}
+
+function cloneLayout(layout: ShareLayout): ShareLayout {
+  return {
+    ...layout,
+    order: [...layout.order],
+    renames: { ...layout.renames },
+    collapsedFamilies: [...layout.collapsedFamilies],
+  };
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -294,10 +325,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   let detected: Promise<TunnelProviderId[]> | null = null;
   let active: ActiveShare | null = null;
   let creating = false;
+  let closed = false;
   let stopPromise: Promise<void> | null = null;
+  let detectedAt = 0;
 
+  // Looked up again after a little while rather than once for the server's
+  // life: the panel tells people to install cloudflared or ngrok, and it
+  // has to notice when they do.
   const tunnels = (): Promise<TunnelProviderId[]> => {
-    detected ??= detect().catch(() => []);
+    if (detected === null || Date.now() - detectedAt > DETECT_TTL_MS) {
+      detectedAt = Date.now();
+      detected = detect().catch(() => []);
+    }
     return detected;
   };
 
@@ -310,13 +349,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       id: share.id,
       scope: share.scope,
       titles: [...share.titles],
-      layout: {
-        ...share.layout,
-        order: [...share.layout.order],
-        renames: { ...share.layout.renames },
-        hidden: [...share.layout.hidden],
-        collapsedFamilies: [...share.layout.collapsedFamilies],
-      },
+      layout: cloneLayout(share.layout),
       localUrl: `http://127.0.0.1:${share.port}${entryPath}`,
       sharePort: share.port,
       url:
@@ -337,13 +370,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     if (path.startsWith(ENTRY_PREFIX)) {
       const candidate = path.slice(ENTRY_PREFIX.length);
       if (
-        req.method !== "GET" ||
+        (req.method !== "GET" && req.method !== "HEAD") ||
         candidate.includes("/") ||
         !matches(share.token, candidate)
       ) return refuse(req, res);
-      const forwarded = req.headers["x-forwarded-proto"];
-      const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-      const secure = first?.split(",", 1)[0]?.trim() === "https" ? "; Secure" : "";
+      const secure = forwardedProto(req) === "https" ? "; Secure" : "";
       res.writeHead(302, {
         location: "/leglas/",
         "set-cookie": `${SHARE_COOKIE}=${share.token}; Path=/; HttpOnly; SameSite=Lax${secure}`,
@@ -371,10 +402,23 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       socket.destroy();
       return;
     }
+    // Only the interface's own socket. An app's live-reload socket is a
+    // two-way channel into the dev server, which is a write by another
+    // name; a viewer refreshes to see a change instead.
+    const path = (req.url ?? "/").split("?")[0] ?? "/";
+    if (path !== LIVE_PATH) {
+      socket.destroy();
+      return;
+    }
+    // Somebody reaching the socket through the tunnel is the one proof the
+    // link answers that no probe from this machine can beat. A socket from
+    // this machine (the sharer opening their own local link) proves nothing.
+    if (throughTunnel(req)) share.runningTunnel?.settle();
     options.upgrade(req, socket, head);
   };
 
   const create = async (input: unknown): Promise<ShareResult> => {
+    if (closed) return { ok: false, status: 409, error: "Leglas is shutting down." };
     if (active !== null || creating) {
       return { ok: false, status: 409, error: "Stop the current share first." };
     }
@@ -401,9 +445,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         };
       }
       const provider = requested ?? providers[0] ?? "none";
-      if (active !== null) {
-        return { ok: false, status: 409, error: "Stop the current share first." };
-      }
+      if (closed) return { ok: false, status: 409, error: "Leglas is shutting down." };
 
       const server = http.createServer(request);
       const sockets = new Set<Duplex>();
@@ -412,7 +454,25 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         socket.once("close", () => sockets.delete(socket));
       });
       server.on("upgrade", upgrade);
-      const port = await bind(server);
+      let port: number;
+      try {
+        port = await bind(server);
+      } catch (error) {
+        // Out of descriptors, or a loopback that will not bind: an answer,
+        // never an unhandled rejection taking the proxy down with it.
+        return {
+          ok: false,
+          status: 500,
+          error: `Leglas could not open a listener for the share (${
+            error instanceof Error ? error.message : String(error)
+          }).`,
+        };
+      }
+      if (closed) {
+        // The server went while this was binding; nothing must outlive it.
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        return { ok: false, status: 409, error: "Leglas is shutting down." };
+      }
       const share: ActiveShare = {
         ...parsed.manifest,
         id: randomUUID(),
@@ -440,18 +500,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
               provider,
               port,
               entryPath: `${ENTRY_PREFIX}${share.token}`,
-              onState: (reported) => {
-                if (active !== share) return;
-                // A viewer may have settled the link before the probe did;
-                // the process going after that is the process going, not
-                // a tunnel that never came up.
-                const next: TunnelState =
-                  share.tunnel.status === "ready" && reported.status === "failed"
-                    ? { ...reported, reason: "The tunnel process exited." }
-                    : share.tunnel.status === "ready" && reported.status === "starting"
-                      ? share.tunnel
-                      : reported;
-                if (JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
+              onState: (next) => {
+                if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
                 share.tunnel = next;
                 options.live.nudge("share");
               },
@@ -481,7 +531,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     share.scope = parsed.manifest.scope;
     share.titles = parsed.manifest.titles;
     share.layout = parsed.manifest.layout;
+    // Viewers read the config, not the share, so both are nudged: the
+    // sharer's panel for the status, every viewer for the rail.
     options.live.nudge("share");
+    options.live.nudge("config");
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -494,32 +547,39 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return {
       ...options.viewerConfig,
       // The project id is the config's absolute path, which keys the sharer's
-      // saved layout and names their machine's directories. A viewer keeps
-      // no layout, so the share's own id does the job and says nothing.
+      // saved layout and names their machine's directories, and the dev
+      // server's address names their network. A viewer keeps no layout and
+      // never dials the dev server, so the share's own id does the job and
+      // the address is left blank.
       project: `share:${share.id}`,
+      devServer: "",
       previews: options.previewsForConfig(previews),
       errors: [],
       warnings: [],
-      viewer: {
-        scope: share.scope,
-        layout: {
-          ...share.layout,
-          order: [...share.layout.order],
-          renames: { ...share.layout.renames },
-          hidden: [...share.layout.hidden],
-          collapsedFamilies: [...share.layout.collapsedFamilies],
-        },
-      },
+      viewer: { scope: share.scope, layout: cloneLayout(share.layout) },
     };
   };
 
-  const viewersChanged = (count: number): void => {
+  /**
+   * A file preview is served from its whole directory, keyed by a slug made
+   * from its title, so a viewer could ask for any mount by guessing the
+   * name. Only mounts behind directions in the share answer.
+   */
+  const fileSlugAllowed = async (slug: string): Promise<boolean> => {
     const share = active;
-    if (share === null) return;
-    if (count > 0 && share.tunnel.status === "starting" && share.tunnel.url !== undefined) {
-      share.tunnel = { status: "ready", provider: share.tunnel.provider, url: share.tunnel.url };
-    }
-    options.live.nudge("share");
+    if (share === null) return false;
+    const titles = new Set(share.titles);
+    const previews = await options.previews();
+    return previews.some((preview) => {
+      if (!titles.has(preview.title) || preview.file === undefined) return false;
+      const rest = preview.url.startsWith(FILES_PREFIX_PATH) ? preview.url.slice(FILES_PREFIX_PATH.length) : "";
+      const slash = rest.indexOf("/");
+      return (slash === -1 ? rest : rest.slice(0, slash)) === slug;
+    });
+  };
+
+  const viewersChanged = (): void => {
+    if (active !== null) options.live.nudge("share");
   };
 
   const stop = (): Promise<void> => {
@@ -541,5 +601,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return stopPromise;
   };
 
-  return { tunnels, status, viewersChanged, create, update, viewerConfig, stop };
+  const close = async (): Promise<void> => {
+    closed = true;
+    await stop();
+  };
+
+  return { tunnels, status, fileSlugAllowed, viewersChanged, create, update, viewerConfig, stop, close };
 }

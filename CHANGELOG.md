@@ -28,11 +28,11 @@ it was about.
   your names, with your families folded and your viewport, and can flip,
   compare, search and change the width. They cannot change anything: every
   request that arrives through the share listener is remote by construction,
-  so nothing on it may write, and without the cookie the link sets nothing on
-  it is served at all, so your dev server never faces the internet bare. The
+  so nothing on it may write, and without the cookie the link sets every path
+  on it answers 403, so your dev server never faces the internet bare. The
   panel says whether the tunnel has answered and how many people are looking,
   offers to push the rail as you have it now when it has moved since you
-  shared, and stops the share; the share also stops with Leglas. Branch
+  shared and stops the share; the share also stops with Leglas. Branch
   directions run on their own port and are left out of a share for now, and
   the panel says so. (`leglas`)
 

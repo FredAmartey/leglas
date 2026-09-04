@@ -14,7 +14,6 @@ const previews: Preview[] = [
 const layout: ShareLayout = {
   order: ["Current", "Aurora"],
   renames: { Aurora: "Afterglow" },
-  hidden: [],
   collapsedFamilies: [],
   compare: null,
   viewport: 390,

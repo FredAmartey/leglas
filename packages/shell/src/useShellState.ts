@@ -27,7 +27,7 @@ import {
   resetPreviewLoaded,
 } from "./preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
-import { viewerPrefsRaw } from "./share.js";
+import { adoptLayout, viewerPrefsRaw } from "./share.js";
 import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
 
 /**
@@ -164,6 +164,19 @@ export function useShellState({
     if (viewer !== undefined) return;
     window.localStorage.setItem(key, JSON.stringify(prefs));
   }, [prefs, key, viewer]);
+
+  /**
+   * The sharer pushed what they see now. The layout's fields are taken as
+   * they are; the viewer's own settings stay. Keyed on the layout's own
+   * bytes rather than the object, which is fresh on every read, and settled
+   * while rendering so no frame shows the old rail first.
+   */
+  const viewerLayout = viewer === undefined ? null : viewerPrefsRaw(viewer.layout);
+  const [seededFrom, setSeededFrom] = useState(viewerLayout);
+  if (viewerLayout !== seededFrom) {
+    setSeededFrom(viewerLayout);
+    if (viewer !== undefined) setPrefs((current) => adoptLayout(current, viewer.layout, previews));
+  }
 
   useEffect(
     () => () => {
@@ -431,6 +444,10 @@ export function useShellState({
       });
       if (!action) return;
       if (suspended && action.kind !== "help") return;
+      // A viewer has no composer and nothing to annotate; the keys that ask
+      // for work do nothing rather than open a rail for a field that is
+      // not there.
+      if (viewer !== undefined && (action.kind === "request" || action.kind === "note")) return;
 
       if (action.kind === "search" || action.kind === "request") {
         event.preventDefault();

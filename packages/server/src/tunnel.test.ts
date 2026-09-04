@@ -205,6 +205,57 @@ describe("startTunnel", () => {
     await tunnel.stop();
   });
 
+  test("settle reports the link ready on outside evidence and stops asking", async () => {
+    vi.useFakeTimers();
+    const spawned = spawnHarness();
+    const states: TunnelState[] = [];
+    const probe = vi.fn(async () => false);
+    const tunnel = startTunnel(
+      {
+        provider: "cloudflared",
+        port: 4327,
+        entryPath: "/leglas/s/token",
+        onState: (state) => states.push(state),
+      },
+      { spawn: spawned.spawn, probe },
+    );
+    // Nothing to settle before a URL exists.
+    tunnel.settle();
+    expect(states.at(-1)?.status).toBe("starting");
+    spawned.children[0]?.stderr.write("https://example-share.trycloudflare.com\n");
+    await vi.advanceTimersByTimeAsync(0);
+    tunnel.settle();
+    expect(states.at(-1)).toEqual({
+      status: "ready",
+      provider: "cloudflared",
+      url: "https://example-share.trycloudflare.com",
+    });
+    const asked = probe.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(probe.mock.calls.length).toBe(asked);
+    await tunnel.stop();
+  });
+
+  test("never takes cloudflared's API host for the link", async () => {
+    const spawned = spawnHarness();
+    const states: TunnelState[] = [];
+    const tunnel = startTunnel(
+      {
+        provider: "cloudflared",
+        port: 4328,
+        entryPath: "/leglas/s/token",
+        onState: (state) => states.push(state),
+      },
+      { spawn: spawned.spawn, probe: async () => true },
+    );
+    spawned.children[0]?.stderr.write(
+      'ERR Post "https://api.trycloudflare.com/tunnel": dial tcp: lookup failed\n',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(states.at(-1)).toEqual({ status: "starting", provider: "cloudflared" });
+    await tunnel.stop();
+  });
+
   test("stop sends SIGTERM, escalates and resolves on its own deadline", async () => {
     vi.useFakeTimers();
     const spawned = spawnHarness(false);

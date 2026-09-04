@@ -57,7 +57,7 @@ export type ConfigPayload = {
   viewer?: ViewerInfo | undefined;
 };
 
-/** Which directions a share carries: one, a pair on stage, or the rail. */
+/** Which directions a share carries: one, a pair on stage or the rail. */
 export type ShareScope = "direction" | "compare" | "rail";
 
 /**
@@ -69,7 +69,6 @@ export type ShareScope = "direction" | "compare" | "rail";
 export type ShareLayout = {
   order: string[];
   renames: Record<string, string>;
-  hidden: string[];
   collapsedFamilies: string[];
   /** The right pane when the scope is compare; null otherwise. */
   compare: string | null;

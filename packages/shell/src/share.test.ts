@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { DEFAULT_PREFS, loadPrefs, type Prefs } from "./prefs.js";
 import {
+  adoptLayout,
   railShare,
   sameShare,
   scopeLine,
@@ -37,7 +38,6 @@ describe("railShare", () => {
     expect(request.layout).toEqual({
       order: ["Aurora", "Ember"],
       renames: {},
-      hidden: [],
       collapsedFamilies: ["Aurora"],
       compare: null,
       viewport: 834,
@@ -115,6 +115,19 @@ describe("viewerPrefsRaw", () => {
     expect(seeded.collapsedFamilies).toEqual(["Aurora"]);
     expect(seeded.viewport).toBe(834);
     expect(seeded.hidden).toEqual([]);
+  });
+
+  test("adopting a pushed layout takes its fields and keeps the viewer's own", () => {
+    const { request } = railShare({ ...prefs, hidden: [] }, previews);
+    const mine: Prefs = { ...DEFAULT_PREFS, width: 300, font: "geist", collapsed: true, viewport: 390 };
+    const adopted = adoptLayout(mine, request.layout, previews);
+    expect(adopted.order).toEqual(["Wave", "Aurora", "Ember", "Old"]);
+    expect(adopted.renames).toEqual({ Wave: "Tide" });
+    expect(adopted.collapsedFamilies).toEqual(["Aurora"]);
+    expect(adopted.viewport).toBe(834);
+    expect(adopted.width).toBe(300);
+    expect(adopted.font).toBe("geist");
+    expect(adopted.collapsed).toBe(true);
   });
 });
 

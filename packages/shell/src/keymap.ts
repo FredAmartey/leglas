@@ -117,7 +117,9 @@ export function shortcutList(mac: boolean, viewer = false): readonly Shortcut[] 
   // A viewer of a share can look and compare, never change what runs, so the
   // keys that ask for work are not listed: a documented key that does nothing
   // is the drift this list exists to prevent.
-  return all
-    .filter((shortcut) => !(viewer && shortcut.changes))
-    .map(({ changes: _changes, ...shortcut }) => shortcut);
+  const listed: Shortcut[] = [];
+  for (const { changes, ...shortcut } of all) {
+    if (!(viewer && changes)) listed.push(shortcut);
+  }
+  return listed;
 }
