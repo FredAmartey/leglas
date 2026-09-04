@@ -264,6 +264,11 @@ describe("isDevControlRequest", () => {
       "/foo/../__open-in-editor",
       "/%5F%5Fopen-in-editor",
       "/%5f%5fOPEN-IN-EDITOR",
+      // A backslash is a slash to Node's own URL parsers, so it is one here.
+      "/foo\\..\\__open-in-editor",
+      "/\\__open-in-editor",
+      "/foo%5C..%5C__open-in-editor",
+      "/foo\\../__OPEN-IN-EDITOR",
     ]) {
       expect(isDevControlRequest(route)).toBe(true);
     }

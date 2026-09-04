@@ -245,6 +245,11 @@ export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
  * Decoding once, not repeatedly: a server that decodes twice is its own
  * bug, and looping here would refuse paths that legitimately contain an
  * encoded percent.
+ *
+ * A backslash is a slash. Node's own parsers, legacy `url.parse` and the
+ * WHATWG `URL` both, turn `/foo\..\x` into `/foo/../x` and the second into
+ * `/x`, so a server that reaches for either sees a path this code would not
+ * have, unless it looks the same way. Found in a reviewer's probe.
  */
 function spellings(path: string): string[] {
   const seen = new Set<string>();
@@ -253,17 +258,19 @@ function spellings(path: string): string[] {
     seen.add(value.toLowerCase());
   };
   add(path);
-  let decoded = path;
+  const forms = [path];
   try {
-    decoded = decodeURIComponent(path);
-    add(decoded);
+    forms.push(decodeURIComponent(path));
   } catch {
     // A malformed escape is not a spelling of anything; the raw form stands.
   }
-  for (const value of [path, decoded]) {
-    const collapsed = value.replace(/\/{2,}/g, "/");
-    add(collapsed);
-    add(posix.normalize(collapsed));
+  for (const value of forms) {
+    add(value);
+    for (const slashed of [value, value.replaceAll("\\", "/")]) {
+      const collapsed = slashed.replace(/\/{2,}/g, "/");
+      add(collapsed);
+      add(posix.normalize(collapsed));
+    }
   }
   return [...seen];
 }
