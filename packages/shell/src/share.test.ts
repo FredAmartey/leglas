@@ -3,8 +3,10 @@ import { describe, expect, test } from "vitest";
 import { DEFAULT_PREFS, loadPrefs, type Prefs } from "./prefs.js";
 import {
   adoptLayout,
+  directoryOf,
   expiryLine,
   grantLabel,
+  observedRoutes,
   railShare,
   sameShare,
   scopeLine,
@@ -135,6 +137,49 @@ describe("viewerPrefsRaw", () => {
   });
 });
 
+describe("observedRoutes", () => {
+  const frameFor = (title: string, names: string[], readable = true): HTMLIFrameElement =>
+    ({
+      dataset: { preview: title },
+      get contentWindow() {
+        if (!readable) throw new Error("cross-origin");
+        return {
+          performance: { getEntriesByType: () => names.map((name) => ({ name })) },
+        } as unknown as Window;
+      },
+    }) as unknown as HTMLIFrameElement;
+
+  test("takes the paths a shared direction loaded, from this origin only", () => {
+    const origin = "http://localhost:4100";
+    const routes = observedRoutes(
+      [
+        frameFor("Table", [
+          `${origin}/src/main.tsx`,
+          `${origin}/@vite/client`,
+          `${origin}/src/main.tsx`,
+          "https://fonts.example.com/inter.woff2",
+        ]),
+        frameFor("Hidden", [`${origin}/not/shared.js`]),
+      ],
+      ["Table"],
+      origin,
+    );
+    // Sorted, deduplicated, this origin only, and nothing from a direction
+    // the share does not carry.
+    expect(routes).toEqual(["/@vite/client", "/src/main.tsx"]);
+  });
+
+  test("a frame it cannot read costs nothing", () => {
+    const origin = "http://localhost:4100";
+    const routes = observedRoutes(
+      [frameFor("Table", [], false), frameFor("Menu", [`${origin}/menu.js`])],
+      ["Table", "Menu"],
+      origin,
+    );
+    expect(routes).toEqual(["/menu.js"]);
+  });
+});
+
 describe("words", () => {
   test("scopeLine says the rail with its count, or names the pair", () => {
     const name = (title: string) => (title === "Wave" ? "Tide" : title);
@@ -165,6 +210,15 @@ describe("words", () => {
     expect(totalViewers([])).toBe(0);
     expect(totalViewers([{ viewers: 0 }, { viewers: 0 }])).toBe(0);
     expect(totalViewers([{ viewers: 2 }, { viewers: 1 }, { viewers: 0 }])).toBe(3);
+  });
+
+  test("directoryOf offers the folder beside a refused path, never the root", () => {
+    expect(directoryOf("/node_modules/.vite/deps/react.js")).toBe("/node_modules/.vite/deps/");
+    expect(directoryOf("/assets/app.js")).toBe("/assets/");
+    // A path at the root has no folder worth offering: it would be every
+    // path there is.
+    expect(directoryOf("/favicon.ico")).toBeNull();
+    expect(directoryOf("/")).toBeNull();
   });
 
   test("grantLabel names an unnamed link by its place", () => {

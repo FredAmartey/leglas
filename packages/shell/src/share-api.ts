@@ -59,6 +59,11 @@ async function shareWrite(path: string, body: unknown, fallback: string): Promis
   return payload.share;
 }
 
+/** Let a path through that a listed share turned away. */
+export function allowRoute(path: string): Promise<ShareStatus> {
+  return shareWrite("/allow", { path }, "Leglas could not allow that path.");
+}
+
 /** A second link to the same share, named so the panel can say whose it is. */
 export function createGrant(name: string): Promise<ShareStatus> {
   return shareWrite("/grants", { name }, "Leglas could not make another link.");

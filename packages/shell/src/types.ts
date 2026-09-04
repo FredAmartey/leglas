@@ -76,6 +76,9 @@ export type ShareLayout = {
   viewport: number | null;
 };
 
+/** How far a viewer may reach into the dev server behind a share. */
+export type ShareReach = "open" | "listed";
+
 export type ViewerInfo = {
   scope: ShareScope;
   layout: ShareLayout;
@@ -122,6 +125,11 @@ export type ShareStatus = {
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
+  reach: ShareReach;
+  /** Paths a viewer may load in `listed` reach. A trailing slash is a directory. */
+  routes: string[];
+  /** What `listed` turned away, newest last, for the panel to offer. */
+  refused: string[];
   sharePort: number;
   grants: ShareGrant[];
   tunnel: TunnelState;

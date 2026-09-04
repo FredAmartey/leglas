@@ -4,8 +4,10 @@ import { copyText } from "./clipboard.js";
 import { ICON_BUTTON, LiveDot, P, PIcon, Spinner, Tip, Warning } from "./kit.js";
 import type { Prefs } from "./prefs.js";
 import {
+  directoryOf,
   expiryLine,
   grantLabel,
+  observedRoutes,
   railShare,
   sameShare,
   scopeLine,
@@ -15,6 +17,7 @@ import {
   type ShareRequest,
 } from "./share.js";
 import {
+  allowRoute,
   createGrant,
   extendGrant,
   revokeGrant,
@@ -24,7 +27,13 @@ import {
   updateShare,
 } from "./share-api.js";
 import { TOAST_TTL } from "./toasts.js";
-import type { Preview, ShareGrant, ShareStatus, TunnelProviderId } from "./types.js";
+import type {
+  Preview,
+  ShareGrant,
+  ShareReach,
+  ShareStatus,
+  TunnelProviderId,
+} from "./types.js";
 import type { ShellState } from "./useShellState.js";
 
 const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
@@ -38,7 +47,16 @@ const COPIED_MS = 1400;
 const PRIMARY_BUTTON =
   "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
-type Busy = "start" | "stop" | "update" | "grant" | "revoke" | "extend" | "rotate" | null;
+type Busy =
+  | "start"
+  | "stop"
+  | "update"
+  | "grant"
+  | "revoke"
+  | "extend"
+  | "rotate"
+  | "allow"
+  | null;
 
 /** A plus, for giving a link another day. */
 function PlusGlyph() {
@@ -116,9 +134,12 @@ function ShareSetup({
   choice,
   displayName,
   onPick,
+  onReach,
   onStart,
   provider,
   rail,
+  reach,
+  seeded,
   stage,
   stageOfPair,
 }: {
@@ -126,9 +147,13 @@ function ShareSetup({
   choice: "rail" | "stage";
   displayName: (title: string) => string;
   onPick: (choice: "rail" | "stage") => void;
+  onReach: (reach: ShareReach) => void;
   onStart: () => void;
   provider: TunnelProviderId | "none";
   rail: ReturnType<typeof railShare>;
+  reach: ShareReach;
+  /** How many paths the sharer's own browser has already seen load. */
+  seeded: number;
   stage: ReturnType<typeof stageShare>;
   stageOfPair: boolean;
 }) {
@@ -170,6 +195,29 @@ function ShareSetup({
         />
       </div>
 
+      <span className="block px-1 pb-1 pt-2.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
+        How far they can go
+      </span>
+      <div aria-label="How far a viewer can go" className="flex flex-col gap-0.5" role="radiogroup">
+        <ScopeRow
+          checked={reach === "open"}
+          detail="Your whole dev server, over GET"
+          onPick={() => onReach("open")}
+          title="Anywhere in the app"
+        />
+        <ScopeRow
+          checked={reach === "listed"}
+          detail={
+            seeded === 0
+              ? "Open a direction first, so Leglas knows what it loads"
+              : `These pages and the ${seeded} files they loaded`
+          }
+          disabled={seeded === 0}
+          onPick={() => onReach("listed")}
+          title="Only what you shared"
+        />
+      </div>
+
       <div className="mt-1.5 border-t border-[#232328] px-1 pb-1 pt-2">
         {provider === "none" ? (
           <>
@@ -200,8 +248,9 @@ function ShareSetup({
         {busy === "start" ? <Spinner /> : provider === "none" ? "Start on this machine" : "Start sharing"}
       </button>
       <p className="px-1 pb-0.5 pt-2 text-[10px] leading-snug text-[#84848C]">
-        They see the real app and can flip, compare and change the width. They cannot change
-        anything, and they read whatever your dev server serves.
+        {reach === "open"
+          ? "They see the real app and can flip, compare and change the width. They cannot change anything, and they read whatever your dev server serves."
+          : "They see the real app and can flip, compare and change the width. Anything outside what you shared is refused, and Leglas tells you what it turned away so you can let it in."}
       </p>
     </>
   );
@@ -357,6 +406,7 @@ function ShareLive({
   copiedId,
   displayName,
   now,
+  onAllow,
   onCopy,
   onCreate,
   onExtend,
@@ -372,6 +422,7 @@ function ShareLive({
   copiedId: string | null;
   displayName: (title: string) => string;
   now: number;
+  onAllow: (path: string) => void;
   onCopy: (grant: ShareGrant) => void;
   onCreate: (name: string) => void;
   onExtend: (grant: ShareGrant) => void;
@@ -468,8 +519,64 @@ function ShareLive({
       </ul>
       <NewLink busy={busy} onCreate={onCreate} />
 
+      {share.reach === "listed" && share.refused.length > 0 ? (
+        <div className="mt-1.5 border-t border-[#232328] pt-1.5">
+          <span className="flex items-baseline gap-1.5 px-1 pb-1">
+            <span className="text-[10px] uppercase tracking-[0.08em] text-amber-300/90">
+              Turned away
+            </span>
+            <span className="text-[10px] text-[#84848C]">
+              {share.refused.length} {share.refused.length === 1 ? "path" : "paths"} your app asked
+              for
+            </span>
+          </span>
+          <ul aria-label="Paths this share turned away" className="max-h-32 overflow-y-auto">
+            {share.refused.map((refused) => (
+              <li
+                className="group flex h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]"
+                key={refused}
+              >
+                <span
+                  className="min-w-0 flex-1 select-text truncate font-mono text-[10px] text-[#D1D5DB]"
+                  data-selectable
+                  title={refused}
+                >
+                  {refused}
+                </span>
+                <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-has-[button:focus-visible]:opacity-100 motion-reduce:transition-none">
+                  <button
+                    aria-label={`Let ${refused} through`}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+                    disabled={busy !== null}
+                    onClick={() => onAllow(refused)}
+                    type="button"
+                  >
+                    Allow
+                  </button>
+                  {/* Several refusals from one folder is a bundler's asset
+                      directory, and allowing them one at a time is work the
+                      sharer should not have to do. */}
+                  {directoryOf(refused) === null ? null : (
+                    <button
+                      aria-label={`Let everything in ${directoryOf(refused)} through`}
+                      className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+                      disabled={busy !== null}
+                      onClick={() => onAllow(directoryOf(refused) as string)}
+                      type="button"
+                    >
+                      + folder
+                    </button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <p className="truncate px-1 pt-1.5 text-[10px] text-[#84848C]">
         {scopeLine(share.scope, share.titles, displayName)}
+        {share.reach === "listed" ? " · only what you shared" : ""}
       </p>
 
       <div className="mt-2 flex items-center gap-1 border-t border-[#232328] pt-1.5">
@@ -562,6 +669,7 @@ export function SharePanel({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [choice, setChoice] = useState<"rail" | "stage">("rail");
+  const [reach, setReach] = useState<ShareReach>("open");
   const [busy, setBusy] = useState<Busy>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   /**
@@ -593,12 +701,33 @@ export function SharePanel({
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  /**
+   * What the shared directions have already loaded here, read when the panel
+   * opens rather than on every render: it walks each preview frame's timing
+   * entries, and the answer only changes when a direction is opened.
+   */
+  const [seed, setSeed] = useState<string[]>([]);
+  const railTitles = useMemo(() => railShare(prefs, previews).request.titles, [prefs, previews]);
+  useEffect(() => {
+    if (!open) return;
+    setSeed(
+      observedRoutes(
+        document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]"),
+        railTitles,
+        window.location.origin,
+      ),
+    );
+  }, [open, railTitles]);
+
   // Worked out only when the inputs move: the shell re-renders on every
   // hover and poll, and this panel is mounted whether or not it is open.
-  const rail = useMemo(() => railShare(prefs, previews), [prefs, previews]);
+  const rail = useMemo(
+    () => railShare(prefs, previews, reach, seed),
+    [prefs, previews, reach, seed],
+  );
   const stage = useMemo(
-    () => stageShare(prefs, previews, active, compare),
-    [prefs, previews, active, compare],
+    () => stageShare(prefs, previews, active, compare, reach, seed),
+    [prefs, previews, active, compare, reach, seed],
   );
   const provider: TunnelProviderId | "none" = tunnels[0] ?? "none";
 
@@ -612,7 +741,13 @@ export function SharePanel({
   const changed =
     share !== null &&
     next !== null &&
-    !sameShare(next, { scope: share.scope, titles: share.titles, layout: share.layout });
+    !sameShare(next, {
+      scope: share.scope,
+      titles: share.titles,
+      layout: share.layout,
+      reach: share.reach,
+      routes: share.routes,
+    });
 
   /**
    * The link worth handing anyone: the public one once the tunnel has a
@@ -787,7 +922,13 @@ export function SharePanel({
 
   const retry = () => {
     if (busy !== null || share === null) return;
-    const request: ShareRequest = { scope: share.scope, titles: share.titles, layout: share.layout };
+    const request: ShareRequest = {
+      scope: share.scope,
+      titles: share.titles,
+      layout: share.layout,
+      reach: share.reach,
+      routes: share.routes,
+    };
     setBusy("start");
     void stopShare()
       .then(() => startShare({ ...request, tunnel: provider }))
@@ -814,6 +955,9 @@ export function SharePanel({
         <ShareSetup
           busy={busy}
           choice={choice}
+          onReach={setReach}
+          reach={reach}
+          seeded={seed.length}
           displayName={displayName}
           onPick={setChoice}
           onStart={() => {
@@ -832,6 +976,9 @@ export function SharePanel({
           copiedId={copiedId}
           displayName={displayName}
           now={clock}
+          onAllow={(path) =>
+            grantWrite("allow", () => allowRoute(path), `${path} is in`)
+          }
           onCopy={(grant) => {
             const address = grant.url ?? grant.localUrl;
             void copyLink(address, false, grant.id);

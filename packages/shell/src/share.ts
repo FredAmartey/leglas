@@ -1,5 +1,5 @@
 import { loadPrefs, railOrder, type Prefs } from "./prefs.js";
-import type { Preview, ShareLayout, ShareScope } from "./types.js";
+import type { Preview, ShareLayout, ShareReach, ShareScope } from "./types.js";
 
 /**
  * What a share carries, worked out from the rail as the sharer sees it.
@@ -14,6 +14,9 @@ export type ShareRequest = {
   scope: ShareScope;
   titles: string[];
   layout: ShareLayout;
+  reach: ShareReach;
+  /** The seed for `listed`: what these directions already loaded here. */
+  routes: string[];
 };
 
 /** The preference fields a share carries. The rest are the viewer's own. */
@@ -58,6 +61,8 @@ function restrictedLayout(
 export function railShare(
   prefs: Prefs,
   previews: readonly Preview[],
+  reach: ShareReach = "open",
+  routes: readonly string[] = [],
 ): { request: ShareRequest; leftOut: string[] } {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const gone = new Set([...prefs.deleted, ...prefs.hidden]);
@@ -71,7 +76,13 @@ export function railShare(
     (unshareableReason(byTitle.get(title)) === null ? shared : leftOut).push(title);
   }
   return {
-    request: { scope: "rail", titles: shared, layout: restrictedLayout(prefs, shared, null) },
+    request: {
+      scope: "rail",
+      titles: shared,
+      layout: restrictedLayout(prefs, shared, null),
+      reach,
+      routes: [...routes],
+    },
     leftOut,
   };
 }
@@ -86,6 +97,8 @@ export function stageShare(
   previews: readonly Preview[],
   active: string,
   compare: string | null,
+  reach: ShareReach = "open",
+  routes: readonly string[] = [],
 ): { request: ShareRequest | null; reason: string | null } {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const titles = compare === null || compare === active ? [active] : [active, compare];
@@ -102,6 +115,8 @@ export function stageShare(
       scope,
       titles,
       layout: restrictedLayout(prefs, titles, scope === "compare" ? (compare as string) : null),
+      reach,
+      routes: [...routes],
     },
     reason: null,
   };
@@ -114,6 +129,11 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 /** Whether two manifests would show a viewer the same thing. */
 export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   if (a.scope !== b.scope || !sameList(a.titles, b.titles)) return false;
+  // Reach changes what a viewer can reach, so it is part of what "the same
+  // share" means. The route list is not: it grows as the sharer allows
+  // things, and offering to push that back as an update would ask them to
+  // confirm work they have already done.
+  if (a.reach !== b.reach) return false;
   const x = a.layout;
   const y = b.layout;
   const renamesX = Object.entries(x.renames).toSorted();
@@ -180,6 +200,65 @@ export function viewersLine(viewers: number): string {
   if (viewers === 0) return "nobody on it yet";
   if (viewers === 1) return "1 watching";
   return `${viewers} watching`;
+}
+
+/**
+ * What the shared directions have already loaded in this browser.
+ *
+ * A list of routes cannot be written by hand: nobody can enumerate a
+ * bundler's asset graph, and a wrong list breaks the app without saying so.
+ * But the sharer has been looking at these directions, so their own browser
+ * already knows. Previews are proxied through Leglas, so they are
+ * same-origin and their timing entries are readable from here.
+ *
+ * Partial by nature: only the directions that have been on stage have
+ * loaded anything, and a chunk that arrives on scroll has not. The share
+ * turns the rest away and says what it turned away, which is where the list
+ * grows from.
+ */
+export function observedRoutes(
+  frames: Iterable<HTMLIFrameElement>,
+  titles: readonly string[],
+  /** Taken rather than read, so this stays pure and can be tested. */
+  origin: string,
+): string[] {
+  const wanted = new Set(titles);
+  const routes = new Set<string>();
+  for (const frame of frames) {
+    const title = frame.dataset["preview"];
+    if (title === undefined || !wanted.has(title)) continue;
+    let entries: PerformanceEntryList = [];
+    try {
+      entries = frame.contentWindow?.performance.getEntriesByType("resource") ?? [];
+    } catch {
+      // A cross-origin preview keeps its own timings, which is fine: a
+      // branch direction is not in a share anyway.
+      continue;
+    }
+    for (const entry of entries) {
+      try {
+        const { origin: entryOrigin, pathname } = new URL(entry.name);
+        // Only what this server serves. A font from a CDN is the viewer's
+        // browser talking to the CDN, and no business of the list.
+        if (entryOrigin !== origin) continue;
+        routes.add(pathname);
+      } catch {
+        // Not a URL this can read; nothing to list.
+      }
+    }
+  }
+  return [...routes].toSorted();
+}
+
+/**
+ * The folder a refused path sits in, as a route that would take everything
+ * beside it, or null when it sits at the root and there is no folder to
+ * offer.
+ */
+export function directoryOf(path: string): string | null {
+  const cut = path.lastIndexOf("/");
+  if (cut <= 0) return null;
+  return path.slice(0, cut + 1);
 }
 
 /** Everyone watching, across every link into the share. */
