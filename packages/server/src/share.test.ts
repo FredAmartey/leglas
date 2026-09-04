@@ -31,12 +31,17 @@ function managerFor(
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("passed gate");
   },
+  /** Held open to widen the window between asking to share and holding a port. */
+  beforePreviews: () => Promise<void> = async () => {},
 ) {
   const live = createLiveHub();
   const nudge = vi.spyOn(live, "nudge");
   const manager = createShareManager({
     live,
-    previews: async () => current,
+    previews: async () => {
+      await beforePreviews();
+      return current;
+    },
     previewsForConfig: (entries) => entries.map((entry) => ({ ...entry })),
     viewerConfig: {
       project: "test-project",
@@ -197,6 +202,34 @@ describe("createShareManager", () => {
       status: 400,
       error: "Directions are not available to share: Missing.",
     });
+    expect(manager.status()).toBeNull();
+  });
+});
+
+describe("stopping while a share is still starting", () => {
+  test("the stop wins, and no listener is left behind", async () => {
+    // A create reads previews, looks for tunnel programs and binds a port
+    // before it publishes the share. A stop arriving in there used to see
+    // nothing active, report success and leave the share to come up behind
+    // it. Held here at the first await so the race is the test, not luck.
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { manager } = managerFor(previews, undefined, () => held);
+
+    const creating = manager.create({
+      scope: "rail",
+      titles: ["Aurora"],
+      layout,
+      tunnel: "none",
+    });
+    await manager.stop();
+    release();
+    const result = await creating;
+
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ status: 409 });
     expect(manager.status()).toBeNull();
   });
 });

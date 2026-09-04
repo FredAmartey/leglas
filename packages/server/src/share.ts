@@ -510,6 +510,15 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   let detected: Promise<TunnelProviderId[]> | null = null;
   let active: ActiveShare | null = null;
   let creating = false;
+  /**
+   * Bumped by every stop. A create reads it before it starts and again once
+   * it holds a listener, because the two are separated by reading previews,
+   * looking for tunnel programs and binding a port, and a stop arriving in
+   * there used to find `active` still null, answer that it had stopped and
+   * leave the share to come up behind it. Same shape as the `closed` check
+   * below it: the work that finished last is the work that undoes itself.
+   */
+  let stops = 0;
   let closed = false;
   let stopPromise: Promise<void> | null = null;
   let detectedAt = 0;
@@ -622,6 +631,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return { ok: false, status: 409, error: "Stop the current share first." };
     }
     creating = true;
+    const stopsAtStart = stops;
     try {
       const previews = await options.previews();
       const parsed = manifestFrom(input, previews);
@@ -671,6 +681,12 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         // The server went while this was binding; nothing must outlive it.
         await new Promise<void>((resolve) => server.close(() => resolve()));
         return { ok: false, status: 409, error: "Leglas is shutting down." };
+      }
+      if (stops !== stopsAtStart) {
+        // Somebody asked to stop while this was still finding a port. They
+        // are owed the share not existing, so it does not.
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        return { ok: false, status: 409, error: "Sharing was stopped while it was starting." };
       }
       const share: ActiveShare = {
         ...parsed.manifest,
@@ -782,6 +798,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   const stop = (): Promise<void> => {
+    stops += 1;
     if (stopPromise !== null) return stopPromise;
     const share = active;
     if (share === null) return Promise.resolve();
