@@ -7,6 +7,7 @@ import { createLiveHub } from "./live.js";
 import {
   createShareManager,
   isDevControlRequest,
+  isHiddenPath,
   routeAllowed,
   VIEWER_CONCURRENCY,
   VIEWER_QUEUE,
@@ -954,5 +955,48 @@ describe("the ceiling on viewer traffic", () => {
     await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY + 1));
     await drain(holding, VIEWER_CONCURRENCY + 1);
     await Promise.all([...inside, following].map((pending) => pending.catch(() => undefined)));
+  });
+});
+
+describe("isHiddenPath", () => {
+  test("refuses what a leading dot usually names", () => {
+    for (const path of [
+      "/.env",
+      "/.env.local",
+      "/.git/config",
+      "/.git/HEAD",
+      "/.ssh/id_rsa",
+      "/.aws/credentials",
+      "/config/.env",
+      "/foo/../.env",
+      "/%2Eenv",
+      "/%2egit/config",
+      "/foo\\..\\.env",
+      // Climbing back out of node_modules is caught by the normalised form.
+      "/node_modules/../.env",
+      "/node_modules/../../.ssh/id_rsa",
+    ]) {
+      expect(isHiddenPath(path)).toBe(true);
+    }
+  });
+
+  test("leaves the dot directories a dev server serves from alone", () => {
+    // Measured on the demo app: eight of its twenty-two files live under one
+    // of these, so a blanket rule on dot segments would break every Vite app
+    // it was meant to protect.
+    for (const path of [
+      "/node_modules/.vite/deps/react.js",
+      "/node_modules/.vite/deps/react-dom_client.js",
+      "/node_modules/.pnpm/@fontsource-variable+archivo@5.3.0/node_modules/@fontsource-variable/archivo/index.css",
+      "/node_modules/.pnpm/vite@8.2.2/node_modules/vite/dist/client/env.mjs",
+      "/",
+      "/index.html",
+      "/src/main.tsx",
+      "/assets/hero.jpg",
+      "/@vite/client",
+      "/file.with.dots.js",
+    ]) {
+      expect(isHiddenPath(path)).toBe(false);
+    }
   });
 });

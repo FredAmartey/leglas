@@ -428,6 +428,35 @@ export function isDevControlRequest(url: string): boolean {
   return DEV_CONTROL_QUERY_KEYS.some((key) => keys.has(key) || keys.has(key.toUpperCase()));
 }
 /** Where file previews are served, the same prefix the server mounts them under. */
+/**
+ * Whether a path reaches for something hidden.
+ *
+ * A leading dot names credentials far more often than it names an asset:
+ * `.env`, `.git`, `.ssh`, `.aws`. Refused for viewers whatever the reach,
+ * and never offered as something to allow, because it is not a choice the
+ * sharer should be able to make by clicking once.
+ *
+ * The rule stops at `node_modules`, and it has to. Dot directories are how a
+ * dev server hands over its dependencies: eight of the demo app's
+ * twenty-two files are `node_modules/.vite/deps/...` or `node_modules/.pnpm/...`,
+ * so refusing every dot segment would break every Vite app it was meant to
+ * protect. Anything climbing back out of `node_modules` is caught by the
+ * normalised spelling.
+ */
+export function isHiddenPath(path: string): boolean {
+  return spellings(path).some((form) => {
+    const segments = form.split("/");
+    const modules = segments.indexOf("node_modules");
+    return segments.some(
+      (segment, at) =>
+        segment.startsWith(".") &&
+        segment !== "." &&
+        segment !== ".." &&
+        !(modules >= 0 && at > modules),
+    );
+  });
+}
+
 const FILES_PREFIX_PATH = "/leglas/files/";
 /** How long a detection of tunnel programs stands before the next ask looks again. */
 const DETECT_TTL_MS = 10_000;
@@ -1108,6 +1137,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // A GET that opens an editor is still a write, and the dev server will
     // happily perform one. Refused before the proxy sees it.
     if (isDevControlRequest(req.url ?? "/")) {
+      return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
+    }
+    if (isHiddenPath(path)) {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
     // A service worker outlives the share: it stays registered on the tunnel
