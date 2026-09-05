@@ -524,6 +524,25 @@ describe("how far a viewer reaches", () => {
     }
   });
 
+  test("a path that only canonicalises into the interface is not the interface", async () => {
+    // The exemption and the dispatcher have to read the path the same way.
+    // These settle to "/leglas/x", so a canonical-only exemption called them
+    // the interface, while the server's own routing reads the raw path,
+    // does not recognise them, and proxies them to the dev server: exempt
+    // from the list and the ceiling by one layer, app traffic to the other.
+    const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
+    for (const path of ["//leglas/x", "/./leglas/x", "/foo/../leglas/x", "/%2Fleglas/x"]) {
+      expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
+    }
+    // The backslash spelling never reaches any of this: Node refuses a
+    // request target that does not begin with a slash.
+    expect(await raw(port, "\\leglas\\x", cookie).status).toBe(400);
+    // A path the server would recognise as its own by the same raw reading
+    // keeps the exemption, which is the whole point of having one.
+    expect((await get("/leglas/api/health")).status).toBe(200);
+    expect((await get("/leglas/api/config")).status).toBe(200);
+  });
+
   test("the interface prefix is not a way around the list", async () => {
     // Everything under /leglas is served without being listed, because a
     // viewer needs the interface to be a viewer. A path that only looks

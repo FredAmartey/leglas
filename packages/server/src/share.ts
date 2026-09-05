@@ -1185,11 +1185,20 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const url = req.url ?? "/";
     // Everything Leglas serves itself is the interface, which a viewer needs
     // in order to be a viewer at all, so it skips the list and the ceiling
-    // alike. Asked of the settled path, because "/leglas/../secrets" begins
-    // with the interface's prefix as a string while naming something the
-    // dev server would happily serve.
-    const own = canonical(path);
-    const interfaceOwn = own === OWN_PREFIX || own.startsWith(`${OWN_PREFIX}/`);
+    // alike.
+    //
+    // Exempting is the opposite question to refusing, and it takes the
+    // opposite quantifier. Refusing needs one dangerous reading of a path;
+    // exempting needs every reading to be safe, or the readings that are
+    // not carry the exemption with them. Asking only the settled path was
+    // the same mistake in a new place: "//leglas/x" settles inside the
+    // interface, so it was exempted here, while the server's own routing
+    // reads the raw path, does not recognise it and proxies it to the dev
+    // server. Requiring every spelling includes the raw one, which is the
+    // reading the dispatcher actually uses, so the two cannot disagree.
+    const interfaceOwn = spellings(path).every(
+      (form) => form === OWN_PREFIX || form.startsWith(`${OWN_PREFIX}/`),
+    );
     if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
       // Remembered so the sharer can see what their app wanted and let it
       // in, because no list written in advance survives a lazy chunk.
