@@ -5,10 +5,12 @@ import {
   BranchOverlay,
   ErrorOverlay,
   ICON_BUTTON,
+  LiveDot,
   Mark,
   BrandMark,
   P,
   PIcon,
+  ShareGlyph,
   RenameForm,
   SkeletonOverlay,
   Switch,
@@ -54,6 +56,9 @@ import { TOAST_TTL } from "./toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
+import { SharePanel } from "./SharePanel.js";
+import { totalViewers, viewersLine } from "./share.js";
+import { useShare } from "./useShare.js";
 import { ReferenceStrip } from "./ReferenceStrip.js";
 import { uploadReference } from "./references-api.js";
 import {
@@ -76,7 +81,7 @@ import {
   type Annotation,
   type NoteFetcher,
 } from "./annotations-api.js";
-import type { Preview } from "./types.js";
+import type { Preview, ViewerInfo } from "./types.js";
 import {
   changingRequestTitles,
   composerAgent,
@@ -241,9 +246,17 @@ const SEARCH_CAP = searchCap(IS_MAC);
  * describe a key that no longer does anything. Defined here rather than inside
  * Shell so it is not a new component type on every render.
  */
-function HelpOverlay({ mac, onClose }: { mac: boolean; onClose: () => void }) {
+function HelpOverlay({
+  mac,
+  onClose,
+  viewer,
+}: {
+  mac: boolean;
+  onClose: () => void;
+  viewer: boolean;
+}) {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const shortcuts = shortcutList(mac);
+  const shortcuts = shortcutList(mac, viewer);
 
   useEffect(() => {
     const returnTo = document.activeElement as HTMLElement | null;
@@ -469,11 +482,14 @@ export function Shell({
   previews,
   project,
   scanPreviews = true,
+  viewer,
   warnings = [],
 }: {
   previews: Preview[];
   project: string;
   scanPreviews?: boolean;
+  /** Set when this interface was opened through a share link. */
+  viewer?: ViewerInfo | undefined;
   warnings?: readonly string[];
 }) {
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -499,11 +515,23 @@ export function Shell({
     onToggleSplit,
     onToggleHelp,
     onToggleTools,
-    onToggleNote,
+    // A viewer has nothing to annotate with, so the key does nothing rather
+    // than opening a mode whose every write would be refused.
+    onToggleNote: viewer === undefined ? onToggleNote : undefined,
     // While the keymap is on screen it is the subject, not a way to drive what
     // is behind it. ? still closes it.
     suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
+    viewer: viewer === undefined ? undefined : { layout: viewer.layout },
   });
+  /**
+   * Somebody else's rail, opened through a share link. Everything that looks
+   * stays; everything that changes what runs, or what the sharer sees, goes.
+   */
+  const viewing = st.viewing;
+  const [shareOpen, setShareOpen] = useState(false);
+  const closeShare = useCallback(() => setShareOpen(false), []);
+  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shareState = useShare(!viewing);
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
   const insets = st.insets;
@@ -1215,8 +1243,21 @@ export function Shell({
 
   // Flipping shows a difference over time; a split shows it at once, which is
   // what you want for the last two directions still in contention.
-  const [split, setSplit] = useState(false);
-  const [comparePin, setComparePin] = useState<string | null>(null);
+  // A comparison share opens as the comparison: the pair the sharer had on
+  // stage, side by side, before the viewer touches anything.
+  const [split, setSplit] = useState(viewer?.scope === "compare");
+  const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
+  // A pushed share moves the stage with it, settled while rendering so the
+  // frame never shows the old pair first.
+  const viewerStage = viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
+  const [seenStage, setSeenStage] = useState(viewerStage);
+  if (viewerStage !== seenStage) {
+    setSeenStage(viewerStage);
+    if (viewer !== undefined) {
+      setSplit(viewer.scope === "compare");
+      setComparePin(viewer.layout.compare);
+    }
+  }
   const previousRef = useRef<string | null>(null);
   useEffect(() => {
     // Cleanup runs just before the next change, so this holds the direction
@@ -1447,6 +1488,7 @@ export function Shell({
   const [agentState, setAgentState] = useState<AgentsPayload>(EMPTY_AGENTS);
   const [agentsTick, refreshAgents] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
+    if (viewing) return;
     let cancelled = false;
     void readAgents(agentsTick > 0)
       .then((payload) => {
@@ -1459,7 +1501,7 @@ export function Shell({
     return () => {
       cancelled = true;
     };
-  }, [agentsTick]);
+  }, [agentsTick, viewing]);
   // Bumped after a submit so the hint updates without waiting out the
   // interval; the effect restarting is the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
@@ -1467,6 +1509,8 @@ export function Shell({
     // Guard per effect run, like the health poll below: a shared flag would be
     // reset by a remount while the torn-down run's fetch is still in flight,
     // and that response must not land.
+    // None of this is served to a viewer, and none of it is theirs to see.
+    if (viewing) return;
     let cancelled = false;
     const poll = async (signal: AbortSignal) => {
       const signalled: NoteFetcher = (input, init) => fetch(input, { ...init, signal });
@@ -1515,7 +1559,7 @@ export function Shell({
       cancelled = true;
       stop();
     };
-  }, [requestsTick]);
+  }, [requestsTick, viewing]);
   // Two independent readings of one snapshot: the chip says who Enter sends
   // to, the card says what is happening right now. They used to fight over a
   // single footer slot, which is how a running request could hide the chooser.
@@ -2032,7 +2076,7 @@ export function Shell({
    * record N failures — but a preview Leglas serves itself never went down,
    * so those scan regardless.
    */
-  const scannable = scanPreviews
+  const scannable = scanPreviews && !viewing
     ? health.reachable
       ? previews
       : previews.filter((preview) => !needsDevServer(preview))
@@ -2156,7 +2200,7 @@ export function Shell({
   const onRowPointerDown =
     (title: string, index: number) => (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
-      if (st.renaming || st.query.trim() || st.rows.length < 2) return;
+      if (viewing || st.renaming || st.query.trim() || st.rows.length < 2) return;
       // Buttons keep their clicks, and anything marked selectable keeps its
       // selection outright. The note used to be marked that way, which took
       // the bottom half of every row out of the gesture: a press there could
@@ -2406,7 +2450,9 @@ export function Shell({
         >
           <div
             aria-pressed={isActive}
-            className={`relative flex w-full cursor-grab items-start gap-2 rounded-md py-2 pl-3 pr-3 text-left transition-colors active:cursor-grabbing ${
+            className={`relative flex w-full items-start gap-2 rounded-md py-2 pl-3 pr-3 text-left transition-colors ${
+              viewing ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+            } ${
               isActive
                 ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40"
                 : isDragged
@@ -2460,9 +2506,13 @@ export function Shell({
                 className={`flex items-center gap-2 ${
                   dragging || renamingThis
                     ? ""
-                    : isActive
-                      ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
-                      : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
+                    : viewing
+                      ? isActive
+                        ? ""
+                        : "group-hover:pr-[20px] group-has-[button:focus-visible]:pr-[20px]"
+                      : isActive
+                        ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
+                        : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
                 }`}
               >
                 {variantCount > 0 && (
@@ -2524,14 +2574,18 @@ export function Shell({
                         design is the note beneath, the badge, and the last
                         third of the title line. */}
                     <span
-                      className={`block w-fit min-w-[70%] max-w-full cursor-text truncate -my-1 py-1 pr-2 ${
-                        variantCount > 0 ? "" : "-ml-3 pl-3"
-                      }`}
-                      onDoubleClick={(event) => {
-                        event.stopPropagation();
-                        window.getSelection()?.removeAllRanges();
-                        st.startRename(title);
-                      }}
+                      className={`block w-fit min-w-[70%] max-w-full truncate -my-1 py-1 pr-2 ${
+                        viewing ? "" : "cursor-text"
+                      } ${variantCount > 0 ? "" : "-ml-3 pl-3"}`}
+                      onDoubleClick={
+                        viewing
+                          ? undefined
+                          : (event) => {
+                              event.stopPropagation();
+                              window.getSelection()?.removeAllRanges();
+                              st.startRename(title);
+                            }
+                      }
                     >
                       {st.displayName(title)}
                     </span>
@@ -2657,7 +2711,11 @@ export function Shell({
           {/* The reflex copy: someone says "show me" and this goes into the
               message. The reference is the deliberate one, and it lives here
               too now: both copies are of this direction, so both belong on
-              its row rather than one of them squatting under the composer. */}
+              its row rather than one of them squatting under the composer.
+              None of the four for a viewer: a link would only work in their
+              own browser, and the rest change a rail that is not theirs. */}
+          {!viewing && (
+          <>
           <Tip
             label={
               st.copied?.kind === "link" && st.copied.title === title
@@ -2723,6 +2781,8 @@ export function Shell({
               <PIcon d={P.trash} size={12} />
             </button>
           </Tip>
+          </>
+          )}
         </div>
       </li>
     );
@@ -2753,31 +2813,108 @@ export function Shell({
           inert={st.prefs.collapsed}
           style={{ width: st.prefs.width }}
         >
-          <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
+          <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
             {/* The product names itself here rather than in the list below it:
                 the search field and every command already say "directions". */}
             <span className="flex min-w-0 items-center gap-2">
               <Mark size={28} />
               <Wordmark height={18} />
             </span>
+            <span className="flex shrink-0 items-center gap-0.5">
+              {/* Sharing sits with the rail it shares. While a share is live
+                  the control wears the light's own dot, so the fact that
+                  somebody may be looking is never more than a glance away. */}
+              {!viewing && (
+                <Tip
+                  label={
+                    shareState.share === null
+                      ? "Share this rail"
+                      : shareState.share.tunnel.status === "ready"
+                        ? `Sharing · ${viewersLine(totalViewers(shareState.share.grants))}`
+                        : "Sharing"
+                  }
+                >
+                  <button
+                    aria-expanded={shareOpen}
+                    aria-haspopup="dialog"
+                    aria-label={shareState.share === null ? "Share" : "Sharing. Open the share panel"}
+                    className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
+                      shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
+                    }`}
+                    onClick={() => setShareOpen((open) => !open)}
+                    ref={shareButtonRef}
+                    type="button"
+                  >
+                    <ShareGlyph />
+                    {shareState.share !== null && (
+                      <LiveDot className="absolute right-0 top-0" />
+                    )}
+                  </button>
+                </Tip>
+              )}
+              <Tip
+                label={
+                  <>
+                    Collapse panel <kbd className="ml-1 text-[#9CA3AF]">[</kbd>
+                  </>
+                }
+                side="right"
+              >
+                <button
+                  aria-label="Collapse the directions panel"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 text-[#9CA3AF] transition-colors hover:bg-[#2E2E2E] hover:text-white"
+                  onClick={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
+                  type="button"
+                >
+                  <PIcon d={P.sidebar} size={16} />
+                </button>
+              </Tip>
+            </span>
+            {!viewing && (
+              <SharePanel
+                active={st.active}
+                compare={splitting ? compare : null}
+                displayName={st.displayName}
+                notify={st.notify}
+                onClose={closeShare}
+                open={shareOpen}
+                prefs={st.prefs}
+                previews={previews}
+                share={shareState.share}
+                triggerRef={shareButtonRef}
+                tunnels={shareState.tunnels}
+              />
+            )}
+          </div>
+
+          {/* Whose rail this is, said once at the top and left there: a
+              viewer should never wonder why the composer is missing. */}
+          {viewer !== undefined && (
             <Tip
               label={
                 <>
-                  Collapse panel <kbd className="ml-1 text-[#9CA3AF]">[</kbd>
+                  <span className="block">Someone is sharing their Leglas with you, live.</span>
+                  <span className="block text-[#9CA3AF]">
+                    Flip, compare and change the width. Nothing you do reaches their machine.
+                  </span>
                 </>
               }
               side="right"
+              wide
             >
-              <button
-                aria-label="Collapse the directions panel"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 text-[#9CA3AF] transition-colors hover:bg-[#2E2E2E] hover:text-white"
-                onClick={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
-                type="button"
-              >
-                <PIcon d={P.sidebar} size={16} />
-              </button>
+              <div className="flex shrink-0 items-center gap-2 border-b border-[#232328] bg-[#1E1E22] px-3 py-1.5">
+                <LiveDot />
+                <span className="text-[11px] text-[#D1D5DB]">Shared with you</span>
+                <span className="ml-auto min-w-0 truncate text-[10px] text-[#84848C]">
+                  {viewer.scope === "rail"
+                    ? "the whole rail"
+                    : viewer.scope === "compare"
+                      ? "a comparison"
+                      : "one direction"}
+                </span>
+              </div>
             </Tip>
-          </div>
+          )}
 
           <div className="px-3 pb-1 pt-2">
             <div className="relative">
@@ -2893,15 +3030,17 @@ export function Shell({
                   </>
                 ) : (
                   <p className="text-xs leading-snug text-[#9CA3AF]">
-                    {st.visibleCount === 0 && st.hiddenCount > 0
-                      ? "Every direction is removed. Restore one below."
-                      : "No directions yet. Add them to leglas.config.ts."}
+                    {viewing
+                      ? "Nothing here was shared."
+                      : st.visibleCount === 0 && st.hiddenCount > 0
+                        ? "Every direction is removed. Restore one below."
+                        : "No directions yet. Add them to leglas.config.ts."}
                   </p>
                 )}
               </div>
             )}
 
-            {st.hiddenCount > 0 && (
+            {!viewing && st.hiddenCount > 0 && (
               <div className="mt-1 flex items-center justify-between gap-2">
                 <button
                   className="min-w-0 flex-1 rounded px-3 py-1.5 text-left text-[11px] text-[#84848C] transition-colors hover:text-[#D1D5DB]"
@@ -2924,7 +3063,7 @@ export function Shell({
               </div>
             )}
 
-            {st.showHidden && (
+            {!viewing && st.showHidden && (
               <ul className="relative">
                 {st.prefs.hidden.filter(st.matches).map((title) => (
                   <li className="group relative" key={title}>
@@ -2971,7 +3110,7 @@ export function Shell({
                 the failure asking what to do about it. It lives above the
                 composer the way a reply lives above the thing being typed,
                 and it never takes the chooser or the field hostage. */}
-            {card !== null && (
+            {!viewing && card !== null && (
               <div
                 className="mx-3 mt-2 rounded-lg border border-[#232328] bg-[#1E1E22] px-2.5 py-2 shadow-lg"
                 role="status"
@@ -3126,6 +3265,7 @@ export function Shell({
               a chat by hand. The confirmation is a toast rather than the
               placeholder it used to swap in, which vanished with the panel
               that carried it. */}
+          {!viewing && (
           <form
             className="relative px-3 pb-2.5 pt-2"
             onSubmit={(event) => {
@@ -3720,6 +3860,7 @@ export function Shell({
               </div>
             </div>
           </form>
+          )}
 
           {sending ? (
             /* The send takes a second or two now: Leglas loads the direction
@@ -3775,7 +3916,7 @@ export function Shell({
                 Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
               </button>
             </div>
-          ) : requestSnapshot.agent.attached && card === null ? (
+          ) : !viewing && requestSnapshot.agent.attached && card === null ? (
             <div className="px-3 pb-2">
               <p className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
                 Your agent is listening
@@ -3954,7 +4095,7 @@ export function Shell({
               />
                 );
               })()}
-              {annotating && title === st.active ? (
+              {!viewing && annotating && title === st.active ? (
                 <AnnotateLayer
                   notes={activeNotes}
                   onExit={stopAnnotating}
@@ -4146,16 +4287,18 @@ export function Shell({
               <Switch on={st.prefs.showWidget} />
             </button>
 
-            <button
-              className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
-              onClick={() => st.copyReference(st.active)}
-              type="button"
-            >
-              <PIcon d={P.copy} size={12} />
-              {st.copied?.kind === "reference" && st.copied.title === st.active
-                ? "Copied"
-                : "Copy reference"}
-            </button>
+            {!viewing && (
+              <button
+                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
+                onClick={() => st.copyReference(st.active)}
+                type="button"
+              >
+                <PIcon d={P.copy} size={12} />
+                {st.copied?.kind === "reference" && st.copied.title === st.active
+                  ? "Copied"
+                  : "Copy reference"}
+              </button>
+            )}
             <Tip label="Or double-click any direction in the rail">
               <a
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
@@ -4242,7 +4385,7 @@ export function Shell({
         />
       )}
 
-      {helpOpen ? <HelpOverlay mac={IS_MAC} onClose={closeHelp} /> : null}
+      {helpOpen ? <HelpOverlay mac={IS_MAC} onClose={closeHelp} viewer={viewing} /> : null}
       {mcpConnectOpen ? (
         <McpConnectDialog
           connected={requestSnapshot.agent.attached}

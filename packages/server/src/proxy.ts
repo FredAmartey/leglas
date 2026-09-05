@@ -26,6 +26,20 @@ export type RunningProxy = {
   url: string;
 };
 
+export const SHARE_COOKIE = "leglas-share";
+
+/** The Cookie header without the share token, or undefined when nothing is left. */
+export function withoutShareCookie(
+  cookie: string | string[] | undefined,
+): string | undefined {
+  if (cookie === undefined) return undefined;
+  const kept = (Array.isArray(cookie) ? cookie.join("; ") : cookie)
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "" && !entry.startsWith(`${SHARE_COOKIE}=`));
+  return kept.length === 0 ? undefined : kept.join("; ");
+}
+
 /**
  * The proxy has one job: be invisible. If an app behaves differently through
  * Leglas than on its own port, the previews are not the real thing and the
@@ -53,7 +67,14 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
    * only the dev server knows about.
    */
   function upstreamHeaders(req: IncomingMessage): Record<string, string | string[]> {
-    return { ...req.headers, host: authority } as Record<string, string | string[]>;
+    const headers = { ...req.headers, host: authority } as Record<string, string | string[]>;
+    // The share cookie is the one credential a viewer holds, and the app
+    // being previewed has no use for it: its logs, error reporters and
+    // middleware are exactly where a token should not end up.
+    const cookie = withoutShareCookie(headers.cookie);
+    if (cookie === undefined) delete headers.cookie;
+    else headers.cookie = cookie;
+    return headers;
   }
 
   /**

@@ -54,6 +54,10 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
       res.writeHead(200, { "content-type": "text/plain" });
       return res.end(req.headers.host ?? "");
     }
+    if (req.url === "/echo-cookie") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      return res.end(req.headers.cookie ?? "(none)");
+    }
     if (req.url === "/echo-method") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
@@ -201,6 +205,17 @@ describe("proxy", () => {
     const res = await fetch(`http://127.0.0.1:${proxy.port}/status-418`);
 
     expect(res.status).toBe(418);
+  });
+
+  test("keeps the share cookie from the app, and leaves the app's own cookies alone", async () => {
+    const stripped = await fetch(`http://127.0.0.1:${proxy.port}/echo-cookie`, {
+      headers: { cookie: "session=abc; leglas-share=secret-token; theme=dark" },
+    });
+    expect(await stripped.text()).toBe("session=abc; theme=dark");
+    const only = await fetch(`http://127.0.0.1:${proxy.port}/echo-cookie`, {
+      headers: { cookie: "leglas-share=secret-token" },
+    });
+    expect(await only.text()).toBe("(none)");
   });
 
   test("rewrites Host to the upstream, so frameworks emit correct absolute URLs", async () => {

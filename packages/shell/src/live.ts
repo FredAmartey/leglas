@@ -30,14 +30,14 @@
 /**
  * What a frame can name.
  *
- * Three kinds, and annotations are deliberately not one of them. The queue
+ * Four kinds, and annotations are deliberately not one of them. The queue
  * and the annotations are read on one beat, in that order, so the pair costs
  * one socket instead of two. Giving annotations a kind of their own would
  * turn that single beat into two independent channels and undo the reason it
  * is a pair, against the same six-connection budget above. If a fourth kind
  * is ever wanted, that is the argument to answer first.
  */
-export type LiveChange = "config" | "requests" | "health";
+export type LiveChange = "config" | "requests" | "health" | "share";
 
 /**
  * How long a loop waits when nothing has nudged it.
@@ -51,7 +51,14 @@ export type LiveChange = "config" | "requests" | "health";
  */
 export const FALLBACK_MS = 15_000;
 
-const CHANGES: readonly LiveChange[] = ["config", "requests", "health"];
+/**
+ * `share` is the fourth kind, and it answers the argument above rather than
+ * ignoring it: a share's state (the tunnel coming up, a viewer arriving) is
+ * its own read on its own beat, listened for only while a share exists, and
+ * shares nothing with the queue. Folding it into `config` would make every
+ * viewer count re-read the rail.
+ */
+const CHANGES: readonly LiveChange[] = ["config", "requests", "health", "share"];
 
 export function isLiveChange(value: unknown): value is LiveChange {
   return typeof value === "string" && (CHANGES as readonly string[]).includes(value);

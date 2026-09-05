@@ -27,7 +27,8 @@ import {
   resetPreviewLoaded,
 } from "./preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
-import type { BranchPreviewState, Preview } from "./types.js";
+import { adoptLayout, viewerPrefsRaw } from "./share.js";
+import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
 
 /**
  * The engine every shell body sits on: prefs, selection, search, rename and
@@ -63,6 +64,13 @@ export type ShellStateProps = {
    * Hold every shortcut but help, for when something on top owns the keyboard.
    */
   suspended?: boolean | undefined;
+  /**
+   * Set when this interface was opened through a share link. The rail is
+   * then seeded from how the sharer had it and nothing is saved or sent: a
+   * viewer's choices last their tab, and the machine on the other end never
+   * hears about them.
+   */
+  viewer?: { layout: ShareLayout } | undefined;
 };
 
 export function useShellState({
@@ -74,10 +82,18 @@ export function useShellState({
   onToggleTools,
   onToggleNote,
   suspended = false,
+  viewer,
 }: ShellStateProps) {
   const key = storageKey(project);
   const initial = () =>
-    loadPrefs(typeof window === "undefined" ? null : window.localStorage.getItem(key), previews);
+    loadPrefs(
+      viewer !== undefined
+        ? viewerPrefsRaw(viewer.layout)
+        : typeof window === "undefined"
+          ? null
+          : window.localStorage.getItem(key),
+      previews,
+    );
 
   const [prefs, setPrefs] = useState<Prefs>(initial);
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
@@ -145,8 +161,22 @@ export function useShellState({
   };
 
   useEffect(() => {
+    if (viewer !== undefined) return;
     window.localStorage.setItem(key, JSON.stringify(prefs));
-  }, [prefs, key]);
+  }, [prefs, key, viewer]);
+
+  /**
+   * The sharer pushed what they see now. The layout's fields are taken as
+   * they are; the viewer's own settings stay. Keyed on the layout's own
+   * bytes rather than the object, which is fresh on every read, and settled
+   * while rendering so no frame shows the old rail first.
+   */
+  const viewerLayout = viewer === undefined ? null : viewerPrefsRaw(viewer.layout);
+  const [seededFrom, setSeededFrom] = useState(viewerLayout);
+  if (viewerLayout !== seededFrom) {
+    setSeededFrom(viewerLayout);
+    if (viewer !== undefined) setPrefs((current) => adoptLayout(current, viewer.layout, previews));
+  }
 
   useEffect(
     () => () => {
@@ -174,6 +204,8 @@ export function useShellState({
    * The interface hears the result through the live socket's config nudge.
    */
   const startBranch = (title: string) => {
+    // A branch never reaches a viewer, and a viewer cannot start one anyway.
+    if (viewer !== undefined) return;
     void fetch("/leglas/api/previews/start", {
       body: JSON.stringify({ title }),
       headers: { "content-type": "application/json" },
@@ -332,6 +364,7 @@ export function useShellState({
       const renames = { ...current.renames };
       if (value === undefined) delete renames[title];
       else renames[title] = value;
+      if (viewer !== undefined) return { ...current, renames };
       void fetch("/leglas/api/renames", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -411,6 +444,10 @@ export function useShellState({
       });
       if (!action) return;
       if (suspended && action.kind !== "help") return;
+      // A viewer has no composer and nothing to annotate; the keys that ask
+      // for work do nothing rather than open a rail for a field that is
+      // not there.
+      if (viewer !== undefined && (action.kind === "request" || action.kind === "note")) return;
 
       if (action.kind === "search" || action.kind === "request") {
         event.preventDefault();
@@ -635,6 +672,8 @@ export function useShellState({
     startBranch,
     visibleCount,
     viewports: VIEWPORTS,
+    /** Whether this rail is somebody else's, opened through a share link. */
+    viewing: viewer !== undefined,
   };
 }
 
