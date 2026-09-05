@@ -538,9 +538,22 @@ describe("how far a viewer reaches", () => {
     // request target that does not begin with a slash.
     expect(await raw(port, "\\leglas\\x", cookie).status).toBe(400);
     // A path the server would recognise as its own by the same raw reading
-    // keeps the exemption, which is the whole point of having one.
-    expect((await get("/leglas/api/health")).status).toBe(200);
-    expect((await get("/leglas/api/config")).status).toBe(200);
+    // keeps the exemption, which is the whole point of having one. Asking
+    // every spelling is the strict direction, so the risk it carries is
+    // refusing the interface rather than letting the app through: an
+    // encoded name in a file preview is the shape most likely to trip it.
+    for (const path of [
+      "/leglas/api/health",
+      "/leglas/api/config",
+      "/leglas/assets/index-A1b2C3.js",
+      "/leglas/files/abcd1234/some%20file.css",
+      "/leglas/files/abcd1234/na%C3%AFve.css",
+      "/leglas/files/abcd1234/a+b(1).css",
+      "/leglas/api/config?since=1",
+      "/leglas",
+    ]) {
+      expect([path, await raw(port, path, cookie).status]).toEqual([path, 200]);
+    }
   });
 
   test("the interface prefix is not a way around the list", async () => {
