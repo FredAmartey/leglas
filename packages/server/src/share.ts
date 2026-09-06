@@ -1201,8 +1201,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     );
     if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
       // Remembered so the sharer can see what their app wanted and let it
-      // in, because no list written in advance survives a lazy chunk.
-      const asked = url.split("?", 1)[0] ?? "/";
+      // in, because no list written in advance survives a lazy chunk. The
+      // settled path, since this is what "Allow" will add to the list and
+      // the list is read the same way: a raw spelling would be a string the
+      // viewer chose, and allowing it would let nothing through.
+      const asked = canonical(url.split("?", 1)[0] ?? "/");
       if (!share.refused.includes(asked)) {
         share.refused.push(asked);
         while (share.refused.length > MAX_REFUSED) share.refused.shift();

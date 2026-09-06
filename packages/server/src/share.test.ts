@@ -506,6 +506,24 @@ describe("how far a viewer reaches", () => {
     expect(manager.status()?.refused).toEqual(["/api/internal/keys"]);
   });
 
+  test("a refusal is remembered as what it named, not as it was spelled", async () => {
+    // The refusal list is what the sharer sees and clicks "Allow" on. A raw
+    // spelling there is a viewer-chosen string, and allowing it adds a route
+    // that no settled path will ever match, so the click does nothing and
+    // the refusal stays. Recording the settled path means the allow works,
+    // and forty spellings of one path cannot push forty real refusals out.
+    const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
+    for (const path of ["/assets/../secrets/x", "/%73ecrets/x", "//secrets//x", "/secrets/x"]) {
+      expect(await raw(port, path, cookie).status).toBe(403);
+    }
+    expect(manager.status()?.refused).toEqual(["/secrets/x"]);
+
+    const allowed = manager.allowRoute({ path: "/secrets/x" });
+    expect(allowed.ok).toBe(true);
+    expect(manager.status()?.refused).toEqual([]);
+    expect(await raw(port, "/assets/../secrets/x", cookie).status).toBe(200);
+  });
+
   test("a folder allowed by one click does not open what is beside it", async () => {
     // The one-click "+ folder" action is the ordinary way to clear a
     // refusal, so an allowed folder is the attacker's foothold: climbing
