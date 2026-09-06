@@ -46,11 +46,12 @@ it was about.
   each revoked on its own without touching the others. Every link expires
   twenty-four hours after it is made, which is long enough to survive a
   reviewer in another timezone starting their day, and one click extends a
-  live link or replaces a lapsed one under the same name with the new address
-  already on the clipboard. A link that has ended says which of the two
-  happened to it, because a lapsed link can be replaced and one that was
-  turned off will not come back, and turning a link off cuts what it is
-  already doing rather than waiting for it to finish. "Rotate everything"
+  live link by another day. A link that has ended is not extended, since that
+  would revive every copy of its token, and the panel drops it; make a new
+  one instead. Whoever opens an ended link is told which of the two things
+  happened to it, because one that lapsed can be asked for again and one
+  that was turned off will not come back, and turning a link off cuts what
+  it is already doing rather than waiting for it to finish. "Rotate everything"
   drops every link at once and starts a fresh tunnel, for when one has gone
   somewhere you cannot follow. A link is a browser profile rather than a
   person: two links opened in one browser leave the second one holding the
