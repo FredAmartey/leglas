@@ -422,7 +422,7 @@ function ShareLive({
   copiedId: string | null;
   displayName: (title: string) => string;
   now: number;
-  onAllow: (path: string) => void;
+  onAllow: (path: string, subtree: boolean) => void;
   onCopy: (grant: ShareGrant) => void;
   onCreate: (name: string) => void;
   onExtend: (grant: ShareGrant) => void;
@@ -548,7 +548,7 @@ function ShareLive({
                     aria-label={`Let ${refused} through`}
                     className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
                     disabled={busy !== null}
-                    onClick={() => onAllow(refused)}
+                    onClick={() => onAllow(refused, false)}
                     type="button"
                   >
                     Allow
@@ -561,7 +561,7 @@ function ShareLive({
                       aria-label={`Let everything in ${directoryOf(refused)} through`}
                       className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
                       disabled={busy !== null}
-                      onClick={() => onAllow(directoryOf(refused) as string)}
+                      onClick={() => onAllow(directoryOf(refused) as string, true)}
                       type="button"
                     >
                       + folder
@@ -976,8 +976,8 @@ export function SharePanel({
           copiedId={copiedId}
           displayName={displayName}
           now={clock}
-          onAllow={(path) =>
-            grantWrite("allow", () => allowRoute(path), `${path} is in`)
+          onAllow={(path, subtree) =>
+            grantWrite("allow", () => allowRoute(path, subtree), `${path} is in`)
           }
           onCopy={(grant) => {
             const address = grant.url ?? grant.localUrl;

@@ -112,7 +112,13 @@ export function routeAllowed(routes: readonly string[], url: string): boolean {
     // turns the whole list into "allow anything". Found by a test that
     // expected a refusal and got the app.
     const prefix = route.endsWith("/") && route !== "/";
-    return prefix ? path.startsWith(route) || `${path}/` === route : path === route;
+    // An exact route also answers to itself with a slash on the end: the two
+    // are one resource to every dev server, and an allowed directory index
+    // would otherwise be refused the moment the browser asked for it with
+    // the slash it was refused with.
+    return prefix
+      ? path.startsWith(route) || `${path}/` === route
+      : path === route || path === `${route}/`;
   });
 }
 
@@ -1201,8 +1207,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     );
     if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
       // Remembered so the sharer can see what their app wanted and let it
-      // in, because no list written in advance survives a lazy chunk.
-      const asked = url.split("?", 1)[0] ?? "/";
+      // in, because no list written in advance survives a lazy chunk. The
+      // settled path, since this is what "Allow" will add to the list and
+      // the list is read the same way: a raw spelling would be a string the
+      // viewer chose, and allowing it would let nothing through.
+      const asked = canonical(url.split("?", 1)[0] ?? "/");
       if (!share.refused.includes(asked)) {
         share.refused.push(asked);
         while (share.refused.length > MAX_REFUSED) share.refused.shift();
@@ -1520,10 +1529,24 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const allowRoute = (input: unknown): ShareResult => {
     const share = active;
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
-    const asked = isRecord(input) && typeof input.path === "string" ? input.path.trim() : "";
-    if (!asked.startsWith("/")) {
+    const given = isRecord(input) && typeof input.path === "string" ? input.path.trim() : "";
+    if (!given.startsWith("/")) {
       return { ok: false, status: 400, error: "A route is a path beginning with a slash." };
     }
+    // Whether this means the path or everything beneath it travels with the
+    // request, not on a trailing slash. The list reads a trailing slash as
+    // "everything beneath", and a refusal for a directory index ends in one,
+    // so Allow beside it would otherwise hand the list the folder button's
+    // meaning without the folder button's label.
+    const subtree = isRecord(input) && input.subtree === true;
+    if (subtree && given.replace(/\/+$/, "") === "") {
+      return { ok: false, status: 400, error: "The root is a page, not a folder." };
+    }
+    const asked = subtree
+      ? `${given.replace(/\/+$/, "")}/`
+      : given === "/"
+        ? given
+        : given.replace(/\/+$/, "");
     if (share.routes.length >= 400) {
       return { ok: false, status: 409, error: "That share is holding as many routes as it can." };
     }

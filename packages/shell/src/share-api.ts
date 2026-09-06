@@ -60,8 +60,13 @@ async function shareWrite(path: string, body: unknown, fallback: string): Promis
 }
 
 /** Let a path through that a listed share turned away. */
-export function allowRoute(path: string): Promise<ShareStatus> {
-  return shareWrite("/allow", { path }, "Leglas could not allow that path.");
+/**
+ * `subtree` is the folder button. It travels with the request rather than
+ * riding on a trailing slash, because a refusal for a directory index ends
+ * in one too, and Allow beside it must not quietly become the folder.
+ */
+export function allowRoute(path: string, subtree = false): Promise<ShareStatus> {
+  return shareWrite("/allow", { path, subtree }, "Leglas could not allow that path.");
 }
 
 /** A second link to the same share, named so the panel can say whose it is. */
