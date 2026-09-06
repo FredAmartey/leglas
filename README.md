@@ -397,7 +397,7 @@ compared), and start sharing. Leglas opens a second listener on your
 machine, points a tunnel at it and copies the link once it answers.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-links.png" width="426" alt="The share panel under the rail's header while sharing: the tunnel address, two links named Link 1 and Client review each with 24h left, the hovered row showing copy, extend and turn off, Another link, the scope line The whole rail, 6 directions, only what you shared, and Replace all and Stop" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-links.png" width="426" alt="The share panel under the rail's header while sharing: the tunnel address, two links named Link 1 and Client review each with 24h left, the hovered row showing copy, extend and turn off, Another link, the scope line reading The whole rail, 6 directions, only what you shared, then Replace all and Stop" />
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-viewer.png" width="426" alt="The same rail as a viewer sees it: a strip reading Shared with you, the whole rail, then the directions in the sharer's order with no composer" />
 </p>
 
