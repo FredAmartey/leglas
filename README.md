@@ -85,7 +85,9 @@ npx leglas
 
 Leglas starts on port 4100, proxies your app and opens
 `http://localhost:4100/leglas`. With no configuration you get a single
-preview of your app root; add a config file to compare more than one thing.
+preview of your app root; a config file, described under
+[Configuration](#configuration), is how you get more than one thing to
+compare.
 If that port turns out to be served from outside your project, Leglas says
 so and points at `devServer` and `--user-port` rather than quietly proxying
 the wrong app.
