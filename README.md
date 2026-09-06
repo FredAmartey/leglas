@@ -397,7 +397,7 @@ compared), and start sharing. Leglas opens a second listener on your
 machine, points a tunnel at it and copies the link once it answers.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-live.png" width="426" alt="The share panel under the rail's header: the link, a line reading Live, nobody looking yet, the scope The whole rail, 6 directions and a Stop button" />
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-links.png" width="426" alt="The share panel under the rail's header while sharing: the tunnel address, two links named Link 1 and Client review each with 24h left, the hovered row showing copy, extend and turn off, Another link, the scope line The whole rail, 6 directions, only what you shared, and Replace all and Stop" />
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-viewer.png" width="426" alt="The same rail as a viewer sees it: a strip reading Shared with you, the whole rail, then the directions in the sharer's order with no composer" />
 </p>
 
@@ -411,16 +411,32 @@ with 403 without the cookie the link sets, so your dev server never faces
 the internet bare. Viewers do not get hot reload either, since an app's
 live-reload socket is a way in; they refresh to see a change.
 
-What a viewer can do is read whatever your dev server serves, because
-Leglas proxies it faithfully and that is the point. Your source is part of
-that. Leglas refuses the routes a dev server mounts to act on your machine,
-Vite's editor launcher among them, and refuses to let a viewer register a
-service worker that would outlive the share. That list is what is known
-rather than a wall, so share a project you are content for the person on
-the other end to read. The panel shows whether the link is answering and how many
-people are looking. When your rail has moved since you shared, it offers to
-push what you see now; stop the share from the same place, and it stops
-with Leglas either way.
+What a viewer can do is read what your dev server serves, and you choose
+how much of it. **Anywhere in the app** is the whole dev server over GET,
+source included, because Leglas proxies it faithfully and that is the
+point; it suits a demo. **Only what you shared** serves the pages you shared
+and the files they load, refuses the rest before the dev server hears of it
+and holds against a console or curl as well as a browser. The list is read
+off what your own directions loaded while you looked at them, not written
+by hand, and anything it did not predict shows up in the panel with one
+click to let that path or its folder through. Bounded still means a viewer
+sees everything your shared pages themselves load. Either way Leglas
+refuses the routes a dev server mounts to act on your machine, Vite's
+editor launcher among them, hidden files like `.env` however the path is
+spelled and a service worker that would outlive the share.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-reach.png" width="426" alt="The share panel before starting: The whole rail, 6 directions, 2 on branches left out; The direction on stage, Table; How far they can go: Anywhere in the app, Your whole dev server over GET; Only what you shared, These pages and the 22 files they loaded; a Start sharing button" />
+</p>
+
+<p align="center"><i>Choosing what to share, and how far a viewer goes.</i></p>
+
+A share hands out links rather than a link. Name one for each person, up
+to sixteen; each lasts a day, extends by another with one click and turns
+off on its own without touching the others. The panel shows which links
+are answering and how many sessions are on each. When your rail has moved
+since you shared, it offers to push what you see now; stop the share from
+the same place, and it stops with Leglas either way.
 
 The tunnel is borrowed, not shipped. Leglas looks for `cloudflared` or
 `ngrok` on your machine and runs whichever it finds; with neither, the link
