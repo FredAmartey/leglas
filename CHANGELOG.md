@@ -43,15 +43,17 @@ it was about.
   contractor too. A share now holds up to sixteen links. Name each one for
   the person it is for, and the panel lists them with how long each has left
   and how many sessions are on it. Turn one off and the others keep working;
-  whoever was using it is told it was turned off. Each link lasts a day,
+  it stops at once, mid-page if need be, and whoever was using it is told it
+  was turned off. Each link lasts a day,
   long enough for someone in another timezone to start their morning and get
   to it, and one click gives it another. A link that has run out is not
   brought back, because every copy of it would come back too; make a new
-  one. "Replace all" ends every link and gives the share a fresh address,
+  one, and whoever opens the old one is told it expired and to ask for a
+  fresh link. "Replace all" ends every link and gives the share a fresh address,
   for when a link has gone somewhere you cannot follow. One thing to know: a
   link belongs to a browser, not a person. Open two links in the same
-  browser and the second one wins, which is why the panel counts sessions
-  rather than people. (`leglas`)
+  browser and the second replaces the first, which is why the panel counts
+  sessions rather than people. (`leglas`)
 - **Choose how much of your app a viewer can reach.** Until now a link
   opened your whole dev server, which is fine for a demo and too much for a
   client project: anyone with the link could ask for any route, your source
@@ -74,9 +76,9 @@ it was about.
   time, twice what one browser asks for, so a page load for them never
   waits and a flood never reaches you. Anything above that waits its turn in
   Leglas, shared fairly between links, and is turned away if it waits too
-  long. Measured on three hundred requests at once: your own interface still
-  answered in two milliseconds, and the burst itself finished sooner than it
-  did unheld. (`leglas`)
+  long. Measured on two hundred requests at once: your own reload went from
+  136 milliseconds to 21, and the burst itself finished sooner held than
+  loose. (`leglas`)
 
 ## 0.9.0 (2026-09-03): The rail shows where each direction came from
 
