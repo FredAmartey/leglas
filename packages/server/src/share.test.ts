@@ -524,6 +524,29 @@ describe("how far a viewer reaches", () => {
     expect(await raw(port, "/assets/../secrets/x", cookie).status).toBe(200);
   });
 
+  test("allowing a path that ends in a slash allows that path, not everything beneath it", async () => {
+    // The route list reads a trailing slash as "everything beneath", which
+    // is what the folder button means and not what Allow means. A refusal
+    // for a directory index settles as "/foo/", so Allow beside it used to
+    // hand the same string to the list and silently grant the subtree. The
+    // intent now travels with the request rather than riding on a slash the
+    // viewer chose.
+    const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
+    expect(await raw(port, "/foo/", cookie).status).toBe(403);
+    expect(manager.status()?.refused).toEqual(["/foo/"]);
+
+    expect(manager.allowRoute({ path: "/foo/" }).ok).toBe(true);
+    expect(await raw(port, "/foo/", cookie).status).toBe(200);
+    expect(await raw(port, "/foo", cookie).status).toBe(200);
+    expect(await raw(port, "/foo/bar.js", cookie).status).toBe(403);
+
+    // The folder button says so, and gets the subtree.
+    expect(manager.allowRoute({ path: "/foo/", subtree: true }).ok).toBe(true);
+    expect(await raw(port, "/foo/bar.js", cookie).status).toBe(200);
+    // The root is a page, never a folder over everything.
+    expect(manager.allowRoute({ path: "/", subtree: true }).ok).toBe(false);
+  });
+
   test("a folder allowed by one click does not open what is beside it", async () => {
     // The one-click "+ folder" action is the ordinary way to clear a
     // refusal, so an allowed folder is the attacker's foothold: climbing
@@ -598,7 +621,7 @@ describe("how far a viewer reaches", () => {
 
     // A directory takes everything under it, which is what a bundler's
     // asset folder wants, and both refusals go with it.
-    const allowed = manager.allowRoute({ path: "/late/" });
+    const allowed = manager.allowRoute({ path: "/late/", subtree: true });
     expect(allowed.ok).toBe(true);
     expect(manager.status()?.refused).toEqual([]);
     expect((await get("/late/chunk-a.js")).status).toBe(200);
