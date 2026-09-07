@@ -12,7 +12,7 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
-## Unreleased
+## 1.0.0 (2026-09-06): Share the rail with someone who has no repo
 
 ### Added
 
