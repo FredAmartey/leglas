@@ -1,10 +1,12 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { anchor, inline, longDate, parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
+import { buildSite } from "./site.ts";
 
 const root = import.meta.dirname;
 
@@ -58,6 +60,23 @@ describe("CHANGELOG.md", () => {
     expect(html).toContain('class="mark"');
     expect(html).toContain('class="wordmark"');
     expect(html).not.toContain("<style>\n    .wm");
+  });
+
+  test("buildSite writes a release index led by the published CLI version", () => {
+    const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
+    try {
+      const written = buildSite(root, out);
+      const path = join(out, "releases.json");
+      expect(written).toContain(path);
+      const text = readFileSync(path, "utf8");
+      const releases = JSON.parse(text) as { version: string; date: string; title: string }[];
+      const declared = JSON.parse(readFileSync(join(root, "packages/cli/package.json"), "utf8")).version;
+      expect(releases[0]).toMatchObject({ version: declared, date: expect.any(String), title: expect.any(String) });
+      expect(releases.some((release) => release.version === "Unreleased")).toBe(false);
+      expect(text).toBe(`${JSON.stringify(releases, null, 2)}\n`);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
   });
 });
 

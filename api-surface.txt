@@ -162,6 +162,8 @@ export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 export type RunDeps = {
     open(url: string): Promise<void>;
     log(line: string): void;
+    /** The CLI supplies updates; programmatic hosts can omit them. */
+    updates?: UpdateService;
 };
 export type RunOptions = {
     /** Port for Leglas itself. Undefined means the server's default. */
@@ -224,6 +226,35 @@ export type TemplateResult = {
 } | {
     ok: false;
     error: string;
+};
+export type UpdateService = {
+    status(): UpdateStatus;
+    /** Ask npm, reusing a cache under a day old unless forced. Never rejects. */
+    check(options?: {
+        force?: boolean;
+    }): Promise<UpdateStatus>;
+    /** Remember the newest known version as skipped. Rejects for any other version. */
+    skip(version: string): Promise<UpdateStatus>;
+    /** Begin an install, resolving at installing while the handoff runs in the background. */
+    update(): Promise<UpdateStatus>;
+    notice(): string | null;
+    onRestart(restart: (command: RestartCommand) => Promise<void>): void;
+    onBusy(busy: () => boolean): void;
+};
+export type UpdateStatus = {
+    /** The version running now. */
+    version: string;
+    install: Install;
+    /** The newest release from the cache or the last successful check. */
+    latest: Release | null;
+    checkedAt: string | null;
+    checkError: string | null;
+    skipped: string | null;
+    /** Whether latest is newer than version, regardless of the skip. */
+    available: boolean;
+    phase: UpdatePhase;
+    /** Whether installing would interrupt a change in the embedded agent. */
+    busy: boolean;
 };
 export declare const WATCH_PATH = ".leglas/watch.json";
 export type WatchDeps = {

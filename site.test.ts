@@ -69,7 +69,7 @@ describe("the site", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);
     expect(written.map((path) => path.slice(out.length + 1)).sort()).toEqual(
-      ["assets/compare-artboards.jpg", "assets/rail-single.jpg", "changelog/index.html", "index.html"].sort(),
+      ["assets/compare-artboards.jpg", "assets/rail-single.jpg", "changelog/index.html", "index.html", "releases.json"].sort(),
     );
     expect(readFileSync(join(out, "changelog", "index.html"), "utf8")).toContain('href="../"');
   });

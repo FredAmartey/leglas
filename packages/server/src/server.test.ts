@@ -19,6 +19,7 @@ import { appendRequest, markFailed, readRequests } from "./requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
 import { startTunnel as startTunnelProcess } from "./tunnel.js";
+import type { UpdateService, UpdateStatus } from "./update.js";
 import type { RunningWorktree } from "./worktree.js";
 
 const running: RunningServer[] = [];
@@ -2637,7 +2638,7 @@ describe("startServer", () => {
       ok: false,
       error: "Viewers can look, not change what runs.",
     });
-    for (const path of ["requests", "agents", "annotations"]) {
+    for (const path of ["requests", "agents", "annotations", "update"]) {
       const response = await fetch(`${remote}/leglas/api/${path}`, { headers: { cookie } });
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Not available to viewers." });
@@ -2940,6 +2941,138 @@ describe("startServer", () => {
     // from its server, so close() hangs forever unless sockets are tracked.
     await expect(server.close()).resolves.toBeUndefined();
     running.length = 0;
+  });
+});
+
+describe("update routes", () => {
+  function updateService() {
+    const status: UpdateStatus = {
+      version: "1.0.0",
+      install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
+      latest: { version: "1.1.0", title: "A release", url: "https://leglas.vercel.app/changelog/#v1.1.0" },
+      checkedAt: "2026-09-07T10:00:00.000Z",
+      checkError: null,
+      skipped: null,
+      available: true,
+      phase: { status: "idle" },
+      busy: false,
+    };
+    return {
+      status: vi.fn(() => status),
+      check: vi.fn(async () => status),
+      skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
+      update: vi.fn(async () => ({ ...status, phase: { status: "installing" as const, version: "1.1.0" } })),
+      notice: () => null,
+      onRestart: vi.fn(),
+      onBusy: vi.fn<(busy: () => boolean) => void>(),
+      setPort: vi.fn(),
+    } satisfies UpdateService & { setPort(port: number): void };
+  }
+
+  async function bootUpdates(updates?: ReturnType<typeof updateService>) {
+    return start({
+      config: configFor(1),
+      cwd: mkdtempSync(join(tmpdir(), "leglas-update-routes-")),
+      port: 0,
+      detect: async () => [],
+      ...(updates === undefined ? {} : { updates }),
+    });
+  }
+
+  test("GET returns an uncached status and wires the actual port and runner", async () => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(updates.status());
+    expect(updates.setPort).toHaveBeenCalledExactlyOnceWith(server.port);
+    expect(updates.onBusy).toHaveBeenCalledOnce();
+    expect(updates.onBusy.mock.calls[0]![0]()).toBe(false);
+  });
+
+  test("check forces a refresh and ignores its body", async () => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/check`, { method: "POST", body: "ignored" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(updates.status());
+    expect(updates.check).toHaveBeenCalledExactlyOnceWith({ force: true });
+  });
+
+  test("skip accepts the version and returns the changed status", async () => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/skip`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: "1.1.0" }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ ...updates.status(), skipped: "1.1.0" });
+    expect(updates.skip).toHaveBeenCalledExactlyOnceWith("1.1.0");
+  });
+
+  test("install answers as soon as installing starts", async () => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/install`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ ...updates.status(), phase: { status: "installing", version: "1.1.0" } });
+    expect(updates.update).toHaveBeenCalledOnce();
+  });
+
+  test.each([["", "GET"], ["/check", "POST"], ["/skip", "POST"], ["/install", "POST"]])
+    ("%s returns 404 when updates were not provided", async (path, method) => {
+      const server = await bootUpdates();
+      const response = await fetch(`${server.url}/leglas/api/update${path}`, { method });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ ok: false, error: "Updates are not available here." });
+    });
+
+  test.each(["{", "null", "[]", "42"])("skip rejects a non-object body: %s", async (body) => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
+    expect(updates.skip).not.toHaveBeenCalled();
+  });
+
+  test.each([{}, { version: "" }, { version: " " }, { version: 1 }])("skip needs a nonempty version: %j", async (body) => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", body: JSON.stringify(body) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ ok: false, error: "Body needs a version." });
+    expect(updates.skip).not.toHaveBeenCalled();
+  });
+
+  test("a refused skip maps to 400 and a refused install maps to 409", async () => {
+    const updates = updateService();
+    updates.skip.mockRejectedValue(new Error("That is not the newest version."));
+    updates.update.mockRejectedValue(new Error("A change is running. Wait for it to finish."));
+    const server = await bootUpdates(updates);
+    const skip = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", body: JSON.stringify({ version: "1.0.1" }) });
+    expect(skip.status).toBe(400);
+    expect(await skip.json()).toEqual({ ok: false, error: "That is not the newest version." });
+    const install = await fetch(`${server.url}/leglas/api/update/install`, { method: "POST" });
+    expect(install.status).toBe(409);
+    expect(await install.json()).toEqual({ ok: false, error: "A change is running. Wait for it to finish." });
+  });
+
+  test.each(["check", "skip", "install"])("%s stays behind the cross-origin guard", async (action) => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const response = await fetch(`${server.url}/leglas/api/update/${action}`, {
+      method: "POST", headers: { origin: "https://other.example" }, body: JSON.stringify({ version: "1.1.0" }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ ok: false, error: "Cross-origin API mutations are refused." });
+    expect(updates.check).not.toHaveBeenCalled();
+    expect(updates.skip).not.toHaveBeenCalled();
+    expect(updates.update).not.toHaveBeenCalled();
   });
 });
 

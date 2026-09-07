@@ -15,6 +15,7 @@ import {
   worktreeSlug,
   type Preview,
   type RunningApp,
+  type UpdateService,
 } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
@@ -63,7 +64,15 @@ function embeddedLeglasCommand(): string {
 export type RunDeps = {
   open(url: string): Promise<void>;
   log(line: string): void;
+  /** The CLI supplies updates; programmatic hosts can omit them. */
+  updates?: UpdateService;
 };
+
+/** Automated runs and an explicit opt-out should never ask npm at startup. */
+export function skipStartupCheck(env: NodeJS.ProcessEnv): boolean {
+  return (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
+    (env.LEGLAS_NO_UPDATE_CHECK !== undefined && env.LEGLAS_NO_UPDATE_CHECK !== "" && env.LEGLAS_NO_UPDATE_CHECK !== "0");
+}
 
 export type RunResult = {
   exitCode: number;
@@ -185,6 +194,7 @@ export async function run(
     project: loaded.path ?? options.cwd,
     cwd: options.cwd,
     leglasCommand: embeddedLeglasCommand(),
+    ...(deps.updates === undefined ? {} : { updates: deps.updates }),
     ...(options.port === undefined ? {} : { port: options.port }),
   });
   const [server, warning] = await Promise.all([serverPromise, ownerWarning]);
@@ -248,6 +258,13 @@ export async function run(
   }
 
   if (options.open) await deps.open(url);
+
+  if (!options.json && deps.updates !== undefined && !skipStartupCheck(process.env)) {
+    void deps.updates.check().then(() => {
+      const line = deps.updates?.notice();
+      if (line !== null && line !== undefined) deps.log(line);
+    });
+  }
 
   return {
     exitCode: 0,

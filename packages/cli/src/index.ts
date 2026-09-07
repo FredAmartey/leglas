@@ -35,6 +35,8 @@ export type {
   PendingRequest,
   RequestStatus,
   ServerInfo,
+  UpdateService,
+  UpdateStatus,
 } from "@leglas/server";
 export { runClassify } from "./run-classify.js";
 export { run } from "./run.js";

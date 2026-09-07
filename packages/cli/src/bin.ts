@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+
+import { createUpdateService } from "@leglas/server";
 
 import { parseArgs } from "./args.js";
 import { runClassify } from "./run-classify.js";
@@ -14,6 +18,7 @@ import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
 import { run } from "./run.js";
 import { installShutdown } from "./shutdown.js";
+import { handOff, handedOff } from "./restart.js";
 
 const HELP = `leglas - compare design directions inside your own running app
 
@@ -222,12 +227,27 @@ if (parsed.kind === "new") {
   process.exit(outcome.exitCode);
 }
 
+const updates = createUpdateService({
+  version: version(),
+  entry: realpathSync(fileURLToPath(import.meta.url)),
+  argv: process.argv,
+  cwd: process.cwd(),
+  deps: { log: (line) => process.stdout.write(`${line}\n`) },
+});
+
 const result = await run(
   { ...parsed.options, cwd: process.cwd() },
-  { open: openBrowser, log: (line) => process.stdout.write(`${line}\n`) },
+  { open: openBrowser, log: (line) => process.stdout.write(`${line}\n`), updates },
 );
 
+updates.onRestart((command) => handOff(command, result.stop, {
+  spawn,
+  exit: (code) => process.exit(code),
+  target: process,
+}));
+
 installShutdown(async () => {
+  if (handedOff()) return;
   await result.stop();
   process.exit(0);
 });
