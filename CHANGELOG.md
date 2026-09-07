@@ -262,13 +262,11 @@ route the guard that closed that hole never saw.
   whatever run was under way. `/api/annotations/update` had the same shape,
   though it repeated the check inline and so was never exploitable. Both use
   the reader now. (`leglas`)
-- **The guard's test could not see a route nobody told it about.** It worked
-  from a hardcoded list, so a route written after the list was added was
-  simply absent, which is how the hole came back inside one release. The
-  routes are read out of the server now, so a new POST route is covered the
-  moment it is written, and the two that genuinely take something else carry
-  a named reason rather than being silently missing. A source scan fails if
-  any route parses a body by hand again. (`leglas`)
+- **Every route that reads a body is covered by the same guard**, including
+  any added after it: the routes are read out of the server rather than
+  listed by hand, the two that genuinely take something else carry a named
+  reason, and a source scan fails if any route parses a body by hand again.
+  (`leglas`)
 
 ## 0.7.0 (2026-08-27): The agent sees what you see
 
@@ -757,8 +755,6 @@ learned to find your project when a plugin client starts it somewhere else.
   `--clear` can only drop what was actually handed over.
 - **Config edits that need a restart say so**, and unknown `/leglas` paths
   return 404 instead of the interface.
-- `npx leglas` works from inside this repository, which the workspace root's
-  own name used to prevent.
 
 ### Changed
 
