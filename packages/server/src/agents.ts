@@ -176,13 +176,21 @@ export const KNOWN_AGENTS = {
     name: "Cursor",
     binary: "cursor-agent",
     efforts: [] as readonly AgentEffort[],
+    // `--trust` on every invocation. Without it, print mode stops at a
+    // "Workspace Trust Required" prompt nothing can answer and exits 1 with
+    // no events, in any directory Cursor has not been trusted for by hand:
+    // measured against cursor-agent 2026.09.02, one second, zero output. The
+    // project is the one the user pointed Leglas at, which is the trust the
+    // flag grants. It is the only permission the run needs: with it alone,
+    // the edit and the shell command in the same run both executed.
     args: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
       "-p",
       prompt,
       "--output-format",
       "stream-json",
+      "--trust",
     ],
-    terminalArgs: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => ["-p", prompt],
+    terminalArgs: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => ["-p", prompt, "--trust"],
     // `--resume [chatId]` is documented alongside `--continue` in the CLI
     // parameter reference, and every stream-json event carries the
     // `session_id` to feed it. Cursor exposes no persistent transport the way
@@ -198,12 +206,17 @@ export const KNOWN_AGENTS = {
       prompt: string,
       _effort: AgentEffort | null = null,
       _images: readonly string[] = [],
-    ): string[] => ["-p", "--resume", sessionId, prompt, "--output-format", "stream-json"],
+    ): string[] => ["-p", "--resume", sessionId, prompt, "--output-format", "stream-json", "--trust"],
     sessionFrom: (event: Record<string, unknown>): string | null =>
       typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
+    // Read against cursor-agent 2026.09.02: every event carries the id, a
+    // resume in this argument order answers under the same id and remembers
+    // the earlier turn.
+    activityVerified: true,
     authArgs: ["status"],
-    // UNVERIFIED: cursor-agent was not available on the build machine. The
-    // reading is deliberately loose, and anything ambiguous stays unknown.
+    // The signed-in form was read from the CLI: "✓ Logged in as <email>",
+    // exit 0. The signed-out form has not been, so that side of the reading
+    // stays loose, and anything ambiguous stays unknown.
     authVerdict: (result: ProbeResult): AgentAuth => {
       if (/logged in|signed in/i.test(result.stdout)) return "ok";
       if (result.code !== 0 || /not logged in|log in|sign in/i.test(result.stdout))
@@ -524,25 +537,34 @@ function codexActivity(event: Record<string, unknown>, cwd: string): string | nu
  * every tool call read as nothing, so a Cursor run showed no activity at all
  * and, worse, never looked like it had edited anything.
  *
- * The wrapper holds one key naming the tool (`readToolCall`, `writeToolCall`),
- * so the name is taken from the key and only the two documented ones are
- * claimed outright. Anything else is named without guessing what it did,
- * which is why Cursor does not carry `activityVerified`.
+ * Read against cursor-agent 2026.09.02 rather than its documentation, which
+ * corrected two things. The wrapper is not one key: the tool sits beside
+ * `toolCallId`, `startedAtMs` and `hookAdditionalContexts`, so the tool is the
+ * key that ends in `ToolCall`, wherever it sits. And the tool that changes a
+ * file is `editToolCall`, with the path in `args.path`; `writeToolCall` is
+ * kept in case a version emits it, but the documented name was not what the
+ * CLI sent. Reading and running a shell command are `readToolCall` and
+ * `shellToolCall`, with `args.path` and `args.command`. Anything else is
+ * named without guessing what it did.
  */
 function cursorActivity(event: Record<string, unknown>, cwd: string): string | null {
   if (event.type !== "tool_call") return null;
   const wrapper = record(event.tool_call);
   if (wrapper === null) return null;
 
-  const key = Object.keys(wrapper)[0];
+  const key = Object.keys(wrapper).find((name) => name.endsWith("ToolCall"));
   if (key === undefined) return null;
   const call = record(wrapper[key]);
   const args = record(call?.args);
   const tool = key.replace(/ToolCall$/, "");
 
-  if (tool === "write") {
+  if (tool === "edit" || tool === "write") {
+    // An edit call is an edit attempt whether or not its path resolved, and
+    // the runner reads "editing" off the label to know a run has touched a
+    // file. A label that said anything else here would let a run that had
+    // edited be rerun on top of its own change.
     const path = shownPath(args?.path, cwd);
-    return path === null ? "using write" : `editing ${path}`;
+    return path === null ? "editing a file" : `editing ${path}`;
   }
   if (tool === "read") {
     const path = shownPath(args?.path, cwd);

@@ -931,13 +931,13 @@ describe("startRunner", () => {
   });
 });
 
-test("never reruns a vendor whose edits Leglas cannot see", async () => {
-  // Cursor resumes, so a resumed run can fail; but its edits are labelled
-  // from documented shapes rather than read against the real CLI, so "did
-  // not edit" is not evidence. Rerunning on it could apply a half-finished
-  // change twice. The failure card and its Retry stay the way back.
+test("a Cursor resume that died without editing is tried once more, cold", async () => {
+  // Cursor's stream was read against the real CLI, so "not seen to edit" is
+  // evidence now, and a resumed run that died untouched gets the same one
+  // cold retry Claude and Codex get. The vendor may simply have cleaned the
+  // session up; the request is not the problem.
   vi.spyOn(console, "error").mockImplementation(() => {});
-  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-unverified-rerun-"));
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-rerun-"));
   await saveAgentChoice(cwd, { agent: "cursor" });
   await appendRequest(cwd, input("First"));
   const clock = manualClock();
@@ -956,11 +956,57 @@ test("never reruns a vendor whose edits Leglas cannot see", async () => {
   spawned.children[0]?.close(0);
   await until(async () => (await readRequests(cwd)).length === 0);
 
-  // The next request resumes that chat, and fails without being seen to edit.
+  // The next request resumes that chat and dies without a tool call.
   await appendRequest(cwd, input("Second"));
   await tickUntil(clock, () => spawned.calls.length === 2);
-  expect(spawned.calls[1]?.[1]).toEqual(
-    expect.arrayContaining(["--resume", "chat_1"]),
+  expect(spawned.calls[1]?.[1]).toEqual(expect.arrayContaining(["--resume", "chat_1"]));
+  spawned.children[1]?.close(1);
+
+  // One more run, cold: no --resume, and it is allowed to finish the request.
+  await tickUntil(clock, () => spawned.calls.length === 3);
+  expect(spawned.calls[2]?.[1]).not.toContain("--resume");
+  spawned.children[2]?.close(0);
+  await until(async () => (await readRequests(cwd)).length === 0);
+  await runner.stop();
+});
+
+test("a Cursor resume that edited and then died is not rerun", async () => {
+  // Rerunning a run that had already changed a file could apply a
+  // half-finished change twice. The edit is read off the real event shape:
+  // `editToolCall` beside the wrapper's bookkeeping keys.
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-edited-"));
+  await saveAgentChoice(cwd, { agent: "cursor" });
+  await appendRequest(cwd, input("First"));
+  const clock = manualClock();
+  const spawned = spawner();
+  const runner = startRunner({
+    cwd,
+    externallyAttached: () => false,
+    spawn: spawned.spawn,
+    setInterval: clock.setInterval,
+    clearInterval: clock.clearInterval,
+  });
+
+  await until(() => spawned.calls.length === 1);
+  spawned.children[0]?.child.stdout.write(`${JSON.stringify({ session_id: "chat_1" })}\n`);
+  spawned.children[0]?.close(0);
+  await until(async () => (await readRequests(cwd)).length === 0);
+
+  await appendRequest(cwd, input("Second"));
+  await tickUntil(clock, () => spawned.calls.length === 2);
+  spawned.children[1]?.child.stdout.write(
+    `${JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: {
+        editToolCall: { args: { path: join(cwd, "src", "Hero.tsx"), streamContent: "…" } },
+        hookAdditionalContexts: [],
+        toolCallId: "call-2",
+        startedAtMs: "1788791467322",
+      },
+      session_id: "chat_1",
+    })}\n`,
   );
   spawned.children[1]?.close(1);
   await until(async () => (await readRequests(cwd))[0]?.status === "failed");
