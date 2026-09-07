@@ -9,8 +9,10 @@ const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
  * Annotations deliberately ride `requests`: the shell reads both on one beat,
  * keeping them on one socket against the six-connection-per-origin budget.
  * A separate `annotations` kind would split that pair into independent channels.
+ * Updates earn a kind because the server knows every transition while the
+ * interface was polling once a second through a five minute install.
  */
-export type LiveChange = "config" | "requests" | "health" | "share";
+export type LiveChange = "config" | "requests" | "health" | "share" | "update";
 
 export type LiveHub = {
   /** Tell every listening interface that something changed. */

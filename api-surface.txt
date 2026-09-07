@@ -240,6 +240,10 @@ export type UpdateService = {
     notice(): string | null;
     onRestart(restart: (command: RestartCommand) => Promise<void>): void;
     onBusy(busy: () => boolean): void;
+    setPort(port: number): void;
+    onChange(listener: () => void): void;
+    /** Stop a running installer before the server releases its other resources. */
+    close(): Promise<void>;
 };
 export type UpdateStatus = {
     /** The version running now. */

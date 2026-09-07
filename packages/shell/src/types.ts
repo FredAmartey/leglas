@@ -166,6 +166,8 @@ export type UpdatePhase =
   | { status: "idle" }
   | { status: "checking" }
   | { status: "installing"; version: string }
+  /** Installed, and holding the restart until the running change finishes. */
+  | { status: "waiting"; version: string }
   | { status: "restarting"; version: string }
   | { status: "failed"; version: string; reason: string };
 

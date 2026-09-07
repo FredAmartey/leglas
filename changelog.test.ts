@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { anchor, inline, longDate, parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
 import { buildSite } from "./site.ts";
+import { releasesIndex } from "./release-notes.ts";
 
 const root = import.meta.dirname;
 
@@ -145,6 +146,16 @@ describe("reading the markdown", () => {
     expect(anchor(entries[0]!)).toBe("unreleased");
     expect(entries[1]).toMatchObject({ versions: ["0.1.0", "0.1.1"], date: "2026-08-01", title: "First release" });
     expect(anchor(entries[1]!)).toBe("v0.1.0");
+  });
+
+  test("every indexed version in a shared heading has one landing anchor", () => {
+    const markdown = "## 0.1.0 and 0.1.1 (2026-08-01): First release\n\nWords.\n";
+    const html = renderPage(parseChangelog(markdown), loadAssets(root));
+    expect(html).toContain('<article class="entry" id="v0.1.0">');
+    expect(html).toContain('<div class="body"><span id="v0.1.1"></span><h2');
+    for (const { version } of releasesIndex(markdown)) {
+      expect(html.split(`id="v${version}"`)).toHaveLength(2);
+    }
   });
 
   test("an audience nobody ships is refused", () => {

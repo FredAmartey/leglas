@@ -18,7 +18,7 @@ import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
 import { run } from "./run.js";
 import { installShutdown } from "./shutdown.js";
-import { handOff, handedOff } from "./restart.js";
+import { createHandoff } from "./restart.js";
 
 const HELP = `leglas - compare design directions inside your own running app
 
@@ -227,12 +227,18 @@ if (parsed.kind === "new") {
   process.exit(outcome.exitCode);
 }
 
+let entry = fileURLToPath(import.meta.url);
+try {
+  entry = realpathSync(entry);
+} catch {
+  // A removed cache entry must not prevent startup from the unresolved path.
+}
 const updates = createUpdateService({
   version: version(),
-  entry: realpathSync(fileURLToPath(import.meta.url)),
+  entry,
   argv: process.argv,
   cwd: process.cwd(),
-  deps: { log: (line) => process.stdout.write(`${line}\n`) },
+  deps: { log: (line) => (parsed.options.json ? process.stderr : process.stdout).write(`${line}\n`) },
 });
 
 const result = await run(
@@ -240,6 +246,7 @@ const result = await run(
   { open: openBrowser, log: (line) => process.stdout.write(`${line}\n`), updates },
 );
 
+const { handOff, handedOff } = createHandoff();
 updates.onRestart((command) => handOff(command, result.stop, {
   spawn,
   exit: (code) => process.exit(code),

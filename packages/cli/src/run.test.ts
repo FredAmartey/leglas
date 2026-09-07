@@ -210,6 +210,9 @@ describe("startup update notice", () => {
       notice: () => notice,
       onBusy: () => {},
       onRestart: () => {},
+      onChange: () => {},
+      setPort: () => {},
+      close: vi.fn(async () => {}),
     };
     const port = await startOrigin();
     const cwd = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
@@ -238,6 +241,8 @@ describe("startup update notice", () => {
     const response = await fetch(`${result.url}/api/update`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(status);
+    await result.stop();
+    expect(updates.close).toHaveBeenCalledOnce();
   });
 });
 

@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import type { RestartCommand } from "@leglas/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { handOff, handedOff } from "./restart.js";
+import { createHandoff } from "./restart.js";
 import { installShutdown, SHUTDOWN_SIGNALS } from "./shutdown.js";
 
 const command: RestartCommand = {
@@ -30,8 +30,21 @@ function deferred() {
 afterEach(() => vi.restoreAllMocks());
 
 describe("handOff", () => {
+  test("handoff state belongs to one CLI instance", async () => {
+    const first = createHandoff();
+    const second = createHandoff();
+    const deps = harness();
+    expect(first.handedOff()).toBe(false);
+    expect(second.handedOff()).toBe(false);
+    await first.handOff(command, async () => {}, deps);
+    expect(first.handedOff()).toBe(true);
+    expect(second.handedOff()).toBe(false);
+    deps.child.emit("exit", 0);
+  });
+
   test("marks the handoff before stopping and frees the port before spawning", async () => {
     const deps = harness();
+    const { handOff, handedOff } = createHandoff();
     const stopping = deferred();
     const stop = vi.fn(() => stopping.promise);
     const handoff = handOff(command, stop, deps);
@@ -46,6 +59,7 @@ describe("handOff", () => {
 
   test.each(SHUTDOWN_SIGNALS)("a %s during stop cancels the spawn and exits cleanly", async (signal) => {
     const deps = harness();
+    const { handOff } = createHandoff();
     const stopping = deferred();
     const handoff = handOff(command, () => stopping.promise, deps);
     deps.target.emit(signal);
@@ -59,6 +73,7 @@ describe("handOff", () => {
 
   test.each(SHUTDOWN_SIGNALS)("forwards %s to the child while ordinary shutdown stays out", async (signal) => {
     const deps = harness();
+    const { handOff, handedOff } = createHandoff();
     const stop = vi.fn(async () => {});
     installShutdown(async () => {
       if (handedOff()) return;
@@ -76,6 +91,7 @@ describe("handOff", () => {
   test.each([[0, null, 0], [7, null, 7], [null, "SIGTERM", 1]] as const)
     ("exits with child code %s and signal %s", async (code, signal, expected) => {
       const deps = harness();
+      const { handOff } = createHandoff();
       await handOff(command, async () => {}, deps);
       deps.child.emit("exit", code, signal);
       expect(deps.exit).toHaveBeenCalledExactlyOnceWith(expected);
@@ -84,6 +100,7 @@ describe("handOff", () => {
 
   test.each(["throw", "event"])("a spawn %s prints recovery instructions and exits once", async (kind) => {
     const deps = harness();
+    const { handOff } = createHandoff();
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const error = new Error("npx could not be found.");
     if (kind === "throw") vi.mocked(deps.spawn).mockImplementation(() => { throw error; });
@@ -96,6 +113,7 @@ describe("handOff", () => {
 
   test("a stop failure returns control to ordinary shutdown", async () => {
     const deps = harness();
+    const { handOff, handedOff } = createHandoff();
     await expect(handOff(command, async () => { throw new Error("Could not stop the server."); }, deps))
       .rejects.toThrow("Could not stop the server.");
     expect(deps.spawn).not.toHaveBeenCalled();
@@ -106,8 +124,10 @@ describe("handOff", () => {
 
   test("passes through the Windows shell setting", async () => {
     const deps = harness();
-    await handOff({ ...command, shell: true }, async () => {}, deps);
-    expect(deps.spawn).toHaveBeenCalledWith(command.file, command.args, { stdio: "inherit", shell: true });
+    const { handOff } = createHandoff();
+    const windows = { file: 'npx -y leglas@1.1.0 --config "C:\\my app\\config.json"', args: [], shell: true };
+    await handOff(windows, async () => {}, deps);
+    expect(deps.spawn).toHaveBeenCalledWith(windows.file, [], { stdio: "inherit", shell: true });
     deps.child.emit("exit", 0);
   });
 });

@@ -30,14 +30,18 @@
 /**
  * What a frame can name.
  *
- * Four kinds, and annotations are deliberately not one of them. The queue
+ * Five kinds, and annotations are deliberately not one of them. The queue
  * and the annotations are read on one beat, in that order, so the pair costs
  * one socket instead of two. Giving annotations a kind of their own would
  * turn that single beat into two independent channels and undo the reason it
- * is a pair, against the same six-connection budget above. If a fourth kind
+ * is a pair, against the same six-connection budget above. If another kind
  * is ever wanted, that is the argument to answer first.
+ *
+ * `update` earned its place on that argument: the server knows every step an
+ * update takes, and without the nudge the interface read the status once a
+ * second for the length of a package install.
  */
-export type LiveChange = "config" | "requests" | "health" | "share";
+export type LiveChange = "config" | "requests" | "health" | "share" | "update";
 
 /**
  * How long a loop waits when nothing has nudged it.

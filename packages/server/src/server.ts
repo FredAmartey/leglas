@@ -179,7 +179,7 @@ export type ServerOptions = {
    * Update checks and installs, supplied by the CLI. Hosts without a service
    * answer 404; the CLI service also learns the actual port for its restart.
    */
-  updates?: UpdateService & { setPort?: (port: number) => void };
+  updates?: UpdateService;
 };
 
 export type RunningServer = {
@@ -1010,6 +1010,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           }),
         );
       }
+      if (!hasJsonBody(req)) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
       let body = "";
       req.on("data", (chunk) => (body += chunk));
       return void req.on("end", () => {
@@ -2194,7 +2195,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   port = await bind(server, options.port ?? DEFAULT_PORT);
-  options.updates?.setPort?.(port);
+  options.updates?.setPort(port);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
   liveHealth = watchHealth(target, live);
   await pruneCaptures(
@@ -2219,6 +2220,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       : { claudeAgentSession: options.claudeAgentSession }),
   });
   options.updates?.onBusy(() => runner?.snapshot().running ?? false);
+  options.updates?.onChange(() => live.nudge("update"));
 
   let closePromise: Promise<void> | null = null;
 
@@ -2230,6 +2232,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       closePromise = (async () => {
         liveFiles.close();
         liveHealth?.close();
+        await options.updates?.close();
         // The share goes with the rest rather than ahead of it: a tunnel that
         // sits on SIGTERM for its three seconds must not hold the browser,
         // the runner and the branches open meanwhile.

@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 
+import { liveConnection } from "./live.js";
 import { startPoll } from "./poll.js";
 import { TOAST_TTL, type Toast } from "./toasts.js";
 import type { UpdateStatus } from "./types.js";
 import { checkForUpdate, installUpdate, readUpdate, skipUpdate } from "./update-api.js";
-import { RESTART_WAIT_MS, UPDATED_KEY, type Wait } from "./update.js";
+import { INSTALL_WAIT_MS, RESTART_WAIT_MS, UPDATED_KEY, type Wait } from "./update.js";
 
 /**
- * How often the status is read. A version changes about once a day, so an
- * idle tab asks rarely; an open panel asks often enough that a check made
- * from the terminal or another tab shows up while someone is looking; and
- * while anything is happening (a check, an install, a restart) it asks every
- * second, because that is what the panel is showing.
+ * How often the status is read when nothing nudges it. The server pushes an
+ * `update` nudge on every transition it makes (a check settling, an install
+ * starting, a failure), so these are fallbacks: an open panel re-reads often
+ * enough that a check made from another tab shows up while someone is
+ * looking, and an idle tab hardly at all, since a version changes about once
+ * a day. The one state with no server to push is the wait for a restarted
+ * Leglas, and that one asks every second.
  */
 export const IDLE_UPDATE_MS = 15 * 60_000;
 export const OPEN_UPDATE_MS = 15_000;
-export const ACTIVE_UPDATE_MS = 1000;
+export const WAITING_UPDATE_MS = 1000;
 
 export type UpdateHandle = {
   status: UpdateStatus | null;
@@ -31,15 +34,20 @@ export type UpdateHandle = {
  * Whether the last status means the server is about to go away on purpose.
  *
  * An install runs while the old server still answers, and for a Leglas
- * started with npx there is no install at all, so the interface can miss the
- * restarting phase entirely: the read fails first. Both phases therefore
- * count as "expected to go", and a server that answers again while it is
- * still installing was a hiccup, not the restart.
+ * started through a runner there is no install at all, so the interface can
+ * miss the restarting phase entirely: the read fails first. Every phase
+ * between pressing Update and the handover therefore counts as "expected to
+ * go", and a server that answers again with the old version was a hiccup or
+ * a failure, not the restart.
  */
-function leaving(status: UpdateStatus | null): string | null {
+function leaving(status: UpdateStatus | null): { version: string; allowance: number } | null {
   if (status === null) return null;
   const { phase } = status;
-  return phase.status === "installing" || phase.status === "restarting" ? phase.version : null;
+  if (phase.status === "installing" || phase.status === "waiting") {
+    return { version: phase.version, allowance: INSTALL_WAIT_MS };
+  }
+  if (phase.status === "restarting") return { version: phase.version, allowance: RESTART_WAIT_MS };
+  return null;
 }
 
 /** Mark the reload as an update landing, so the next interface can say so. */
@@ -65,19 +73,18 @@ export function useUpdate(
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [wait, setWait] = useState<Wait>({ status: "none" });
   const [checking, setChecking] = useState(false);
-  // Read by the poll's handlers, which are attached once per interval change
-  // rather than once per render.
-  const statusRef = useRef(status);
-  statusRef.current = status;
-  const waitRef = useRef(wait);
-  waitRef.current = wait;
-  const notifyRef = useRef(notify);
-  notifyRef.current = notify;
+  /**
+   * What the poll's handlers read. Written after a render commits rather
+   * than during it, so a render React replays or throws away cannot leak
+   * into a read that is already in flight. Declared first so it is current
+   * before any other effect of this hook runs.
+   */
+  const latest = useRef({ status, wait, notify });
+  useEffect(() => {
+    latest.current = { status, wait, notify };
+  });
 
-  const active =
-    wait.status === "waiting" ||
-    checking ||
-    (status !== null && status.phase.status !== "idle" && status.phase.status !== "failed");
+  const waiting = wait.status === "waiting";
 
   useEffect(() => {
     if (!enabled) return;
@@ -87,53 +94,68 @@ export function useUpdate(
         readUpdate(signal)
           .then((next) => {
             if (cancelled) return;
-            const waiting = waitRef.current;
-            if (waiting.status === "waiting") {
-              if (next.version === waiting.version) {
+            const seen = latest.current;
+            if (seen.status !== null && next.version !== seen.status.version) {
+              // A different Leglas answers on this origin, so the bundle that
+              // is running belongs to the one that went. The version this
+              // update installed means the restart landed, however late, and
+              // with no update in flight any new version is a restart made by
+              // hand; both reload. Anything else is a stranger on the port.
+              const expected =
+                seen.wait.status !== "none"
+                  ? seen.wait.version
+                  : (leaving(seen.status)?.version ?? null);
+              if (expected === null || next.version === expected) {
                 arrive(next.version);
                 return;
               }
-              if (leaving(next) !== null) {
-                // The old server, still here after all.
-                setWait({ status: "none" });
-              } else {
-                setWait({ status: "wrong", version: waiting.version, got: next.version });
-                return;
+              if (seen.wait.status !== "wrong" || seen.wait.got !== next.version) {
+                setWait({ status: "wrong", version: expected, got: next.version });
               }
+            } else if (seen.wait.status !== "none") {
+              // The old server, still here: a hiccup, or an install that failed.
+              setWait({ status: "none" });
             }
             setStatus((current) =>
               JSON.stringify(current) === JSON.stringify(next) ? current : next,
             );
           })
           .catch(() => {
-            if (cancelled || waitRef.current.status !== "none") return;
-            const version = leaving(statusRef.current);
-            if (version !== null) setWait({ status: "waiting", version, since: Date.now() });
+            if (cancelled || latest.current.wait.status !== "none") return;
+            const going = leaving(latest.current.status);
+            if (going === null) return;
+            const now = Date.now();
+            setWait({ status: "waiting", version: going.version, since: now, until: now + going.allowance });
             // Any other miss is the fallback's problem; the last status stands.
           }),
-      { everyMs: active ? ACTIVE_UPDATE_MS : open ? OPEN_UPDATE_MS : IDLE_UPDATE_MS },
+      {
+        everyMs: waiting ? WAITING_UPDATE_MS : open ? OPEN_UPDATE_MS : IDLE_UPDATE_MS,
+        subscribe: (run) => liveConnection().on("update", run),
+      },
     );
     return () => {
       cancelled = true;
       stop();
     };
-  }, [enabled, open, active]);
+  }, [enabled, open, waiting]);
 
   // A restart that never answers is given up on, with the way forward said
-  // in the panel rather than a spinner that spins all afternoon.
+  // in the panel rather than a spinner that spins all afternoon. A late
+  // answer still counts: the read above reconciles from `lost` too.
   useEffect(() => {
     if (wait.status !== "waiting") return;
-    const { version, since } = wait;
+    const { version, until } = wait;
     const timer = window.setTimeout(
       () => setWait((current) => (current.status === "waiting" ? { status: "lost", version } : current)),
-      Math.max(0, RESTART_WAIT_MS - (Date.now() - since)),
+      Math.max(0, until - Date.now()),
     );
     return () => window.clearTimeout(timer);
   }, [wait]);
 
   // The interface after the reload: say the update landed, once.
+  const ready = status !== null;
   useEffect(() => {
-    if (status === null) return;
+    if (!ready) return;
     let updated: string | null = null;
     try {
       updated = window.sessionStorage.getItem(UPDATED_KEY);
@@ -142,16 +164,16 @@ export function useUpdate(
       return;
     }
     if (updated === null) return;
-    notifyRef.current({
+    latest.current.notify({
       kind: "update",
-      message: `Leglas is now ${status.version}`,
+      message: `Leglas is now ${latest.current.status?.version ?? updated}`,
       tone: "success",
       ttl: TOAST_TTL.action,
     });
-  }, [status === null]);
+  }, [ready]);
 
   const fail = (fallback: string) => (error: unknown) =>
-    notifyRef.current({
+    latest.current.notify({
       kind: "update",
       message: error instanceof Error ? error.message : fallback,
       tone: "danger",
@@ -168,12 +190,12 @@ export function useUpdate(
   };
 
   const skip = () => {
-    const version = statusRef.current?.latest?.version;
+    const version = latest.current.status?.latest?.version;
     if (version === undefined) return;
     void skipUpdate(version)
       .then((next) => {
         setStatus(next);
-        notifyRef.current({
+        latest.current.notify({
           kind: "update",
           message: `${version} skipped`,
           note: "Nothing will nag until the next release.",

@@ -24,9 +24,9 @@ it was about.
   terminal says so under the startup block and the version wears a dot. Open
   it and there is one button. Update installs the new version the way this
   one was installed, with npm, pnpm, yarn or bun, globally or in the
-  project, and a Leglas started with `npx` needs only the restart. Then it
-  starts Leglas again on the same port and the page reloads into it, with
-  your rail as you left it. Skip quietens that version until the next one.
+  project, and a Leglas started through npx, pnpm dlx, bunx or yarn dlx
+  needs only the restart. Then it starts Leglas again on the same port and
+  the page reloads into it. Skip quietens that version until the next one.
   You can check by hand from the same panel at any time, and the startup
   check is off under `CI` or with `LEGLAS_NO_UPDATE_CHECK=1`. Every release
   now also appears on GitHub, so watching the repository for releases gets

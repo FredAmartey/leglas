@@ -70,8 +70,10 @@ export type RunDeps = {
 
 /** Automated runs and an explicit opt-out should never ask npm at startup. */
 export function skipStartupCheck(env: NodeJS.ProcessEnv): boolean {
+  const off = (value: string | undefined): boolean => value === undefined || value === "" || value === "0" || value === "false";
+  // CI follows ci-info: only the literal false opts out of a nonempty CI value.
   return (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
-    (env.LEGLAS_NO_UPDATE_CHECK !== undefined && env.LEGLAS_NO_UPDATE_CHECK !== "" && env.LEGLAS_NO_UPDATE_CHECK !== "0");
+    !off(env.LEGLAS_NO_UPDATE_CHECK);
 }
 
 export type RunResult = {
@@ -259,11 +261,17 @@ export async function run(
 
   if (options.open) await deps.open(url);
 
+  let stopped = false;
+  let updateTimer: ReturnType<typeof setInterval> | null = null;
   if (!options.json && deps.updates !== undefined && !skipStartupCheck(process.env)) {
     void deps.updates.check().then(() => {
+      if (stopped) return;
       const line = deps.updates?.notice();
       if (line !== null && line !== undefined) deps.log(line);
     });
+    const updates = deps.updates;
+    updateTimer = setInterval(() => void updates.check(), 60 * 60_000);
+    updateTimer.unref?.();
   }
 
   return {
@@ -272,6 +280,8 @@ export async function run(
     devServer,
     previewCount,
     stop: async () => {
+      stopped = true;
+      if (updateTimer !== null) clearInterval(updateTimer);
       // The server owns branch worktrees; the CLI still owns the project app
       // it may have started for the greenfield case.
       await app?.stop().catch(() => {});

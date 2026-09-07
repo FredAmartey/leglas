@@ -14,6 +14,14 @@ import type { UpdateStatus } from "./types.js";
 /** How long the interface waits for a restarted Leglas before giving up on it. */
 export const RESTART_WAIT_MS = 90_000;
 
+/**
+ * How long a read may keep failing during an install before the interface
+ * concludes the server is gone. A package install runs while the old server
+ * still answers, for up to five minutes, so a read lost to a sleeping laptop
+ * or a flaky proxy in that window must not start the short countdown above.
+ */
+export const INSTALL_WAIT_MS = 6 * 60_000;
+
 /** Where the changelog lives, for a Leglas with nothing newer to point at. */
 export const CHANGELOG_URL = "https://leglas.vercel.app/changelog/";
 
@@ -25,8 +33,8 @@ export const UPDATED_KEY = "leglas:updated";
 
 export type Wait =
   | { status: "none" }
-  /** The server stopped answering after it said it was restarting. */
-  | { status: "waiting"; version: string; since: number }
+  /** The server stopped answering after it said it was going. `until` is when to give up. */
+  | { status: "waiting"; version: string; since: number; until: number }
   /** Something answered on the port, and it is not the version that was installed. */
   | { status: "wrong"; version: string; got: string }
   /** Nothing answered in time. */
@@ -84,12 +92,26 @@ export function pinnedCommand(command: string, version: string): string {
   return command.replace("@latest", `@${version}`);
 }
 
+/** The runner a Leglas started through a runner was started with. */
+export function runnerName(manager: UpdateStatus["install"]["manager"]): string {
+  switch (manager) {
+    case "pnpm":
+      return "pnpm dlx";
+    case "bun":
+      return "bunx";
+    case "yarn":
+      return "yarn dlx";
+    default:
+      return "npx";
+  }
+}
+
 /** How to start Leglas again by hand, for when the restart did not come back. */
 export function startAgain(status: UpdateStatus | null): string {
   if (status === null) return "npx leglas";
   switch (status.install.kind) {
     case "npx":
-      return "npx leglas";
+      return `${runnerName(status.install.manager)} leglas`;
     case "project":
       return `${status.install.manager === "npm" ? "npx" : `${status.install.manager} exec`} leglas`;
     default:
@@ -97,12 +119,23 @@ export function startAgain(status: UpdateStatus | null): string {
   }
 }
 
+/** The restart's own view, whether the server said so or the interface is waiting for it. */
+function restarting(version: string): Partial<UpdateView> {
+  return {
+    heading: "Restarting Leglas",
+    detail: `This page reloads once ${version} answers.`,
+    spinner: true,
+  };
+}
+
 /** What pressing Update will do, in one line, or why it cannot be pressed. */
 function updateNote(status: UpdateStatus, version: string): string | null {
   const { install } = status;
   if (install.kind === "source") return "You run Leglas from a checkout, so pull to update.";
   if (status.busy) return "Wait for the running change to finish, then update.";
-  if (install.kind === "npx") return `Restarts Leglas with ${version}. Your rail stays as it is.`;
+  if (install.kind === "npx") {
+    return `Restarts Leglas with ${version} through ${runnerName(install.manager)}. Your rail stays as it is.`;
+  }
   if (install.command === null) return null;
   const where = install.kind === "project" ? " in this project" : "";
   return `Runs ${pinnedCommand(install.command, version)}${where}, then restarts Leglas. Your rail stays as it is.`;
@@ -127,14 +160,7 @@ export function updateView(
     skip: false,
   };
 
-  if (wait.status === "waiting") {
-    return {
-      ...quiet,
-      heading: `Restarting Leglas`,
-      detail: `This page reloads once ${wait.version} answers.`,
-      spinner: true,
-    };
-  }
+  if (wait.status === "waiting") return { ...quiet, ...restarting(wait.version) };
   if (wait.status === "wrong") {
     return {
       ...quiet,
@@ -149,7 +175,7 @@ export function updateView(
       ...quiet,
       heading: "Leglas did not come back",
       detail: `${wait.version} was installed, but nothing answered here.`,
-      note: `Start it again from your terminal: ${startAgain(status)}`,
+      note: `Look in the terminal: it may have started on another port. Otherwise start it again there with ${startAgain(status)}.`,
       warning: true,
     };
   }
@@ -165,14 +191,15 @@ export function updateView(
       spinner: true,
     };
   }
-  if (phase.status === "restarting") {
+  if (phase.status === "waiting") {
     return {
       ...quiet,
-      heading: "Restarting Leglas",
-      detail: `This page reloads once ${phase.version} answers.`,
+      heading: `Updating to ${phase.version}`,
+      detail: "Installed. Waiting for the running change to finish, then restarting.",
       spinner: true,
     };
   }
+  if (phase.status === "restarting") return { ...quiet, ...restarting(phase.version) };
   if (phase.status === "failed") {
     return {
       ...quiet,
@@ -208,7 +235,8 @@ export function updateView(
     };
   }
 
-  const checked = status.checkedAt === null ? null : `Checked ${ago(status.checkedAt, now)}`;
+  const when = status.checkedAt === null ? null : ago(status.checkedAt, now);
+  const checked = when === null ? null : `Checked ${when}`;
   if (busy) {
     return {
       ...quiet,
@@ -225,7 +253,7 @@ export function updateView(
       ...quiet,
       heading: status.version,
       detail: status.checkError,
-      meta: checked === null ? null : `Last answer ${ago(status.checkedAt!, now)}`,
+      meta: when === null ? null : `Last answer ${when}`,
       link: { label: "Changelog", url: CHANGELOG_URL },
       warning: true,
       primary: { label: "Try again", action: "check", disabled: false },

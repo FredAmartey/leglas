@@ -258,6 +258,7 @@ function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: stri
 
 function renderEntry(entry: Entry): string {
   const id = anchor(entry);
+  const aliases = entry.versions.slice(1).map((version) => `<span id="v${escape(version)}"></span>`).join("");
   const pills = entry.versions
     .map((version) => `<a class="pill" href="#${id}">${/^\d/.test(version) ? `v${version}` : escape(version)}</a>`)
     .join("");
@@ -274,7 +275,7 @@ function renderEntry(entry: Entry): string {
         : renderBlocks([block], "intro"),
     )
     .join("");
-  return `<article class="entry" id="${id}"><div class="aside">${pills}${date}</div><div class="body">${title}${body}</div></article>`;
+  return `<article class="entry" id="${id}"><div class="aside">${pills}${date}</div><div class="body">${aliases}${title}${body}</div></article>`;
 }
 
 const STYLES = `

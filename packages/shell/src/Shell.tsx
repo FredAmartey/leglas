@@ -2847,7 +2847,10 @@ export function Shell({
                         ? "text-[#D1D5DB] hover:text-white"
                         : "text-[#84848C] hover:text-[#D1D5DB]"
                     }`}
-                    onClick={() => setUpdateOpen((open) => !open)}
+                    onClick={() => {
+                      setShareOpen(false);
+                      setUpdateOpen((open) => !open);
+                    }}
                     ref={updateButtonRef}
                     type="button"
                   >
@@ -2883,7 +2886,10 @@ export function Shell({
                     className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
                       shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
                     }`}
-                    onClick={() => setShareOpen((open) => !open)}
+                    onClick={() => {
+                      setUpdateOpen(false);
+                      setShareOpen((open) => !open);
+                    }}
                     ref={shareButtonRef}
                     type="button"
                   >

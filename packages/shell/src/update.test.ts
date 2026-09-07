@@ -128,7 +128,10 @@ describe("updateView", () => {
     const of = (install: UpdateStatus["install"]) =>
       updateView(status({ latest: newer, available: true, install }), { status: "none" }, false, NOW);
     expect(of({ kind: "npx", manager: "npm", command: "npx leglas@latest" }).note).toBe(
-      "Restarts Leglas with 1.1.0. Your rail stays as it is.",
+      "Restarts Leglas with 1.1.0 through npx. Your rail stays as it is.",
+    );
+    expect(of({ kind: "npx", manager: "pnpm", command: "pnpm dlx leglas@latest" }).note).toBe(
+      "Restarts Leglas with 1.1.0 through pnpm dlx. Your rail stays as it is.",
     );
     expect(
       of({ kind: "project", manager: "pnpm", command: "pnpm up leglas@latest", root: "/app" }).note,
@@ -181,6 +184,16 @@ describe("updateView", () => {
     );
     expect(restarting.heading).toBe("Restarting Leglas");
     expect(restarting.detail).toBe("This page reloads once 1.1.0 answers.");
+    const held = updateView(
+      status({ latest: newer, available: true, phase: { status: "waiting", version: "1.1.0" } }),
+      { status: "none" },
+      false,
+      NOW,
+    );
+    expect(held.heading).toBe("Updating to 1.1.0");
+    expect(held.detail).toBe("Installed. Waiting for the running change to finish, then restarting.");
+    expect(held.spinner).toBe(true);
+    expect(held.primary).toBeNull();
   });
 
   test("a failed install gives the reason, a retry and the command to run by hand", () => {
@@ -203,14 +216,14 @@ describe("updateView", () => {
 
   test("the wait states win over whatever the last status said", () => {
     const gone = status({ latest: newer, available: true, phase: { status: "restarting", version: "1.1.0" } });
-    expect(updateView(gone, { status: "waiting", version: "1.1.0", since: NOW }, false, NOW)).toMatchObject({
+    expect(updateView(gone, { status: "waiting", version: "1.1.0", since: NOW, until: NOW + 90_000 }, false, NOW)).toMatchObject({
       heading: "Restarting Leglas",
       spinner: true,
       primary: null,
     });
     expect(updateView(gone, { status: "lost", version: "1.1.0" }, false, NOW)).toMatchObject({
       heading: "Leglas did not come back",
-      note: "Start it again from your terminal: leglas",
+      note: "Look in the terminal: it may have started on another port. Otherwise start it again there with leglas.",
       warning: true,
     });
     expect(updateView(gone, { status: "wrong", version: "1.1.0", got: "1.0.0" }, false, NOW)).toMatchObject({
@@ -228,6 +241,8 @@ describe("the commands a person is told", () => {
   test("startAgain matches how Leglas was started", () => {
     expect(startAgain(null)).toBe("npx leglas");
     expect(startAgain(status({ install: { kind: "npx", manager: "npm", command: "npx leglas@latest" } }))).toBe("npx leglas");
+    expect(startAgain(status({ install: { kind: "npx", manager: "bun", command: "bunx leglas@latest" } }))).toBe("bunx leglas");
+    expect(startAgain(status({ install: { kind: "npx", manager: "yarn", command: "yarn dlx leglas@latest" } }))).toBe("yarn dlx leglas");
     expect(startAgain(status())).toBe("leglas");
     expect(
       startAgain(status({ install: { kind: "project", manager: "pnpm", command: "pnpm up leglas@latest", root: "/app" } })),

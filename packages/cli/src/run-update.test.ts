@@ -36,10 +36,14 @@ function fakeUpdates() {
     notice: vi.fn<() => string | null>(() => "An update is available."),
     onRestart: vi.fn(),
     onBusy: vi.fn(),
+    onChange: vi.fn(),
+    setPort: vi.fn(),
+    close: vi.fn(async () => {}),
   } satisfies UpdateService;
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubEnv("CI", "");
   vi.stubEnv("LEGLAS_NO_UPDATE_CHECK", "");
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ reachable: true })));
@@ -47,6 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -61,15 +66,49 @@ describe("skipStartupCheck", () => {
   test.each(["true", "1", "0", "FALSE"])("CI=%s skips the check", (CI) => {
     expect(skipStartupCheck({ CI })).toBe(true);
   });
-  test.each([undefined, "", "0"])("LEGLAS_NO_UPDATE_CHECK=%s permits the check", (value) => {
+  test.each([undefined, "", "0", "false"])("LEGLAS_NO_UPDATE_CHECK=%s permits the check", (value) => {
     expect(skipStartupCheck(value === undefined ? {} : { LEGLAS_NO_UPDATE_CHECK: value })).toBe(false);
   });
-  test.each(["1", "true", "false"])("LEGLAS_NO_UPDATE_CHECK=%s skips the check", (value) => {
+  test.each(["1", "true", "FALSE"])("LEGLAS_NO_UPDATE_CHECK=%s skips the check", (value) => {
     expect(skipStartupCheck({ LEGLAS_NO_UPDATE_CHECK: value })).toBe(true);
   });
 });
 
 describe("startup update check without a listener", () => {
+  test("checks hourly without printing another notice and clears the unref'd timer on stop", async () => {
+    const interval = vi.spyOn(globalThis, "setInterval");
+    const updates = fakeUpdates();
+    const log = vi.fn();
+    const result = await run(options, { updates, log, open: async () => {} });
+    await Promise.resolve();
+    expect(updates.check).toHaveBeenCalledOnce();
+    expect(updates.notice).toHaveBeenCalledOnce();
+    expect(interval).toHaveBeenCalledWith(expect.any(Function), 60 * 60_000);
+    const timer = interval.mock.results[0]!.value as ReturnType<typeof setInterval>;
+    expect(timer.hasRef()).toBe(false);
+    await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
+    expect(updates.check).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updates.check).toHaveBeenCalledTimes(2);
+    expect(updates.notice).toHaveBeenCalledOnce();
+    expect(log.mock.calls.filter(([line]) => line === "An update is available.")).toHaveLength(1);
+    await result.stop();
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    expect(updates.check).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("a startup check finishing after stop prints nothing", async () => {
+    const updates = fakeUpdates();
+    let finish!: (value: UpdateStatus) => void;
+    updates.check.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const log = vi.fn();
+    const result = await run(options, { updates, log, open: async () => {} });
+    await result.stop();
+    finish(status);
+    await Promise.resolve();
+    expect(updates.notice).not.toHaveBeenCalled();
+  });
   test("prints the notice after the startup block and browser open, passing the service to the server", async () => {
     const output: string[] = [];
     const updates = fakeUpdates();
@@ -99,6 +138,8 @@ describe("startup update check without a listener", () => {
     const log = vi.fn();
     await run({ ...options, json: true }, { updates, log, open: async () => {} });
     expect(updates.check).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(updates.check).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledOnce();
     expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ ok: true });
   });
@@ -116,6 +157,8 @@ describe("startup update check without a listener", () => {
     vi.stubEnv(name, "1");
     const updates = fakeUpdates();
     await run(options, { updates, log: vi.fn(), open: async () => {} });
+    expect(updates.check).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
     expect(updates.check).not.toHaveBeenCalled();
   });
 });

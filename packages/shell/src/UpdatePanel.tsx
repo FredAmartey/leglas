@@ -1,11 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Spinner, Warning } from "./kit.js";
+import { PRIMARY_BUTTON, Spinner, Warning } from "./kit.js";
 import { updateView } from "./update.js";
+import { useDismissal } from "./useDismissal.js";
 import type { UpdateHandle } from "./useUpdate.js";
-
-const PRIMARY_BUTTON =
-  "flex h-7 flex-1 items-center justify-center rounded-md bg-[#E8E8EA] px-3 text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
 const QUIET_BUTTON =
   "flex h-7 shrink-0 items-center justify-center rounded-md px-2.5 text-xs text-[#9CA3AF] transition-colors duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
@@ -16,7 +14,7 @@ const LONE_BUTTON =
 
 /**
  * The version chip's panel: which Leglas this is, whether a newer one
- * exists, and the one button that brings it in.
+ * exists and the one button that brings it in.
  *
  * Everything it says is worked out in `updateView`, so this only lays the
  * words out. The shape follows the share panel beside it: a dialog hung
@@ -36,10 +34,7 @@ export function UpdatePanel({
   updates: UpdateHandle;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  useLayoutEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+  useDismissal(open, panelRef, triggerRef, onClose);
 
   /**
    * A clock the panel reads, so "checked 2 minutes ago" moves while it is
@@ -52,31 +47,6 @@ export function UpdatePanel({
     const timer = window.setInterval(() => setClock(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    panelRef.current?.focus();
-    const trigger = triggerRef.current;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCloseRef.current();
-        trigger?.focus();
-      }
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panelRef.current?.contains(target) && !trigger?.contains(target)) onCloseRef.current();
-    };
-    const onWindowBlur = () => onCloseRef.current();
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("blur", onWindowBlur);
-    };
-  }, [open, triggerRef]);
 
   const view = updateView(updates.status, updates.wait, updates.checking, clock);
   const act = () => {
