@@ -559,8 +559,12 @@ function cursorActivity(event: Record<string, unknown>, cwd: string): string | n
   const tool = key.replace(/ToolCall$/, "");
 
   if (tool === "edit" || tool === "write") {
+    // An edit call is an edit attempt whether or not its path resolved, and
+    // the runner reads "editing" off the label to know a run has touched a
+    // file. A label that said anything else here would let a run that had
+    // edited be rerun on top of its own change.
     const path = shownPath(args?.path, cwd);
-    return path === null ? "using write" : `editing ${path}`;
+    return path === null ? "editing a file" : `editing ${path}`;
   }
   if (tool === "read") {
     const path = shownPath(args?.path, cwd);

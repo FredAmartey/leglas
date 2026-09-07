@@ -438,6 +438,24 @@ describe("activityFrom", () => {
     expect(activityFrom("cursor", write)).toBe("editing src/Hero.tsx");
   });
 
+  test("a Cursor edit with no path is still an edit", () => {
+    // The runner reads "editing" off the label to know a run has touched a
+    // file; an edit call whose path did not resolve must still say so, or a
+    // run that edited could be rerun on top of its own change.
+    const noPath = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: { editToolCall: { args: {} }, toolCallId: "call-5" },
+    });
+    expect(activityFrom("cursor", noPath)).toBe("editing a file");
+    const noArgs = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: { editToolCall: {}, toolCallId: "call-6" },
+    });
+    expect(activityFrom("cursor", noArgs)).toBe("editing a file");
+  });
+
   test("finds the Cursor tool wherever it sits among the wrapper's other keys", () => {
     // Taking the first key was right only by the luck of key order. Put the
     // bookkeeping first and the tool must still be the one that is read.
