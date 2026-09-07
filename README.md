@@ -225,7 +225,7 @@ the same place, and it stops with Leglas either way.
 The tunnel is borrowed, not shipped. Leglas looks for `cloudflared` or
 `ngrok` on your machine and runs whichever it finds; with neither, the link
 only works on this machine and the panel says so. Branch directions run on
-their own port and are left out of a share for now.
+their own port and are not part of a share.
 
 ### Keys
 
