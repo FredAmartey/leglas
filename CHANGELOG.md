@@ -12,6 +12,21 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Fixed
+
+- **A Cursor run from Leglas now starts.** Picking Cursor in the composer
+  and sending a change ended in a second with nothing on the card, in any
+  project Cursor had not already been trusted for by hand: its print mode
+  stopped at a workspace-trust prompt that nothing in Leglas could answer.
+  Leglas now tells it the project is yours, which is the one permission a
+  run needs. Its edits are seen as edits too, so a run whose session had
+  quietly ended is tried once more the way a Claude or Codex run is, and
+  the card says which file it is changing. Read against the real
+  `cursor-agent` rather than its documentation, which had the tool that
+  changes a file under a different name. (`leglas`)
+
 ## 1.0.0 (2026-09-06): Share the rail with someone who has no repo
 
 ### Added
@@ -402,10 +417,7 @@ gained an optional dependency, and the public surface moved.
 - **Cursor says what it is doing.** Its activity was read as though its output
   had Claude's shape, so every tool call read as nothing: a Cursor run showed
   no file it was touching, and Leglas could not tell that it had edited
-  anything. Its own event shape is read now, and because those shapes are
-  taken from Cursor's documentation rather than checked against the CLI,
-  Leglas no longer reruns a failed Cursor request on its own: not being seen
-  to edit is not evidence that nothing was edited. (`leglas`)
+  anything. Its own event shape is read now. (`leglas`)
 - **`leglas watch` could ignore a stop.** The watcher registered its stop
   handler after resolving the agent and writing the template, so a stop that
   arrived inside that window was never heard: the loop kept running and the

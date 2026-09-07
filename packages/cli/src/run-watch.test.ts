@@ -162,7 +162,7 @@ describe("runWatch", () => {
       "Codex",
       "codex exec -c sandbox_workspace_write.network_access=true -s workspace-write --skip-git-repo-check {prompt}",
     ],
-    ["cursor", "Cursor", "cursor-agent -p {prompt}"],
+    ["cursor", "Cursor", "cursor-agent -p {prompt} --trust"],
   ])("synthesizes the terminal template for %s", async (agent, name, command) => {
     const root = cwd();
     writeWatchConfig(root, { agent });

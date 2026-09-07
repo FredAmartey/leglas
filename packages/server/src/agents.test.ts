@@ -38,11 +38,14 @@ describe("KNOWN_AGENTS", () => {
       "--skip-git-repo-check",
       "make it warmer",
     ]);
+    // `--trust` on every Cursor invocation: without it print mode stops at a
+    // workspace-trust prompt nothing can answer and exits with no events.
     expect(KNOWN_AGENTS.cursor.args("make it warmer")).toEqual([
       "-p",
       "make it warmer",
       "--output-format",
       "stream-json",
+      "--trust",
     ]);
   });
 
@@ -65,6 +68,7 @@ describe("KNOWN_AGENTS", () => {
     expect(KNOWN_AGENTS.cursor.terminalArgs("make it warmer")).toEqual([
       "-p",
       "make it warmer",
+      "--trust",
     ]);
   });
 
@@ -264,15 +268,16 @@ test("Cursor resumes a chat by its id", () => {
     "make it warmer",
     "--output-format",
     "stream-json",
+    "--trust",
   ]);
 });
 
 test("only a vendor whose output Leglas has read reports edits it can act on", () => {
   expect(activityVerified("claude")).toBe(true);
   expect(activityVerified("codex")).toBe(true);
-  // cursor-agent was never available to check against, so its edits are
-  // labelled but not vouched for, and the runner will not rerun on them.
-  expect(activityVerified("cursor")).toBe(false);
+  // Cursor's stream was read against the CLI in September 2026, so its
+  // edits are vouched for and the runner may rerun a dead session on them.
+  expect(activityVerified("cursor")).toBe(true);
   expect(activityVerified("custom")).toBe(false);
 });
 
@@ -369,24 +374,84 @@ describe("activityFrom", () => {
 
   test("reads Cursor's own tool_call events, which are not Claude's shape", () => {
     // Read as Claude's shape these produced nothing at all, so a Cursor run
-    // showed no activity and never looked like it had touched a file.
+    // showed no activity and never looked like it had touched a file. These
+    // three are what cursor-agent 2026.09.02 sent for one run that read a
+    // file, changed it and ran a command, with only the paths renamed: the
+    // tool sits beside `toolCallId`, `startedAtMs` and `hookAdditionalContexts`,
+    // and the tool that changes a file is `editToolCall`, not the documented
+    // `writeToolCall`.
+    const cwd = "/home/someone/app";
+    const read = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-1\nfc_1",
+      tool_call: {
+        readToolCall: { args: { path: "/home/someone/app/hello.txt" } },
+        hookAdditionalContexts: [],
+        toolCallId: "call-1\nfc_1",
+        startedAtMs: "1788791466511",
+      },
+      model_call_id: "m-1",
+      session_id: "de615cdb-cb4d-46ab-8b54-71cdeef22257",
+      timestamp_ms: 1788791466511,
+    });
+    const edit = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-2\nfc_2",
+      tool_call: {
+        editToolCall: { args: { path: "/home/someone/app/hello.txt", streamContent: "hi" } },
+        hookAdditionalContexts: [],
+        toolCallId: "call-2\nfc_2",
+        startedAtMs: "1788791467322",
+      },
+      model_call_id: "m-2",
+      session_id: "de615cdb-cb4d-46ab-8b54-71cdeef22257",
+      timestamp_ms: 1788791467322,
+    });
+    const completed = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: "call-2\nfc_2",
+      tool_call: {
+        editToolCall: {
+          args: { path: "/home/someone/app/hello.txt", streamContent: "hi" },
+          result: { success: { path: "/home/someone/app/hello.txt", linesAdded: 1, linesRemoved: 1 } },
+        },
+        hookAdditionalContexts: [],
+        toolCallId: "call-2\nfc_2",
+        startedAtMs: "1788791467322",
+        completedAtMs: "1788791470118",
+      },
+      session_id: "de615cdb-cb4d-46ab-8b54-71cdeef22257",
+    });
+
+    expect(activityFrom("cursor", read, cwd)).toBe("reading hello.txt");
+    expect(activityFrom("cursor", edit, cwd)).toBe("editing hello.txt");
+    expect(activityFrom("cursor", completed, cwd)).toBe("editing hello.txt");
+    // The documented name is still honoured, in case a version sends it.
     const write = JSON.stringify({
       type: "tool_call",
       subtype: "started",
-      call_id: "call_1",
       tool_call: { writeToolCall: { args: { path: "src/Hero.tsx", fileText: "…" } } },
-      session_id: "s1",
     });
-    const read = JSON.stringify({
-      type: "tool_call",
-      subtype: "completed",
-      call_id: "call_2",
-      tool_call: { readToolCall: { args: { path: "src/Hero.tsx" } } },
-      session_id: "s1",
-    });
-
     expect(activityFrom("cursor", write)).toBe("editing src/Hero.tsx");
-    expect(activityFrom("cursor", read)).toBe("reading src/Hero.tsx");
+  });
+
+  test("finds the Cursor tool wherever it sits among the wrapper's other keys", () => {
+    // Taking the first key was right only by the luck of key order. Put the
+    // bookkeeping first and the tool must still be the one that is read.
+    const line = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      tool_call: {
+        toolCallId: "call-3",
+        startedAtMs: "1788791468000",
+        hookAdditionalContexts: [],
+        editToolCall: { args: { path: "src/Hero.tsx", streamContent: "…" } },
+      },
+    });
+    expect(activityFrom("cursor", line)).toBe("editing src/Hero.tsx");
   });
 
   test("names a Cursor tool it does not know without guessing what it did", () => {
@@ -400,10 +465,26 @@ describe("activityFrom", () => {
   });
 
   test("shows the command a Cursor tool call is running", () => {
+    // The real `shellToolCall` carries seventeen argument fields beside the
+    // command; the command is the one that matters.
     const line = JSON.stringify({
       type: "tool_call",
       subtype: "started",
-      tool_call: { shellToolCall: { args: { command: "bash -lc 'npm test'" } } },
+      tool_call: {
+        shellToolCall: {
+          args: {
+            command: "bash -lc 'npm test'",
+            workingDirectory: "",
+            timeout: 30000,
+            isBackground: false,
+            skipApproval: false,
+            description: "Run the tests",
+          },
+        },
+        hookAdditionalContexts: [],
+        toolCallId: "call-4",
+        startedAtMs: "1788791472000",
+      },
     });
 
     expect(activityFrom("cursor", line)).toBe("running npm test");
