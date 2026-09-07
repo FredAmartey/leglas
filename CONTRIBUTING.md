@@ -52,6 +52,14 @@ the one thing the title names. A maintainer may run an automated review on
 the pull request; it answers only to people with write access, so do not
 wait on it.
 
+## Versions
+
+Leglas numbers releases by pride. Bump the first number for a release you
+are proud of, the second for an ordinary one, the third for a fix too
+embarrassing to admit. The workflow adds one rule to that: a third-number
+tag is refused when the public surface moved since the last one, because a
+fix that changes what importers depend on is not a fix.
+
 ## Releases
 
 Releases are cut by maintainers and are tag-driven: set the same version
