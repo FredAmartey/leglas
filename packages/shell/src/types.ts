@@ -135,3 +135,57 @@ export type ShareStatus = {
   tunnel: TunnelState;
   startedAt: number;
 };
+
+/** How the running Leglas got onto this machine, which decides how it updates. */
+export type InstallKind = "npx" | "global" | "project" | "source";
+export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
+
+export type Install = {
+  kind: InstallKind;
+  manager: PackageManager;
+  /** What a person would type to bring in the newest version. Null for a checkout. */
+  command: string | null;
+  /** Where a project command runs. Project kind only. */
+  root?: string | undefined;
+};
+
+export type Release = {
+  version: string;
+  /** The release heading's title from the changelog, when the site answered. */
+  title: string | null;
+  /** The changelog entry for it. */
+  url: string;
+};
+
+/**
+ * Where an update has got to. The server owns this; the interface reads it
+ * once a second while anything is happening and reloads itself once the
+ * restarted Leglas answers.
+ */
+export type UpdatePhase =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "installing"; version: string }
+  /** Installed, and holding the restart until the running change finishes. */
+  | { status: "waiting"; version: string }
+  | { status: "restarting"; version: string }
+  | { status: "failed"; version: string; reason: string };
+
+export type UpdateStatus = {
+  /** The version running now. */
+  version: string;
+  install: Install;
+  /** The newest release known, from the cache or the last check. Null until a check has worked. */
+  latest: Release | null;
+  /** ISO time of the last check that worked. */
+  checkedAt: string | null;
+  /** Why the last check said nothing. Null when it worked or has not run. */
+  checkError: string | null;
+  /** A version the person chose to skip. Cleared when a newer one appears. */
+  skipped: string | null;
+  /** latest is newer than version, whether or not it was skipped. */
+  available: boolean;
+  phase: UpdatePhase;
+  /** A change is running in the embedded agent; installing now would kill it. */
+  busy: boolean;
+};

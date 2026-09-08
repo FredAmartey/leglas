@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { UpdateService, UpdateStatus } from "@leglas/server";
 
 import { run, type RunDeps } from "./run.js";
 
@@ -27,6 +28,7 @@ afterEach(async () => {
         }),
     ),
   );
+  vi.unstubAllEnvs();
 });
 
 beforeEach(() => {
@@ -177,6 +179,70 @@ describe("run", () => {
       expect.stringContaining("outside this project"),
     ]);
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("startup update notice", () => {
+  const status: UpdateStatus = {
+    version: "1.0.0",
+    install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
+    latest: { version: "1.1.0", title: null, url: "https://leglas.vercel.app/changelog/#v1.1.0" },
+    checkedAt: null,
+    checkError: null,
+    skipped: null,
+    available: true,
+    phase: { status: "idle" },
+    busy: false,
+  };
+
+  test.each([
+    { json: false, notice: "An update is available.", printed: true },
+    { json: true, notice: "An update is available.", printed: false },
+    { json: false, notice: null, printed: false },
+  ])("prints the appropriate notice for $json JSON and $notice", async ({ json, notice, printed }) => {
+    vi.stubEnv("CI", "");
+    vi.stubEnv("LEGLAS_NO_UPDATE_CHECK", "");
+    const updates: UpdateService = {
+      status: () => status,
+      check: vi.fn(async () => status),
+      skip: async () => status,
+      update: async () => status,
+      notice: () => notice,
+      onBusy: () => {},
+      onRestart: () => {},
+      onChange: () => {},
+      setPort: () => {},
+      close: vi.fn(async () => {}),
+    };
+    const port = await startOrigin();
+    const cwd = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
+    const output: string[] = [];
+    const result = await run(
+      { cwd, json, open: true, port: 0, userPort: undefined, configPath: undefined },
+      {
+        updates,
+        log: (line) => { output.push(line); },
+        open: async () => { expect(output.some((line) => line === notice)).toBe(false); },
+      },
+    );
+    stopping.push(result.stop);
+    await Promise.resolve();
+    if (printed) {
+      expect(output.at(-1)).toBe(notice);
+      expect(output[0]).toMatch(/^Leglas   /);
+      expect(output.indexOf(notice!)).toBeGreaterThan(output.findIndex((line) => line.startsWith("config   ")));
+    } else if (json) {
+      expect(output).toHaveLength(1);
+      expect(JSON.parse(output[0]!)).toMatchObject({ ok: true });
+      expect(updates.check).not.toHaveBeenCalled();
+    } else {
+      expect(output).toHaveLength(4);
+    }
+    const response = await fetch(`${result.url}/api/update`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(status);
+    await result.stop();
+    expect(updates.close).toHaveBeenCalledOnce();
   });
 });
 

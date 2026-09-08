@@ -58,6 +58,9 @@ import { provenanceLine, provenanceOf } from "./provenance.js";
 import { AnnotateLayer } from "./AnnotateLayer.js";
 import { SharePanel } from "./SharePanel.js";
 import { totalViewers, viewersLine } from "./share.js";
+import { UpdatePanel } from "./UpdatePanel.js";
+import { chipLabel, hasNews } from "./update.js";
+import { useUpdate } from "./useUpdate.js";
 import { useShare } from "./useShare.js";
 import { ReferenceStrip } from "./ReferenceStrip.js";
 import { uploadReference } from "./references-api.js";
@@ -532,6 +535,12 @@ export function Shell({
   const closeShare = useCallback(() => setShareOpen(false), []);
   const shareButtonRef = useRef<HTMLButtonElement | null>(null);
   const shareState = useShare(!viewing);
+  /** Which Leglas this is and whether a newer one exists; the chip by the wordmark. */
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const closeUpdate = useCallback(() => setUpdateOpen(false), []);
+  const updateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const updates = useUpdate(!viewing, updateOpen, st.notify);
+  const news = hasNews(updates.status);
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
   const insets = st.insets;
@@ -2819,6 +2828,42 @@ export function Shell({
             <span className="flex min-w-0 items-center gap-2">
               <Mark size={28} />
               <Wordmark height={18} />
+              {/* The version, said quietly beside the name. It brightens and
+                  wears a dot when a newer Leglas exists, and opens the one
+                  place to bring it in. A viewer sees the sharer's Leglas, not
+                  their own, so they get no chip. */}
+              {!viewing && updates.status !== null && (
+                <Tip label={chipLabel(updates.status)}>
+                  <button
+                    aria-expanded={updateOpen}
+                    aria-haspopup="dialog"
+                    aria-label={
+                      news
+                        ? `Leglas ${updates.status.version}. ${chipLabel(updates.status)}. Open updates`
+                        : `Leglas ${updates.status.version}. Open updates`
+                    }
+                    className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
+                      news || updateOpen
+                        ? "text-[#D1D5DB] hover:text-white"
+                        : "text-[#84848C] hover:text-[#D1D5DB]"
+                    }`}
+                    onClick={() => {
+                      setShareOpen(false);
+                      setUpdateOpen((open) => !open);
+                    }}
+                    ref={updateButtonRef}
+                    type="button"
+                  >
+                    {updates.status.version}
+                    {news && (
+                      <span
+                        aria-hidden
+                        className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
+                      />
+                    )}
+                  </button>
+                </Tip>
+              )}
             </span>
             <span className="flex shrink-0 items-center gap-0.5">
               {/* Sharing sits with the rail it shares. While a share is live
@@ -2841,7 +2886,10 @@ export function Shell({
                     className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
                       shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
                     }`}
-                    onClick={() => setShareOpen((open) => !open)}
+                    onClick={() => {
+                      setUpdateOpen(false);
+                      setShareOpen((open) => !open);
+                    }}
                     ref={shareButtonRef}
                     type="button"
                   >
@@ -2870,6 +2918,14 @@ export function Shell({
                 </button>
               </Tip>
             </span>
+            {!viewing && (
+              <UpdatePanel
+                onClose={closeUpdate}
+                open={updateOpen}
+                triggerRef={updateButtonRef}
+                updates={updates}
+              />
+            )}
             {!viewing && (
               <SharePanel
                 active={st.active}

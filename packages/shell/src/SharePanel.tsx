@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { copyText } from "./clipboard.js";
-import { ICON_BUTTON, LiveDot, P, PIcon, Spinner, Tip, Warning } from "./kit.js";
+import { ICON_BUTTON, LiveDot, P, PIcon, PRIMARY_BUTTON, Spinner, Tip, Warning } from "./kit.js";
+import { useDismissal } from "./useDismissal.js";
 import type { Prefs } from "./prefs.js";
 import {
   directoryOf,
@@ -43,9 +44,6 @@ const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
 
 /** How long the tick stays on the copy button before it turns back into one. */
 const COPIED_MS = 1400;
-
-const PRIMARY_BUTTON =
-  "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
 type Busy =
   | "start"
@@ -694,12 +692,7 @@ export function SharePanel({
    */
   const startedHere = useRef<string | null>(null);
   const autoCopied = useRef<string | null>(null);
-  // Read through a ref by the listeners, so the dismissal wiring is attached
-  // once per opening rather than once per render of the shell.
-  const onCloseRef = useRef(onClose);
-  useLayoutEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+  useDismissal(open, panelRef, triggerRef, onClose);
 
   /**
    * What the shared directions have already loaded here, read when the panel
@@ -764,31 +757,6 @@ export function SharePanel({
         : share?.tunnel.status === "none"
           ? first.localUrl
           : null;
-
-  useEffect(() => {
-    if (!open) return;
-    panelRef.current?.focus();
-    const trigger = triggerRef.current;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCloseRef.current();
-        trigger?.focus();
-      }
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!panelRef.current?.contains(target) && !trigger?.contains(target)) onCloseRef.current();
-    };
-    const onWindowBlur = () => onCloseRef.current();
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("blur", onWindowBlur);
-    };
-  }, [open, triggerRef]);
 
   useEffect(
     () => () => {

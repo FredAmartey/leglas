@@ -99,6 +99,10 @@ export const P = {
 export const ICON_BUTTON =
   "flex h-6 w-6 items-center justify-center rounded text-[#D1D5DB] hover:bg-[#2E2E2E] hover:text-white";
 
+/** The one light button a panel gets: start sharing, update. */
+export const PRIMARY_BUTTON =
+  "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+
 /**
  * The track a settings row flips. Presentation only: the row button carries
  * the switch role and the checked state, this just draws it.

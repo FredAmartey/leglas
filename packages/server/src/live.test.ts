@@ -81,14 +81,14 @@ describe("createLiveHub", () => {
     expect(refused.destroyed).toBe(true);
   });
 
-  test("sends the exact config nudge to every listener", () => {
+  test.each(["config", "update"] as const)("sends the exact %s nudge to every listener", (change) => {
     const hub = createLiveHub();
     const first = listen(hub);
     const second = listen(hub);
 
-    hub.nudge("config");
+    hub.nudge(change);
 
-    const expected = encodeFrame(0x1, '{"changed":"config"}');
+    const expected = encodeFrame(0x1, JSON.stringify({ changed: change }));
     expect(Buffer.concat(first.writes)).toEqual(expected);
     expect(Buffer.concat(second.writes)).toEqual(expected);
   });

@@ -14,6 +14,24 @@ it was about.
 
 ## Unreleased
 
+### Added
+
+- **Leglas says when a newer version is out, and brings it in from the
+  interface.** Until now a release went to npm and nobody was told: a global
+  install stayed where it was, and the interface never said which Leglas it
+  was. Now the version sits beside the wordmark. When Leglas starts it asks
+  npm, once a day, whether there is a newer one, and if there is, the
+  terminal says so under the startup block and the version wears a dot. Open
+  it and there is one button. Update installs the new version the way this
+  one was installed, with npm, pnpm, yarn or bun, globally or in the
+  project, and a Leglas started through npx, pnpm dlx, bunx or yarn dlx
+  needs only the restart. Then it starts Leglas again on the same port and
+  the page reloads into it. Skip quietens that version until the next one.
+  You can check by hand from the same panel at any time, and the startup
+  check is off under `CI` or with `LEGLAS_NO_UPDATE_CHECK=1`. Every release
+  now also appears on GitHub, so watching the repository for releases gets
+  you a note the moment one is cut. (`leglas`)
+
 ### Fixed
 
 - **A Cursor run from Leglas now starts.** Picking Cursor in the composer

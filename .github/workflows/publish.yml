@@ -119,9 +119,49 @@ jobs:
       # No NODE_AUTH_TOKEN anywhere, deliberately. npm falls back to OIDC only
       # when it finds no token, and an empty string counts as a token.
       - name: Publish leglas
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          args=()
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then args+=(--tag next); fi
+          pnpm publish --access public --no-git-checks "${args[@]}"
         working-directory: packages/cli
 
       - name: Publish leglas-mcp
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          args=()
+          if [[ "${GITHUB_REF_NAME#v}" == *-* ]]; then args+=(--tag next); fi
+          pnpm publish --access public --no-git-checks "${args[@]}"
         working-directory: packages/mcp
+
+  # The publish job must not hold contents: write. A release is created only
+  # after npm has the version, so a failed publish cannot announce an update.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Create the GitHub Release from the changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME exists."
+            exit 0
+          fi
+          title="$(node release-notes.ts "$version" --title)"
+          node release-notes.ts "$version" > notes.md
+          {
+            echo
+            echo "Update: \`npx leglas@latest\`, or \`npm i -g leglas@latest\` for a global install. Leglas also offers it from its own interface."
+            echo
+            echo "Changelog: https://leglas.vercel.app/changelog/#v$version"
+            echo "npm: https://www.npmjs.com/package/leglas/v/$version"
+          } >> notes.md
+          args=()
+          if [[ "$version" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$version: $title" --notes-file notes.md "${args[@]}"

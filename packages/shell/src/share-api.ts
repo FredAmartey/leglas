@@ -1,3 +1,4 @@
+import { refusal } from "./api.js";
 import type { ShareRequest } from "./share.js";
 import type { ShareStatus, TunnelProviderId } from "./types.js";
 
@@ -12,11 +13,6 @@ export type SharePayload = {
   /** Tunnel programs found on this machine, in the order Leglas would pick. */
   tunnels: TunnelProviderId[];
 };
-
-async function refusal(response: Response, fallback: string): Promise<Error> {
-  const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
-  return new Error(typeof payload?.error === "string" ? payload.error : fallback);
-}
 
 export async function readShare(signal?: AbortSignal): Promise<SharePayload> {
   const response = await fetch("/leglas/api/share", signal === undefined ? {} : { signal });

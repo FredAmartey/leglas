@@ -94,3 +94,15 @@ export type { RunnerChild, RunnerOptions, RunnerSpawn, RunnerState, RunningAgent
 export type { RunningServer, ServerOptions } from "./server.js";
 export { SERVER_INFO_PATH, readServerInfo, removeServerInfo, writeServerInfo } from "./server-info.js";
 export type { ServerInfo } from "./server-info.js";
+export { compareVersions, createUpdateService, detectInstall, restartCommand } from "./update.js";
+export type {
+  Install,
+  InstallKind,
+  PackageManager,
+  Release,
+  RestartCommand,
+  UpdateDeps,
+  UpdatePhase,
+  UpdateService,
+  UpdateStatus,
+} from "./update.js";

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
 import { CAPTURES, renderHome } from "./home.ts";
+import { releasesIndex } from "./release-notes.ts";
 
 /**
  * The site: a homepage and the changelog, written under dist/site, which is
@@ -12,7 +13,8 @@ import { CAPTURES, renderHome } from "./home.ts";
  */
 export function buildSite(root: string, out: string): string[] {
   const assets = loadAssets(root);
-  const changelog = parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8"));
+  const markdown = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+  const changelog = parseChangelog(markdown);
 
   mkdirSync(join(out, "changelog"), { recursive: true });
   mkdirSync(join(out, "assets"), { recursive: true });
@@ -24,6 +26,7 @@ export function buildSite(root: string, out: string): string[] {
 
   write("index.html", renderHome(assets));
   write(join("changelog", "index.html"), renderPage(changelog, assets));
+  write("releases.json", `${JSON.stringify(releasesIndex(markdown), null, 2)}\n`);
   // The homepage shows the README's captures, which stay in the tree because
   // they ship with the documentation.
   for (const capture of CAPTURES) {

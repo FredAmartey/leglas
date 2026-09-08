@@ -15,6 +15,7 @@ import {
   worktreeSlug,
   type Preview,
   type RunningApp,
+  type UpdateService,
 } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
@@ -63,7 +64,17 @@ function embeddedLeglasCommand(): string {
 export type RunDeps = {
   open(url: string): Promise<void>;
   log(line: string): void;
+  /** The CLI supplies updates; programmatic hosts can omit them. */
+  updates?: UpdateService;
 };
+
+/** Automated runs and an explicit opt-out should never ask npm at startup. */
+export function skipStartupCheck(env: NodeJS.ProcessEnv): boolean {
+  const off = (value: string | undefined): boolean => value === undefined || value === "" || value === "0" || value === "false";
+  // CI follows ci-info: only the literal false opts out of a nonempty CI value.
+  return (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
+    !off(env.LEGLAS_NO_UPDATE_CHECK);
+}
 
 export type RunResult = {
   exitCode: number;
@@ -185,6 +196,7 @@ export async function run(
     project: loaded.path ?? options.cwd,
     cwd: options.cwd,
     leglasCommand: embeddedLeglasCommand(),
+    ...(deps.updates === undefined ? {} : { updates: deps.updates }),
     ...(options.port === undefined ? {} : { port: options.port }),
   });
   const [server, warning] = await Promise.all([serverPromise, ownerWarning]);
@@ -249,12 +261,27 @@ export async function run(
 
   if (options.open) await deps.open(url);
 
+  let stopped = false;
+  let updateTimer: ReturnType<typeof setInterval> | null = null;
+  if (!options.json && deps.updates !== undefined && !skipStartupCheck(process.env)) {
+    void deps.updates.check().then(() => {
+      if (stopped) return;
+      const line = deps.updates?.notice();
+      if (line !== null && line !== undefined) deps.log(line);
+    });
+    const updates = deps.updates;
+    updateTimer = setInterval(() => void updates.check(), 60 * 60_000);
+    updateTimer.unref?.();
+  }
+
   return {
     exitCode: 0,
     url,
     devServer,
     previewCount,
     stop: async () => {
+      stopped = true;
+      if (updateTimer !== null) clearInterval(updateTimer);
       // The server owns branch worktrees; the CLI still owns the project app
       // it may have started for the greenfield case.
       await app?.stop().catch(() => {});

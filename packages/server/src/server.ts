@@ -89,6 +89,7 @@ import {
   detectTunnels as detectShareTunnels,
   startTunnel as startShareTunnel,
 } from "./tunnel.js";
+import type { UpdateService } from "./update.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
@@ -174,6 +175,11 @@ export type ServerOptions = {
   startTunnel?: typeof startShareTunnel;
   /** Branch checkout lifecycle, injectable so server tests need no real git worktree. */
   startWorktree?: StartBranchWorktree;
+  /**
+   * Update checks and installs, supplied by the CLI. Hosts without a service
+   * answer 404; the CLI service also learns the actual port for its restart.
+   */
+  updates?: UpdateService;
 };
 
 export type RunningServer = {
@@ -981,6 +987,46 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (context.remote && path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
       return sendJson(res, 403, { error: "Not available to viewers." });
+    }
+
+    if (
+      (path === `${LEGLAS_PREFIX}/api/update` && req.method === "GET") ||
+      (req.method === "POST" && ["check", "skip", "install"].some((action) => path === `${LEGLAS_PREFIX}/api/update/${action}`))
+    ) {
+      const updates = options.updates;
+      if (updates === undefined) {
+        return sendJson(res, 404, { ok: false, error: "Updates are not available here." });
+      }
+      if (req.method === "GET") return sendJson(res, 200, updates.status());
+      if (path.endsWith("/check")) {
+        return void updates.check({ force: true }).then((status) => sendJson(res, 200, status));
+      }
+      if (path.endsWith("/install")) {
+        return void updates.update().then(
+          (status) => sendJson(res, 200, status),
+          (error: unknown) => sendJson(res, 409, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+      if (!hasJsonBody(req)) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      return void req.on("end", () => {
+        const parsed = jsonBody<{ version?: unknown }>(body);
+        if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+        if (typeof parsed.version !== "string" || parsed.version.trim() === "") {
+          return sendJson(res, 400, { ok: false, error: "Body needs a version." });
+        }
+        void updates.skip(parsed.version).then(
+          (status) => sendJson(res, 200, status),
+          (error: unknown) => sendJson(res, 400, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "GET") {
@@ -2149,6 +2195,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
 
   port = await bind(server, options.port ?? DEFAULT_PORT);
+  options.updates?.setPort(port);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
   liveHealth = watchHealth(target, live);
   await pruneCaptures(
@@ -2172,6 +2219,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ? {}
       : { claudeAgentSession: options.claudeAgentSession }),
   });
+  options.updates?.onBusy(() => runner?.snapshot().running ?? false);
+  options.updates?.onChange(() => live.nudge("update"));
 
   let closePromise: Promise<void> | null = null;
 
@@ -2183,6 +2232,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       closePromise = (async () => {
         liveFiles.close();
         liveHealth?.close();
+        await options.updates?.close();
         // The share goes with the rest rather than ahead of it: a tunnel that
         // sits on SIGTERM for its three seconds must not hold the browser,
         // the runner and the branches open meanwhile.

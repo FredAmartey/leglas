@@ -99,6 +99,12 @@ else: `npx` fetches the CLI on first use and starts from the cache after
 that. To pin a version for a project, `npm install -D leglas`; to type
 `leglas` without the prefix, `npm install -g leglas`.
 
+Leglas asks npm once a day whether a newer version exists and says so in
+the terminal and beside its name in the interface, where one click installs
+it and starts Leglas again. The check reads the registry your npm is
+configured for. Set `LEGLAS_NO_UPDATE_CHECK=1` to turn it off; the version
+stays in the interface and you can still check by hand from there.
+
 ## Using Leglas
 
 ### The rail and the stage
