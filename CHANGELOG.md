@@ -32,6 +32,8 @@ it was about.
   now also appears on GitHub, so watching the repository for releases gets
   you a note the moment one is cut. (`leglas`)
 
+![The version chip's panel: 1.1.0 is out, the release title, You have 1.0.0, an Update button and Skip, and the command Update will run](https://raw.githubusercontent.com/FredAmartey/docs-assets/c5e1dbd0debd30a5df3f517c0db76c6a843eb8dd/projects/leglas/pull-requests/0067-updates/panel-available.png#w=440 "What a 1.0.0 sees once this release is on npm: the panel behind the version, with Update and what it will run.")
+
 ### Fixed
 
 - **A Cursor run from Leglas now starts.** Picking Cursor in the composer
