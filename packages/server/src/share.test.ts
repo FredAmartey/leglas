@@ -998,18 +998,21 @@ describe("the ceiling on viewer traffic", () => {
   test("sheds a request that waited out its budget", async () => {
     // The budget is one clock over both waits, so a request reaches the
     // queue's own refusal when the slots ahead of it stay busy for longer
-    // than it has left. Twelve at a hundred and fifty milliseconds against a
-    // two hundred millisecond budget: the first twelve are served, the
-    // twelve behind them are let in with too little left, and the rest are
-    // turned away while still waiting.
+    // than it has left. Twelve at a second and a half against a two second
+    // budget: the first twelve are served, the twelve behind them are let in
+    // with too little left, and the rest are turned away while still
+    // waiting. The numbers are ten times what the story needs so that a
+    // slow runner can spread forty arrivals over half a second and still
+    // land the third batch behind a busy slot; at a tenth of this the
+    // window was fifty milliseconds and the publish runner missed it twice.
     const share = await shareWith(
       (res) => {
         setTimeout(() => {
           res.writeHead(200, { "content-type": "text/plain" });
           res.end("ok");
-        }, 150);
+        }, 1500);
       },
-      { deadlineMs: 200 },
+      { deadlineMs: 2000 },
     );
 
     const all = Array.from({ length: 40 }, (_, i) => share.get(`/steady-${i}`));
