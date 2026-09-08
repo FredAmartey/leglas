@@ -998,24 +998,43 @@ describe("the ceiling on viewer traffic", () => {
   test("sheds a request that waited out its budget", async () => {
     // The budget is one clock over both waits, so a request reaches the
     // queue's own refusal when the slots ahead of it stay busy for longer
-    // than it has left. Twelve at a second and a half against a two second
-    // budget: the first twelve are served, the twelve behind them are let in
+    // than it has left. Twelve at a second against a budget of one and a
+    // third: the first twelve are served, the twelve behind them are let in
     // with too little left, and the rest are turned away while still
-    // waiting. The numbers are ten times what the story needs so that a
-    // slow runner can spread forty arrivals over half a second and still
-    // land the third batch behind a busy slot; at a tenth of this the
-    // window was fifty milliseconds and the publish runner missed it twice.
+    // waiting.
+    //
+    // A request is turned away only when its budget has already run out at
+    // the moment a slot frees, and slots free when the batch ahead is cut
+    // off at its own deadline. Budgets are stamped from the wall clock on
+    // arrival, so a later arrival always has the later deadline, and the
+    // third batch is refused rather than started only when it arrived in
+    // the same millisecond as the second. On this machine forty loopback
+    // requests do; on a loaded runner they spread and every one of them was
+    // started and cut off instead, so the clock the budgets are stamped from
+    // is held still while the burst arrives and released once the second
+    // batch has reached the dev server. The deadlines themselves are real
+    // timers and still fire in arrival order.
+    let arrived = 0;
     const share = await shareWith(
       (res) => {
+        arrived += 1;
         setTimeout(() => {
           res.writeHead(200, { "content-type": "text/plain" });
           res.end("ok");
-        }, 1500);
+        }, 1000);
       },
-      { deadlineMs: 2000 },
+      { deadlineMs: 1300 },
     );
 
-    const all = Array.from({ length: 40 }, (_, i) => share.get(`/steady-${i}`));
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    let all: Promise<Response>[];
+    try {
+      all = Array.from({ length: 40 }, (_, i) => share.get(`/steady-${i}`));
+      await vi.waitFor(() => expect(arrived).toBe(VIEWER_CONCURRENCY * 2), { timeout: 10_000 });
+    } finally {
+      clock.mockRestore();
+    }
     const answers = await Promise.all(all.map((pending) => pending.catch(() => null)));
     const shed = answers.filter((response) => response?.status === 503);
 
