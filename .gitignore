@@ -7,3 +7,6 @@ dist/
 dist/
 .vercel
 .env*
+
+# Harbor job output (logs, trajectories)
+evals/jobs/

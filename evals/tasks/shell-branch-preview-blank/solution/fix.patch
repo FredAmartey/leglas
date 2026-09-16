@@ -1,0 +1,14 @@
+diff --git a/packages/shell/src/scan.ts b/packages/shell/src/scan.ts
+index 15a0aa1..19bac6e 100644
+--- a/packages/shell/src/scan.ts
++++ b/packages/shell/src/scan.ts
+@@ -100,7 +100,8 @@ export function scanQueue(
+   scans: PreviewScans,
+ ): Preview[] {
+   return previews.filter((preview) => {
+-    if (!preview.url.startsWith("/")) return false;
++    // A branch preview that has not started has no url to read yet.
++    if (!preview.url?.startsWith("/")) return false;
+     return currentScan(preview, scans) === null;
+   });
+ }

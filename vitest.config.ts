@@ -18,6 +18,6 @@ export default defineConfig({
      * on a loaded machine for being an assertion about speed.
      */
     testTimeout: 30_000,
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/evals/**"],
   },
 });
