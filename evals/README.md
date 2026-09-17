@@ -102,6 +102,11 @@ What the numbers say:
   agent times above but it is real wall time a harness pays.
 - The cost column is Harbor's estimate at API list prices. All runs went
   through subscriptions (`claude setup-token`, `~/.codex/auth.json`).
+- Token counts are what Harbor parsed from each agent's trajectory. A later
+  run on another repository showed that parse under-counting Codex when the
+  agent starts a nested `codex review`; nothing here asks Codex to do that,
+  but the raw usage events for these trials were not kept, so the Codex
+  counts above stand unaudited.
 
 The full report, with the JSON summary, is in
 [`results/2026-09-16.md`](results/2026-09-16.md). Regenerate it from the
