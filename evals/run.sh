@@ -40,4 +40,10 @@ if [ -n "${TASK_NAMES:-}" ]; then
   for t in "${names[@]}"; do args+=(--include-task-name "$t"); done
 fi
 
+# HARBOR_ARGS passes anything else through, for example
+# "--agent-setup-timeout-multiplier 3" when the npm registry is slow and the
+# agent install inside the container runs past Harbor's six minutes.
+# shellcheck disable=SC2206
+args+=(${HARBOR_ARGS:-})
+
 exec harbor "${args[@]}"

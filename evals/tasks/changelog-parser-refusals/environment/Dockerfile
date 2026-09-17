@@ -16,4 +16,6 @@ RUN git clone --quiet https://github.com/FredAmartey/leglas.git /app \
   && git -c user.name=leglas -c user.email=leglas@localhost commit --quiet -m "leglas at a166babecc14f16432781938cdf5db4d0ca8f8b4"
 
 WORKDIR /app
-RUN pnpm install --frozen-lockfile && pnpm build
+# The lockfile is frozen, so pnpm's release-age policy check adds nothing
+# here and its per-package metadata fetches are what make a build time out.
+RUN pnpm install --frozen-lockfile --config.minimum-release-age=0 && pnpm build

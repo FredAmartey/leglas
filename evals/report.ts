@@ -154,7 +154,7 @@ if (jobs.length === 0) {
 const tasks = [...new Set(jobs.flatMap((j) => Object.keys(j.perTask)))].sort();
 
 console.log("| Agent | Model | Trials | Pass rate | Exceptions | Median agent time | Mean tokens / trial (in + out) | Cost |");
-console.log("|---|---|---|---|---|---|---|---|");
+console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
 for (const j of jobs) {
   console.log(
     `| ${j.agent} | ${j.model} | ${j.trials} | ${pct(j.passRate)} (${j.passed}/${j.trials}) | ${j.exceptions} | ${min(j.medianAgentMinutes)} | ${k(j.meanTotalTokens)} (${k(j.meanInputTokens)} + ${k(j.meanOutputTokens)}) | ${j.totalCostUsd === null ? "n/a" : `$${j.totalCostUsd.toFixed(2)}`} |`,
@@ -163,7 +163,7 @@ for (const j of jobs) {
 console.log();
 const run = (r: TaskRun) => `${r.reward >= 1 ? "pass" : "fail"}, ${r.minutes === null ? "n/a" : `${r.minutes.toFixed(1)} min`}, ${k(r.tokens)} tok`;
 console.log(`| Task | ${jobs.map((j) => `${j.agent} (${j.model})`).join(" | ")} |`);
-console.log(`|---|${jobs.map(() => "---").join("|")}|`);
+console.log(`| --- |${jobs.map(() => " --- ").join("|")}|`);
 for (const t of tasks) {
   console.log(`| ${t} | ${jobs.map((j) => (j.perTask[t] ?? []).map(run).join("; ") || "n/a").join(" | ")} |`);
 }
