@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# Verifier: put the hidden tests back, build, run them, typecheck.
-# Reward is 1 only when every step passes and every hidden test file ran.
+# Verifier: check the base state, build, put the hidden tests back, run
+# them, typecheck. Reward is 1 only when every step passes and every hidden
+# test file ran.
 set -u
 mkdir -p /logs/verifier
 cd /app
-
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  mkdir -p "/app/$(dirname "$f")"
-  cp "/tests/files/$f" "/app/$f"
-done < /tests/files.txt
 
 export CI=1
 reward=0
@@ -24,9 +19,24 @@ while IFS= read -r f; do
   [ -n "$f" ] || continue
   cmp -s "/tests/baseline/$f" "/app/$f" || refused=1
 done < /tests/baseline.txt
+# A package the base commit did not have would still be picked up by the
+# workspace glob and have its scripts run, and a second runner config beside
+# the guarded one could take its place, so anything of either kind that has
+# no baseline copy is refused too.
+for f in packages/*/package.json vitest.config.* vitest.workspace.* vite.config.*; do
+  [ -e "$f" ] || continue
+  [ -f "/tests/baseline/$f" ] || refused=1
+done
 if [ "$refused" = 1 ]; then
   echo "the test configuration or the manifests differ from the base state" > /logs/verifier/refused.txt
 elif pnpm build > /logs/verifier/build.log 2>&1; then
+  # The hidden tests go back only now, after every package script has run,
+  # so nothing the build did can have touched them.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    mkdir -p "/app/$(dirname "$f")"
+    cp "/tests/files/$f" "/app/$f"
+  done < /tests/files.txt
   # A JSON report, then a check that every hidden file was collected and
   # passed: an exit code alone cannot tell "all green" from "none ran".
   if pnpm exec vitest run --reporter=json --outputFile=/logs/verifier/vitest.json $(tr '\n' ' ' < /tests/files.txt) > /logs/verifier/vitest.log 2>&1 \
