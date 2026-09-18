@@ -122,9 +122,24 @@ describe("the reader", () => {
     );
   });
 
-  test("a capture block passes through as written", () => {
-    const block = '<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A" />\n</p>';
-    expect(render(`# T\n\n${block}\n\n<p align="center"><i>Caption.</i></p>\n`)).toBe(`${block}\n<p align="center"><i>Caption.</i></p>`);
+  test("a capture block is rebuilt from its images and caption", () => {
+    const block = '<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A &amp; B" />\n</p>';
+    expect(render(`# T\n\n<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A & B" />\n</p>\n\n<p align="center"><i>Caption.</i></p>\n`)).toBe(
+      `${block}\n<p align="center"><i>Caption.</i></p>`,
+    );
+  });
+
+  test("a capture block refuses anything outside that shape", () => {
+    const wrap = (inner: string): string => `# T\n\n<p align="center">\n  ${inner}\n</p>\n`;
+    expect(() => render(wrap('<img src="https://example.test/a.png" alt="A" onerror="alert(1)" />'))).toThrow("an image attribute this page cannot show");
+    expect(() => render(wrap('<img src="javascript:alert(1)" alt="A" />'))).toThrow("an image without an https source");
+    expect(() => render(wrap('<img src="https://example.test/a.png" />'))).toThrow("an image without alt text");
+    expect(() => render(wrap('<img src="https://example.test/a.png" alt="A" width="wide" />'))).toThrow("an image width that is not a number");
+    expect(() => render(wrap("<script>alert(1)</script>"))).toThrow("a tag this page cannot show in a capture block");
+    expect(() => render(wrap("<i>Caption with <b>bold</b></i>"))).toThrow("a tag this page cannot show in a capture block");
+    expect(() => render(wrap("loose text"))).toThrow("text outside an image or a caption");
+    expect(() => render('# T\n\n<p class="x"><i>c</i></p>\n')).toThrow("a capture block that is not a centred paragraph");
+    expect(() => render('# T\n\n<p align="center">\n</p>\n')).toThrow("an empty capture block");
   });
 
   test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {

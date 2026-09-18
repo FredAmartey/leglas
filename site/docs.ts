@@ -119,16 +119,16 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       }
       blocks.push({ kind: "list", items });
     } else if (CAPTURE.test(line)) {
-      // The centred capture blocks the docs use, passed through as written.
-      // They are the one HTML the page shows; any other tag is refused below
-      // rather than copied into the page unread.
+      // The centred capture blocks the docs use. They are the one HTML the
+      // page shows, and they are rebuilt from an allowlist rather than
+      // copied, so a block is either the shape below or a build error.
+      const start = i;
       const html: string[] = [];
       while (i < lines.length && (lines[i] ?? "").trim() !== "") {
         html.push(lines[i] ?? "");
         i += 1;
       }
-      if (!/<\/p>\s*$/.test(html[html.length - 1] ?? "")) refuse(i - 1, "a capture block that does not close");
-      blocks.push({ kind: "html", text: html.join("\n") });
+      blocks.push({ kind: "html", text: captureBlock(html.join("\n"), (why) => refuse(start, why)) });
     } else if (/^<[a-zA-Z!/]/.test(line)) {
       refuse(i, "HTML this page cannot show");
     } else if (/^(\d+\.|>|\*|\+|#{4,})\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
@@ -147,6 +147,53 @@ export function parseBlocks(markdown: string, file: string): Block[] {
 
 /** A capture block opens with a paragraph tag; the docs centre their images that way. */
 const CAPTURE = /^<p[\s>]/;
+
+/**
+ * The one HTML shape the docs use: a centred paragraph holding images, or a
+ * caption in italics. Each part is parsed and written back from its values,
+ * so an attribute or a tag outside this list never reaches the page.
+ */
+export function captureBlock(text: string, refuse: (why: string) => never): string {
+  const match = /^<p align="center">([\s\S]*)<\/p>\s*$/.exec(text);
+  if (match === null) {
+    if (!/<\/p>\s*$/.test(text)) refuse("a capture block that does not close");
+    return refuse("a capture block that is not a centred paragraph");
+  }
+  const parts: string[] = [];
+  const inner = match[1] ?? "";
+  const token = /<img\b([^<>]*?)\s*\/?>|<i>([^<>]*)<\/i>|([^<>]+)|(<)/g;
+  for (const piece of inner.matchAll(token)) {
+    const [, image, caption, prose, stray] = piece;
+    if (image !== undefined) {
+      // Attributes are read in order until nothing is left; a bare word, an
+      // unquoted value or a second form of quoting is a refusal, not a skip.
+      const attributes = new Map<string, string>();
+      let rest = image.trim();
+      while (rest !== "") {
+        const attribute = /^([a-z]+)="([^"<>]*)"\s*/.exec(rest);
+        if (attribute === null) return refuse("an image attribute this page cannot show");
+        attributes.set(attribute[1] ?? "", attribute[2] ?? "");
+        rest = rest.slice(attribute[0].length);
+      }
+      const src = attributes.get("src");
+      const width = attributes.get("width");
+      const alt = attributes.get("alt");
+      for (const name of attributes.keys()) if (!["src", "width", "alt"].includes(name)) refuse(`an image attribute this page cannot show: ${name}`);
+      if (src === undefined || !/^https:\/\//.test(src)) refuse("an image without an https source");
+      if (width !== undefined && !/^\d+$/.test(width)) refuse("an image width that is not a number");
+      if (alt === undefined) refuse("an image without alt text");
+      parts.push(`<img src="${escape(src)}"${width === undefined ? "" : ` width="${width}"`} alt="${escape(alt)}" />`);
+    } else if (caption !== undefined) {
+      parts.push(`<i>${escape(caption)}</i>`);
+    } else if (prose !== undefined) {
+      if (prose.trim() !== "") refuse("text outside an image or a caption in a capture block");
+    } else if (stray !== undefined) {
+      refuse("a tag this page cannot show in a capture block");
+    }
+  }
+  if (parts.length === 0) refuse("an empty capture block");
+  return parts.length === 1 && parts[0]?.startsWith("<i>") ? `<p align="center">${parts[0]}</p>` : `<p align="center">\n  ${parts.join("\n  ")}\n</p>`;
+}
 
 /** Cells split on pipes that are not escaped, the way GitHub reads `\|` inside a cell. */
 function cells(row: string): string[] {
