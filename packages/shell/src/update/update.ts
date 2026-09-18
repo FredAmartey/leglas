@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "./types.js";
+import type { UpdateStatus } from "../types.js";
 
 /**
  * What the update panel says, worked out from the server's status and the

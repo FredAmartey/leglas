@@ -10,15 +10,15 @@ import {
   storageKey,
   type Prefs,
 } from "./prefs.js";
-import { ancestry, lineageRail, reorderAmongSiblings, widestLane } from "./lineage.js";
-import { railInsets } from "./Gutter.js";
-import { copyText } from "./clipboard.js";
+import { ancestry, lineageRail, reorderAmongSiblings, widestLane } from "./lineage/lineage.js";
+import { railInsets } from "./lineage/Gutter.js";
+import { copyText } from "./ui/clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
 import { absoluteUrl, referenceText } from "./reference.js";
-import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./preview-frame.js";
-import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
-import { adoptLayout, viewerPrefsRaw } from "./share.js";
+import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./preview/preview-frame.js";
+import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./ui/toasts.js";
+import { adoptLayout, viewerPrefsRaw } from "./share/share.js";
 import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
 
 /**

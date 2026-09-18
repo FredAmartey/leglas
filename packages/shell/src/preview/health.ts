@@ -1,4 +1,4 @@
-import type { Preview } from "./types.js";
+import type { Preview } from "../types.js";
 
 /**
  * Whether a preview renders through the user's dev server, which is the only

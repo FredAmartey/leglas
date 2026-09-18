@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { FALLBACK_MS, liveConnection } from "./live.js";
-import { startPoll } from "./poll.js";
+import { FALLBACK_MS, liveConnection } from "../net/live.js";
+import { startPoll } from "../net/poll.js";
 import { readShare, type SharePayload } from "./share-api.js";
 
 /**

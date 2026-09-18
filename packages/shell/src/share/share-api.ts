@@ -1,6 +1,6 @@
-import { refusal } from "./api.js";
+import { refusal } from "../net/api.js";
 import type { ShareRequest } from "./share.js";
-import type { ShareStatus, TunnelProviderId } from "./types.js";
+import type { ShareStatus, TunnelProviderId } from "../types.js";
 
 /**
  * The share endpoints, as the panel calls them. Every refusal comes back as

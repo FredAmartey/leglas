@@ -2,10 +2,10 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { MOOD } from "./orb.js";
-import { EASE } from "./prefs.js";
+import { EASE } from "../prefs.js";
 import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
-import type { BranchPreviewState } from "./types.js";
+import type { BranchPreviewState } from "../types.js";
 
 /**
  * The Leglas mark in its brand colours, the lockup's dark variant: the one

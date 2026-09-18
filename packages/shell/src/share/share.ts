@@ -1,5 +1,5 @@
-import { loadPrefs, railOrder, type Prefs } from "./prefs.js";
-import type { Preview, ShareLayout, ShareReach, ShareScope } from "./types.js";
+import { loadPrefs, railOrder, type Prefs } from "../prefs.js";
+import type { Preview, ShareLayout, ShareReach, ShareScope } from "../types.js";
 
 /**
  * What a share carries, worked out from the rail as the sharer sees it.
