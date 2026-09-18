@@ -1,0 +1,2 @@
+# Prettier writes LF, and CI checks on Linux; a checkout must not turn that into CRLF.
+* text=auto eol=lf
