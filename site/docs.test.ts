@@ -39,6 +39,7 @@ describe("docs/", () => {
       "configuration",
       "agents",
       "cli",
+      "architecture",
     ]);
     expect(docsPath("")).toBe("docs/index.html");
     expect(docsPath("guide")).toBe("docs/guide/index.html");
@@ -158,6 +159,23 @@ describe("the reader", () => {
     );
   });
 
+  test("numbered lists count from one and keep their continuation lines", () => {
+    expect(render("# T\n\n1. first step\n   continues here\n2. second\n")).toBe(
+      "<ol><li>first step continues here</li><li>second</li></ol>",
+    );
+    expect(render("# T\n\nA sentence.\n1. then a step\n")).toBe(
+      "<p>A sentence.</p>\n<ol><li>then a step</li></ol>",
+    );
+    // GitHub starts the list at whatever number comes first and ignores the
+    // rest, so anything but 1, 2, 3 would read differently there and here.
+    expect(() => render("# T\n\n2. starts late\n")).toThrow(
+      "x.md:3: a numbered list that does not count from 1",
+    );
+    expect(() => render("# T\n\n1. one\n3. three\n")).toThrow(
+      "x.md:4: a numbered list that does not count from 1",
+    );
+  });
+
   test("code is escaped and keeps its language", () => {
     expect(render("# T\n\n```ts\nconst a = 1 < 2;\n```\n")).toBe(
       '<pre><code class="lang-ts">const a = 1 &lt; 2;</code></pre>',
@@ -251,7 +269,7 @@ describe("the reader", () => {
   });
 
   test("refuses markdown the page cannot show, naming the line", () => {
-    expect(() => render("# T\n\n1. a numbered list\n")).toThrow(
+    expect(() => render("# T\n\n* a starred bullet\n")).toThrow(
       "x.md:3: markdown this page cannot show",
     );
     expect(() => render("# T\n\n> a quote\n")).toThrow("x.md:3");

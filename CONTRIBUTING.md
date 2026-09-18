@@ -24,10 +24,14 @@ pnpm site        # the homepage and changelog, into dist/site
 | `site`            | The homepage, the changelog page and the release notes, all made from `CHANGELOG.md`                |
 | `scripts`         | `pnpm api:update`, which records the public API surface in `api-surface.txt`                        |
 | `test`            | Tests about the repository itself: the manifests, the publish workflow, what the CLI tells people to type |
-| `docs`            | The manual the README links to: using the interface, sharing, setting up a project, agents, the command line |
+| `docs`            | The manual the README links to: using the interface, sharing, setting up a project, agents, the command line, and how Leglas is built |
 | `evals`           | A Harbor benchmark cut from this repository's own fixes, for running coding agents against Leglas; see `evals/README.md` |
 
 Tests sit beside the code they test, in the same directory.
+
+[How Leglas is built](docs/architecture.md) is the longer answer: what runs
+where, how the packages depend on each other, where state lives and the
+path a change request takes from the interface to an agent and back.
 
 ## Ways to help
 
