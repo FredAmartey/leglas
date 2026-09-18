@@ -22,11 +22,11 @@ reward=0
 unchanged() {
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    cmp -s "/tests/baseline/$f" "/app/$f" || return 1
+    cmp -s "/tests/baseline/$f.snapshot" "/app/$f" || return 1
   done < /tests/baseline.txt
   for f in packages/*/package.json packages/*/.npmrc .npmrc .pnpmfile.cjs vitest.config.* vitest.workspace.* vite.config.*; do
     [ -e "$f" ] || continue
-    [ -f "/tests/baseline/$f" ] || return 1
+    [ -f "/tests/baseline/$f.snapshot" ] || return 1
   done
   return 0
 }
