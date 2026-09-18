@@ -156,6 +156,10 @@ export const P = {
 export const ICON_BUTTON =
   "flex h-6 w-6 items-center justify-center rounded text-[#D1D5DB] hover:bg-[#2E2E2E] hover:text-white";
 
+/** A full-width row in a menu or a panel: a label on the left, its state on the right. */
+export const ROW_BUTTON =
+  "flex h-7 w-full items-center justify-between gap-2 whitespace-nowrap rounded px-2 text-xs hover:bg-[#2E2E2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+
 /** The one light button a panel gets: start sharing, update. */
 export const PRIMARY_BUTTON =
   "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";

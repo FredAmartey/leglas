@@ -12,6 +12,16 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Fixed
+
+- **A screen reader is told about the attach button once, not twice.** The
+  button that attaches a reference image sits in front of a hidden file
+  input, and that input carried no name of its own, so it was announced as a
+  second, unnamed control beside the one that does the job. It is hidden from
+  assistive technology now. (`leglas`)
+
 ## 1.1.1 (2026-09-17): The links on the npm page work
 
 ### Fixed

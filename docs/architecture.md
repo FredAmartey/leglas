@@ -92,16 +92,20 @@ with tests.
 | `update/` | The update chip and its panel |
 | `annotate/` | Notes pinned to a spot on a preview: the layer, the anchor that finds the spot again and the notes API |
 | `references/` | Images attached to a request: the strip, what is admitted and the upload |
-| `rail/` | Pieces of the rail that stand on their own: the search field, a row's hover card, tag colours and the dialog that confirms a delete |
+| `rail/` | The rail: its header, a row and the pieces of one, the search field, tag colours and the dialog that confirms a delete |
+| `composer/` | The controls around the field a change is typed into: the mode chip, the attach and annotate buttons, the send |
+| `stage/` | What sits beside the rail: one preview pane, and the tools the floating widget opens |
 | `lineage/` | Which direction came from which: the tree, the lines in the gutter, the crumbs and the trail |
-| `agents/` | Picking an agent, what state a request is in and why one failed, the status card above the composer, connecting an MCP host |
+| `agents/` | Picking an agent and its effort, what state a request is in and why one failed, the status card above the composer, connecting an MCP host |
 | `preview/` | What the stage has to know about a frame: its identity and when it is ready, the duplicate scan, the dev server's health, the second pane of a comparison, framework overlays |
 | `ui/` | The shared components, tips, toasts, the orb, the clipboard and the floating widget's drag rules |
 | `net/` | The fetch wrapper, the WebSocket client and the poll that cannot outrun itself |
 
 At the top, `App.tsx` reads the config and decides between the interface, a
 notice and a share that has ended. `Shell.tsx` is the rail and the stage,
-and `HelpOverlay.tsx` is the list of keys it opens.
+and `HelpOverlay.tsx` is the list of keys it opens. `Shell.tsx` holds the
+state the rail and the stage share and hands each piece what it needs, so a
+piece can be read without it.
 `useShellState.ts` is the behaviour under them: selection, search, rename
 and remove, the keyboard, resizing and which panes are mounted. `reference.ts`
 is the text a copied direction carries, which has nothing to do with the

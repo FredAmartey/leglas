@@ -1,26 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { ThinkingOrb } from "thinking-orbs";
 
-import {
-  BranchOverlay,
-  ErrorOverlay,
-  ICON_BUTTON,
-  LiveDot,
-  Mark,
-  BrandMark,
-  P,
-  PIcon,
-  ShareGlyph,
-  RenameForm,
-  SkeletonOverlay,
-  Switch,
-  Tip,
-  Toasts,
-  Wordmark,
-} from "./ui/kit.js";
+import { Mark, P, PIcon, Tip, Toasts } from "./ui/kit.js";
 import { copyText } from "./ui/clipboard.js";
 import { searchCap } from "./keymap.js";
-import { MOOD } from "./ui/orb.js";
 import { FALLBACK_MS, liveConnection } from "./net/live.js";
 import { startPoll } from "./net/poll.js";
 import {
@@ -49,7 +31,7 @@ import {
 } from "./preview/scan.js";
 import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./ui/widget.js";
 import { EASE } from "./prefs.js";
-import { Gutter, gutterWidth } from "./lineage/Gutter.js";
+import { gutterWidth } from "./lineage/Gutter.js";
 import { flushSync } from "react-dom";
 import { Crumbs } from "./lineage/Crumbs.js";
 import {
@@ -65,17 +47,10 @@ import { TOAST_TTL } from "./ui/toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./lineage/provenance.js";
 import { AnnotateLayer } from "./annotate/AnnotateLayer.js";
-import { SharePanel } from "./share/SharePanel.js";
-import { totalViewers, viewersLine } from "./share/share.js";
-import { UpdatePanel } from "./update/UpdatePanel.js";
-import { chipLabel, hasNews } from "./update/update.js";
-import { useUpdate } from "./update/useUpdate.js";
-import { useShare } from "./share/useShare.js";
 import { ReferenceStrip } from "./references/ReferenceStrip.js";
 import { uploadReference } from "./references/references-api.js";
 import {
   REFERENCE_CAP,
-  REFERENCE_TYPES,
   admit,
   carriesFiles,
   displayName as referenceName,
@@ -115,28 +90,22 @@ import {
   type AgentsPayload,
 } from "./agents/agent-api.js";
 import { McpConnectDialog } from "./agents/McpConnectDialog.js";
+import { AgentPicker } from "./agents/AgentPicker.js";
 import { StatusCard } from "./agents/StatusCard.js";
+import { AnnotateButton } from "./composer/AnnotateButton.js";
+import { AttachButton } from "./composer/AttachButton.js";
+import { ModeChip } from "./composer/ModeChip.js";
+import { SendButton } from "./composer/SendButton.js";
+import { Pane } from "./stage/Pane.js";
+import { ToolsPopover } from "./stage/ToolsPopover.js";
+import { FONTS } from "./ui/fonts.js";
 import { HelpOverlay } from "./HelpOverlay.js";
 import { DeleteRemovedDialog } from "./rail/DeleteRemovedDialog.js";
-import { RowCard } from "./rail/RowCard.js";
+import type { Drag, DragMeta } from "./rail/drag.js";
+import { RailHeader } from "./rail/Header.js";
+import { RailRow } from "./rail/Row.js";
 import { Search } from "./rail/Search.js";
-import { tagTone } from "./rail/tags.js";
 import { ViewerBanner } from "./share/ViewerBanner.js";
-
-/**
- * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
- * #232328 borders, #2E2E2E inputs), a 368px rail, two type tiers, flat rows
- * with a sliding highlight and a hover-revealed action cluster, drag to
- * reorder, hidden scrollbars, no top bar, and a floating widget whose popover
- * holds the typeface picker, viewport presets, copy, and open-in-tab.
- *
- * The typeface is a user preference, not a design variant.
- */
-const FONTS = [
-  { key: "satoshi", label: "Satoshi", stack: "var(--font-satoshi)" },
-  { key: "outfit", label: "Outfit", stack: "var(--font-outfit)" },
-  { key: "geist", label: "Geist", stack: "var(--font-geist)" },
-] as const;
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -174,14 +143,6 @@ const EMPTY_AGENTS: AgentsPayload = {
   effort: null,
 };
 
-const EFFORT_LABELS: Record<AgentEffort, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-};
-
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const SEARCH_CAP = searchCap(IS_MAC);
@@ -190,44 +151,18 @@ const SEARCH_CAP = searchCap(IS_MAC);
 const RAIL_FADE =
   "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)";
 
-/** A title as a CSS identifier, for a row's view-transition-name. */
-function rowIdent(title: string): string {
-  let hash = 0;
-  for (const char of title) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return Math.abs(hash).toString(36);
-}
-
-type Drag = {
-  dy: number;
-  from: number;
-  /** Gap between rows, measured at drag start so shifts clear it. */
-  gap: number;
-  /** Dragged row height, captured at drag start for render-time shifts. */
-  height: number;
-  title: string;
-  /** After release: easing into the target slot before the order commits. */
-  settling: boolean;
-  started: boolean;
-  to: number;
-  /** Pushed past the slots it can take; the reason shows on the row. */
-  blocked: boolean;
-  /**
-   * Rows have been measured since the drag began. A lineage rail folds the
-   * families around the dragged row when the drag starts, so positions taken
-   * at the press are stale until that fold has laid out.
-   */
-  measured: boolean;
-  /** Why the row cannot go where it is being pushed; null when anywhere goes. */
-  reason: string | null;
-  /** First and last row index the row may take; null means the whole rail. */
-  span: [number, number] | null;
-};
-
 type DeletePrompt = {
   error: string | null;
   titles: readonly string[];
 };
 
+/**
+ * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
+ * #232328 borders, #2E2E2E inputs), a 368px rail, two type tiers, flat rows
+ * with a sliding highlight and a hover-revealed action cluster, drag to
+ * reorder, hidden scrollbars, no top bar, and a floating widget whose popover
+ * holds the typeface picker, viewport presets, copy, and open-in-tab.
+ */
 export function Shell({
   previews,
   project,
@@ -278,16 +213,6 @@ export function Shell({
    * stays; everything that changes what runs, or what the sharer sees, goes.
    */
   const viewing = st.viewing;
-  const [shareOpen, setShareOpen] = useState(false);
-  const closeShare = useCallback(() => setShareOpen(false), []);
-  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
-  const shareState = useShare(!viewing);
-  /** Which Leglas this is and whether a newer one exists; the chip by the wordmark. */
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const closeUpdate = useCallback(() => setUpdateOpen(false), []);
-  const updateButtonRef = useRef<HTMLButtonElement | null>(null);
-  const updates = useUpdate(!viewing, updateOpen, st.notify);
-  const news = hasNews(updates.status);
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
   const insets = st.insets;
@@ -632,19 +557,7 @@ export function Shell({
   // leaving the rail; a 4px threshold separates it from a click.
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  const dragMeta = useRef<{
-    maxDy: number;
-    minDy: number;
-    rows: { height: number; mid: number; title: string; top: number }[];
-    startX: number;
-    startY: number;
-    suppressed: boolean;
-    /** Where the dragged row sat at the press, to keep it under the pointer across the fold. */
-    oldTop: number;
-    /** On a lineage rail: the rows it may be ordered among, and what they hang from. */
-    parent: string | null;
-    siblings: readonly string[];
-  } | null>(null);
+  const dragMeta = useRef<DragMeta | null>(null);
 
   useEffect(() => {
     dragRef.current = drag;
@@ -898,9 +811,6 @@ export function Shell({
   // two lines and overflows, which looks like damage rather than a long label,
   // and how close any of them sit to wrapping depends on the interface face
   // the user picked.
-  const ROW_BUTTON =
-    "flex h-7 w-full items-center justify-between gap-2 whitespace-nowrap rounded px-2 text-xs hover:bg-[#2E2E2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
-
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
   /** The `p-6` breathing room a framed preset sits in, both sides. */
@@ -1039,6 +949,8 @@ export function Shell({
     rows: st.rows,
   });
   const visible = paneTitles({ active: st.active, compare, split });
+  /** Where each direction on the stage sits, left to right. */
+  const stagePlace = new Map(visible.map((title, index) => [title, index]));
   const splitting = visible.length > 1;
   // Keep only the visible stage alive. An exported app can carry a full client
   // runtime, so retaining every previously opened direction multiplies both
@@ -2036,481 +1948,6 @@ export function Shell({
     window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
   };
 
-  const renderRow = (title: string, index: number) => {
-    const isActive = title === st.active;
-    const isWorking = workingTitles.has(title);
-    const preview = st.previewFor(title);
-    const isDragged = dragging && drag?.title === title;
-    const shift = dragging && !isDragged ? shiftFor(index) : 0;
-    const meta = st.rowMeta.get(title);
-    const depth = meta?.depth ?? 0;
-    const isVariant = depth > 0;
-    // Rows folded for the drag carry their subtree as a count, so a family
-    // moving as one row still says how much is moving. A root already says
-    // it beside its fold control.
-    const carrying =
-      dragging && st.dragFolded.has(title) && (meta?.variants ?? 0) === 0
-        ? (meta?.descendants ?? 0)
-        : 0;
-    // How the row shows its depth. With lineage on the rail the card itself
-    // starts where its text column begins, so the graph lives in the gutter
-    // outside every card: a root's card sits past its mark and the forks that
-    // leave it, a variant's past the lanes to its left. The two columns come
-    // from what the gutter draws, and are zero when it draws nothing.
-    const rowIndent = isVariant ? insets.variant : insets.root;
-    const variantCount = meta?.variants ?? 0;
-    const folded = meta?.folded ?? false;
-    // Renaming edits the name where it sits. Replacing the whole row with a
-    // form meant every neighbour moved, the note vanished, and the row you
-    // were aiming at stopped looking like itself. The field carries the
-    // title's own metrics instead, so nothing below it shifts by a pixel.
-    const renamingThis = st.renaming === title;
-    // The end of the title line is contested: at rest it holds the badge, and
-    // under the pointer the buttons, which want more room than the badge
-    // takes. The badge leaves the flow rather than just fading, so the name
-    // gets every pixel the buttons don't use instead of the badge's width
-    // being stranded invisibly behind them. A dragged row keeps its badge:
-    // it is being moved, not acted on, and its buttons stay away. So does a
-    // row being renamed, where the badge is the field's right-hand wall —
-    // taking it out from under the pointer would resize the field mid-word.
-    // A row pushed past where it can go says why in the badge's corner, so
-    // the badge fades out under it and back when the row is let go.
-    const badgeAside =
-      isDragged && drag?.blocked
-        ? "opacity-0 transition-opacity duration-150"
-        : dragging || renamingThis
-          ? "transition-opacity duration-150"
-          : "group-hover:hidden group-has-[button:focus-visible]:hidden";
-
-    return (
-      <li
-        className={`group relative ${
-          isDragged
-            ? `z-30 ${
-                drag?.settling
-                  ? `transition-transform duration-200 ${EASE} motion-reduce:transition-none`
-                  : ""
-              }`
-            : "z-10"
-        } ${
-          dragging && !isDragged
-            ? `transition-transform duration-200 ${EASE} motion-reduce:transition-none`
-            : ""
-        }`}
-        data-title={title}
-        key={title}
-        onPointerEnter={(event) => {
-          setTraced(title);
-          setGlow(glowFor(event.currentTarget));
-        }}
-        style={{
-          ...(isDragged
-            ? { transform: `translateY(${drag?.dy ?? 0}px)` }
-            : shift
-              ? { transform: `translateY(${shift}px)` }
-              : {}),
-          paddingLeft: rowIndent,
-          viewTransitionName: `row-${rowIdent(title)}`,
-        }}
-      >
-        {/* Pushed past where it can go, the row says why, in the corner the
-            badges use, and only while it is being pushed. */}
-        {isDragged && drag?.reason != null ? (
-          <span
-            aria-live="polite"
-            className={`pointer-events-none absolute right-2 top-1.5 z-40 rounded bg-white/[0.1] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] shadow-md transition-opacity duration-150 motion-reduce:transition-none ${
-              drag.blocked ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            {drag.reason}
-          </span>
-        ) : null}
-        {/* Everything the rail cannot fit: the note in full, the direction
-            this one was built from, and the change that was asked for. Only
-            for a direction that records one of them, so a card never opens
-            to say nothing, and never while the name is being edited. */}
-        {gutter > 0 && meta?.graph ? (
-          <Gutter
-            active={isActive}
-            arriving={arriving(title)}
-            bloom={crumbBloom.title === title ? crumbBloom.nonce : 0}
-            delay={Math.min(index, 12) * 28}
-            family={(meta?.descendants ?? 0) > 0}
-            folded={meta?.folded ?? false}
-            fresh={freshFor(title)}
-            lifted={isDragged}
-            lit={litSegments?.get(title)}
-            row={meta.graph}
-            tint={tint}
-            width={gutter}
-            working={isWorking}
-          />
-        ) : null}
-        <RowCard
-          displayName={st.displayName}
-          name={st.displayName(title)}
-          preview={preview}
-          quiet={renamingThis}
-        >
-          <div
-            aria-pressed={isActive}
-            className={`relative flex w-full items-start gap-2 rounded-md py-2 pl-3 pr-3 text-left transition-colors ${
-              viewing ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
-            } ${
-              isActive
-                ? "bg-[#2E2E2E] ring-1 ring-inset ring-[#D1D5DB]/40"
-                : isDragged
-                  ? "bg-white/[0.06]"
-                  : ""
-            } ${isDragged ? "shadow-2xl" : ""}`}
-            onClick={() => {
-              if (renamingThis) return;
-              if (dragMeta.current?.suppressed) {
-                dragMeta.current.suppressed = false;
-                return;
-              }
-              st.setActive(title);
-            }}
-            onDoubleClick={(event) => {
-              // The whole card opens the design, and only two things carve out
-              // of it: the buttons, which have their own jobs, and the name,
-              // which stops the event itself. Everything else — the note, the
-              // badge, the empty space beside them — is one target.
-              if (renamingThis) return;
-              if ((event.target as HTMLElement).closest("button")) return;
-              // The second click of the pair has already selected a word.
-              window.getSelection()?.removeAllRanges();
-              openAlone(title);
-            }}
-            onKeyDown={(event) => {
-              // Only when the card itself holds the focus. The rename field sits
-              // inside it, and Enter and Space are the two keys it needs most:
-              // taking them from the whole subtree meant Enter never committed a
-              // rename, because the preventDefault here cancelled the form's own
-              // submission, and a space never reached the name being typed.
-              if (event.target !== event.currentTarget) return;
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                st.setActive(title);
-              }
-            }}
-            onPointerDown={onRowPointerDown(title, index)}
-            role="button"
-            tabIndex={0}
-          >
-            <span className="min-w-0 flex-1">
-              {/* The buttons float over the row rather than sitting in it, so
-                  the title line has to give up the strip they land on or a long
-                  name runs underneath them. Four 24px buttons and the gaps
-                  between them, 8px in from the edge, less the 12px the row
-                  already pads: 98px, or 72px on the active row, which has no
-                  compare button. Only while they are up — at rest the name gets
-                  the whole line back. */}
-              <span
-                className={`flex items-center gap-2 ${
-                  dragging || renamingThis
-                    ? ""
-                    : viewing
-                      ? isActive
-                        ? ""
-                        : "group-hover:pr-[20px] group-has-[button:focus-visible]:pr-[20px]"
-                      : isActive
-                        ? "group-hover:pr-[72px] group-has-[button:focus-visible]:pr-[72px]"
-                        : "group-hover:pr-[98px] group-has-[button:focus-visible]:pr-[98px]"
-                }`}
-              >
-                {variantCount > 0 && (
-                  <Tip
-                    label={
-                      folded
-                        ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}`
-                        : "Fold the variants away"
-                    }
-                  >
-                    <button
-                      aria-expanded={!folded}
-                      aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
-                      className="flex shrink-0 items-center gap-1 rounded px-0.5 py-1 text-[#84848C] transition-colors hover:text-[#E8EAED]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        foldFamily(title);
-                      }}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      type="button"
-                    >
-                      <svg
-                        className={`size-2.5 transition-transform duration-150 motion-reduce:transition-none ${folded ? "-rotate-90" : ""}`}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        viewBox="0 0 10 10"
-                      >
-                        <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      {folded ? (
-                        <span className="text-[10px] leading-none tabular-nums">
-                          {variantCount}
-                        </span>
-                      ) : null}
-                    </button>
-                  </Tip>
-                )}
-                {renamingThis ? (
-                  <RenameForm
-                    error={st.renameError}
-                    initial={st.displayName(title)}
-                    label={`Rename the ${st.displayName(title)} direction`}
-                    onCancel={() => st.startRename(null)}
-                    onCommit={(value, via) => st.rename(title, value, via)}
-                  />
-                ) : (
-                  <span
-                    className={`min-w-0 flex-1 text-sm font-medium leading-5 transition-colors duration-150 ${
-                      isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
-                    }`}
-                  >
-                    {/* Two targets share this row and the split between them is
-                        the whole trick. The outer box is flex-1, so hanging the
-                        gesture there made most of the card rename instead of
-                        open. Hanging it on the glyphs alone was the other
-                        extreme: a four-character name is a sliver to hit.
-
-                        So the name gets a box of its own — at least 70% of the
-                        line the rename field will fill, growing to fit a longer
-                        name. Each padding is cancelled by an equal negative
-                        margin, which buys territory without moving a pixel of
-                        text or changing the row's height. It reaches to the
-                        card's edge, where there is nothing to take it from,
-                        except on a family root where the fold control is
-                        already sitting there. What is left for opening the
-                        design is the note beneath, the badge, and the last
-                        third of the title line. */}
-                    <span
-                      className={`block w-fit min-w-[70%] max-w-full truncate -my-1 py-1 pr-2 ${
-                        viewing ? "" : "cursor-text"
-                      } ${variantCount > 0 ? "" : "-ml-3 pl-3"}`}
-                      onDoubleClick={
-                        viewing
-                          ? undefined
-                          : (event) => {
-                              event.stopPropagation();
-                              window.getSelection()?.removeAllRanges();
-                              st.startRename(title);
-                            }
-                      }
-                    >
-                      {st.displayName(title)}
-                    </span>
-                  </span>
-                )}
-                {carrying > 0 ? (
-                  <span
-                    className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal tabular-nums text-[#E8E8EA] ${badgeAside}`}
-                  >
-                    +{carrying}
-                  </span>
-                ) : splitting && title === compare ? (
-                  <span
-                    className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${badgeAside}`}
-                  >
-                    Comparing
-                  </span>
-                ) : isWorking ? (
-                  <span
-                    className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
-                  >
-                    <ThinkingOrb
-                      aria-label="Working on direction"
-                      size={20}
-                      state={MOOD}
-                      theme="dark"
-                    />
-                    Cooking
-                  </span>
-                ) : twins[title] ? (
-                  <Tip
-                    label={`Rendered structure, layout, visual styles, media and vector geometry match ${twins[title]?.join(", ")} in a 1280 × 800 comparison.`}
-                  >
-                    <span
-                      className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
-                    >
-                      Same as{" "}
-                      {twins[title]?.length === 1
-                        ? twins[title]?.[0]
-                        : `${twins[title]?.length} others`}
-                    </span>
-                  </Tip>
-                ) : scanning === title ? (
-                  <span
-                    className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
-                  >
-                    <ThinkingOrb
-                      aria-label="Checking for duplicates"
-                      size={20}
-                      state={MOOD}
-                      theme="dark"
-                    />
-                    Cooking
-                  </span>
-                ) : (
-                  preview?.tags[0] && (
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${badgeAside}`}
-                      style={tagTone(preview.tags[0])}
-                    >
-                      {preview.tags[0]}
-                    </span>
-                  )
-                )}
-              </span>
-              {/* A refused name takes this line rather than adding one. The two
-                  are never both worth reading, and swapping them keeps the row
-                  the height it already was. */}
-              <span
-                className={`mt-0.5 line-clamp-2 block cursor-text text-xs leading-snug transition-colors ${
-                  renamingThis && st.renameError
-                    ? "text-amber-300/90"
-                    : isActive
-                      ? "text-[#D1D5DB]"
-                      : "text-[#84848C]"
-                }`}
-                id={renamingThis && st.renameError ? "leglas-rename-error" : undefined}
-              >
-                {renamingThis && st.renameError
-                  ? st.renameError
-                  : // A branch's own URL is a loopback address on a port picked at
-                    // random, which tells a reader nothing and now appears only once
-                    // the checkout is up. The branch it came from is the useful line
-                    // and it is there from the start.
-                    (preview?.note ??
-                    (preview?.branch === undefined ? preview?.url : preview.branch))}
-              </span>
-            </span>
-          </div>
-        </RowCard>
-        <div
-          className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
-            renamingThis ? "invisible" : ""
-          } ${
-            dragging
-              ? ""
-              : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
-          }`}
-        >
-          {/* Choosing the second direction belongs where the directions are.
-              The active row is the left pane, so this only appears on the
-              others. */}
-          {title !== st.active && (
-            <Tip
-              label={
-                splitting && title === compare
-                  ? "Stop comparing"
-                  : `Compare with ${st.displayName(st.active)}`
-              }
-            >
-              <button
-                aria-label={
-                  splitting && title === compare
-                    ? `Stop comparing ${st.displayName(title)}`
-                    : `Compare ${st.displayName(title)} with ${st.displayName(st.active)}`
-                }
-                aria-pressed={splitting && title === compare}
-                className={`${ICON_BUTTON} ${splitting && title === compare ? "text-white" : ""}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (splitting && title === compare) {
-                    setSplit(false);
-                    return;
-                  }
-                  setComparePin(title);
-                  setSplit(true);
-                }}
-                type="button"
-              >
-                <PIcon d={P.split} />
-              </button>
-            </Tip>
-          )}
-          {/* The reflex copy: someone says "show me" and this goes into the
-              message. The reference is the deliberate one, and it lives here
-              too now: both copies are of this direction, so both belong on
-              its row rather than one of them squatting under the composer.
-              None of the four for a viewer: a link would only work in their
-              own browser, and the rest change a rail that is not theirs. */}
-          {!viewing && (
-            <>
-              <Tip
-                label={
-                  st.copied?.kind === "link" && st.copied.title === title
-                    ? "Copied"
-                    : "Copy preview link"
-                }
-              >
-                <button
-                  aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
-                  className={ICON_BUTTON}
-                  onClick={() => st.copyLink(title)}
-                  type="button"
-                >
-                  {st.copied?.kind === "link" && st.copied.title === title ? (
-                    <span className="text-[10px] text-emerald-300">✓</span>
-                  ) : (
-                    <PIcon d={P.link} />
-                  )}
-                </button>
-              </Tip>
-              <Tip
-                label={
-                  st.copied?.kind === "reference" && st.copied.title === title ? (
-                    "Copied"
-                  ) : (
-                    <>
-                      <span className="block">Copy a detailed reference.</span>
-                      <span className="block">For a teammate or an agent.</span>
-                    </>
-                  )
-                }
-              >
-                <button
-                  aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
-                  className={ICON_BUTTON}
-                  onClick={() => st.copyReference(title)}
-                  type="button"
-                >
-                  {st.copied?.kind === "reference" && st.copied.title === title ? (
-                    <span className="text-[10px] text-emerald-300">✓</span>
-                  ) : (
-                    <PIcon d={P.copy} size={12} />
-                  )}
-                </button>
-              </Tip>
-              <Tip label="Rename">
-                <button
-                  aria-label={`Rename the ${st.displayName(title)} direction`}
-                  className={ICON_BUTTON}
-                  onClick={() => st.startRename(title)}
-                  type="button"
-                >
-                  <PIcon d={P.pencil} size={12} />
-                </button>
-              </Tip>
-              <Tip label="Remove from list">
-                <button
-                  aria-label={`Remove the ${st.displayName(title)} direction from the list`}
-                  className={ICON_BUTTON}
-                  onClick={() => st.hide(title)}
-                  type="button"
-                >
-                  <PIcon d={P.trash} size={12} />
-                </button>
-              </Tip>
-            </>
-          )}
-        </div>
-      </li>
-    );
-  };
-
   return (
     <main
       className={`flex h-dvh bg-[#1C1C20] text-white antialiased selection:bg-[#E6E8EC] selection:text-[#17181B] ${
@@ -2534,126 +1971,16 @@ export function Shell({
           inert={st.prefs.collapsed}
           style={{ width: st.prefs.width }}
         >
-          <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
-            {/* The product names itself here rather than in the list below it:
-                the search field and every command already say "directions". */}
-            <span className="flex min-w-0 items-center gap-2">
-              <Mark size={28} />
-              <Wordmark height={18} />
-              {/* The version, said quietly beside the name. It brightens and
-                  wears a dot when a newer Leglas exists, and opens the one
-                  place to bring it in. A viewer sees the sharer's Leglas, not
-                  their own, so they get no chip. */}
-              {!viewing && updates.status !== null && (
-                <Tip label={chipLabel(updates.status)}>
-                  <button
-                    aria-expanded={updateOpen}
-                    aria-haspopup="dialog"
-                    aria-label={
-                      news
-                        ? `Leglas ${updates.status.version}. ${chipLabel(updates.status)}. Open updates`
-                        : `Leglas ${updates.status.version}. Open updates`
-                    }
-                    className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
-                      news || updateOpen
-                        ? "text-[#D1D5DB] hover:text-white"
-                        : "text-[#84848C] hover:text-[#D1D5DB]"
-                    }`}
-                    onClick={() => {
-                      setShareOpen(false);
-                      setUpdateOpen((open) => !open);
-                    }}
-                    ref={updateButtonRef}
-                    type="button"
-                  >
-                    {updates.status.version}
-                    {news && (
-                      <span
-                        aria-hidden
-                        className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
-                      />
-                    )}
-                  </button>
-                </Tip>
-              )}
-            </span>
-            <span className="flex shrink-0 items-center gap-0.5">
-              {/* Sharing sits with the rail it shares. While a share is live
-                  the control wears the light's own dot, so the fact that
-                  somebody may be looking is never more than a glance away. */}
-              {!viewing && (
-                <Tip
-                  label={
-                    shareState.share === null
-                      ? "Share this rail"
-                      : shareState.share.tunnel.status === "ready"
-                        ? `Sharing · ${viewersLine(totalViewers(shareState.share.grants))}`
-                        : "Sharing"
-                  }
-                >
-                  <button
-                    aria-expanded={shareOpen}
-                    aria-haspopup="dialog"
-                    aria-label={
-                      shareState.share === null ? "Share" : "Sharing. Open the share panel"
-                    }
-                    className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
-                      shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
-                    }`}
-                    onClick={() => {
-                      setUpdateOpen(false);
-                      setShareOpen((open) => !open);
-                    }}
-                    ref={shareButtonRef}
-                    type="button"
-                  >
-                    <ShareGlyph />
-                    {shareState.share !== null && <LiveDot className="absolute right-0 top-0" />}
-                  </button>
-                </Tip>
-              )}
-              <Tip
-                label={
-                  <>
-                    Collapse panel <kbd className="ml-1 text-[#9CA3AF]">[</kbd>
-                  </>
-                }
-                side="right"
-              >
-                <button
-                  aria-label="Collapse the directions panel"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 text-[#9CA3AF] transition-colors hover:bg-[#2E2E2E] hover:text-white"
-                  onClick={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
-                  type="button"
-                >
-                  <PIcon d={P.sidebar} size={16} />
-                </button>
-              </Tip>
-            </span>
-            {!viewing && (
-              <UpdatePanel
-                onClose={closeUpdate}
-                open={updateOpen}
-                triggerRef={updateButtonRef}
-                updates={updates}
-              />
-            )}
-            {!viewing && (
-              <SharePanel
-                active={st.active}
-                compare={splitting ? compare : null}
-                displayName={st.displayName}
-                notify={st.notify}
-                onClose={closeShare}
-                open={shareOpen}
-                prefs={st.prefs}
-                previews={previews}
-                share={shareState.share}
-                triggerRef={shareButtonRef}
-                tunnels={shareState.tunnels}
-              />
-            )}
-          </div>
+          <RailHeader
+            active={st.active}
+            compare={splitting ? compare : null}
+            displayName={st.displayName}
+            notify={st.notify}
+            onCollapse={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
+            prefs={st.prefs}
+            previews={previews}
+            viewing={viewing}
+          />
 
           {viewer !== undefined && <ViewerBanner scope={viewer.scope} />}
 
@@ -2714,7 +2041,45 @@ export function Shell({
                   transform: `translateY(${glow.top}px)`,
                 }}
               />
-              {st.rows.map((title, index) => renderRow(title, index))}
+              {st.rows.map((title, index) => (
+                <RailRow
+                  arriving={arriving}
+                  comparing={splitting && title === compare}
+                  crumbBloom={crumbBloom}
+                  drag={drag}
+                  dragMeta={dragMeta}
+                  dragging={dragging}
+                  freshFor={freshFor}
+                  gutter={gutter}
+                  index={index}
+                  insets={insets}
+                  key={title}
+                  lit={litSegments?.get(title)}
+                  onEnter={(row) => {
+                    setTraced(title);
+                    setGlow(glowFor(row));
+                  }}
+                  onFold={() => foldFamily(title)}
+                  onOpenAlone={() => openAlone(title)}
+                  onPointerDown={onRowPointerDown(title, index)}
+                  onToggleCompare={() => {
+                    if (splitting && title === compare) {
+                      setSplit(false);
+                      return;
+                    }
+                    setComparePin(title);
+                    setSplit(true);
+                  }}
+                  same={twins[title]}
+                  scanning={scanning === title}
+                  shiftFor={shiftFor}
+                  st={st}
+                  tint={tint}
+                  title={title}
+                  viewing={viewing}
+                  working={workingTitles.has(title)}
+                />
+              ))}
               {leaving
                 .filter((entry) => entry.d !== trail?.d)
                 .map((entry) => (
@@ -3062,389 +2427,48 @@ export function Shell({
                     value={intent}
                   />
                   <div className="flex items-center justify-end gap-1.5 p-1">
-                    {/* What the change does to the direction it is aimed at, in
-                    the one place the aiming happens. A chip rather than a
-                    setting: it is a per-change decision, and the answer has to
-                    be readable in the second before Enter. */}
-                    <Tip
-                      label={
-                        mode === "variant"
-                          ? "Builds a new direction beside this one and leaves this one alone."
-                          : "Changes this direction itself. Nothing is kept of what it was."
-                      }
-                    >
-                      <button
-                        aria-label={
-                          mode === "variant"
-                            ? "This change makes a new variant. Switch to changing the direction itself."
-                            : "This change edits the direction itself. Switch to making a new variant."
-                        }
-                        className="mr-auto flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                        onClick={() => setMode(mode === "variant" ? "replace" : "variant")}
-                        type="button"
-                      >
-                        {mode === "variant" ? (
-                          <svg
-                            aria-hidden
-                            fill="none"
-                            height="11"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                            viewBox="0 0 16 16"
-                            width="11"
-                          >
-                            <circle cx="4.5" cy="3.6" r="1.9" />
-                            <circle cx="11.5" cy="12.4" r="1.9" />
-                            <path
-                              d="M4.5 5.5v2.6a4.3 4.3 0 0 0 4.3 4.3h0.8"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            aria-hidden
-                            fill="none"
-                            height="11"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                            viewBox="0 0 16 16"
-                            width="11"
-                          >
-                            <path
-                              d="M10.8 2.9 13.1 5.2 5.6 12.7H3.3v-2.3z"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                        {mode === "variant" ? "as a variant" : "in place"}
-                      </button>
-                    </Tip>
-                    {/* Showing beats describing: a screenshot of the thing the
-                    words are about, or of the thing they should become. Paste
-                    and drop do the same job; this is the way in for anyone who
-                    does neither. */}
-                    <input
-                      accept={REFERENCE_TYPES.join(",")}
-                      className="sr-only"
-                      multiple
-                      onChange={(event) => {
-                        attachReferences(Array.from(event.currentTarget.files ?? []));
-                        // Cleared so the same file can be chosen again after a
-                        // remove; a file input only fires when its value changes.
-                        event.currentTarget.value = "";
-                      }}
-                      ref={referenceInputRef}
-                      tabIndex={-1}
-                      type="file"
+                    <ModeChip
+                      mode={mode}
+                      onToggle={() => setMode(mode === "variant" ? "replace" : "variant")}
                     />
-                    <Tip
-                      label={
-                        <>
-                          <span className="block">Attach a reference image</span>
-                          <span className="block text-[#9CA3AF]">Paste or drop one, too</span>
-                        </>
+                    <AttachButton
+                      count={references.length}
+                      disabled={!st.active || sending || references.length >= REFERENCE_CAP}
+                      inputRef={referenceInputRef}
+                      onFiles={attachReferences}
+                    />
+                    <AnnotateButton
+                      annotating={annotating}
+                      count={activeNotes.length}
+                      onToggle={() => (annotating ? stopAnnotating() : setAnnotating(true))}
+                    />
+                    <AgentPicker
+                      agents={agentState.agents}
+                      chip={chip}
+                      chosenSignedOut={chosenSignedOut}
+                      connectRef={mcpConnectTriggerRef}
+                      menuRef={agentMenuRef}
+                      onConnect={() => setMcpConnectOpen(true)}
+                      onPick={pickAgent}
+                      onPickEffort={pickEffort}
+                      onRefresh={refreshAgents}
+                      open={agentMenuOpen}
+                      pickingAgent={pickingAgent}
+                      savingEffort={savingEffort}
+                      selectedAgent={selectedAgent}
+                      selectedEffort={selectedEffort}
+                      setOpen={setAgentMenuOpen}
+                      triggerRef={agentTriggerRef}
+                    />
+                    <SendButton
+                      ready={
+                        (intent.trim() !== "" || activeNotes.length > 0) &&
+                        Boolean(st.active) &&
+                        !sending
                       }
-                    >
-                      <button
-                        aria-label={
-                          references.length > 0
-                            ? `Attach another image, ${references.length} attached`
-                            : "Attach a reference image"
-                        }
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
-                        disabled={!st.active || sending || references.length >= REFERENCE_CAP}
-                        onClick={() => referenceInputRef.current?.click()}
-                        type="button"
-                      >
-                        <svg
-                          aria-hidden
-                          fill="none"
-                          height="11"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.7"
-                          viewBox="0 0 16 16"
-                          width="11"
-                        >
-                          <rect height="10.5" rx="1.8" width="12.5" x="1.75" y="2.75" />
-                          <circle cx="5.6" cy="6.3" r="1.1" />
-                          <path d="m14.25 10.4-3.1-3.1a1 1 0 0 0-1.4 0L4.5 12.5" />
-                        </svg>
-                      </button>
-                    </Tip>
-                    {/* The way in that is not a keystroke, and the count that says
-                    the pins are still there once the mode is left. */}
-                    <Tip
-                      label={
-                        <>
-                          <span className="block">
-                            {annotating
-                              ? "Stop annotating"
-                              : activeNotes.length > 0
-                                ? "Show what you marked up"
-                                : "Point at what is wrong, instead of describing where it is"}
-                          </span>
-                          <span className="block text-[#9CA3AF]">
-                            {annotating ? (
-                              "Click a detail · drag an area · Esc to stop"
-                            ) : (
-                              <kbd className="font-sans">A</kbd>
-                            )}
-                          </span>
-                        </>
-                      }
-                    >
-                      <button
-                        aria-keyshortcuts="a"
-                        aria-label={
-                          annotating
-                            ? "Stop annotating the design"
-                            : `Annotate the design${
-                                activeNotes.length > 0
-                                  ? `, ${activeNotes.length} annotation${
-                                      activeNotes.length === 1 ? "" : "s"
-                                    } so far`
-                                  : ""
-                              }`
-                        }
-                        aria-pressed={annotating}
-                        className={`flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none transition-colors ${
-                          annotating
-                            ? "bg-[#7C9CFF]/20 text-[#AFC2FF]"
-                            : "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                        }`}
-                        onClick={() => (annotating ? stopAnnotating() : setAnnotating(true))}
-                        type="button"
-                      >
-                        <svg
-                          aria-hidden
-                          fill="none"
-                          height="11"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          viewBox="0 0 16 16"
-                          width="11"
-                        >
-                          <path
-                            d="M8 1.8a4.2 4.2 0 0 1 4.2 4.2c0 3-4.2 8-4.2 8S3.8 9 3.8 6A4.2 4.2 0 0 1 8 1.8Z"
-                            strokeLinejoin="round"
-                          />
-                          <circle cx="8" cy="6" r="1.4" />
-                        </svg>
-                        Annotate
-                        {activeNotes.length > 0 ? (
-                          <span className="rounded-full bg-white/15 px-1 text-[9px] leading-[1.5] text-white">
-                            {activeNotes.length}
-                          </span>
-                        ) : null}
-                      </button>
-                    </Tip>
-                    {chip.kind === "none" ? (
-                      <button
-                        className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[10px] leading-none text-[#84848C] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                        onClick={() => setMcpConnectOpen(true)}
-                        ref={mcpConnectTriggerRef}
-                        type="button"
-                      >
-                        <PIcon d={P.link} size={12} />
-                        <span className="truncate">Connect agent via MCP…</span>
-                      </button>
-                    ) : (
-                      /* An inline select beside the send it configures: the menu
-                     hangs off the chip itself, sized to its options, the way
-                     a model picker behaves in every composer people know. */
-                      <div className="relative flex min-w-0 items-center">
-                        <div
-                          aria-hidden={!agentMenuOpen}
-                          aria-label="Who runs your changes"
-                          className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-48 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-                            agentMenuOpen
-                              ? "translate-y-0 scale-100 opacity-100"
-                              : "pointer-events-none translate-y-1 scale-95 opacity-0"
-                          }`}
-                          inert={!agentMenuOpen}
-                          ref={agentMenuRef}
-                          role="dialog"
-                          tabIndex={-1}
-                        >
-                          {agentState.agents
-                            .filter((agent) => agent.available)
-                            .map((agent) => {
-                              const active = chip.kind === "chosen" && agent.id === chip.id;
-                              return (
-                                <button
-                                  className={ROW_BUTTON}
-                                  disabled={pickingAgent !== null || savingEffort}
-                                  key={agent.id}
-                                  onClick={() =>
-                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
-                                  }
-                                  type="button"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <BrandMark id={agent.id} />
-                                    <span className="truncate">{agent.name}</span>
-                                  </span>
-                                  {pickingAgent === agent.id ? (
-                                    <span
-                                      aria-label="selecting"
-                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                                    />
-                                  ) : agent.auth === "signed-out" ? (
-                                    /* Caught before the run instead of after
-                                   it: the CLI itself says its login is
-                                   gone, and hiding the row would only
-                                   hide the fix. */
-                                    <span className="text-[10px] text-amber-400/80">
-                                      signed out
-                                    </span>
-                                  ) : (
-                                    active && <span aria-label="current choice">✓</span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          {chip.kind === "chosen" && chip.id === "custom" ? (
-                            <button
-                              className={ROW_BUTTON}
-                              onClick={() => setAgentMenuOpen(false)}
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <BrandMark id="custom" />
-                                <span className="truncate">{chip.name}</span>
-                              </span>
-                              <span aria-label="current choice">✓</span>
-                            </button>
-                          ) : null}
-                          {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
-                            <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
-                              <label className="flex min-h-7 items-center justify-between gap-3">
-                                <span className="text-[10px] font-medium text-[#84848C]">
-                                  Effort
-                                </span>
-                                <select
-                                  aria-busy={savingEffort}
-                                  aria-label={`${selectedAgent.name} effort`}
-                                  className="min-h-7 rounded-md border border-[#303038] bg-[#17171B] px-2 text-[10px] text-[#D1D5DB] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
-                                  disabled={savingEffort || pickingAgent !== null}
-                                  onChange={(event) => {
-                                    const value = event.currentTarget.value;
-                                    pickEffort(value === "" ? null : (value as AgentEffort));
-                                  }}
-                                  value={selectedEffort ?? ""}
-                                >
-                                  <option value="">Agent default</option>
-                                  {selectedAgent.efforts.map((effort) => (
-                                    <option key={effort} value={effort}>
-                                      {EFFORT_LABELS[effort]}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                          ) : null}
-                          <div className="mt-1 border-t border-[#232328] pt-1">
-                            <button
-                              className={`${ROW_BUTTON} text-[#84848C]`}
-                              onClick={() => {
-                                setAgentMenuOpen(false);
-                                setMcpConnectOpen(true);
-                              }}
-                              ref={mcpConnectTriggerRef}
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <PIcon d={P.link} size={14} />
-                                <span className="truncate">Connect agent via MCP…</span>
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                        <button
-                          aria-expanded={agentMenuOpen}
-                          aria-haspopup="dialog"
-                          className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                          onClick={() => {
-                            // Opening re-asks the CLIs about their logins, so a
-                            // sign-in that happened after boot shows up here.
-                            if (!agentMenuOpen) refreshAgents();
-                            setAgentMenuOpen((open) => !open);
-                          }}
-                          ref={agentTriggerRef}
-                          type="button"
-                        >
-                          {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
-                          <span className="truncate">
-                            {chip.kind === "chosen"
-                              ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
-                              : "Choose an agent"}
-                          </span>
-                          {chosenSignedOut && (
-                            <span
-                              className="size-1.5 shrink-0 rounded-full bg-amber-400"
-                              title="This CLI is signed out. Sign in in your terminal."
-                            >
-                              <span className="sr-only">signed out</span>
-                            </span>
-                          )}
-                          <svg
-                            aria-hidden="true"
-                            className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
-                              agentMenuOpen ? "rotate-180" : ""
-                            }`}
-                            fill="none"
-                            height="12"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.75"
-                            viewBox="0 0 16 16"
-                            width="12"
-                          >
-                            <path d="M4 6.5 8 10.5l4-4" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
-                    {/* A real send button, because Enter alone is an invisible
-                    contract. Dim and inert until there is something to send;
-                    the field's one moment of light once there is. */}
-                    <button
-                      aria-label={
-                        st.active
-                          ? `Send the change to ${st.displayName(st.active)}`
-                          : "Send the change"
-                      }
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
-                        (intent.trim() !== "" || activeNotes.length > 0) && st.active && !sending
-                          ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
-                          : "pointer-events-none text-[#84848C]/60"
-                      }`}
-                      disabled={
-                        (intent.trim() === "" && activeNotes.length === 0) || !st.active || sending
-                      }
-                      type="submit"
-                    >
-                      {sending ? (
-                        <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                      ) : (
-                        <svg
-                          aria-hidden="true"
-                          fill="none"
-                          height="13"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.75"
-                          viewBox="0 0 16 16"
-                          width="13"
-                        >
-                          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-                        </svg>
-                      )}
-                    </button>
+                      sending={sending}
+                      target={st.active ? st.displayName(st.active) : null}
+                    />
                   </div>
                 </div>
               </form>
@@ -3566,163 +2590,51 @@ export function Shell({
         ref={attachStage}
       >
         {mounted.map((title) => (
-          <div
-            className={
-              !visible.includes(title)
-                ? "hidden"
-                : splitting
-                  ? `relative min-w-0 flex-1 overflow-auto ${
-                      title === compare ? "border-l border-[#232328]" : ""
-                    } ${
-                      scaling
-                        ? "flex flex-col items-center justify-center gap-2.5"
-                        : framed
-                          ? "flex min-h-full justify-center p-6"
-                          : ""
-                    }`
-                  : framed
-                    ? "flex min-h-full justify-center p-6"
-                    : "absolute inset-0"
-            }
-            key={title}
-            style={splitting ? { order: visible.indexOf(title) } : undefined}
-          >
-            {splitting && (
-              // Two panes need naming; one does not, because the rail already
-              // shows which is active.
-              // Scaled, the name belongs to its artboard and sits on top of
-              // it; floating at the top of the pane leaves it stranded above
-              // the space the letterboxing opens up.
-              <div
-                className={
-                  scaling
-                    ? "pointer-events-none z-10 flex justify-center"
-                    : "pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3"
-                }
-              >
-                <span className="rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur">
-                  {st.displayName(title)}
-                  {/* Say the scale rather than let it be guessed from the type
-                      looking small. The width is the useful half: it is what
-                      the design is actually being drawn at. */}
-                  {scaling && (
-                    <span className="ml-1.5 font-normal text-[#8E8E96]">
-                      {Math.round(designWidth)}px · {Math.round(paneScale * 100)}%
-                    </span>
-                  )}
-                </span>
-              </div>
-            )}
-            <div
-              className={
-                scaling
-                  ? // Its own artboard, so the room around it reads as canvas
-                    // rather than as a pane that failed to fill.
-                    "relative shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-                  : framed
-                    ? `relative h-[calc(100dvh-48px)] shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.10)] transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
-                    : "relative size-full"
-              }
-              style={
-                scaling
-                  ? { height: boxHeight, width: boxWidth }
-                  : framed
-                    ? { width: st.prefs.viewport ?? undefined }
-                    : undefined
-              }
-            >
-              {/*
-                The frame keeps its own dimensions and is scaled as a whole, so
-                the app inside measures the width it was designed for. Media
-                queries answer against that width, not against the pane, which
-                is the entire point. Overlays stay outside this box: an error
-                worth reading is not worth reading at half size.
-              */}
-              <div
-                className={scaling ? "relative origin-top-left" : "relative size-full"}
-                style={
-                  scaling
-                    ? {
-                        height: frameHeight,
-                        transform: `scale(${paneScale})`,
-                        width: designWidth,
-                      }
-                    : undefined
-                }
-              >
-                {(() => {
-                  const branch = st.branchState(title);
-                  return branch !== null && branch.status !== "ready" ? (
-                    <BranchOverlay
-                      branch={st.previewFor(title)?.branch ?? title}
-                      onStart={() => st.startBranch(title)}
-                      state={branch}
-                    />
-                  ) : (
-                    <iframe
-                      className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
-                      key={paneIdentityFor(title)}
-                      onError={() => setErrored((current) => ({ ...current, [title]: true }))}
-                      onLoad={(event) => {
-                        const src = st.urlFor(title);
-                        const identity = event.currentTarget.dataset.previewIdentity;
-                        // Cross-origin previews expose only the event. Same-origin
-                        // previews must have left about:blank and produced a real
-                        // readable document before they are considered loaded.
-                        if (
-                          identity !== undefined &&
-                          (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
-                        ) {
-                          markPreviewReady(title, identity, event.currentTarget);
-                        }
-                      }}
-                      data-preview={title}
-                      data-preview-identity={paneIdentityFor(title)}
-                      src={st.urlFor(title)}
-                      title={`Preview: ${st.displayName(title)}`}
-                    />
-                  );
-                })()}
-                {!viewing && annotating && title === st.active ? (
-                  <AnnotateLayer
-                    notes={activeNotes}
-                    onExit={stopAnnotating}
-                    onForget={forgetNote}
-                    onKeep={(anchor, words) => keepNote(title, anchor, words)}
-                    onRevise={reviseNote}
-                    paneScale={paneScale}
-                    scaling={scaling}
-                    sent={notesSent}
-                    title={title}
-                  />
-                ) : null}
-              </div>
-              {st.branchState(title) !== null &&
-              st.branchState(title)?.status !== "ready" ? null : errored[title] ? (
-                <ErrorOverlay
-                  onReload={() => reloadPane(title)}
-                  reason={
-                    health.reachable || !appPanes.has(title)
-                      ? `${st.urlFor(title)} didn’t respond.`
-                      : "Your dev server stopped. This returns on its own once it is back."
-                  }
+          <Pane
+            annotate={
+              !viewing && annotating && title === st.active ? (
+                <AnnotateLayer
+                  notes={activeNotes}
+                  onExit={stopAnnotating}
+                  onForget={forgetNote}
+                  onKeep={(anchor, words) => keepNote(title, anchor, words)}
+                  onRevise={reviseNote}
+                  paneScale={paneScale}
+                  scaling={scaling}
+                  sent={notesSent}
+                  title={title}
                 />
-              ) : (
-                <SkeletonOverlay loaded={paneLoaded(title)} />
-              )}
-              {/* A pane that loaded before the server died keeps showing that
-                  render. Saying so is the difference between a stale preview
-                  and a lie — but only for panes the server rendered. A file
-                  preview is served by Leglas and is as current as ever. */}
-              {!health.reachable && paneLoaded(title) && appPanes.has(title) && (
-                <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
-                  <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">
-                    Stale — dev server stopped
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+              ) : null
+            }
+            boxHeight={boxHeight}
+            boxWidth={boxWidth}
+            branch={st.branchState(title)}
+            branchName={st.previewFor(title)?.branch ?? title}
+            busy={busy}
+            designWidth={designWidth}
+            errored={errored[title] === true}
+            frameHeight={frameHeight}
+            framed={framed}
+            fromApp={appPanes.has(title)}
+            identity={paneIdentityFor(title)}
+            key={title}
+            loaded={paneLoaded(title)}
+            name={st.displayName(title)}
+            onError={() => setErrored((current) => ({ ...current, [title]: true }))}
+            onReady={(identity, frame) => markPreviewReady(title, identity, frame)}
+            onReload={() => reloadPane(title)}
+            onStartBranch={() => st.startBranch(title)}
+            order={stagePlace.get(title) ?? -1}
+            paneScale={paneScale}
+            scaling={scaling}
+            second={title === compare}
+            serverUp={health.reachable}
+            shown={stagePlace.has(title)}
+            splitting={splitting}
+            src={st.urlFor(title)}
+            title={title}
+            viewport={st.prefs.viewport}
+          />
         ))}
 
         <div
@@ -3738,179 +2650,26 @@ export function Shell({
           }`}
           style={widgetAnchor}
         >
-          <div
-            aria-hidden={!widgetOpen}
-            aria-label="Leglas tools"
-            className={`w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-              // Out of the layout entirely while dragging: hidden it still
-              // occupies its full box, which is what pushed the button off the
-              // pointer.
-              widgetDrag ? "hidden " : ""
-            }${
-              widgetOpen
-                ? "translate-y-0 scale-100 opacity-100"
-                : "pointer-events-none translate-y-1 scale-95 opacity-0"
-            }`}
-            inert={!widgetOpen}
-            ref={popoverRef}
-            role="dialog"
-            tabIndex={-1}
-          >
-            <span className="block px-1 pb-1 pt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Typeface
-            </span>
-            <div
-              aria-label="Interface typeface"
-              className="flex items-center gap-0.5 rounded-md bg-[#2E2E2E]/40 p-0.5"
-              role="group"
-            >
-              {FONTS.map((font) => (
-                <button
-                  aria-pressed={activeFont.key === font.key}
-                  className={`flex-1 rounded px-2 py-1 text-xs transition-colors ${
-                    activeFont.key === font.key
-                      ? "bg-[#2E2E2E] font-medium text-white"
-                      : "text-[#9CA3AF] hover:text-[#D1D5DB]"
-                  }`}
-                  key={font.key}
-                  onClick={() => st.setPrefs((prefs) => ({ ...prefs, font: font.key }))}
-                  style={{ fontFamily: font.stack }}
-                  type="button"
-                >
-                  {font.label}
-                </button>
-              ))}
-            </div>
-
-            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Viewport
-            </span>
-            <div
-              aria-label="Viewport width"
-              className="flex items-center gap-0.5 rounded-md bg-[#2E2E2E]/40 p-0.5"
-              role="group"
-            >
-              {st.viewports.map(({ label, width }) => (
-                <button
-                  className={`flex-1 rounded px-2 py-1 text-xs transition-colors ${
-                    st.prefs.viewport === width
-                      ? "bg-[#2E2E2E] font-medium text-white"
-                      : "text-[#9CA3AF] hover:text-[#D1D5DB]"
-                  }`}
-                  key={label}
-                  onClick={() => st.setPrefs((prefs) => ({ ...prefs, viewport: width }))}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Only meaningful while two things are on the stage, so it appears
-                when it applies rather than sitting there greyed out. */}
-            {splitting && (
-              <button
-                aria-checked={st.prefs.scaleSplit}
-                className={`${ROW_BUTTON} mt-1 ${
-                  st.prefs.scaleSplit ? "text-white" : "text-[#9CA3AF]"
-                }`}
-                onClick={() =>
-                  st.setPrefs((current) => ({ ...current, scaleSplit: !current.scaleSplit }))
-                }
-                role="switch"
-                type="button"
-              >
-                <span>Scale each side to fit</span>
-                <Switch on={st.prefs.scaleSplit} />
-              </button>
-            )}
-
-            <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-              Dev overlays
-            </span>
-            <button
-              aria-checked={st.prefs.showDevOverlays}
-              className={`${ROW_BUTTON} ${
-                st.prefs.showDevOverlays ? "text-white" : "text-[#9CA3AF]"
-              }`}
-              onClick={() => {
-                const show = !st.prefs.showDevOverlays;
-                st.setPrefs((current) => ({ ...current, showDevOverlays: show }));
-                // Applied to every open pane at once, so the change is visible
-                // without reloading anything.
-                for (const frame of document.querySelectorAll("iframe")) {
-                  applyOverlayPref(frame as HTMLIFrameElement, !show);
-                }
-              }}
-              role="switch"
-              type="button"
-            >
-              <span>Show dev tool overlay</span>
-              <Switch on={st.prefs.showDevOverlays} />
-            </button>
-            <button
-              aria-checked={st.prefs.showWidget}
-              className={`${ROW_BUTTON} ${st.prefs.showWidget ? "text-white" : "text-[#9CA3AF]"}`}
-              onClick={() => {
-                const show = !st.prefs.showWidget;
-                st.setPrefs((current) => ({ ...current, showWidget: show }));
-                // This switch lives inside the thing it hides, so the way back
-                // is named the moment the door is closed, and for longer than
-                // a plain confirmation: this one is teaching a key. The rail's
-                // foot keeps a line saying the same for as long as it matters.
-                if (!show) {
-                  st.notify({
-                    kind: "widget",
-                    message: "Press T to reopen the tools",
-                    tone: "info",
-                    ttl: TOAST_TTL.plain + 3000,
-                  });
-                }
-              }}
-              role="switch"
-              type="button"
-            >
-              <span>Show Leglas overlay</span>
-              <Switch on={st.prefs.showWidget} />
-            </button>
-
-            {!viewing && (
-              <button
-                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
-                onClick={() => st.copyReference(st.active)}
-                type="button"
-              >
-                <PIcon d={P.copy} size={12} />
-                {st.copied?.kind === "reference" && st.copied.title === st.active
-                  ? "Copied"
-                  : "Copy reference"}
-              </button>
-            )}
-            <Tip label="Or double-click any direction in the rail">
-              <a
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
-                href={st.urlFor(st.active)}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="inline-block size-3 rounded-sm border border-current" />
-                Open in new tab
-              </a>
-            </Tip>
-            <button
-              className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#D1D5DB] transition-colors hover:bg-[#2E2E2E]/60 hover:text-white"
-              onClick={() => {
-                setWidgetOpen(false);
-                setHelpOpen(true);
-              }}
-              type="button"
-            >
-              <span>Keyboard shortcuts</span>
-              <kbd className="rounded border border-[#232328] bg-[#2E2E2E]/60 px-1 py-0.5 font-sans text-[10px] text-[#84848C]">
-                ?
-              </kbd>
-            </button>
-          </div>
+          <ToolsPopover
+            applyOverlayPref={applyOverlayPref}
+            copied={st.copied?.kind === "reference" && st.copied.title === st.active}
+            fontKey={activeFont.key}
+            href={st.urlFor(st.active)}
+            notify={st.notify}
+            onCopyReference={() => st.copyReference(st.active)}
+            onShortcuts={() => {
+              setWidgetOpen(false);
+              setHelpOpen(true);
+            }}
+            open={widgetOpen}
+            parked={widgetDrag !== null}
+            popoverRef={popoverRef}
+            prefs={st.prefs}
+            setPrefs={st.setPrefs}
+            splitting={splitting}
+            viewing={viewing}
+            viewports={st.viewports}
+          />
 
           {/* Switched off, the button leaves the stage but comes back for as
               long as the popover is open, since the popover is anchored to it
