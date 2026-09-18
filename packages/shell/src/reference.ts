@@ -41,12 +41,7 @@ export function absoluteUrl(url: string, origin: string): string {
   }
 }
 
-export function referenceText({
-  displayName,
-  preview,
-  previewUrl,
-  title,
-}: ReferenceInput): string {
+export function referenceText({ displayName, preview, previewUrl, title }: ReferenceInput): string {
   const shownAs = displayName === title ? "" : ` (shown as ${JSON.stringify(displayName)})`;
   const note = preview?.note ? ` — ${preview.note}` : "";
   const tags = preview?.tags.length ? ` [${preview.tags.join(", ")}]` : "";
@@ -65,6 +60,10 @@ export function referenceText({
   //
   // Quoted with the config title rather than the display name, because that is
   // what every command addresses and a renamed direction still answers to it.
-  lines.push("", "Inspect this direction in full:", `  npx leglas show ${JSON.stringify(title)} --json`);
+  lines.push(
+    "",
+    "Inspect this direction in full:",
+    `  npx leglas show ${JSON.stringify(title)} --json`,
+  );
   return lines.join("\n");
 }

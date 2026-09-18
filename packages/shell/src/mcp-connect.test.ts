@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  MCP_CONNECT_OPTIONS,
-  connectionStatus,
-  copyActionLabel,
-} from "./mcp-connect.js";
+import { MCP_CONNECT_OPTIONS, connectionStatus, copyActionLabel } from "./mcp-connect.js";
 
 describe("MCP connection options", () => {
   test("names recognizable clients instead of using a generic other option", () => {

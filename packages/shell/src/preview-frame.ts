@@ -19,11 +19,7 @@ export function previewIdentity(title: string, url: string, reload: number): str
   return `${title}\u0000${url}\u0000${reload}`;
 }
 
-export function previewIsLoaded(
-  loaded: LoadedPreviews,
-  title: string,
-  identity: string,
-): boolean {
+export function previewIsLoaded(loaded: LoadedPreviews, title: string, identity: string): boolean {
   return loaded[title] === identity;
 }
 
@@ -35,10 +31,7 @@ export function markPreviewLoaded(
   return loaded[title] === identity ? loaded : { ...loaded, [title]: identity };
 }
 
-export function resetPreviewLoaded(
-  loaded: LoadedPreviews,
-  title: string,
-): Record<string, string> {
+export function resetPreviewLoaded(loaded: LoadedPreviews, title: string): Record<string, string> {
   if (!(title in loaded)) return loaded;
   const next = { ...loaded };
   delete next[title];
@@ -52,11 +45,7 @@ export function resetPreviewLoaded(
 export function previewFrameIsReady(frame: HTMLIFrameElement): boolean {
   try {
     const doc = frame.contentDocument;
-    return (
-      doc !== null &&
-      doc.location.href !== "about:blank" &&
-      doc.readyState !== "loading"
-    );
+    return doc !== null && doc.location.href !== "about:blank" && doc.readyState !== "loading";
   } catch {
     return false;
   }

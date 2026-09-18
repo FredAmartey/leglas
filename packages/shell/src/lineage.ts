@@ -96,7 +96,10 @@ function lineageTree(titles: readonly string[], basedOn: ReadonlyMap<string, str
     if (reached.has(title)) continue;
     const parent = parentOf.get(title);
     if (parent !== undefined) {
-      children.set(parent, (children.get(parent) ?? []).filter((kid) => kid !== title));
+      children.set(
+        parent,
+        (children.get(parent) ?? []).filter((kid) => kid !== title),
+      );
       parentOf.delete(title);
     }
     roots.push(title);
@@ -147,7 +150,9 @@ export function lineageRail(
 
   const visit = (title: string, depth: number, lane: number, fromAbove: boolean) => {
     const kids = folded.has(title) ? [] : (tree.children.get(title) ?? []);
-    const through = lanes.flatMap((held, index) => (held !== null && index !== lane ? [index] : []));
+    const through = lanes.flatMap((held, index) =>
+      held !== null && index !== lane ? [index] : [],
+    );
     const forks = kids.slice(1).map((kid) => {
       const opened = firstFree();
       lanes[opened] = kid;
@@ -209,7 +214,10 @@ export function reorderAmongSiblings(
   const at =
     before !== null && list.includes(before)
       ? list.indexOf(before)
-      : Math.max(-1, ...siblings.filter((entry) => entry !== title).map((entry) => list.indexOf(entry))) + 1;
+      : Math.max(
+          -1,
+          ...siblings.filter((entry) => entry !== title).map((entry) => list.indexOf(entry)),
+        ) + 1;
   list.splice(at, 0, title);
   return list;
 }
@@ -233,10 +241,7 @@ export function segmentsOf(row: LineageRow): Segment[] {
  * A direction's line back to its family root, as the rows it runs through,
  * root first. Only rows on the rail: a removed ancestor is not on the line.
  */
-export function tracedChain(
-  parents: ReadonlyMap<string, string>,
-  target: string,
-): string[] {
+export function tracedChain(parents: ReadonlyMap<string, string>, target: string): string[] {
   const path = [target];
   for (
     let parent = parents.get(target);
@@ -416,14 +421,21 @@ const line = (a: Point, b: Point): Cubic => [
 ];
 
 /** The fork's curve as cubic segments, and where the lane's straight run begins. */
-function forkSegments(fromX: number, fromY: number, toX: number): { segments: Cubic[]; knee: number } {
+function forkSegments(
+  fromX: number,
+  fromY: number,
+  toX: number,
+): { segments: Cubic[]; knee: number } {
   const d = Math.abs(toX - fromX);
   const side = toX > fromX ? 1 : -1;
   const r = d / 2;
   const top: Point = [fromX, fromY + FORK_DROP];
   const mid: Point = [fromX + side * r, fromY + FORK_DROP + r];
   const knee = fromY + FORK_DROP + d;
-  return { knee, segments: [line([fromX, fromY], top), turnOut(top, r, side), turnDown(mid, r, side)] };
+  return {
+    knee,
+    segments: [line([fromX, fromY], top), turnOut(top, r, side), turnDown(mid, r, side)],
+  };
 }
 
 /** Where a fork has finished changing lane. */

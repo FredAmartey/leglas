@@ -95,15 +95,15 @@ export function App() {
                 : current.status === "ready"
                   ? current
                   : {
-                    status: "failed",
-                    // An abandoned read is the poll's own deadline, not
-                    // anything the server said, and its wording is internal.
-                    message: wasAborted(error)
-                      ? "it did not answer in time"
-                      : error instanceof Error
-                        ? error.message
-                        : String(error),
-                  },
+                      status: "failed",
+                      // An abandoned read is the poll's own deadline, not
+                      // anything the server said, and its wording is internal.
+                      message: wasAborted(error)
+                        ? "it did not answer in time"
+                        : error instanceof Error
+                          ? error.message
+                          : String(error),
+                    },
             );
           }),
       {
@@ -123,13 +123,13 @@ export function App() {
   if (load.status === "ended") {
     return load.final ? (
       <Notice title="This share has ended">
-        The person sharing it stopped. A share they start later comes with a new link, so ask
-        them for that one.
+        The person sharing it stopped. A share they start later comes with a new link, so ask them
+        for that one.
       </Notice>
     ) : (
       <Notice title="This share isn’t answering">
-        The link is not reaching their Leglas right now: their machine may be asleep, or the
-        tunnel between you is resetting. It comes back on its own when it can.
+        The link is not reaching their Leglas right now: their machine may be asleep, or the tunnel
+        between you is resetting. It comes back on its own when it can.
         <p className="mt-4">
           <button
             className="rounded-md bg-[#2E2E2E] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#3A3A40]"

@@ -74,7 +74,10 @@ describe("placeTip", () => {
   });
 
   test("settles after one correction", () => {
-    const corrected = { ...above, ...placeTip(above, { height: 26, width: 150 }, anchor, VIEWPORT) };
+    const corrected = {
+      ...above,
+      ...placeTip(above, { height: 26, width: 150 }, anchor, VIEWPORT),
+    };
     expect(placeTip(corrected, { height: 26, width: 150 }, anchor, VIEWPORT)).toBeNull();
   });
 

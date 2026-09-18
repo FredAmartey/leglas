@@ -29,13 +29,22 @@ const draft = (overrides: Partial<ReferenceDraft> = {}): ReferenceDraft => ({
 
 describe("imageFilesFrom", () => {
   test("keeps the images and drops the rest of what was pasted", () => {
-    const files = [png("a.png"), { name: "notes.txt", type: "text/plain", size: 3 }, null, png("b.jpg")];
+    const files = [
+      png("a.png"),
+      { name: "notes.txt", type: "text/plain", size: 3 },
+      null,
+      png("b.jpg"),
+    ];
     files[3] = { name: "b.jpg", type: "image/jpeg", size: 2 };
     expect(imageFilesFrom(files).map((file) => file.name)).toEqual(["a.png", "b.jpg"]);
   });
 
   test("reads an array-like FileList shape too", () => {
-    const list = { length: 2, 0: png("a.png"), 1: { name: "x.svg", type: "image/svg+xml", size: 1 } };
+    const list = {
+      length: 2,
+      0: png("a.png"),
+      1: { name: "x.svg", type: "image/svg+xml", size: 1 },
+    };
     expect(imageFilesFrom(list).map((file) => file.name)).toEqual(["a.png"]);
   });
 });
@@ -80,14 +89,20 @@ describe("refusalMessage", () => {
     expect(refusalMessage([{ file: png(), why: "too-many" }])).toBe(
       "Up to 4 images can ride with a change. One was left off.",
     );
-    expect(refusalMessage([{ file: png(), why: "too-many" }, { file: png(), why: "too-many" }])).toBe(
-      "Up to 4 images can ride with a change. 2 were left off.",
-    );
+    expect(
+      refusalMessage([
+        { file: png(), why: "too-many" },
+        { file: png(), why: "too-many" },
+      ]),
+    ).toBe("Up to 4 images can ride with a change. 2 were left off.");
   });
 
   test("names the file that was not an image", () => {
-    expect(refusalMessage([{ file: { name: "deck.pdf", type: "application/pdf", size: 1 }, why: "not-an-image" }]))
-      .toBe("deck.pdf is not an image Leglas can attach. PNG, JPEG, WebP or GIF.");
+    expect(
+      refusalMessage([
+        { file: { name: "deck.pdf", type: "application/pdf", size: 1 }, why: "not-an-image" },
+      ]),
+    ).toBe("deck.pdf is not an image Leglas can attach. PNG, JPEG, WebP or GIF.");
   });
 
   test("the first reason speaks for a batch", () => {
@@ -133,7 +148,12 @@ describe("what a request names", () => {
   test("a failed upload blocks the send, an upload in flight waits, a clean set sends", () => {
     expect(sendBlocker([draft({ status: "failed", id: null })])).toBe("failed");
     expect(sendBlocker([draft({ status: "uploading", id: null }), draft()])).toBe("uploading");
-    expect(sendBlocker([draft({ status: "failed", id: null }), draft({ status: "uploading", id: null })])).toBe("failed");
+    expect(
+      sendBlocker([
+        draft({ status: "failed", id: null }),
+        draft({ status: "uploading", id: null }),
+      ]),
+    ).toBe("failed");
     expect(sendBlocker([draft(), draft({ key: "2" })])).toBeNull();
     expect(sendBlocker([])).toBeNull();
   });

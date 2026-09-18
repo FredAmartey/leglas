@@ -208,8 +208,7 @@ test("a status command whose child outlives it still answers, as unknown", async
 test("an unreadable or failed probe reads as unknown, never as signed out", async () => {
   const agents = await detectAgents(
     async () => true,
-    async (binary) =>
-      binary === "claude" ? { code: 0, stdout: "not json at all" } : null,
+    async (binary) => (binary === "claude" ? { code: 0, stdout: "not json at all" } : null),
   );
 
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
@@ -245,9 +244,9 @@ test("sessionFrom reads each vendor's own id and nothing else", () => {
   expect(
     sessionFrom("claude", JSON.stringify({ type: "system", subtype: "init", session_id: "abc" })),
   ).toBe("abc");
-  expect(
-    sessionFrom("codex", JSON.stringify({ type: "thread.started", thread_id: "th_1" })),
-  ).toBe("th_1");
+  expect(sessionFrom("codex", JSON.stringify({ type: "thread.started", thread_id: "th_1" }))).toBe(
+    "th_1",
+  );
   // Codex ids ride only on thread.started; other events must not be read.
   expect(
     sessionFrom("codex", JSON.stringify({ type: "item.started", thread_id: "th_2" })),
@@ -416,7 +415,9 @@ describe("activityFrom", () => {
       tool_call: {
         editToolCall: {
           args: { path: "/home/someone/app/hello.txt", streamContent: "hi" },
-          result: { success: { path: "/home/someone/app/hello.txt", linesAdded: 1, linesRemoved: 1 } },
+          result: {
+            success: { path: "/home/someone/app/hello.txt", linesAdded: 1, linesRemoved: 1 },
+          },
         },
         hookAdditionalContexts: [],
         toolCallId: "call-2\nfc_2",
@@ -512,9 +513,7 @@ describe("activityFrom", () => {
     const line = JSON.stringify({
       type: "assistant",
       message: {
-        content: [
-          { type: "tool_use", name: "Bash", input: { command: "grep -r Hero src" } },
-        ],
+        content: [{ type: "tool_use", name: "Bash", input: { command: "grep -r Hero src" } }],
       },
     });
 

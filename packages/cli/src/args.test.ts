@@ -309,7 +309,13 @@ describe("the explore command", () => {
 describe("add --based-on", () => {
   test("records the direction a variant is based on", () => {
     const result = parseArgs([
-      "add", "--title", "Meridian Dusk", "--url", "/?v-hero=meridian-dusk", "--based-on", "Meridian",
+      "add",
+      "--title",
+      "Meridian Dusk",
+      "--url",
+      "/?v-hero=meridian-dusk",
+      "--based-on",
+      "Meridian",
     ]);
 
     expect(result.kind).toBe("add");
@@ -329,8 +335,13 @@ describe("add --based-on", () => {
 describe("add --asked-for", () => {
   test("records the change that was asked for, in the words that were typed", () => {
     const result = parseArgs([
-      "add", "--title", "Softer pouch", "--url", "/?v-hero=softer", "--asked-for",
-      'the pouch looks fake when it turns',
+      "add",
+      "--title",
+      "Softer pouch",
+      "--url",
+      "/?v-hero=softer",
+      "--asked-for",
+      "the pouch looks fake when it turns",
     ]);
 
     expect(result.kind).toBe("add");
@@ -388,9 +399,7 @@ describe("the show command", () => {
 
   test("refuses widths outside the capture range", () => {
     for (const width of ["319", "3841", "wide"]) {
-      expect(parseArgs(["show", "Aurora", "--screenshot", "--width", width]).kind).toBe(
-        "error",
-      );
+      expect(parseArgs(["show", "Aurora", "--screenshot", "--width", width]).kind).toBe("error");
     }
   });
 });

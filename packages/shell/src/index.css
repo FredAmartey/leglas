@@ -45,8 +45,8 @@ body {
 .leglas-shimmer-text {
   color: transparent;
   -webkit-text-fill-color: transparent;
-  background: linear-gradient(90deg, #a3a3a3, #a3a3a3 35%, #525252, #a3a3a3 65%, #a3a3a3) 0 0 /
-    300% 100%;
+  background: linear-gradient(90deg, #a3a3a3, #a3a3a3 35%, #525252, #a3a3a3 65%, #a3a3a3) 0 0 / 300%
+    100%;
   -webkit-background-clip: text;
   background-clip: text;
   animation: leglas-shimmer 1.5s ease-in-out infinite;

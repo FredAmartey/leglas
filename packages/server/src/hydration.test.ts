@@ -35,7 +35,9 @@ describe("hydrationEvidence", () => {
 
   test("returns the first match across a list without changing its message", () => {
     const first = "Hydration class mismatch on the root";
-    expect(hydrationEvidence(["Failed to load resource: 500", first, "Hydration failed later"])).toEqual({
+    expect(
+      hydrationEvidence(["Failed to load resource: 500", first, "Hydration failed later"]),
+    ).toEqual({
       framework: "Vue",
       message: first,
     });

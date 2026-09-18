@@ -24,8 +24,18 @@ const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf
  * `pnpm -r typecheck` delegate to those, and the root tsconfigs they inherit
  * from.
  */
-const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.base.json", "tsconfig.json", ".npmrc", ".pnpmfile.cjs"];
-const GUARDED_IN_PACKAGES = /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
+const GUARDED_ROOT = [
+  "vitest.config.ts",
+  "package.json",
+  "pnpm-workspace.yaml",
+  "pnpm-lock.yaml",
+  "tsconfig.base.json",
+  "tsconfig.json",
+  ".npmrc",
+  ".pnpmfile.cjs",
+];
+const GUARDED_IN_PACKAGES =
+  /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
 
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -53,7 +63,10 @@ for (const task of manifest.tasks) {
   // tsconfig.json arrived after some of these fixes.
   const guarded = [
     ...GUARDED_ROOT.filter((f) => git("ls-tree", "--name-only", parent, "--", f).trim() === f),
-    ...git("ls-tree", "-r", "--name-only", parent, "packages").trim().split("\n").filter((f) => GUARDED_IN_PACKAGES.test(f)),
+    ...git("ls-tree", "-r", "--name-only", parent, "packages")
+      .trim()
+      .split("\n")
+      .filter((f) => GUARDED_IN_PACKAGES.test(f)),
   ];
   for (const f of guarded) {
     const target = join(dir, "tests/baseline", f);
@@ -61,14 +74,33 @@ for (const task of manifest.tasks) {
     writeFileSync(target, git("show", `${parent}:${f}`));
   }
   writeFileSync(join(dir, "tests/baseline.txt"), guarded.join("\n") + "\n");
-  writeFileSync(join(dir, "tests/test.sh"), readFileSync(join(root, "evals/templates/test.sh"), "utf8"), { mode: 0o755 });
-  writeFileSync(join(dir, "tests/collected.mjs"), readFileSync(join(root, "evals/templates/collected.mjs"), "utf8"));
+  writeFileSync(
+    join(dir, "tests/test.sh"),
+    readFileSync(join(root, "evals/templates/test.sh"), "utf8"),
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    join(dir, "tests/collected.mjs"),
+    readFileSync(join(root, "evals/templates/collected.mjs"), "utf8"),
+  );
 
   // Oracle: the fix without its tests or changelog entry.
-  const patch = git("diff", parent, task.fix, "--", ".", ":(exclude)*.test.ts", ":(exclude)CHANGELOG.md");
+  const patch = git(
+    "diff",
+    parent,
+    task.fix,
+    "--",
+    ".",
+    ":(exclude)*.test.ts",
+    ":(exclude)CHANGELOG.md",
+  );
   mkdirSync(join(dir, "solution"), { recursive: true });
   writeFileSync(join(dir, "solution/fix.patch"), patch);
-  writeFileSync(join(dir, "solution/solve.sh"), "#!/usr/bin/env bash\nset -euo pipefail\ncd /app\ngit apply --whitespace=nowarn /solution/fix.patch\n", { mode: 0o755 });
+  writeFileSync(
+    join(dir, "solution/solve.sh"),
+    "#!/usr/bin/env bash\nset -euo pipefail\ncd /app\ngit apply --whitespace=nowarn /solution/fix.patch\n",
+    { mode: 0o755 },
+  );
 
   // Environment: the repo at the parent commit, installed and built.
   mkdirSync(join(dir, "environment"), { recursive: true });
@@ -90,5 +122,7 @@ for (const task of manifest.tasks) {
   if (!existsSync(join(dir, "instruction.md"))) {
     writeFileSync(join(dir, "instruction.md"), "TODO: write the instruction for this task.\n");
   }
-  console.log(`${task.name}: parent ${parent.slice(0, 7)}, ${tests.length} hidden test file(s), patch ${patch.split("\n").length} lines`);
+  console.log(
+    `${task.name}: parent ${parent.slice(0, 7)}, ${tests.length} hidden test file(s), patch ${patch.split("\n").length} lines`,
+  );
 }

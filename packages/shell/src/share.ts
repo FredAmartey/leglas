@@ -144,7 +144,9 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
     x.compare === y.compare &&
     x.viewport === y.viewport &&
     renamesX.length === renamesY.length &&
-    renamesX.every(([key, value], index) => key === renamesY[index]?.[0] && value === renamesY[index]?.[1])
+    renamesX.every(
+      ([key, value], index) => key === renamesY[index]?.[0] && value === renamesY[index]?.[1],
+    )
   );
 }
 
@@ -169,7 +171,11 @@ export function viewerPrefsRaw(layout: ShareLayout): string {
  * first seeding, so an unknown title or an odd viewport is dropped the same
  * way.
  */
-export function adoptLayout(current: Prefs, layout: ShareLayout, previews: readonly Preview[]): Prefs {
+export function adoptLayout(
+  current: Prefs,
+  layout: ShareLayout,
+  previews: readonly Preview[],
+): Prefs {
   const seeded = loadPrefs(viewerPrefsRaw(layout), previews);
   const next = { ...current };
   for (const key of LAYOUT_KEYS) (next as Record<string, unknown>)[key] = seeded[key];

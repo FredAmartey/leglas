@@ -5,14 +5,8 @@ import { join, resolve, sep } from "node:path";
 import { isOwnCapture } from "./attachments.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 import { removeAnnotations } from "./annotations.js";
-import {
-  createClaudeAgentSession,
-  type ClaudeTurnRunner,
-} from "./claude-agent-session.js";
-import {
-  createCodexAppServer,
-  type CodexTurnRunner,
-} from "./codex-app-server.js";
+import { createClaudeAgentSession, type ClaudeTurnRunner } from "./claude-agent-session.js";
+import { createCodexAppServer, type CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
 import {
   KNOWN_AGENTS,
@@ -26,12 +20,7 @@ import {
   type AgentEffort,
   type SavedAgentChoice,
 } from "./agents.js";
-import {
-  classifyFailure,
-  sessionShaped,
-  type Failure,
-  type RetryNotice,
-} from "./failure.js";
+import { classifyFailure, sessionShaped, type Failure, type RetryNotice } from "./failure.js";
 import {
   markFailed,
   markPickedUp,
@@ -154,9 +143,7 @@ type ResolvedCommand = {
   images: readonly string[];
 };
 
-type ChildOutcome =
-  | { ok: true; code: number }
-  | { ok: false; error: string };
+type ChildOutcome = { ok: true; code: number } | { ok: false; error: string };
 
 /**
  * How many requests may share one vendor session before the next one starts
@@ -195,9 +182,7 @@ function resolveCommand(
 
   const adapter = KNOWN_AGENTS[choice.agent];
   const allow =
-    allowedCommands.length > 0 && "allowArgs" in adapter
-      ? adapter.allowArgs(allowedCommands)
-      : [];
+    allowedCommands.length > 0 && "allowArgs" in adapter ? adapter.allowArgs(allowedCommands) : [];
   if (sessionId !== null && "resumeArgs" in adapter) {
     return {
       agent: choice.agent,
@@ -272,15 +257,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
             options.cwd,
             options.leglasCommand === undefined
               ? []
-              : [
-                  `${options.leglasCommand} show`,
-                  registrationCommand(options.leglasCommand),
-                ],
+              : [`${options.leglasCommand} show`, registrationCommand(options.leglasCommand)],
           )
         : null
       : options.claudeAgentSession;
-  const setEvery = options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
-  const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+  const setEvery =
+    options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
+  const clearEvery =
+    options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
   const failed = new Set<string>();
 
   const setLater =
@@ -335,7 +319,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     for (const other of ["codex", "claude"] as const) {
       if (other === keep) continue;
       if (active !== null && activeAgent === other) continue;
-      void transportFor(other)?.release().catch(() => {});
+      void transportFor(other)
+        ?.release()
+        .catch(() => {});
     }
   };
 
@@ -377,7 +363,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     releaseAllBut(agent);
     // Warmed for the conversation the next request will continue, so a
     // session released while idle is loaded again before Enter is pressed.
-    void transportFor(agent)?.warm(resumable(agent)).catch(() => {});
+    void transportFor(agent)
+      ?.warm(resumable(agent))
+      .catch(() => {});
     armIdleRelease();
   };
 
@@ -488,7 +476,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         // still the right one for the next request, and closing it here left
         // every later run on the cold CLI path for the life of the server.
         current.abandon = () => {
-          void persistent.release().catch(() => {}).then(() => reject(new Error("cancelled")));
+          void persistent
+            .release()
+            .catch(() => {})
+            .then(() => reject(new Error("cancelled")));
         };
         void starting.then(
           (child) => {
@@ -533,8 +524,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           } catch (fallbackError) {
             return {
               ok: false,
-              error:
-                fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+              error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
             };
           }
         } else {
@@ -609,9 +599,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         ? []
         : [
             `${options.leglasCommand} show`,
-            ...(request.mode === "variant"
-              ? [registrationCommand(options.leglasCommand)]
-              : []),
+            ...(request.mode === "variant" ? [registrationCommand(options.leglasCommand)] : []),
           ];
     // The queue read already keeps attachments inside the request's own
     // directory by name. This is the same fence with the links resolved, at
@@ -679,9 +667,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       const verdict = (): Failure =>
         classifyFailure({
           agent,
-          error: outcome.ok ? null : stopped && outcome.error === "cancelled"
-            ? "stopped by shutdown"
-            : outcome.error,
+          error: outcome.ok
+            ? null
+            : stopped && outcome.error === "cancelled"
+              ? "stopped by shutdown"
+              : outcome.error,
           exitCode: outcome.ok ? outcome.code : null,
           lines,
           retry: observed.retry,
@@ -746,10 +736,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           const previous = sessions.get(resolved.agent);
           sessions.set(resolved.agent, {
             id: observed.sessionId,
-            turns:
-              resolved.resumed && previous?.id === observed.sessionId
-                ? previous.turns + 1
-                : 1,
+            turns: resolved.resumed && previous?.id === observed.sessionId ? previous.turns + 1 : 1,
           });
         }
         // A change made in place answered its notes by rewriting the design
@@ -850,12 +837,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     cancel();
     stopPromise = Promise.resolve(ticking)
       .catch(() => {})
-      .then(() =>
-        Promise.all([
-          codexAppServer?.close(),
-          claudeAgentSession?.close(),
-        ]),
-      )
+      .then(() => Promise.all([codexAppServer?.close(), claudeAgentSession?.close()]))
       .then(() => {});
     return stopPromise;
   };

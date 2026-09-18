@@ -140,9 +140,10 @@ export function topLevelDeclarations(source: string): Map<string, string> {
       // `export declare function f(`, `export type T =`, `export interface I`,
       // `export declare const C`, `export declare class X`. The name is the
       // first identifier after the keywords that introduce a declaration.
-      const start = /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/.exec(
-        bare,
-      );
+      const start =
+        /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/.exec(
+          bare,
+        );
       if (start === null) continue;
       current = [];
       name = start[1] ?? null;
@@ -271,8 +272,8 @@ export function publicSurface(root: string): string {
   for (const [packageName, packageDirectory] of ENTRIES) {
     const entryFile = join(root, packageDirectory, "dist", "index.d.ts");
 
-    const described = parse(entryFile).reexports
-      .flatMap(({ names }) =>
+    const described = parse(entryFile)
+      .reexports.flatMap(({ names }) =>
         names.map((name) => {
           const found = resolve(root, entryFile, name, new Set());
 

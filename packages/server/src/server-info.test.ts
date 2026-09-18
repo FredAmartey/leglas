@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -52,7 +59,11 @@ describe("two servers on one project", () => {
     await writeServerInfo(cwd, { port: 4102, url: "http://localhost:4102", pid: 22 });
 
     await removeServerInfo(cwd, { port: 4101, pid: 11 });
-    expect(await readServerInfo(cwd)).toEqual({ port: 4102, url: "http://localhost:4102", pid: 22 });
+    expect(await readServerInfo(cwd)).toEqual({
+      port: 4102,
+      url: "http://localhost:4102",
+      pid: 22,
+    });
 
     await removeServerInfo(cwd, { port: 4102, pid: 22 });
     expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(false);

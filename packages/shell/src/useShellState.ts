@@ -10,22 +10,13 @@ import {
   storageKey,
   type Prefs,
 } from "./prefs.js";
-import {
-  ancestry,
-  lineageRail,
-  reorderAmongSiblings,
-  widestLane,
-} from "./lineage.js";
+import { ancestry, lineageRail, reorderAmongSiblings, widestLane } from "./lineage.js";
 import { railInsets } from "./Gutter.js";
 import { copyText } from "./clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
 import { absoluteUrl, referenceText } from "./reference.js";
-import {
-  markPreviewLoaded,
-  previewIsLoaded,
-  resetPreviewLoaded,
-} from "./preview-frame.js";
+import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./toasts.js";
 import { adoptLayout, viewerPrefsRaw } from "./share.js";
 import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
@@ -100,9 +91,7 @@ export function useShellState({
 
   const firstVisible = () => {
     const saved = initial();
-    return (
-      saved.order.find((title) => !saved.hidden.includes(title)) ?? saved.order[0] ?? ""
-    );
+    return saved.order.find((title) => !saved.hidden.includes(title)) ?? saved.order[0] ?? "";
   };
 
   const [active, setActiveRaw] = useState<string>(firstVisible);
@@ -344,9 +333,7 @@ export function useShellState({
     setPrefs((current) => deleteDirections(current, unique));
     setMounted((current) => current.filter((title) => !removed.has(title)));
     if (unique.includes(active)) {
-      const next = ordered.find(
-        (title) => !removed.has(title) && !prefs.hidden.includes(title),
-      );
+      const next = ordered.find((title) => !removed.has(title) && !prefs.hidden.includes(title));
       setActiveRaw(next ?? "");
     }
     if (prefs.hidden.every((title) => removed.has(title))) setShowHidden(false);
@@ -414,7 +401,8 @@ export function useShellState({
     notify({
       action: { label: "Undo", run: () => setRenameValue(title, before) },
       kind: `rename:${title}`,
-      message: check.kind === "reset" ? `Name reset to ${check.value}` : `Renamed to ${check.value}`,
+      message:
+        check.kind === "reset" ? `Name reset to ${check.value}` : `Renamed to ${check.value}`,
       tone: "success",
       ttl: TOAST_TTL.action,
     });
@@ -614,8 +602,7 @@ export function useShellState({
   const isLoaded = (title: string, identity: string) => previewIsLoaded(loaded, title, identity);
 
   /** Drop a pane's loaded flag so its skeleton shows again on a forced reload. */
-  const resetLoaded = (title: string) =>
-    setLoaded((current) => resetPreviewLoaded(current, title));
+  const resetLoaded = (title: string) => setLoaded((current) => resetPreviewLoaded(current, title));
 
   const panes = nested ? [active] : titles.filter((title) => mounted.includes(title));
 

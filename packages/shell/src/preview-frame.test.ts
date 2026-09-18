@@ -9,9 +9,7 @@ import {
   watchPreviewFrame,
 } from "./preview-frame.js";
 
-function fakeFrame(
-  initial: { href: string; readyState: DocumentReadyState } | null,
-) {
+function fakeFrame(initial: { href: string; readyState: DocumentReadyState } | null) {
   let documentState = initial;
   const frame = new EventTarget() as HTMLIFrameElement;
   Object.defineProperty(frame, "contentDocument", {

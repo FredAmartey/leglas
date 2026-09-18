@@ -9,9 +9,7 @@ import type { Preview } from "./types.js";
  * agree on who depends on the server.
  */
 export function needsDevServer(preview: Preview): boolean {
-  return (
-    preview.file === undefined && preview.branch === undefined && preview.url.startsWith("/")
-  );
+  return preview.file === undefined && preview.branch === undefined && preview.url.startsWith("/");
 }
 
 export type HealthState = {

@@ -98,8 +98,7 @@ class CodexTurnChild implements RunnerChild {
   once(
     event: "error" | "close",
     listener:
-      | ((error: Error) => void)
-      | ((code: number | null, signal: NodeJS.Signals | null) => void),
+      ((error: Error) => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
   ): RunnerChild {
     if (event === "close" && this.terminal !== null) {
       const terminal = this.terminal;
@@ -211,10 +210,7 @@ class PersistentCodexAppServer implements CodexTurnRunner {
         this.notify("initialized", {});
       })
       .catch(async (error: unknown) => {
-        await this.resetProcess(
-          process,
-          error instanceof Error ? error : new Error(String(error)),
-        );
+        await this.resetProcess(process, error instanceof Error ? error : new Error(String(error)));
         throw error;
       });
     return this.ready;
@@ -498,10 +494,7 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     try {
       process.stdin.write(`${JSON.stringify(message)}\n`);
     } catch (error) {
-      void this.resetProcess(
-        process,
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      void this.resetProcess(process, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -526,16 +519,10 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       });
     });
     process.kill("SIGTERM");
-    await Promise.race([
-      ended,
-      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-    ]);
+    await Promise.race([ended, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
     if (closed) return;
     process.kill("SIGKILL");
-    await Promise.race([
-      ended,
-      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-    ]);
+    await Promise.race([ended, new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
   }
 
   private failProcess(process: AppServerProcess, error: Error): void {
@@ -543,7 +530,8 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     this.process = null;
     this.ready = null;
     this.loadedThreadId = null;
-    const detail = this.stderr.length === 0 ? error.message : `${error.message} ${this.stderr.at(-1)}`;
+    const detail =
+      this.stderr.length === 0 ? error.message : `${error.message} ${this.stderr.at(-1)}`;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error(detail));

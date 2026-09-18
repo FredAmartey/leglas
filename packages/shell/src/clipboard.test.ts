@@ -8,7 +8,9 @@ describe("copyText", () => {
   test("uses the async clipboard when it works", async () => {
     const async = clipboard(Promise.resolve());
     const legacy = vi.fn(() => true);
-    await expect(copyText("https://x.test/a", { clipboard: async, legacy })).resolves.toBe("copied");
+    await expect(copyText("https://x.test/a", { clipboard: async, legacy })).resolves.toBe(
+      "copied",
+    );
     expect(async.writeText).toHaveBeenCalledWith("https://x.test/a");
     expect(legacy).not.toHaveBeenCalled();
   });

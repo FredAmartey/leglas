@@ -168,8 +168,7 @@ describe("the MCP face", () => {
       arguments: { title: "Aurora", screenshot: true, width: 390 },
     })) as {
       content: Array<
-        | { type: "text"; text: string }
-        | { type: "image"; data: string; mimeType: string }
+        { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
       >;
       isError?: boolean;
     };

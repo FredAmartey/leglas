@@ -54,11 +54,7 @@ import {
 } from "./agents.js";
 import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./config.js";
 import { findConfigFile } from "./find-config.js";
-import {
-  LOCAL_PREVIEWS_PATH,
-  dropLocalPreviews,
-  readLocalPreviews,
-} from "./local-previews.js";
+import { LOCAL_PREVIEWS_PATH, dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
 import {
   ANNOTATIONS_PATH,
   addAnnotation,
@@ -85,10 +81,7 @@ import {
 import { startRunner, type RunningAgent } from "./runner.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
 import { createShareManager, type ShareResult } from "./share.js";
-import {
-  detectTunnels as detectShareTunnels,
-  startTunnel as startShareTunnel,
-} from "./tunnel.js";
+import { detectTunnels as detectShareTunnels, startTunnel as startShareTunnel } from "./tunnel.js";
 import type { UpdateService } from "./update.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
@@ -234,11 +227,17 @@ const CAPTURE_DEADLINE_MS = 15_000;
 const CAPTURE_LOAD_MS = Math.floor(CAPTURE_DEADLINE_MS * LOAD_SHARE);
 
 function captureSlug(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "direction";
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || "direction"
+  );
 }
 
 function referenceName(value: string | string[] | undefined): string {
-  const raw = Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  const raw = Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
   const safe = [...raw]
     .filter((character) => {
       const code = character.charCodeAt(0);
@@ -270,9 +269,8 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
  * changing what runs stays with the person at the keyboard.
  */
 function isAllowedMutationHost(hostname: string): boolean {
-  const bare = hostname.startsWith("[") && hostname.endsWith("]")
-    ? hostname.slice(1, -1)
-    : hostname;
+  const bare =
+    hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
   if (bare === "localhost" || bare === "127.0.0.1" || bare === "::1") return true;
   if (bare.endsWith(".local")) return true;
   if (!net.isIPv4(bare)) return false;
@@ -580,11 +578,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
   try {
     const watcher = watchFs(cwd, { persistent: false }, (_event, filename) => {
       const name =
-        filename === null
-          ? null
-          : Buffer.isBuffer(filename)
-            ? filename.toString()
-            : filename;
+        filename === null ? null : Buffer.isBuffer(filename) ? filename.toString() : filename;
       if (name === null || name === ".leglas") armLeglas(true);
     });
     watcher.on("error", () => {
@@ -606,11 +600,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       known.set(configPath, fileStamp(configPath));
       const watcher = watchFs(directory, { persistent: false }, (_event, filename) => {
         const changed =
-          filename === null
-            ? null
-            : Buffer.isBuffer(filename)
-              ? filename.toString()
-              : filename;
+          filename === null ? null : Buffer.isBuffer(filename) ? filename.toString() : filename;
         if (changed === null || changed === name) nudgeSoon("config");
       });
       watcher.on("error", () => {
@@ -706,7 +696,11 @@ function configStalenessNotice(
     const label = relative(cwd, boot.path) || boot.path;
     return `${label} was removed after Leglas started. Restart leglas to run without it.`;
   }
-  if (boot !== null && current !== null && (boot.path !== current.path || boot.mtimeMs !== current.mtimeMs)) {
+  if (
+    boot !== null &&
+    current !== null &&
+    (boot.path !== current.path || boot.mtimeMs !== current.mtimeMs)
+  ) {
     const label = relative(cwd, current.path) || current.path;
     return `${label} changed after Leglas started. Restart leglas to pick it up.`;
   }
@@ -756,9 +750,7 @@ async function bind(server: http.Server, requested: number): Promise<number> {
       if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
     }
   }
-  throw new Error(
-    `No free port between ${requested} and ${requested + PORT_ATTEMPTS - 1}.`,
-  );
+  throw new Error(`No free port between ${requested} and ${requested + PORT_ATTEMPTS - 1}.`);
 }
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
@@ -780,9 +772,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const branches = createBranchRegistry({
     cwd,
     previews: (config?.previews ?? []).flatMap((preview) =>
-      preview.branch === undefined
-        ? []
-        : [{ title: preview.title, branch: preview.branch }],
+      preview.branch === undefined ? [] : [{ title: preview.title, branch: preview.branch }],
     ),
     installCommand: config?.installCommand ?? DEFAULT_INSTALL_COMMAND,
     devCommand: config?.devCommand,
@@ -790,10 +780,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ...(options.startWorktree === undefined ? {} : { startWorktree: options.startWorktree }),
   });
 
-  type ConfigPreview = Preview | (Omit<Preview, "url"> & {
-    url?: string;
-    state: BranchPreviewState;
-  });
+  type ConfigPreview =
+    | Preview
+    | (Omit<Preview, "url"> & {
+        url?: string;
+        state: BranchPreviewState;
+      });
 
   const previewForConfig = (preview: Preview): ConfigPreview => {
     if (preview.branch === undefined) return preview;
@@ -838,8 +830,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * longer there.
    */
   let lastSeen: number | null = null;
-  const externallyAttached = () =>
-    lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
+  const externallyAttached = () => lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
   let runner: RunningAgent | null = null;
 
   /**
@@ -899,13 +890,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const boot =
       localRead === null || localRead.errors.length > 0
         ? bootConfig
-        : bootConfig.filter(
-            (entry) => entry.local !== true || localTitles.has(entry.title),
-          );
+        : bootConfig.filter((entry) => entry.local !== true || localTitles.has(entry.title));
     const known = new Set(boot.map((entry) => entry.title));
     const fresh = local.filter(
-      (entry) =>
-        !known.has(entry.title) && entry.branch === undefined && entry.file === undefined,
+      (entry) => !known.has(entry.title) && entry.branch === undefined && entry.file === undefined,
     );
     return [...boot, ...fresh];
   };
@@ -991,7 +979,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (
       (path === `${LEGLAS_PREFIX}/api/update` && req.method === "GET") ||
-      (req.method === "POST" && ["check", "skip", "install"].some((action) => path === `${LEGLAS_PREFIX}/api/update/${action}`))
+      (req.method === "POST" &&
+        ["check", "skip", "install"].some(
+          (action) => path === `${LEGLAS_PREFIX}/api/update/${action}`,
+        ))
     ) {
       const updates = options.updates;
       if (updates === undefined) {
@@ -1004,10 +995,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (path.endsWith("/install")) {
         return void updates.update().then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) => sendJson(res, 409, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }),
+          (error: unknown) =>
+            sendJson(res, 409, {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
         );
       }
       if (!hasJsonBody(req)) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
@@ -1021,18 +1013,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
         void updates.skip(parsed.version).then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) => sendJson(res, 400, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }),
+          (error: unknown) =>
+            sendJson(res, 400, {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
         );
       });
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "GET") {
-      return void shares?.tunnels().then((tunnels) =>
-        sendJson(res, 200, { share: shares?.status() ?? null, tunnels }),
-      );
+      return void shares
+        ?.tunnels()
+        .then((tunnels) => sendJson(res, 200, { share: shares?.status() ?? null, tunnels }));
     }
 
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share` && req.method === "POST") {
@@ -1154,7 +1147,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           const known = new Set(currentBoot.map((preview) => preview.title));
           const fresh = local.filter(
             (preview) =>
-              !known.has(preview.title) && preview.branch === undefined && preview.file === undefined,
+              !known.has(preview.title) &&
+              preview.branch === undefined &&
+              preview.file === undefined,
           );
           sendConditionalJson(req, res, {
             project,
@@ -1352,7 +1347,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (parsed.mode !== undefined && parsed.mode !== "variant" && parsed.mode !== "replace") {
           return sendJson(res, 400, {
             ok: false,
-            error: "mode must be \"variant\" or \"replace\".",
+            error: 'mode must be "variant" or "replace".',
           });
         }
         const mode: RequestMode = parsed.mode === "replace" ? "replace" : "variant";
@@ -1422,11 +1417,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // not.
         const sameNotes = (entry: PendingRequest) => {
           const before = [...(entry.notes ?? [])].sort().join(",");
-          return before === notes.map((note) => note.id).sort().join(",");
+          return (
+            before ===
+            notes
+              .map((note) => note.id)
+              .sort()
+              .join(",")
+          );
         };
         const compare =
           typeof parsed.compare === "string" && parsed.compare !== preview.title
-            ? previews.find((entry) => entry.title === parsed.compare) ?? null
+            ? (previews.find((entry) => entry.title === parsed.compare) ?? null)
             : null;
         // The images are part of what was asked. "Make it like the other
         // one" against a different other one, or with a different picture
@@ -1458,7 +1459,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         const address = server.address();
         const requestPort =
-          typeof address === "object" && address !== null ? address.port : options.port ?? DEFAULT_PORT;
+          typeof address === "object" && address !== null
+            ? address.port
+            : (options.port ?? DEFAULT_PORT);
         const id = newRequestId();
         const captured = await attachRequest(
           cwd,
@@ -1473,14 +1476,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           },
           { pool: browserPool },
         );
-        const composed = composeRequest(
-          preview,
-          intent,
-          mode,
-          notes,
-          leglasCommand,
-          captured,
-        );
+        const composed = composeRequest(preview, intent, mode, notes, leglasCommand, captured);
         try {
           await appendRequest(
             cwd,
@@ -1492,9 +1488,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               // forget the notes it answered. A fork leaves them where they are:
               // the direction they point at was not touched.
               ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
-              ...(captured.attachments.length === 0
-                ? {}
-                : { attachments: captured.attachments }),
+              ...(captured.attachments.length === 0 ? {} : { attachments: captured.attachments }),
               ...(captured.skipped === null ? {} : { captureNote: captured.skipped }),
               ...(compare === null ? {} : { compare: compare.title }),
               ...(references.length === 0 ? {} : { references }),
@@ -1565,7 +1559,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             : [];
         const address = server.address();
         const capturePort =
-          typeof address === "object" && address !== null ? address.port : options.port ?? DEFAULT_PORT;
+          typeof address === "object" && address !== null
+            ? address.port
+            : (options.port ?? DEFAULT_PORT);
         const controller = new AbortController();
         const timeoutMarker = Symbol("capture timeout");
         let timedOut!: () => void;
@@ -1578,26 +1574,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }, CAPTURE_DEADLINE_MS);
         timer.unref?.();
         try {
-          const work = capturePage(
-            browser,
-            {
-              url: previewUrl(`http://127.0.0.1:${capturePort}`, preview),
-              width,
-              ...(annotations.length === 0
-                ? {}
-                : {
-                    focuses: annotations.map((entry) => ({
-                      selector: entry.anchor.selector,
-                      text: entry.anchor.text,
-                      tag: entry.anchor.tag,
-                      ...(entry.anchor.region === undefined ? {} : { region: entry.anchor.region }),
-                      rect: entry.anchor.rect,
-                    })),
-                  }),
-              timeoutMs: CAPTURE_LOAD_MS,
-              signal: controller.signal,
-            } as Parameters<typeof capturePage>[1] & { signal: AbortSignal },
-          );
+          const work = capturePage(browser, {
+            url: previewUrl(`http://127.0.0.1:${capturePort}`, preview),
+            width,
+            ...(annotations.length === 0
+              ? {}
+              : {
+                  focuses: annotations.map((entry) => ({
+                    selector: entry.anchor.selector,
+                    text: entry.anchor.text,
+                    tag: entry.anchor.tag,
+                    ...(entry.anchor.region === undefined ? {} : { region: entry.anchor.region }),
+                    rect: entry.anchor.rect,
+                  })),
+                }),
+            timeoutMs: CAPTURE_LOAD_MS,
+            signal: controller.signal,
+          } as Parameters<typeof capturePage>[1] & { signal: AbortSignal });
           const result = await Promise.race([work, timeout]);
           if (result === timeoutMarker) {
             return sendJson(res, 504, { ok: false, error: "The page did not load in time." });
@@ -1687,12 +1680,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Body needs a known agent." });
         }
         if (parsed.run !== undefined && typeof parsed.run !== "string") {
-          return sendJson(res, 400, { ok: false, error: "The custom run command must be a string." });
+          return sendJson(res, 400, {
+            ok: false,
+            error: "The custom run command must be a string.",
+          });
         }
         const effort =
           parsed.effort === null || isAgentEffort(parsed.effort) ? parsed.effort : undefined;
         if (parsed.effort !== undefined && effort === undefined) {
-          return sendJson(res, 400, { ok: false, error: "Effort must be a supported level or null." });
+          return sendJson(res, 400, {
+            ok: false,
+            error: "Effort must be a supported level or null.",
+          });
         }
 
         if (parsed.agent === "custom") {
@@ -1857,7 +1856,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // saw, or the queue's own verdict for one it inherited from an earlier
         // process. Without the second, a restart left the request unactionable.
         if (!isEnded(request, runner?.snapshot().failedIds ?? [])) {
-          return sendJson(res, 400, { ok: false, error: "Only an ended request can be run again." });
+          return sendJson(res, 400, {
+            ok: false,
+            error: "Only an ended request can be run again.",
+          });
         }
 
         try {
@@ -2028,7 +2030,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
         const target = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
         if (target === undefined || !isEnded(target, runner?.snapshot().failedIds ?? [])) {
-          return sendJson(res, 400, { ok: false, error: "Only an ended request can be dismissed." });
+          return sendJson(res, 400, {
+            ok: false,
+            error: "Only an ended request can be dismissed.",
+          });
         }
 
         try {
@@ -2093,7 +2098,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const dir = fileMounts.get(slug);
       const serveMount = (): void => {
         if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        res.writeHead(404, {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+        });
         res.end("Leglas: no such preview file.");
       };
       if (!context.remote) return serveMount();
@@ -2119,11 +2127,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === LEGLAS_PREFIX || path.startsWith(`${LEGLAS_PREFIX}/`)) {
       if (shellDir !== null && serveShellFile(res, shellDir, path)) return;
       if (shellDir !== null) {
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        res.writeHead(404, {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+        });
         res.end("Leglas: no such path.");
         return;
       }
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
       res.end(PLACEHOLDER);
       return;
     }
@@ -2212,9 +2226,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     externallyAttached,
     onChange: () => live.nudge("requests"),
     leglasCommand,
-    ...(options.codexAppServer === undefined
-      ? {}
-      : { codexAppServer: options.codexAppServer }),
+    ...(options.codexAppServer === undefined ? {} : { codexAppServer: options.codexAppServer }),
     ...(options.claudeAgentSession === undefined
       ? {}
       : { claudeAgentSession: options.claudeAgentSession }),

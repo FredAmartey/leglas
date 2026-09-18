@@ -25,10 +25,14 @@ export function localDevServerPort(origin: string): number | null {
 }
 
 export function parseListeningPids(output: string): number[] {
-  return [...new Set(output.split("\n").flatMap((line) => {
-    if (!/^p\d+$/.test(line)) return [];
-    return [Number(line.slice(1))];
-  }))];
+  return [
+    ...new Set(
+      output.split("\n").flatMap((line) => {
+        if (!/^p\d+$/.test(line)) return [];
+        return [Number(line.slice(1))];
+      }),
+    ),
+  ];
 }
 
 export function parseOwnerCwds(output: string): DevServerOwner[] {
@@ -62,11 +66,10 @@ export async function inspectLocalDevServer(origin: string): Promise<DevServerOw
   if (port === null || process.platform === "win32") return [];
 
   try {
-    const listeners = await run(
-      "lsof",
-      ["-nP", "-a", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"],
-      { maxBuffer: 64 * 1024, timeout: INSPECTION_TIMEOUT_MS },
-    );
+    const listeners = await run("lsof", ["-nP", "-a", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"], {
+      maxBuffer: 64 * 1024,
+      timeout: INSPECTION_TIMEOUT_MS,
+    });
     const pids = parseListeningPids(String(listeners.stdout));
     if (pids.length === 0) return [];
 

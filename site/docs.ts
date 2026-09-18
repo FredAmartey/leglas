@@ -39,13 +39,18 @@ export function loadDocs(root: string): DocPage[] {
     // The slug becomes a directory and an href on every page, so it is
     // checked here rather than escaped there: lowercase letters, digits
     // and hyphens, the way the existing pages are named.
-    if (slug !== "" && !/^[a-z0-9-]+$/.test(slug)) throw new Error(`docs/${file}: a page name this site cannot serve.`);
+    if (slug !== "" && !/^[a-z0-9-]+$/.test(slug))
+      throw new Error(`docs/${file}: a page name this site cannot serve.`);
     return { file, slug, title: heading.slice(2).trim(), markdown };
   });
   const rank = (page: DocPage): number => (page.slug === "" ? -1 : ORDER.indexOf(page.slug));
   return pages.sort((a, b) => {
     const [ra, rb] = [rank(a), rank(b)];
-    if (ra !== rb) return (ra === -1 && a.slug !== "" ? ORDER.length : ra) - (rb === -1 && b.slug !== "" ? ORDER.length : rb);
+    if (ra !== rb)
+      return (
+        (ra === -1 && a.slug !== "" ? ORDER.length : ra) -
+        (rb === -1 && b.slug !== "" ? ORDER.length : rb)
+      );
     return a.slug.localeCompare(b.slug);
   });
 }
@@ -106,7 +111,11 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         i += 1;
       }
       const [head, rule, ...body] = rows;
-      if (head === undefined || rule === undefined || !rule.every((cell) => /^:?-+:?$/.test(cell))) {
+      if (
+        head === undefined ||
+        rule === undefined ||
+        !rule.every((cell) => /^:?-+:?$/.test(cell))
+      ) {
         refuse(i - rows.length, "a table without a header rule");
       }
       blocks.push({ kind: "table", head: head ?? [], rows: body });
@@ -132,14 +141,22 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         html.push(lines[i] ?? "");
         i += 1;
       }
-      blocks.push({ kind: "html", text: captureBlock(html.join("\n"), (why) => refuse(start, why)) });
+      blocks.push({
+        kind: "html",
+        text: captureBlock(html.join("\n"), (why) => refuse(start, why)),
+      });
     } else if (/^<[a-zA-Z!/]/.test(line)) {
       refuse(i, "HTML this page cannot show");
     } else if (/^(\d+\.|>|\*|\+|#{4,})\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
       refuse(i, "markdown this page cannot show");
     } else {
       const text: string[] = [];
-      while (i < lines.length && (lines[i] ?? "").trim() !== "" && !/^(#{1,3} |```|\||- )/.test(lines[i] ?? "") && !CAPTURE.test(lines[i] ?? "")) {
+      while (
+        i < lines.length &&
+        (lines[i] ?? "").trim() !== "" &&
+        !/^(#{1,3} |```|\||- )/.test(lines[i] ?? "") &&
+        !CAPTURE.test(lines[i] ?? "")
+      ) {
         text.push((lines[i] ?? "").trim());
         i += 1;
       }
@@ -182,11 +199,16 @@ export function captureBlock(text: string, refuse: (why: string) => never): stri
       const src = attributes.get("src");
       const width = attributes.get("width");
       const alt = attributes.get("alt");
-      for (const name of attributes.keys()) if (!["src", "width", "alt"].includes(name)) refuse(`an image attribute this page cannot show: ${name}`);
+      for (const name of attributes.keys())
+        if (!["src", "width", "alt"].includes(name))
+          refuse(`an image attribute this page cannot show: ${name}`);
       if (src === undefined || !/^https:\/\//.test(src)) refuse("an image without an https source");
-      if (width !== undefined && !/^\d+$/.test(width)) refuse("an image width that is not a number");
+      if (width !== undefined && !/^\d+$/.test(width))
+        refuse("an image width that is not a number");
       if (alt === undefined) refuse("an image without alt text");
-      parts.push(`<img src="${escape(src)}"${width === undefined ? "" : ` width="${width}"`} alt="${escape(alt)}" />`);
+      parts.push(
+        `<img src="${escape(src)}"${width === undefined ? "" : ` width="${width}"`} alt="${escape(alt)}" />`,
+      );
     } else if (caption !== undefined) {
       parts.push(`<i>${escape(caption)}</i>`);
     } else if (prose !== undefined) {
@@ -196,7 +218,9 @@ export function captureBlock(text: string, refuse: (why: string) => never): stri
     }
   }
   if (parts.length === 0) refuse("an empty capture block");
-  return parts.length === 1 && parts[0]?.startsWith("<i>") ? `<p align="center">${parts[0]}</p>` : `<p align="center">\n  ${parts.join("\n  ")}\n</p>`;
+  return parts.length === 1 && parts[0]?.startsWith("<i>")
+    ? `<p align="center">${parts[0]}</p>`
+    : `<p align="center">\n  ${parts.join("\n  ")}\n</p>`;
 }
 
 /** Cells split on pipes that are not escaped, the way GitHub reads `\|` inside a cell. */
@@ -233,7 +257,8 @@ export function resolveLink(href: string, page: DocPage, pages: DocPage[]): stri
   const inTree = posix.normalize(path.startsWith("/") ? path.slice(1) : posix.join("docs", path));
   if (inTree.startsWith("docs/")) {
     const target = pages.find((candidate) => `docs/${candidate.file}` === inTree);
-    if (target !== undefined) return `${up}${target.slug === "" ? "" : `${target.slug}/`}${fragment}`;
+    if (target !== undefined)
+      return `${up}${target.slug === "" ? "" : `${target.slug}/`}${fragment}`;
   }
   if (inTree === "README.md") return `${up}../${fragment}`;
   return `${REPO}/blob/main/${inTree}${fragment}`;
@@ -243,7 +268,12 @@ const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
 export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): string {
   const text = (markdown: string): string =>
-    inline(markdown.replace(LINK, (_, label: string, href: string) => `[${label}](${resolveLink(href, page, pages)})`));
+    inline(
+      markdown.replace(
+        LINK,
+        (_, label: string, href: string) => `[${label}](${resolveLink(href, page, pages)})`,
+      ),
+    );
   const html: string[] = [];
   const seen = new Map<string, number>();
   for (const block of blocks) {
@@ -263,7 +293,9 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         html.push(`<ul>${block.items.map((item) => `<li>${text(item)}</li>`).join("")}</ul>`);
         break;
       case "code":
-        html.push(`<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`);
+        html.push(
+          `<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`,
+        );
         break;
       case "table":
         html.push(
@@ -321,7 +353,12 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 
 export function renderDoc(page: DocPage, pages: DocPage[], assets: Assets): string {
   const up = page.slug === "" ? "./" : "../";
-  const place = { home: `${up}../`, docs: up, changelog: `${up}../changelog/`, active: "docs" as const };
+  const place = {
+    home: `${up}../`,
+    docs: up,
+    changelog: `${up}../changelog/`,
+    active: "docs" as const,
+  };
   const nav = pages
     .filter((candidate) => candidate.slug !== "")
     .map((candidate) =>

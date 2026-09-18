@@ -144,7 +144,11 @@ describe("lineageRail", () => {
 
     expect(rows).not.toContain("Lantern");
     expect(rows).toContain("Ferry");
-    expect(meta.get("Quay")).toMatchObject({ folded: true, descendants: 1, graph: { toBelow: false } });
+    expect(meta.get("Quay")).toMatchObject({
+      folded: true,
+      descendants: 1,
+      graph: { toBelow: false },
+    });
   });
 
   test("the rail names each row's parent and children", () => {
@@ -188,13 +192,7 @@ describe("lineageRail", () => {
 
 describe("ancestry", () => {
   test("root first, the direction itself left out", () => {
-    expect(ancestry("Lantern", CHAIN)).toEqual([
-      "Meridian",
-      "Dusk",
-      "Sea",
-      "Harbour",
-      "Quay",
-    ]);
+    expect(ancestry("Lantern", CHAIN)).toEqual(["Meridian", "Dusk", "Sea", "Harbour", "Quay"]);
   });
 
   test("a root has none", () => {
@@ -245,32 +243,32 @@ describe("tracedSegments", () => {
 
   test("a fork child's line leaves its parent along the fork and runs through the rows between", () => {
     expect(lit("Tide")).toEqual({
-      "Meridian": ["below", "mark"],
+      Meridian: ["below", "mark"],
       Dusk: ["above", "below", "mark"],
       Sea: ["above", "below", "mark"],
       Harbour: ["above", "below", "mark"],
       Quay: ["above", "fork:2", "mark"],
       Lantern: ["through:2"],
-      "Tide": ["above", "mark"],
+      Tide: ["above", "mark"],
     });
   });
 
   test("a root lights its whole family, every branch included", () => {
     expect(lit("Meridian")).toEqual({
-      "Meridian": ["below", "mark"],
+      Meridian: ["below", "mark"],
       Dusk: ["above", "below", "mark"],
       Sea: ["above", "below", "mark"],
       Harbour: ["above", "below", "fork:1", "mark"],
       Quay: ["above", "below", "fork:2", "mark", "through:1"],
       Lantern: ["above", "mark", "through:1", "through:2"],
-      "Tide": ["above", "mark", "through:1"],
+      Tide: ["above", "mark", "through:1"],
       Ferry: ["above", "mark"],
     });
   });
 
   test("a direction in the middle lights the line down to it and nothing past it", () => {
     expect(lit("Quay")).toEqual({
-      "Meridian": ["below", "mark"],
+      Meridian: ["below", "mark"],
       Dusk: ["above", "below", "mark"],
       Sea: ["above", "below", "mark"],
       Harbour: ["above", "below", "mark"],
@@ -368,18 +366,34 @@ describe("trailPath", () => {
   });
 
   test("a step into another lane drops, turns out, turns down and arrives vertical", () => {
-    expect(trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }])).toBe(
+    expect(
+      trailPath([
+        { x: 4, y: 10 },
+        { x: 14, y: 80 },
+      ]),
+    ).toBe(
       "M 4 10 C 4 11.33, 4 12.67, 4 14 C 4 16.76, 6.24 19, 9 19 C 11.76 19, 14 21.24, 14 24 L 14 80",
     );
   });
 
   test("a fork with no room before the next mark goes straight there", () => {
-    expect(trailPath([{ x: 6, y: 10 }, { x: 16, y: 16 }])).toBe("M 6 10 L 16 16");
+    expect(
+      trailPath([
+        { x: 6, y: 10 },
+        { x: 16, y: 16 },
+      ]),
+    ).toBe("M 6 10 L 16 16");
   });
 
   test("room left around a forking mark is cut off the curve, not moved down it", () => {
-    const whole = trailPath([{ x: 4, y: 10 }, { x: 14, y: 80 }]);
-    const cut = trailPath([{ x: 4, y: 10, clear: 5 }, { x: 14, y: 80 }]);
+    const whole = trailPath([
+      { x: 4, y: 10 },
+      { x: 14, y: 80 },
+    ]);
+    const cut = trailPath([
+      { x: 4, y: 10, clear: 5 },
+      { x: 14, y: 80 },
+    ]);
     expect(whole.endsWith("14 24 L 14 80")).toBe(true);
     expect(cut.endsWith("14 24 L 14 80")).toBe(true);
     // Five pixels of arc: the four-pixel drop, then one pixel into the turn.
@@ -401,14 +415,18 @@ describe("trailPath", () => {
   });
 
   test("two marks with no room between them draw nothing", () => {
-    expect(trailPath([{ x: 6, y: 10, clear: 5 }, { x: 6, y: 18, clear: 5 }])).toBe("");
+    expect(
+      trailPath([
+        { x: 6, y: 10, clear: 5 },
+        { x: 6, y: 18, clear: 5 },
+      ]),
+    ).toBe("");
   });
 
   test("nothing to draw is an empty path", () => {
     expect(trailPath([])).toBe("");
   });
 });
-
 
 describe("tracedTree", () => {
   const rail = lineageRail(SAVED_WITH_TIDE, CHAIN_WITH_TIDE, new Set());

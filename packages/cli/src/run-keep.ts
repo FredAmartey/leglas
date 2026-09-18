@@ -30,12 +30,8 @@ export type KeepDeps = { log(line: string): void; error(line: string): void };
 function renameExport(source: string, to: string): string {
   const match = /export function ([A-Za-z0-9_]+)\s*\(/.exec(source);
   if (!match || match[1] === undefined) return source;
-  return source.replace(
-    new RegExp(`\\b${match[1]}\\b`, "g"),
-    to,
-  );
+  return source.replace(new RegExp(`\\b${match[1]}\\b`, "g"), to);
 }
-
 
 /**
  * Write down what this exploration was, before the exploration is deleted.

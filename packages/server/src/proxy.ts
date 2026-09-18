@@ -29,9 +29,7 @@ export type RunningProxy = {
 export const SHARE_COOKIE = "leglas-share";
 
 /** The Cookie header without the share token, or undefined when nothing is left. */
-export function withoutShareCookie(
-  cookie: string | string[] | undefined,
-): string | undefined {
+export function withoutShareCookie(cookie: string | string[] | undefined): string | undefined {
   if (cookie === undefined) return undefined;
   const kept = (Array.isArray(cookie) ? cookie.join("; ") : cookie)
     .split(";")
@@ -84,7 +82,10 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
    */
   function rewriteLocation(location: string | undefined, publicOrigin: string): string | undefined {
     if (location === undefined) return undefined;
-    for (const origin of [`${target.protocol}//${authority}`, `${target.protocol}//localhost:${port}`]) {
+    for (const origin of [
+      `${target.protocol}//${authority}`,
+      `${target.protocol}//localhost:${port}`,
+    ]) {
       if (location.startsWith(origin)) return publicOrigin + location.slice(origin.length);
     }
     return location;

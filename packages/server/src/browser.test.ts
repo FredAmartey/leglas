@@ -193,8 +193,7 @@ describe("findBrowser", () => {
   });
 
   test("prefers the newest build when several are cached", () => {
-    const newest =
-      "/home/u/.cache/ms-playwright/chromium-1240/chrome-linux64/chrome";
+    const newest = "/home/u/.cache/ms-playwright/chromium-1240/chrome-linux64/chrome";
     expect(
       findBrowser({
         env: {},
@@ -204,7 +203,8 @@ describe("findBrowser", () => {
         // Both builds are present; the newer one wins, and "1240" must not
         // sort below "999" as a string would.
         exists: (path) =>
-          path === newest || path === "/home/u/.cache/ms-playwright/chromium-999/chrome-linux64/chrome",
+          path === newest ||
+          path === "/home/u/.cache/ms-playwright/chromium-999/chrome-linux64/chrome",
         readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium-999", "chromium-1240"] : []),
       }),
     ).toBe(newest);
@@ -307,7 +307,9 @@ function fakeProcess(endpoint = true) {
   process.stderr = new PassThrough();
   process.kill = vi.fn(() => true);
   if (endpoint) {
-    queueMicrotask(() => process.stderr.write("DevTools listening on ws://browser.test/devtools\n"));
+    queueMicrotask(() =>
+      process.stderr.write("DevTools listening on ws://browser.test/devtools\n"),
+    );
   }
   return process;
 }
@@ -340,7 +342,9 @@ function launchHarness() {
 describe("launchBrowser", () => {
   test("uses the required argv and frames page commands with their session", async () => {
     const harness = launchHarness();
-    const spawn = vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn;
+    const spawn = vi.fn(
+      () => harness.process,
+    ) as unknown as typeof import("node:child_process").spawn;
     const browser = await launchBrowser("/browser", {
       spawn,
       connect: async (url) => {
@@ -379,7 +383,9 @@ describe("launchBrowser", () => {
       ]),
     );
     expect(args.some((arg) => arg.startsWith("--user-data-dir=/tmp/leglas-browser-"))).toBe(true);
-    expect(harness.socket.sent.find((message) => message.method === "Runtime.evaluate")).toMatchObject({
+    expect(
+      harness.socket.sent.find((message) => message.method === "Runtime.evaluate"),
+    ).toMatchObject({
       sessionId: "session-1",
       params: { expression: "1 + 1" },
     });
@@ -401,12 +407,16 @@ describe("launchBrowser", () => {
     const first = browser.withPage(async () => held);
     const second = browser.withPage(async () => "second");
     await vi.waitFor(() =>
-      expect(harness.socket.sent.filter((message) => message.method === "Target.createTarget")).toHaveLength(1),
+      expect(
+        harness.socket.sent.filter((message) => message.method === "Target.createTarget"),
+      ).toHaveLength(1),
     );
     release();
     await expect(first).resolves.toBeUndefined();
     await expect(second).resolves.toBe("second");
-    expect(harness.socket.sent.filter((message) => message.method === "Target.closeTarget")).toHaveLength(2);
+    expect(
+      harness.socket.sent.filter((message) => message.method === "Target.closeTarget"),
+    ).toHaveLength(2);
     await browser.close();
   });
 
@@ -555,10 +565,25 @@ describe("createBrowserPool", () => {
   });
 
   test("retires a browser that lost its socket before launching a replacement", async () => {
-    const dead = { closed: false, closes: 0, withPage: async <T,>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage), close: async () => { dead.closes += 1; } };
+    const dead = {
+      closed: false,
+      closes: 0,
+      withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+      close: async () => {
+        dead.closes += 1;
+      },
+    };
     const fresh = fakeBrowser();
-    const launch = vi.fn<() => Promise<Browser>>().mockResolvedValueOnce(dead).mockResolvedValueOnce(fresh);
-    const pool = createBrowserPool({ find: () => "/browser", launch, setTimeout: () => "idle", clearTimeout: vi.fn() });
+    const launch = vi
+      .fn<() => Promise<Browser>>()
+      .mockResolvedValueOnce(dead)
+      .mockResolvedValueOnce(fresh);
+    const pool = createBrowserPool({
+      find: () => "/browser",
+      launch,
+      setTimeout: () => "idle",
+      clearTimeout: vi.fn(),
+    });
 
     await pool.acquire();
     dead.closed = true;

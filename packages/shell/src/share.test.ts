@@ -106,9 +106,9 @@ describe("sameShare", () => {
     expect(sameShare(a, { ...a, layout: { ...a.layout, viewport: null } })).toBe(false);
     expect(sameShare(a, { ...a, titles: ["Ember", "Aurora"] })).toBe(false);
     expect(sameShare(a, { ...a, scope: "direction" })).toBe(false);
-    expect(
-      sameShare(a, { ...a, layout: { ...a.layout, renames: { Aurora: "Dawn" } } }),
-    ).toBe(false);
+    expect(sameShare(a, { ...a, layout: { ...a.layout, renames: { Aurora: "Dawn" } } })).toBe(
+      false,
+    );
   });
 });
 
@@ -125,7 +125,13 @@ describe("viewerPrefsRaw", () => {
 
   test("adopting a pushed layout takes its fields and keeps the viewer's own", () => {
     const { request } = railShare({ ...prefs, hidden: [] }, previews);
-    const mine: Prefs = { ...DEFAULT_PREFS, width: 300, font: "geist", collapsed: true, viewport: 390 };
+    const mine: Prefs = {
+      ...DEFAULT_PREFS,
+      width: 300,
+      font: "geist",
+      collapsed: true,
+      viewport: 390,
+    };
     const adopted = adoptLayout(mine, request.layout, previews);
     expect(adopted.order).toEqual(["Wave", "Aurora", "Ember", "Old"]);
     expect(adopted.renames).toEqual({ Wave: "Tide" });

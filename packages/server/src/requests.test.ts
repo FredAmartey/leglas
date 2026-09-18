@@ -3,7 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { appendRequest, clearRequests, collectRequests, composeRequest, markFailed, markPickedUp, newRequestId, readRequests, removeRequest, targetFor, variantSlot } from "./requests.js";
+import {
+  appendRequest,
+  clearRequests,
+  collectRequests,
+  composeRequest,
+  markFailed,
+  markPickedUp,
+  newRequestId,
+  readRequests,
+  removeRequest,
+  targetFor,
+  variantSlot,
+} from "./requests.js";
 import type { Captured } from "./attachments.js";
 import type { Preview } from "./config.js";
 
@@ -77,11 +89,7 @@ describe("composeRequest, as a variant", () => {
   });
 
   test("hands over the registration that puts it under its parent", () => {
-    const { prompt } = composeRequest(
-      preview("Poster", "/?v-hero=poster"),
-      "warmer",
-      "variant",
-    );
+    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
 
     expect(prompt).toContain("npx -y leglas add");
     expect(prompt).toContain('--url "/?v-hero=<key>"');
@@ -104,13 +112,11 @@ describe("composeRequest, as a variant", () => {
   });
 
   test("marks interface discovery and server startup as already complete", () => {
-    const { prompt } = composeRequest(
-      preview("Poster", "/?v-hero=poster"),
-      "warmer",
-      "variant",
-    );
+    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
 
-    expect(prompt).toContain("Request collection, direction discovery and the live-server check are already complete");
+    expect(prompt).toContain(
+      "Request collection, direction discovery and the live-server check are already complete",
+    );
     expect(prompt).toContain("do not start or restart the app or Leglas");
     expect(prompt).toContain('npx -y leglas show "the title you registered" --screenshot');
     expect(prompt).not.toContain("requests, list, show, help");
@@ -119,10 +125,37 @@ describe("composeRequest, as a variant", () => {
   test("puts fresh captures, comparison, references and load evidence after the ask", () => {
     const captured: Captured = {
       attachments: [
-        { kind: "frame", file: ".leglas/captures/k3j9x1/frame.png", width: 1440, height: 4000, title: "Poster", viewport: 1440 },
-        { kind: "note", file: ".leglas/captures/k3j9x1/note-1.png", width: 640, height: 400, title: "Poster", note: "a", viewport: 1440 },
-        { kind: "compare", file: ".leglas/captures/k3j9x1/compare.png", width: 1440, height: 900, title: "Ledger", viewport: 1440 },
-        { kind: "reference", file: ".leglas/captures/k3j9x1/reference-1.png", width: 800, height: 600 },
+        {
+          kind: "frame",
+          file: ".leglas/captures/k3j9x1/frame.png",
+          width: 1440,
+          height: 4000,
+          title: "Poster",
+          viewport: 1440,
+        },
+        {
+          kind: "note",
+          file: ".leglas/captures/k3j9x1/note-1.png",
+          width: 640,
+          height: 400,
+          title: "Poster",
+          note: "a",
+          viewport: 1440,
+        },
+        {
+          kind: "compare",
+          file: ".leglas/captures/k3j9x1/compare.png",
+          width: 1440,
+          height: 900,
+          title: "Ledger",
+          viewport: 1440,
+        },
+        {
+          kind: "reference",
+          file: ".leglas/captures/k3j9x1/reference-1.png",
+          width: 800,
+          height: 600,
+        },
       ],
       errors: ["TypeError: Cannot read properties of undefined", "Failed to load resource: 500"],
       hydration: null,
@@ -151,7 +184,9 @@ describe("composeRequest, as a variant", () => {
       "Each path above is a file in this project. Open every one and look at it before changing anything.",
     );
     expect(prompt).toContain("On load it logged 2 console errors:");
-    expect(prompt).toContain("(The design could not be captured in time. Use the live preview instead.)");
+    expect(prompt).toContain(
+      "(The design could not be captured in time. Use the live preview instead.)",
+    );
     expect(prompt.indexOf("What to change")).toBeLessThan(prompt.indexOf("What it looks like"));
     expect(prompt.indexOf("What it looks like")).toBeLessThan(prompt.indexOf("Then register it"));
   });
@@ -227,11 +262,7 @@ describe("composeRequest, as a variant", () => {
   });
 
   test("a direction with no derivable source still gets a usable brief", () => {
-    const { prompt, target } = composeRequest(
-      preview("Current", "/"),
-      "warmer",
-      "variant",
-    );
+    const { prompt, target } = composeRequest(preview("Current", "/"), "warmer", "variant");
 
     expect(target).toBeNull();
     expect(prompt).toContain("Find what renders it first.");
@@ -251,11 +282,7 @@ describe("composeRequest, as a variant", () => {
   // The two prompts ask for opposite work, and the failure mode of getting it
   // wrong is an overwritten direction.
   test("never tells the agent to edit the parent", () => {
-    const { prompt } = composeRequest(
-      preview("Poster", "/?v-hero=poster"),
-      "warmer",
-      "variant",
-    );
+    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
 
     expect(prompt).not.toContain("Make the change in that file");
     expect(prompt).not.toContain("change only");
@@ -278,21 +305,33 @@ describe("variantSlot", () => {
 
 describe("composeRequest", () => {
   test("names the direction so the agent knows what is being changed", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "make it warmer", "replace");
+    const { prompt } = composeRequest(
+      preview("Aurora", "/?v-hero=aurora"),
+      "make it warmer",
+      "replace",
+    );
 
     expect(prompt).toContain("Aurora");
     expect(prompt).toContain("make it warmer");
   });
 
   test("points at the exact file when the url reveals one", () => {
-    const { prompt, target } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
+    const { prompt, target } = composeRequest(
+      preview("Aurora", "/?v-hero=aurora"),
+      "warmer",
+      "replace",
+    );
 
     expect(target).toBe(".leglas/variants/hero/aurora.tsx");
     expect(prompt).toContain(".leglas/variants/hero/aurora.tsx");
   });
 
   test("still produces a usable prompt when the file cannot be derived", () => {
-    const { prompt, target } = composeRequest(preview("Pricing v2", "/pricing-v2"), "tighten it", "replace");
+    const { prompt, target } = composeRequest(
+      preview("Pricing v2", "/pricing-v2"),
+      "tighten it",
+      "replace",
+    );
 
     expect(target).toBeNull();
     expect(prompt).toContain("Pricing v2");
@@ -301,7 +340,11 @@ describe("composeRequest", () => {
 
   test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
     const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace").prompt;
-    const unknown = composeRequest(preview("Pricing v2", "/pricing-v2"), "warmer", "replace").prompt;
+    const unknown = composeRequest(
+      preview("Pricing v2", "/pricing-v2"),
+      "warmer",
+      "replace",
+    ).prompt;
 
     // The measured cost of leaving this out is minutes of post-edit test
     // runs and repo searches per request, not seconds.
@@ -328,7 +371,11 @@ describe("composeRequest", () => {
   });
 
   test("trims the intent, so padding from a textarea does not reach the agent", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "  warmer\n\n", "replace");
+    const { prompt } = composeRequest(
+      preview("Aurora", "/?v-hero=aurora"),
+      "  warmer\n\n",
+      "replace",
+    );
 
     expect(prompt).toContain("What to change: warmer");
     expect(prompt).not.toMatch(/\n{3}/);
@@ -361,7 +408,14 @@ describe("request lifecycle", () => {
       join(root, ".leglas/requests.json"),
       JSON.stringify({
         requests: [
-          { ...input, id: "good", attachments: [{ kind: "frame", file: ".leglas/captures/good/frame.png", width: 10, height: 20 }], captureNote: "No browser." },
+          {
+            ...input,
+            id: "good",
+            attachments: [
+              { kind: "frame", file: ".leglas/captures/good/frame.png", width: 10, height: 20 },
+            ],
+            captureNote: "No browser.",
+          },
           { ...input, id: "bad", attachments: [{ kind: "frame", width: 10 }] },
         ],
       }),
@@ -522,7 +576,10 @@ describe("terminal requests", () => {
     expect(stored?.failure?.code).toBe("provider-overloaded");
     // A stop is its own state, so nothing downstream can read it as a failure
     // worth rerunning on the user's behalf.
-    await markFailed(root, queued?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+    await markFailed(root, queued?.id ?? "", {
+      code: "cancelled",
+      message: "You stopped this run.",
+    });
     expect((await readRequests(root))[0]?.status).toBe("cancelled");
     expect(await markFailed(root, "nope", { code: "cancelled", message: "x" })).toBe(false);
   });
@@ -534,7 +591,16 @@ describe("terminal requests", () => {
       join(root, ".leglas/requests.json"),
       JSON.stringify({
         requests: [
-          { id: "a", status: "failed", title: "A", url: "/", intent: "i", target: null, prompt: "p", failure: { code: "made-up", message: "hi" } },
+          {
+            id: "a",
+            status: "failed",
+            title: "A",
+            url: "/",
+            intent: "i",
+            target: null,
+            prompt: "p",
+            failure: { code: "made-up", message: "hi" },
+          },
           { id: "b", status: "wat", title: "B", url: "/", intent: "i", target: null, prompt: "p" },
         ],
       }),
@@ -551,7 +617,10 @@ describe("terminal requests", () => {
     await appendRequest(root, input("Stopped"));
     await appendRequest(root, input("Live"));
     const [stopped] = await readRequests(root);
-    await markFailed(root, stopped?.id ?? "", { code: "cancelled", message: "You stopped this run." });
+    await markFailed(root, stopped?.id ?? "", {
+      code: "cancelled",
+      message: "You stopped this run.",
+    });
 
     // Asking for the change the user just stopped would be the worst possible
     // reading of the queue.
@@ -565,7 +634,10 @@ describe("terminal requests", () => {
     await appendRequest(root, input("Failed"));
     await appendRequest(root, input("Waiting"));
     const [broken] = await readRequests(root);
-    await markFailed(root, broken?.id ?? "", { code: "agent-error", message: "Codex exited with code 1." });
+    await markFailed(root, broken?.id ?? "", {
+      code: "agent-error",
+      message: "Codex exited with code 1.",
+    });
 
     // The failed one is finished with, not outstanding work, so it is swept up
     // rather than reported as still pending.
@@ -600,7 +672,11 @@ describe("what the agent is told to run", () => {
   });
 
   test("the registration arguments are quoted the same way", () => {
-    const { prompt } = composeRequest(preview("Cost $5", "/?v-hero=cost"), "add a `code` sample", "variant");
+    const { prompt } = composeRequest(
+      preview("Cost $5", "/?v-hero=cost"),
+      "add a `code` sample",
+      "variant",
+    );
     expect(prompt).toContain('--based-on "Cost \\$5"');
     expect(prompt).toContain('--asked-for "add a \\`code\\` sample"');
   });
@@ -620,7 +696,12 @@ describe("ids that reach the filesystem", () => {
     const entry = { title: "Poster", url: "/", intent: "x", target: null, prompt: "x" };
     writeFileSync(
       join(root, ".leglas/requests.json"),
-      JSON.stringify({ requests: [{ ...entry, id: "../../src" }, { ...entry, id: "abc_-123" }] }),
+      JSON.stringify({
+        requests: [
+          { ...entry, id: "../../src" },
+          { ...entry, id: "abc_-123" },
+        ],
+      }),
     );
     expect((await readRequests(root)).map((request) => request.id)).toEqual(["0", "abc_-123"]);
   });
@@ -629,7 +710,13 @@ describe("ids that reach the filesystem", () => {
 describe("a variant of a file direction", () => {
   test("is not asked to screenshot what cannot render until a restart", () => {
     const { prompt } = composeRequest(
-      { title: "Hero", url: "/leglas/files/x/hero.html", note: undefined, tags: [], file: "pages/hero.html" },
+      {
+        title: "Hero",
+        url: "/leglas/files/x/hero.html",
+        note: undefined,
+        tags: [],
+        file: "pages/hero.html",
+      },
       "warmer",
       "variant",
     );
@@ -643,7 +730,14 @@ describe("attachments read back from the queue", () => {
   test("only files inside the request's own capture directory survive the read", async () => {
     const root = mkdtempSync(join(tmpdir(), "leglas-request-attachments-"));
     mkdirSync(join(root, ".leglas"));
-    const entry = { title: "Poster", url: "/", intent: "x", target: null, prompt: "x", id: "abc123" };
+    const entry = {
+      title: "Poster",
+      url: "/",
+      intent: "x",
+      target: null,
+      prompt: "x",
+      id: "abc123",
+    };
     const attachment = (file: string, kind = "frame") => ({ kind, file, width: 1, height: 1 });
     writeFileSync(
       join(root, ".leglas/requests.json"),
@@ -671,8 +765,19 @@ describe("agents that receive paths rather than attachments", () => {
   test("every capture is named as a file, so a path-only agent can still open it", () => {
     const captured = {
       attachments: [
-        { kind: "frame" as const, file: ".leglas/captures/r1/frame.png", width: 1440, height: 900, viewport: 1440 },
-        { kind: "reference" as const, file: ".leglas/captures/r1/reference-1.png", width: 800, height: 600 },
+        {
+          kind: "frame" as const,
+          file: ".leglas/captures/r1/frame.png",
+          width: 1440,
+          height: 900,
+          viewport: 1440,
+        },
+        {
+          kind: "reference" as const,
+          file: ".leglas/captures/r1/reference-1.png",
+          width: 800,
+          height: 600,
+        },
       ],
       errors: [],
       hydration: null,

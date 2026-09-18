@@ -111,17 +111,42 @@ function realPath(path: string): string | null {
 
 const COMMANDS = {
   npx: { npm: ["npx"], pnpm: ["pnpm", "dlx"], bun: ["bunx"], yarn: ["yarn", "dlx"] },
-  global: { npm: ["npm", "i", "-g"], pnpm: ["pnpm", "add", "-g"], bun: ["bun", "add", "-g"], yarn: ["yarn", "global", "add"] },
-  project: { npm: ["npm", "install"], pnpm: ["pnpm", "up"], bun: ["bun", "update"], yarn: ["yarn", "up"] },
+  global: {
+    npm: ["npm", "i", "-g"],
+    pnpm: ["pnpm", "add", "-g"],
+    bun: ["bun", "add", "-g"],
+    yarn: ["yarn", "global", "add"],
+  },
+  project: {
+    npm: ["npm", "install"],
+    pnpm: ["pnpm", "up"],
+    bun: ["bun", "update"],
+    yarn: ["yarn", "up"],
+  },
 } as const;
 const YARN_CLASSIC = ["yarn", "upgrade"];
 
-function commandParts(kind: Exclude<InstallKind, "source">, manager: PackageManager, version: string, classic = false): string[] {
+function commandParts(
+  kind: Exclude<InstallKind, "source">,
+  manager: PackageManager,
+  version: string,
+  classic = false,
+): string[] {
   return [...(classic ? YARN_CLASSIC : COMMANDS[kind][manager]), `leglas@${version}`];
 }
 
-function installation(kind: Exclude<InstallKind, "source">, manager: PackageManager, root?: string, classic = false): Install {
-  return { kind, manager, command: commandParts(kind, manager, "latest", classic).join(" "), ...(root === undefined ? {} : { root }) };
+function installation(
+  kind: Exclude<InstallKind, "source">,
+  manager: PackageManager,
+  root?: string,
+  classic = false,
+): Install {
+  return {
+    kind,
+    manager,
+    command: commandParts(kind, manager, "latest", classic).join(" "),
+    ...(root === undefined ? {} : { root }),
+  };
 }
 
 function* ancestors(directory: string): Generator<string> {
@@ -137,17 +162,25 @@ function* ancestors(directory: string): Generator<string> {
 
 function environmentManager(env: NodeJS.ProcessEnv): PackageManager | null {
   const manager = /^(npm|pnpm|bun|yarn)\//.exec(env.npm_config_user_agent ?? "")?.[1];
-  return manager === "pnpm" || manager === "bun" || manager === "yarn" || manager === "npm" ? manager : null;
+  return manager === "pnpm" || manager === "bun" || manager === "yarn" || manager === "npm"
+    ? manager
+    : null;
 }
 
 function projectInstall(root: string, exists: (path: string) => boolean): Install {
   for (const directory of ancestors(root)) {
-    if (exists(posix.join(directory, "pnpm-lock.yaml"))) return installation("project", "pnpm", root);
+    if (exists(posix.join(directory, "pnpm-lock.yaml")))
+      return installation("project", "pnpm", root);
     if (exists(posix.join(directory, "yarn.lock"))) {
       return installation("project", "yarn", root, !exists(posix.join(directory, ".yarnrc.yml")));
     }
-    if (exists(posix.join(directory, "bun.lock")) || exists(posix.join(directory, "bun.lockb"))) return installation("project", "bun", root);
-    if (exists(posix.join(directory, "package-lock.json")) || exists(posix.join(directory, "npm-shrinkwrap.json"))) return installation("project", "npm", root);
+    if (exists(posix.join(directory, "bun.lock")) || exists(posix.join(directory, "bun.lockb")))
+      return installation("project", "bun", root);
+    if (
+      exists(posix.join(directory, "package-lock.json")) ||
+      exists(posix.join(directory, "npm-shrinkwrap.json"))
+    )
+      return installation("project", "npm", root);
   }
   return installation("project", "npm", root);
 }
@@ -168,16 +201,21 @@ export function detectInstall(
   if (/\/dlx-[^/]+\//.test(path)) return installation("npx", "yarn");
   const berry = /\/\.yarn\/(?:berry\/)?cache\//.test(path) || path.includes("/.yarn/unplugged/");
   const packageIndex = path.lastIndexOf("/node_modules/leglas/");
-  const cached = /\/(?:tmp|temp|cache|\.cache)\//i.test(path) || path.includes("/Library/Caches/") ||
+  const cached =
+    /\/(?:tmp|temp|cache|\.cache)\//i.test(path) ||
+    path.includes("/Library/Caches/") ||
     /\/var\/folders\/[^/]+\/[^/]+\/T\//.test(path) ||
-    [env.TMPDIR, env.TEMP, env.TMP].some((temp) => temp !== undefined && path.startsWith(`${normalized(temp).replace(/\/$/, "")}/`));
+    [env.TMPDIR, env.TEMP, env.TMP].some(
+      (temp) => temp !== undefined && path.startsWith(`${normalized(temp).replace(/\/$/, "")}/`),
+    );
   if (!berry && packageIndex !== -1 && cached && manager !== null && manager !== "npm") {
     return installation("npx", manager);
   }
 
   if (berry) {
     for (const root of ancestors(directory)) {
-      if (exists(posix.join(root, "yarn.lock")) && exists(posix.join(root, ".yarnrc.yml"))) return installation("project", "yarn", root);
+      if (exists(posix.join(root, "yarn.lock")) && exists(posix.join(root, ".yarnrc.yml")))
+        return installation("project", "yarn", root);
     }
     // Berry removed global add. Without its project we cannot offer an install.
     return { kind: "source", manager: "yarn", command: null };
@@ -186,23 +224,30 @@ export function detectInstall(
 
   const packageDirectory = path.slice(0, packageIndex + "/node_modules/leglas".length);
   const windows = /^[a-z]:\//i.test(path) || entry.startsWith("\\\\");
-  const comparable = (value: string): string => windows ? normalized(value).toLowerCase() : normalized(value);
+  const comparable = (value: string): string =>
+    windows ? normalized(value).toLowerCase() : normalized(value);
   for (const root of ancestors(directory)) {
     const dependency = realpath(posix.join(root, "node_modules/leglas"));
-    if (dependency !== null && comparable(dependency) === comparable(packageDirectory)) return projectInstall(root, exists);
+    if (dependency !== null && comparable(dependency) === comparable(packageDirectory))
+      return projectInstall(root, exists);
   }
 
   // pnpm can resolve a dlx cache entry into its links store. A dependency
   // linked from the current project was accounted for before this fallback.
-  if (path.includes("/pnpm/") && /\/store\/[^/]+\/links\//.test(path) && manager === "pnpm") return installation("npx", "pnpm");
+  if (path.includes("/pnpm/") && /\/store\/[^/]+\/links\//.test(path) && manager === "pnpm")
+    return installation("npx", "pnpm");
   if (path.includes("/pnpm/")) return installation("global", "pnpm");
-  if (path.includes("/yarn/global/") || path.includes("/.yarn/global/")) return installation("global", "yarn");
+  if (path.includes("/yarn/global/") || path.includes("/.yarn/global/"))
+    return installation("global", "yarn");
   if (path.includes("/.bun/")) return installation("global", "bun");
   return installation("global", manager ?? "npm");
 }
 
 function parsedVersion(value: string): { core: bigint[]; pre: string[] } | null {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      value,
+    );
   if (match === null) return null;
   const pre = match[4]?.split(".") ?? [];
   if (pre.some((part) => /^0\d+$/.test(part))) return null;
@@ -235,10 +280,12 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
 }
 
 export function windowsLine(parts: readonly string[]): string {
-  return parts.map((part) => {
-    if (part !== "" && !/[\s"&|<>^()]/.test(part)) return part;
-    return `"${part.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
-  }).join(" ");
+  return parts
+    .map((part) => {
+      if (part !== "" && !/[\s"&|<>^()]/.test(part)) return part;
+      return `"${part.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, "$1$1")}"`;
+    })
+    .join(" ");
 }
 
 function spawnCommand(parts: readonly string[], platform: NodeJS.Platform): RestartCommand {
@@ -262,16 +309,29 @@ export function restartCommand(
   rest.push("--port", String(port), "--no-open");
   const windows = options.platform === "win32";
   if (install.kind === "npx") {
-    const runner = [...COMMANDS.npx[install.manager], ...(install.manager === "npm" ? ["-y"] : []), `leglas@${latest}`];
+    const runner = [
+      ...COMMANDS.npx[install.manager],
+      ...(install.manager === "npm" ? ["-y"] : []),
+      `leglas@${latest}`,
+    ];
     return spawnCommand([...runner, ...rest], options.platform);
   }
   if (install.kind === "global") {
-    if (argv[1] !== undefined && options.exists(argv[1])) return { file: options.execPath, args: [argv[1], ...rest], shell: false };
+    if (argv[1] !== undefined && options.exists(argv[1]))
+      return { file: options.execPath, args: [argv[1], ...rest], shell: false };
     return spawnCommand(["leglas", ...rest], options.platform);
   }
   if (install.kind === "project" && install.root !== undefined) {
-    const shim = (windows ? win32.join : join)(install.root, "node_modules", ".bin", windows ? "leglas.cmd" : "leglas");
-    return spawnCommand(options.exists(shim) ? [shim, ...rest] : ["yarn", "leglas", ...rest], options.platform);
+    const shim = (windows ? win32.join : join)(
+      install.root,
+      "node_modules",
+      ".bin",
+      windows ? "leglas.cmd" : "leglas",
+    );
+    return spawnCommand(
+      options.exists(shim) ? [shim, ...rest] : ["yarn", "leglas", ...rest],
+      options.platform,
+    );
   }
   throw new Error(CHECKOUT_NOTICE);
 }
@@ -289,13 +349,27 @@ function readState(path: string | null): SavedUpdate {
     // status() is synchronous, so its first caller should already see the cache.
     const value: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!object(value)) return empty;
-    if (value.checkedAt !== null && (typeof value.checkedAt !== "string" || !Number.isFinite(Date.parse(value.checkedAt)))) return empty;
-    if (value.skipped !== null && (typeof value.skipped !== "string" || parsedVersion(value.skipped) === null)) return empty;
+    if (
+      value.checkedAt !== null &&
+      (typeof value.checkedAt !== "string" || !Number.isFinite(Date.parse(value.checkedAt)))
+    )
+      return empty;
+    if (
+      value.skipped !== null &&
+      (typeof value.skipped !== "string" || parsedVersion(value.skipped) === null)
+    )
+      return empty;
     let latest: Release | null = null;
     if (value.latest !== null) {
       const release = value.latest;
-      if (!object(release) || typeof release.version !== "string" || parsedVersion(release.version) === null ||
-          (release.title !== null && typeof release.title !== "string") || typeof release.url !== "string") return empty;
+      if (
+        !object(release) ||
+        typeof release.version !== "string" ||
+        parsedVersion(release.version) === null ||
+        (release.title !== null && typeof release.title !== "string") ||
+        typeof release.url !== "string"
+      )
+        return empty;
       latest = { version: release.version, title: release.title, url: releaseUrl(release.version) };
     }
     return { checkedAt: value.checkedAt, latest, skipped: value.skipped };
@@ -313,11 +387,18 @@ function defaultStatePath(home: () => string): string | null {
 }
 
 function mergeState(current: SavedUpdate, saved: SavedUpdate): SavedUpdate {
-  const checked = (state: SavedUpdate): number => state.checkedAt === null ? -Infinity : Date.parse(state.checkedAt);
+  const checked = (state: SavedUpdate): number =>
+    state.checkedAt === null ? -Infinity : Date.parse(state.checkedAt);
   const newest = checked(saved) > checked(current) ? saved : current;
   let skipped = current.skipped;
-  if (saved.skipped !== null && (skipped === null || compareVersions(saved.skipped, skipped) > 0)) skipped = saved.skipped;
-  if (skipped !== null && newest.latest !== null && compareVersions(newest.latest.version, skipped) > 0) skipped = null;
+  if (saved.skipped !== null && (skipped === null || compareVersions(saved.skipped, skipped) > 0))
+    skipped = saved.skipped;
+  if (
+    skipped !== null &&
+    newest.latest !== null &&
+    compareVersions(newest.latest.version, skipped) > 0
+  )
+    skipped = null;
   return { latest: newest.latest, checkedAt: newest.checkedAt, skipped };
 }
 
@@ -345,7 +426,11 @@ function timedOut(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
-async function registryVersion(fetcher: typeof fetch, timeoutMs: number, registry: string): Promise<string> {
+async function registryVersion(
+  fetcher: typeof fetch,
+  timeoutMs: number,
+  registry: string,
+): Promise<string> {
   let response: Response;
   try {
     response = await fetcher(`${registry}/leglas/latest`, {
@@ -360,7 +445,9 @@ async function registryVersion(fetcher: typeof fetch, timeoutMs: number, registr
   try {
     body = await response.json();
   } catch (error) {
-    throw new Error(timedOut(error) ? "npm took too long to answer." : "npm's answer made no sense.");
+    throw new Error(
+      timedOut(error) ? "npm took too long to answer." : "npm's answer made no sense.",
+    );
   }
   if (!object(body) || typeof body.version !== "string" || parsedVersion(body.version) === null) {
     throw new Error("npm's answer made no sense.");
@@ -368,7 +455,10 @@ async function registryVersion(fetcher: typeof fetch, timeoutMs: number, registr
   return body.version;
 }
 
-async function releaseTitles(fetcher: typeof fetch, timeoutMs: number): Promise<Map<string, string>> {
+async function releaseTitles(
+  fetcher: typeof fetch,
+  timeoutMs: number,
+): Promise<Map<string, string>> {
   const titles = new Map<string, string>();
   try {
     const response = await fetcher(RELEASES, {
@@ -390,12 +480,21 @@ async function releaseTitles(fetcher: typeof fetch, timeoutMs: number): Promise<
 }
 
 export function installerReason(stdout: string, stderr: string): string | null {
-  const lines = (output: string): string[] => output.split(/\r?\n/)
-    .filter((line) => !/^\s+at /.test(line) && !/A complete log of this run|info Visit https:\/\/yarnpkg\.com/.test(line))
-    .map((line) => line.trim()).filter(Boolean);
+  const lines = (output: string): string[] =>
+    output
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          !/^\s+at /.test(line) &&
+          !/A complete log of this run|info Visit https:\/\/yarnpkg\.com/.test(line),
+      )
+      .map((line) => line.trim())
+      .filter(Boolean);
   const errors = lines(stderr);
   const output = lines(stdout);
-  const npm = [...errors, ...output].find((line) => /^npm error\s+\S/.test(line) && !/^npm error code\s/.test(line));
+  const npm = [...errors, ...output].find(
+    (line) => /^npm error\s+\S/.test(line) && !/^npm error code\s/.test(line),
+  );
   return npm?.replace(/^npm error\s+/, "") ?? errors[0] ?? output[0] ?? null;
 }
 
@@ -408,7 +507,13 @@ type RunningInstaller = {
 function installVersion(
   install: Install,
   version: string,
-  deps: { spawn: typeof spawnChild; kill: typeof process.kill; platform: NodeJS.Platform; env: NodeJS.ProcessEnv; log: (line: string) => void },
+  deps: {
+    spawn: typeof spawnChild;
+    kill: typeof process.kill;
+    platform: NodeJS.Platform;
+    env: NodeJS.ProcessEnv;
+    log: (line: string) => void;
+  },
 ): RunningInstaller {
   if (install.kind !== "global" && install.kind !== "project") throw new Error(CHECKOUT_NOTICE);
   // Install keeps its public shape. Its displayed command distinguishes the
@@ -427,16 +532,25 @@ function installVersion(
   });
   let settle!: () => void;
   let reject!: (error: Error) => void;
-  const result = new Promise<void>((resolve, fail) => { settle = resolve; reject = fail; });
+  const result = new Promise<void>((resolve, fail) => {
+    settle = resolve;
+    reject = fail;
+  });
   let markGone!: () => void;
-  const gone = new Promise<void>((resolve) => { markGone = resolve; });
+  const gone = new Promise<void>((resolve) => {
+    markGone = resolve;
+  });
   let settled = false;
   let exited = false;
   let stopping = false;
   let stdout = "";
   let stderr = "";
-  const readOut = (chunk: Buffer | string): void => { stdout = (stdout + chunk.toString()).slice(-64_000); };
-  const readErr = (chunk: Buffer | string): void => { stderr = (stderr + chunk.toString()).slice(-64_000); };
+  const readOut = (chunk: Buffer | string): void => {
+    stdout = (stdout + chunk.toString()).slice(-64_000);
+  };
+  const readErr = (chunk: Buffer | string): void => {
+    stderr = (stderr + chunk.toString()).slice(-64_000);
+  };
   const finish = (error?: Error): void => {
     if (settled) return;
     settled = true;
@@ -451,7 +565,10 @@ function installVersion(
       if (child.pid === undefined) child.kill("SIGKILL");
       else if (deps.platform === "win32") {
         // taskkill reaches the manager's descendants, including lifecycle scripts.
-        const killer = deps.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", shell: false });
+        const killer = deps.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+          shell: false,
+        });
         killer.once("error", () => child.kill("SIGKILL"));
       } else deps.kill(-child.pid, "SIGKILL");
     } catch {
@@ -480,7 +597,11 @@ function installVersion(
   // arrives on stdout, so both streams must have drained before reporting it.
   child.once("close", (code: number | null) => {
     const reason = installerReason(stdout, stderr);
-    finish(code === 0 ? undefined : new Error(`${command} exited ${code ?? 1}.${reason === null ? "" : ` ${reason}`}`));
+    finish(
+      code === 0
+        ? undefined
+        : new Error(`${command} exited ${code ?? 1}.${reason === null ? "" : ` ${reason}`}`),
+    );
     onGone();
   });
   return { result, gone, stop };
@@ -498,7 +619,8 @@ export function createUpdateService(input: {
   const fetcher = deps.fetch ?? fetch;
   const now = deps.now ?? Date.now;
   const timeoutMs = deps.timeoutMs ?? 4000;
-  const statePath = deps.statePath === undefined ? defaultStatePath(deps.homedir ?? homedir) : deps.statePath;
+  const statePath =
+    deps.statePath === undefined ? defaultStatePath(deps.homedir ?? homedir) : deps.statePath;
   const exists = deps.exists ?? existsSync;
   const env = deps.env ?? process.env;
   const install = detectInstall(input.entry, input.cwd, exists, deps.realpath ?? realPath, env);
@@ -511,7 +633,9 @@ export function createUpdateService(input: {
   const registry = (env.npm_config_registry || REGISTRY).replace(/\/+$/, "");
   const argv = [...input.argv];
   let state: SavedUpdate & { checkError: string | null; phase: UpdatePhase } = {
-    ...readState(statePath), checkError: null, phase: { status: "idle" },
+    ...readState(statePath),
+    checkError: null,
+    phase: { status: "idle" },
   };
   let checking: Promise<UpdateStatus> | null = null;
   let writing = Promise.resolve();
@@ -527,16 +651,26 @@ export function createUpdateService(input: {
   const listeners = new Set<() => void>();
 
   const change = (next: Partial<typeof state>): void => {
-    if (Object.entries(next).every(([key, value]) => JSON.stringify(state[key as keyof typeof state]) === JSON.stringify(value))) return;
+    if (
+      Object.entries(next).every(
+        ([key, value]) =>
+          JSON.stringify(state[key as keyof typeof state]) === JSON.stringify(value),
+      )
+    )
+      return;
     state = { ...state, ...next };
     for (const listener of listeners) {
-      try { listener(); } catch {
+      try {
+        listener();
+      } catch {
         // An observer cannot turn a successful check or install into a failure.
       }
     }
   };
-  const available = (): boolean => state.latest !== null && compareVersions(state.latest.version, input.version) > 0;
-  const inFlight = (): boolean => ["installing", "waiting", "restarting"].includes(state.phase.status) || installer !== null;
+  const available = (): boolean =>
+    state.latest !== null && compareVersions(state.latest.version, input.version) > 0;
+  const inFlight = (): boolean =>
+    ["installing", "waiting", "restarting"].includes(state.phase.status) || installer !== null;
   const status = (): UpdateStatus => ({
     version: input.version,
     install: { ...install },
@@ -573,13 +707,18 @@ export function createUpdateService(input: {
       });
     }
   };
-  const performUpdate = async (version: string, handoff: (command: RestartCommand) => Promise<void>): Promise<void> => {
+  const performUpdate = async (
+    version: string,
+    handoff: (command: RestartCommand) => Promise<void>,
+  ): Promise<void> => {
     try {
       if (closed) return;
       if (install.kind !== "npx") {
         const running = installVersion(install, version, { spawn, kill, platform, env, log });
         installer = running;
-        void running.gone.then(() => { if (installer === running) installer = null; });
+        void running.gone.then(() => {
+          if (installer === running) installer = null;
+        });
         await running.result;
       }
       await waitForIdle(version);
@@ -588,7 +727,14 @@ export function createUpdateService(input: {
       log(`Restarting Leglas with ${version}…`);
       await handoff(restartCommand(install, argv, version, port, { execPath, platform, exists }));
     } catch (error) {
-      if (!closed) change({ phase: { status: "failed", version, reason: error instanceof Error ? error.message : String(error) } });
+      if (!closed)
+        change({
+          phase: {
+            status: "failed",
+            version,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        });
     }
   };
 
@@ -614,12 +760,16 @@ export function createUpdateService(input: {
               latest: { version, title: titles.get(version) ?? null, url: releaseUrl(version) },
               checkedAt: new Date(now()).toISOString(),
               checkError: null,
-              skipped: state.skipped !== null && compareVersions(version, state.skipped) > 0 ? null : state.skipped,
+              skipped:
+                state.skipped !== null && compareVersions(version, state.skipped) > 0
+                  ? null
+                  : state.skipped,
             });
             await persist();
           }
         } catch (error) {
-          if (!closed) change({ checkError: error instanceof Error ? error.message : "Could not reach npm." });
+          if (!closed)
+            change({ checkError: error instanceof Error ? error.message : "Could not reach npm." });
         } finally {
           if (state.phase.status === "checking") change({ phase: { status: "idle" } });
           checking = null;
@@ -655,17 +805,26 @@ export function createUpdateService(input: {
       const { latest, skipped } = state;
       if (!available() || latest === null || latest.version === skipped) return null;
       const title = latest.title === null ? "" : `: ${latest.title}`;
-      const next = install.kind === "source"
-        ? CHECKOUT_NOTICE
-        : install.kind === "npx"
-          ? `Update from the interface, or start Leglas again with ${install.command}`
-          : `Update from the interface, or run ${install.command}`;
+      const next =
+        install.kind === "source"
+          ? CHECKOUT_NOTICE
+          : install.kind === "npx"
+            ? `Update from the interface, or start Leglas again with ${install.command}`
+            : `Update from the interface, or run ${install.command}`;
       return `update   ${latest.version} is out, you have ${input.version}${title}\n         ${next}`;
     },
-    onRestart(handler): void { restart = handler; },
-    onBusy(handler): void { busy = handler; },
-    setPort(value): void { port = value; },
-    onChange(listener): void { listeners.add(listener); },
+    onRestart(handler): void {
+      restart = handler;
+    },
+    onBusy(handler): void {
+      busy = handler;
+    },
+    setPort(value): void {
+      port = value;
+    },
+    onChange(listener): void {
+      listeners.add(listener);
+    },
     close(): Promise<void> {
       if (closing !== null) return closing;
       closed = true;

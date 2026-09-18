@@ -26,10 +26,12 @@ describe("lsof parsing", () => {
   });
 
   test("pairs each process with only its cwd record", () => {
-    expect(parseOwnerCwds("p42\nfcwd\nn/work/app\nf17\nnignored\np87\nfcwd\nn/work/api\n")).toEqual([
-      { pid: 42, cwd: "/work/app" },
-      { pid: 87, cwd: "/work/api" },
-    ]);
+    expect(parseOwnerCwds("p42\nfcwd\nn/work/app\nf17\nnignored\np87\nfcwd\nn/work/api\n")).toEqual(
+      [
+        { pid: 42, cwd: "/work/app" },
+        { pid: 87, cwd: "/work/api" },
+      ],
+    );
   });
 });
 

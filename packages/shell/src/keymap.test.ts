@@ -124,4 +124,3 @@ describe("annotating", () => {
     expect(resolveKey({ key: "a", metaKey: true })).toBeNull();
   });
 });
-

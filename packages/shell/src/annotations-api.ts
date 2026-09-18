@@ -54,11 +54,7 @@ export function updateNote(
   note: string,
   fetcher: NoteFetcher = browserFetch,
 ): Promise<{ annotation: Annotation }> {
-  return post<{ annotation: Annotation }>(
-    "/leglas/api/annotations/update",
-    { id, note },
-    fetcher,
-  );
+  return post<{ annotation: Annotation }>("/leglas/api/annotations/update", { id, note }, fetcher);
 }
 
 export function deleteNotes(

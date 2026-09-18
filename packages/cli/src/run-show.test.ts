@@ -25,14 +25,24 @@ function collect() {
 const add = (cwd: string, title: string, url: string) =>
   runAdd(
     {
-      preview: { title, url, note: undefined, tags: undefined, branch: undefined, file: undefined, basedOn: undefined, askedFor: undefined },
+      preview: {
+        title,
+        url,
+        note: undefined,
+        tags: undefined,
+        branch: undefined,
+        file: undefined,
+        basedOn: undefined,
+        askedFor: undefined,
+      },
       json: true,
       cwd,
     },
     collect().deps,
   );
 
-const envelope = (lines: string[]) => JSON.parse(lines[lines.length - 1] ?? "{}") as Record<string, unknown>;
+const envelope = (lines: string[]) =>
+  JSON.parse(lines[lines.length - 1] ?? "{}") as Record<string, unknown>;
 
 describe("runShow", () => {
   test("answers to the name the rail was renamed to, not just the config title", async () => {
@@ -179,7 +189,9 @@ describe("runShow", () => {
     expect(lines).toContain("  screenshot  .leglas/captures/show/aurora-1440.png");
     // A page taller than one capture says so, so the agent knows what it
     // has not seen.
-    expect(lines).toContain("              the top of the page only; it is taller than one capture");
+    expect(lines).toContain(
+      "              the top of the page only; it is taller than one capture",
+    );
     expect(lines).toContain(
       "  hydration   React rebuilt the page in the browser after load; the served markup is not what is on screen",
     );
@@ -256,11 +268,11 @@ describe("whose server a screenshot comes from", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ reachable: true, cwd: join(cwd, "..", "elsewhere") }), { status: 200 }),
-      );
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ reachable: true, cwd: join(cwd, "..", "elsewhere") }), {
+        status: 200,
+      }),
+    );
 
     const outcome = await runShow(
       { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
@@ -278,10 +290,18 @@ describe("whose server a screenshot comes from", () => {
     const { deps, lines } = collect();
     const fetch = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ reachable: true, cwd }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ reachable: true, cwd }), { status: 200 }),
+      )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ file: ".leglas/captures/show/aurora-1440.png", width: 1440, height: 900, viewport: 1440, errors: [] }),
+          JSON.stringify({
+            file: ".leglas/captures/show/aurora-1440.png",
+            width: 1440,
+            height: 900,
+            viewport: 1440,
+            errors: [],
+          }),
           { status: 200 },
         ),
       );

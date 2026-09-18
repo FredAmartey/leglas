@@ -94,8 +94,12 @@ describe("paint in the signature", () => {
     // Four deliberate variants share every word and every element; only the
     // painted field differs. Calling them duplicates told the user their
     // variant set was a mistake.
-    const dawn = renderedSignature(TEXT, TAGS, ["rgba(0,0,0,0);linear-gradient(#0E1B3A,#F2A65A);#fff"]);
-    const dusk = renderedSignature(TEXT, TAGS, ["rgba(0,0,0,0);linear-gradient(#0B1026,#E0623A);#fff"]);
+    const dawn = renderedSignature(TEXT, TAGS, [
+      "rgba(0,0,0,0);linear-gradient(#0E1B3A,#F2A65A);#fff",
+    ]);
+    const dusk = renderedSignature(TEXT, TAGS, [
+      "rgba(0,0,0,0);linear-gradient(#0B1026,#E0623A);#fff",
+    ]);
 
     expect(dawn).not.toBeNull();
     expect(dawn).not.toBe(dusk);
@@ -114,20 +118,36 @@ describe("paint in the signature", () => {
 
   test("the same copy and paint in a different layout is not a duplicate", () => {
     const sharedPaint = ["rgb(13,13,13);none;rgb(240,240,240)"];
-    const capsule = renderedSignature(TEXT, TAGS, sharedPaint, ["NAV{rect:120,20,650,64;display:grid}"]);
-    const satellite = renderedSignature(TEXT, TAGS, sharedPaint, ["NAV{rect:940,20,260,340;display:block}"]);
+    const capsule = renderedSignature(TEXT, TAGS, sharedPaint, [
+      "NAV{rect:120,20,650,64;display:grid}",
+    ]);
+    const satellite = renderedSignature(TEXT, TAGS, sharedPaint, [
+      "NAV{rect:940,20,260,340;display:block}",
+    ]);
 
     expect(capsule).not.toBe(satellite);
   });
 
   test("identical high-fidelity visual records still agree", () => {
     const visual = ["SVG{rect:20,20,64,64;d:M0 0L64 64}", "NAV{rect:120,20,650,64;display:grid}"];
-    expect(renderedSignature(TEXT, TAGS, [], visual)).toBe(renderedSignature(TEXT, TAGS, [], visual));
+    expect(renderedSignature(TEXT, TAGS, [], visual)).toBe(
+      renderedSignature(TEXT, TAGS, [], visual),
+    );
   });
 
   test("pseudo-elements, vector geometry and media sources affect the verdict", () => {
-    const base = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:10px}}", "PATH{d:M0 0L1 1}", "IMG{src:a.webp}"]);
-    const changed = renderedSignature(TEXT, TAGS, [], ["BODY{::before{content:'';width:20px}}", "PATH{d:M0 0L2 2}", "IMG{src:b.webp}"]);
+    const base = renderedSignature(
+      TEXT,
+      TAGS,
+      [],
+      ["BODY{::before{content:'';width:10px}}", "PATH{d:M0 0L1 1}", "IMG{src:a.webp}"],
+    );
+    const changed = renderedSignature(
+      TEXT,
+      TAGS,
+      [],
+      ["BODY{::before{content:'';width:20px}}", "PATH{d:M0 0L2 2}", "IMG{src:b.webp}"],
+    );
 
     expect(base).not.toBe(changed);
   });
@@ -136,10 +156,23 @@ describe("paint in the signature", () => {
 describe("visualSample", () => {
   type FakeElement = {
     getAttribute: (name: string) => string | null;
-    getBoundingClientRect: () => { bottom: number; height: number; left: number; right: number; top: number; width: number };
+    getBoundingClientRect: () => {
+      bottom: number;
+      height: number;
+      left: number;
+      right: number;
+      top: number;
+      width: number;
+    };
     matches: () => boolean;
     closest: () => null;
-    ownerDocument: { defaultView: { getComputedStyle: () => { position: string }; scrollX: number; scrollY: number } };
+    ownerDocument: {
+      defaultView: {
+        getComputedStyle: () => { position: string };
+        scrollX: number;
+        scrollY: number;
+      };
+    };
     parentElement: FakeElement | null;
     querySelectorAll: () => FakeElement[];
     tagName: string;
@@ -149,9 +182,16 @@ describe("visualSample", () => {
     const ownerDocument = {
       defaultView: { getComputedStyle: () => ({ position: "static" }), scrollX: 0, scrollY: 0 },
     };
-    const rect = (left: number, width: number) => ({ bottom: 40, height: 20, left, right: left + width, top: 20, width });
+    const rect = (left: number, width: number) => ({
+      bottom: 40,
+      height: 20,
+      left,
+      right: left + width,
+      top: 20,
+      width,
+    });
     const child: FakeElement = {
-      getAttribute: (name) => name === "d" ? path : null,
+      getAttribute: (name) => (name === "d" ? path : null),
       getBoundingClientRect: () => rect(childLeft, 100),
       matches: () => false,
       closest: () => null,

@@ -3,12 +3,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import { describeAnnotations, type Annotation } from "./annotations.js";
-import {
-  capturedViewport,
-  removeCaptures,
-  type Attachment,
-  type Captured,
-} from "./attachments.js";
+import { capturedViewport, removeCaptures, type Attachment, type Captured } from "./attachments.js";
 import type { Preview } from "./config.js";
 import type { Failure, FailureCode } from "./failure.js";
 
@@ -169,21 +164,23 @@ function scope(leglasCommand: string, quotedTitle: string | null): string {
       : `When the change is made, look at it once: run \`${leglasCommand} show ` +
         `${quotedTitle} --screenshot\` and read the PNG it writes. Fix anything visibly ` +
         `broken, then finish.`;
-  return `This request came from the running Leglas interface. Request collection, ` +
-  `direction discovery and the live-server check are already complete. Do not ` +
-  `run Leglas explore, requests, list, help or version commands, do not ` +
-  `inspect package caches, and do not start or restart the app or Leglas. ` +
-  `${look}\n\n` +
-  `This is a scoped design change: no test run, no build, and no survey of ` +
-  `the rest of the project is needed. The result is checked visually in a ` +
-  `live preview, not by tooling.\n\n` +
-  `Leave every other direction exactly as it is; they are alternatives being ` +
-  `compared side by side, so changing a sibling destroys the comparison. Keep ` +
-  `the change additive: do not rewrite shared components that other ` +
-  `directions rely on. A shared script may gain one small per-direction ` +
-  `override, at the point it reads what it renders, that defaults to what it ` +
-  `renders today; every other direction then renders exactly as before, so ` +
-  `that counts as additive.`;
+  return (
+    `This request came from the running Leglas interface. Request collection, ` +
+    `direction discovery and the live-server check are already complete. Do not ` +
+    `run Leglas explore, requests, list, help or version commands, do not ` +
+    `inspect package caches, and do not start or restart the app or Leglas. ` +
+    `${look}\n\n` +
+    `This is a scoped design change: no test run, no build, and no survey of ` +
+    `the rest of the project is needed. The result is checked visually in a ` +
+    `live preview, not by tooling.\n\n` +
+    `Leave every other direction exactly as it is; they are alternatives being ` +
+    `compared side by side, so changing a sibling destroys the comparison. Keep ` +
+    `the change additive: do not rewrite shared components that other ` +
+    `directions rely on. A shared script may gain one small per-direction ` +
+    `override, at the point it reads what it renders, that defaults to what it ` +
+    `renders today; every other direction then renders exactly as before, so ` +
+    `that counts as additive.`
+  );
 }
 
 /** The images and load evidence placed between the ask and the closing rules. */
@@ -194,7 +191,8 @@ function capturedBlock(captured: Captured | null): string {
       captured.errors.length === 0 &&
       captured.hydration === null &&
       captured.skipped === null)
-  ) return "";
+  )
+    return "";
 
   const lines: string[] = [];
   const frames = captured.attachments.filter(
@@ -203,8 +201,10 @@ function capturedBlock(captured: Captured | null): string {
   const frame = frames.find((attachment) => attachment.kind === "frame");
   if (frames.length > 0) {
     const viewport =
-      frame?.viewport ?? frames.find((attachment) => attachment.viewport !== undefined)?.viewport ??
-      capturedViewport(captured) ?? 1440;
+      frame?.viewport ??
+      frames.find((attachment) => attachment.viewport !== undefined)?.viewport ??
+      capturedViewport(captured) ??
+      1440;
     lines.push(
       `What it looks like, from a fresh load at ${viewport}px wide with nothing interacted with:`,
     );
@@ -348,10 +348,7 @@ function variantPrompt(
   const askedFor = shellArgument(recorded);
   const add = registrationCommand(leglasCommand);
 
-  const source =
-    target === null
-      ? `Find what renders it first.`
-      : `Its source is ${target}.`;
+  const source = target === null ? `Find what renders it first.` : `Its source is ${target}.`;
 
   // Where the copy goes, and how the finished direction is named back to
   // Leglas, is the one part that differs by how the parent is served.
@@ -499,9 +496,7 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
         ...entry
       } = source;
       const status: RequestStatus =
-        entry.status === "picked-up" ||
-        entry.status === "failed" ||
-        entry.status === "cancelled"
+        entry.status === "picked-up" || entry.status === "failed" || entry.status === "cancelled"
           ? entry.status
           : "queued";
       // A verdict is only read back in the shape it was written, and only on a
@@ -509,7 +504,8 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
       // and a request with no reason reads better than one carrying a reason
       // nobody can trust.
       const failure = isTerminal(status) ? failureOf(rawFailure) : null;
-      const id = typeof entry.id === "string" && REQUEST_ID.test(entry.id) ? entry.id : String(index);
+      const id =
+        typeof entry.id === "string" && REQUEST_ID.test(entry.id) ? entry.id : String(index);
       // An attachment is read into a transport and sent to a model, so a
       // path from the queue file is trusted only when it is the one Leglas
       // would have written: inside this request's own capture directory,
@@ -561,10 +557,7 @@ export async function appendRequest(
   request: Omit<PendingRequest, "id" | "status">,
   id = newRequestId(),
 ): Promise<void> {
-  await writeQueue(cwd, [
-    ...(await readRequests(cwd)),
-    { ...request, id, status: "queued" },
-  ]);
+  await writeQueue(cwd, [...(await readRequests(cwd)), { ...request, id, status: "queued" }]);
 }
 
 export function newRequestId(): string {
@@ -596,7 +589,8 @@ export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
  */
 export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
   const requests = await readRequests(cwd);
-  if (!requests.some((request) => request.id === id && request.status !== "picked-up")) return false;
+  if (!requests.some((request) => request.id === id && request.status !== "picked-up"))
+    return false;
   await writeQueue(
     cwd,
     requests.map((request) =>

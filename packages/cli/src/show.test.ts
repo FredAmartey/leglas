@@ -119,6 +119,6 @@ describe("planShow", () => {
 
     expect(plan.ok).toBe(false);
     if (plan.ok) return;
-    expect(plan.error).toContain("No direction called \"Nope\"");
+    expect(plan.error).toContain('No direction called "Nope"');
   });
 });

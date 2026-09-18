@@ -12,11 +12,22 @@ describe("railInsets", () => {
   });
 
   test("one family puts roots past the trunk and variants past the first lanes", () => {
-    expect(insetsFor(["Meridian", "Ledger", "Dusk"], [["Ledger", "Meridian"]])).toEqual({ root: 16, variant: 32 });
+    expect(insetsFor(["Meridian", "Ledger", "Dusk"], [["Ledger", "Meridian"]])).toEqual({
+      root: 16,
+      variant: 32,
+    });
   });
 
   test("two siblings fork to the next lane, which a root's card already clears", () => {
-    expect(insetsFor(["Meridian", "Ledger", "Dusk", "Sea"], [["Ledger", "Meridian"], ["Dusk", "Meridian"]])).toEqual({
+    expect(
+      insetsFor(
+        ["Meridian", "Ledger", "Dusk", "Sea"],
+        [
+          ["Ledger", "Meridian"],
+          ["Dusk", "Meridian"],
+        ],
+      ),
+    ).toEqual({
       root: 16,
       variant: 32,
     });

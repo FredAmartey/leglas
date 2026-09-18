@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 
-import { WIDGET_MARGIN, WIDGET_SIZE, clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
+import {
+  WIDGET_MARGIN,
+  WIDGET_SIZE,
+  clampWidget,
+  dragAnchor,
+  isDrag,
+  nearestCorner,
+} from "./widget.js";
 
 const stage = { width: 1000, height: 800 };
 
@@ -82,7 +89,7 @@ describe("isDrag", () => {
     expect(isDrag(start, { x: 100, y: 140 })).toBe(true);
     expect(isDrag(start, { x: 111, y: 100 })).toBe(true);
   });
-})
+});
 
 describe("dragAnchor", () => {
   /**
@@ -99,7 +106,11 @@ describe("dragAnchor", () => {
   });
 
   test("keeps the pointer inside the button's box", () => {
-    for (const pointer of [{ x: 0, y: 0 }, { x: 1000, y: 500 }, { x: 24, y: 972 }]) {
+    for (const pointer of [
+      { x: 0, y: 0 },
+      { x: 1000, y: 500 },
+      { x: 24, y: 972 },
+    ]) {
       const a = dragAnchor(pointer);
       expect(pointer.x).toBeGreaterThanOrEqual(a.x);
       expect(pointer.x).toBeLessThanOrEqual(a.x + WIDGET_SIZE);
@@ -107,4 +118,4 @@ describe("dragAnchor", () => {
       expect(pointer.y).toBeLessThanOrEqual(a.y + WIDGET_SIZE);
     }
   });
-})
+});

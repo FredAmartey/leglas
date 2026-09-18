@@ -73,7 +73,10 @@ export async function readLocalPreviews(
   // config, and whether it is set there is checked where the two merge.
   const result = normalizeConfig(parsed, { requireDevCommand: false });
   if (result.config === null) {
-    return { previews: [], errors: result.errors.map((error) => `${LOCAL_PREVIEWS_PATH}: ${error}`) };
+    return {
+      previews: [],
+      errors: result.errors.map((error) => `${LOCAL_PREVIEWS_PATH}: ${error}`),
+    };
   }
 
   return {
@@ -92,9 +95,7 @@ export async function addLocalPreview(
     return { ok: false, error: existing.errors.join(" ") };
   }
 
-  const taken = [...shared, ...existing.previews].some(
-    (preview) => preview.title === input.title,
-  );
+  const taken = [...shared, ...existing.previews].some((preview) => preview.title === input.title);
   if (taken) {
     return {
       ok: false,
@@ -124,11 +125,7 @@ export async function addLocalPreview(
   // when they wonder where a preview came from.
   await writeFile(
     path,
-    `${JSON.stringify(
-      { previews: [...existing.previews.map(toStored), candidate] },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({ previews: [...existing.previews.map(toStored), candidate] }, null, 2)}\n`,
     "utf8",
   );
 
@@ -158,10 +155,6 @@ export async function dropLocalPreviews(cwd: string, titles: readonly string[]):
 
   const path = join(cwd, LOCAL_PREVIEWS_PATH);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(
-    path,
-    `${JSON.stringify({ previews: keep.map(toStored) }, null, 2)}\n`,
-    "utf8",
-  );
+  await writeFile(path, `${JSON.stringify({ previews: keep.map(toStored) }, null, 2)}\n`, "utf8");
   return existing.previews.length - keep.length;
 }

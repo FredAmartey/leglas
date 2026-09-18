@@ -3,10 +3,7 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, test } from "vitest";
 
-import {
-  createCodexAppServer,
-  type CodexAppServerSpawn,
-} from "./codex-app-server.js";
+import { createCodexAppServer, type CodexAppServerSpawn } from "./codex-app-server.js";
 
 type Message = Record<string, unknown>;
 
@@ -173,8 +170,7 @@ describe("Codex app-server transport", () => {
     const firstLines: string[] = [];
     firstChild.stdout.on("data", (chunk: Buffer) => firstLines.push(chunk.toString()));
     const firstClosed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve) =>
-        firstChild.once("close", (code, signal) => resolve({ code, signal })),
+      (resolve) => firstChild.once("close", (code, signal) => resolve({ code, signal })),
     );
 
     process.send({
@@ -205,7 +201,12 @@ describe("Codex app-server transport", () => {
     expect(firstLines.join("")).toContain('"type":"command_execution"');
     expect(firstLines.join("")).toContain('"type":"file_change"');
 
-    const secondRun = server.run({ prompt: "second prompt", effort: null, sessionId: "th_1", images: [] });
+    const secondRun = server.run({
+      prompt: "second prompt",
+      effort: null,
+      sessionId: "th_1",
+      images: [],
+    });
     await until(() => byMethod(process, "turn/start").length === 2);
     expect(byMethod(process, "thread/start")).toHaveLength(1);
     expect(byMethod(process, "thread/resume")).toHaveLength(0);
@@ -213,9 +214,7 @@ describe("Codex app-server transport", () => {
     expect(secondTurn.params).not.toHaveProperty("effort");
     process.send({ id: secondTurn.id, result: { turn: { id: "turn_2" } } });
     const secondChild = await secondRun;
-    const secondClosed = new Promise<void>((resolve) =>
-      secondChild.once("close", () => resolve()),
-    );
+    const secondClosed = new Promise<void>((resolve) => secondChild.once("close", () => resolve()));
     process.send({
       method: "turn/completed",
       params: { threadId: "th_1", turn: { id: "turn_2", status: "completed", error: null } },
@@ -227,7 +226,12 @@ describe("Codex app-server transport", () => {
 
   test("resumes a stored thread after a new app-server process", async () => {
     const { process, server } = await initialize();
-    const running = server.run({ prompt: "continue", effort: "max", sessionId: "stored_1", images: [] });
+    const running = server.run({
+      prompt: "continue",
+      effort: "max",
+      sessionId: "stored_1",
+      images: [],
+    });
     await until(() => byMethod(process, "thread/resume").length === 1);
     const resume = byMethod(process, "thread/resume")[0] as Message;
     process.send({ id: resume.id, result: { thread: { id: "stored_1" } } });

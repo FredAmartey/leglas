@@ -37,7 +37,9 @@ describe("CHANGELOG.md", () => {
   test("the newest release is the one the packages declare", () => {
     const first = changelog.entries[0]!;
     if (first.versions[0] === "Unreleased") return;
-    const declared = JSON.parse(readFileSync(join(root, "packages/cli/package.json"), "utf8")).version;
+    const declared = JSON.parse(
+      readFileSync(join(root, "packages/cli/package.json"), "utf8"),
+    ).version;
     // An entry can name two releases, as the first one does.
     expect(first.versions, "the top entry is not the version being shipped").toContain(declared);
   });
@@ -71,8 +73,14 @@ describe("CHANGELOG.md", () => {
       expect(written).toContain(path);
       const text = readFileSync(path, "utf8");
       const releases = JSON.parse(text) as { version: string; date: string; title: string }[];
-      const declared = JSON.parse(readFileSync(join(root, "packages/cli/package.json"), "utf8")).version;
-      expect(releases[0]).toMatchObject({ version: declared, date: expect.any(String), title: expect.any(String) });
+      const declared = JSON.parse(
+        readFileSync(join(root, "packages/cli/package.json"), "utf8"),
+      ).version;
+      expect(releases[0]).toMatchObject({
+        version: declared,
+        date: expect.any(String),
+        title: expect.any(String),
+      });
       expect(releases.some((release) => release.version === "Unreleased")).toBe(false);
       expect(text).toBe(`${JSON.stringify(releases, null, 2)}\n`);
     } finally {
@@ -84,7 +92,14 @@ describe("CHANGELOG.md", () => {
 describe("reading the markdown", () => {
   test("a bullet keeps its bold lead, its text and who it reaches", () => {
     const { entries } = parseChangelog(
-      ["## 1.0.0 (2026-01-02): A title", "", "### Added", "", "- **The lead.** The rest of it. (`leglas`, plugin)", ""].join("\n"),
+      [
+        "## 1.0.0 (2026-01-02): A title",
+        "",
+        "### Added",
+        "",
+        "- **The lead.** The rest of it. (`leglas`, plugin)",
+        "",
+      ].join("\n"),
     );
     const group = entries[0]!.blocks[0]!;
     expect(group.kind).toBe("group");
@@ -124,27 +139,56 @@ describe("reading the markdown", () => {
       more: ["A second paragraph, still the same bullet."],
       reaches: ["mcp"],
     });
-    expect(group.blocks[1]).toMatchObject({ lead: "Second.", text: "Another bullet.", reaches: [] });
+    expect(group.blocks[1]).toMatchObject({
+      lead: "Second.",
+      text: "Another bullet.",
+      reaches: [],
+    });
   });
 
   test("an image line with a caption becomes media, inside its group", () => {
     const { entries } = parseChangelog(
-      ["## 1.0.0 (2026-01-02): A title", "", "### Added", "", "- A bullet.", "", '![The rail](rail.png "Two directions, side by side.")', ""].join(
-        "\n",
-      ),
+      [
+        "## 1.0.0 (2026-01-02): A title",
+        "",
+        "### Added",
+        "",
+        "- A bullet.",
+        "",
+        '![The rail](rail.png "Two directions, side by side.")',
+        "",
+      ].join("\n"),
     );
     const group = entries[0]!.blocks[0]!;
     if (group.kind !== "group") throw new Error("expected a group");
-    expect(group.blocks[1]).toEqual({ kind: "media", src: "rail.png", alt: "The rail", caption: "Two directions, side by side." });
+    expect(group.blocks[1]).toEqual({
+      kind: "media",
+      src: "rail.png",
+      alt: "The rail",
+      caption: "Two directions, side by side.",
+    });
   });
 
   test("an Unreleased section and a two-version heading both read", () => {
     const { entries } = parseChangelog(
-      ["## Unreleased", "", "- Something.", "", "## 0.1.0 and 0.1.1 (2026-08-01): First release", "", "Words.", ""].join("\n"),
+      [
+        "## Unreleased",
+        "",
+        "- Something.",
+        "",
+        "## 0.1.0 and 0.1.1 (2026-08-01): First release",
+        "",
+        "Words.",
+        "",
+      ].join("\n"),
     );
     expect(entries[0]).toMatchObject({ versions: ["Unreleased"], date: null, title: null });
     expect(anchor(entries[0]!)).toBe("unreleased");
-    expect(entries[1]).toMatchObject({ versions: ["0.1.0", "0.1.1"], date: "2026-08-01", title: "First release" });
+    expect(entries[1]).toMatchObject({
+      versions: ["0.1.0", "0.1.1"],
+      date: "2026-08-01",
+      title: "First release",
+    });
     expect(anchor(entries[1]!)).toBe("v0.1.0");
   });
 
@@ -159,54 +203,99 @@ describe("reading the markdown", () => {
   });
 
   test("an audience nobody ships is refused", () => {
-    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`legless`)\n")).toThrow(/Unknown audience/);
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`legless`)\n")).toThrow(
+      /Unknown audience/,
+    );
   });
 
   test("a tag that does not end its bullet is refused rather than left in the prose", () => {
-    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`leglas`).\n")).toThrow(/ends its bullet/);
-    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words (`leglas`) and more.\n")).toThrow(/ends its bullet/);
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words. (`leglas`).\n")).toThrow(
+      /ends its bullet/,
+    );
+    expect(() =>
+      parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Words (`leglas`) and more.\n"),
+    ).toThrow(/ends its bullet/);
     // A parenthetical of commands is prose, not a tag.
-    expect(parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Asked (`claude auth status`, `codex login status`) first. (`leglas`)\n").entries[0]!.blocks[0]).toMatchObject({ reaches: ["cli"] });
+    expect(
+      parseChangelog(
+        "## 1.0.0 (2026-01-02): T\n\n- Asked (`claude auth status`, `codex login status`) first. (`leglas`)\n",
+      ).entries[0]!.blocks[0],
+    ).toMatchObject({ reaches: ["cli"] });
   });
 
   test("a paragraph that lost its indent inside a group is refused", () => {
     expect(() =>
-      parseChangelog(["## 1.0.0 (2026-01-02): T", "", "### Fixed", "", "- **Lead.** Words.", "", "A second paragraph, unindented.", ""].join("\n")),
+      parseChangelog(
+        [
+          "## 1.0.0 (2026-01-02): T",
+          "",
+          "### Fixed",
+          "",
+          "- **Lead.** Words.",
+          "",
+          "A second paragraph, unindented.",
+          "",
+        ].join("\n"),
+      ),
     ).toThrow(/Indent it by two spaces/);
     // Above the group, at the entry's level, prose is the intro and stays allowed.
-    expect(parseChangelog(["## 1.0.0 (2026-01-02): T", "", "- A bullet.", "", "Then prose.", ""].join("\n")).entries[0]!.blocks).toHaveLength(2);
+    expect(
+      parseChangelog(
+        ["## 1.0.0 (2026-01-02): T", "", "- A bullet.", "", "Then prose.", ""].join("\n"),
+      ).entries[0]!.blocks,
+    ).toHaveLength(2);
   });
 
   test("a bullet inside a bullet is refused", () => {
-    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Outer.\n  - Inner.\n")).toThrow(/bullet inside a bullet/);
+    expect(() => parseChangelog("## 1.0.0 (2026-01-02): T\n\n- Outer.\n  - Inner.\n")).toThrow(
+      /bullet inside a bullet/,
+    );
   });
 
   test("inline code, bold and links, with everything else escaped", () => {
     expect(inline("Run `a <b>` **now** and [read](https://x.y/z?a=1&b=2) it")).toBe(
       'Run <code>a &lt;b&gt;</code> <strong>now</strong> and <a href="https://x.y/z?a=1&amp;b=2">read</a> it',
     );
-    expect(inline("**`.leglas/server.json`** records")).toBe("<strong><code>.leglas/server.json</code></strong> records");
+    expect(inline("**`.leglas/server.json`** records")).toBe(
+      "<strong><code>.leglas/server.json</code></strong> records",
+    );
   });
 
   test("a width hint on an image sizes the figure and leaves the URL", () => {
     const html = renderPage(
-      parseChangelog(["## 1.0.0 (2026-01-02): T", "", '![The picker](https://x.y/picker.png#w=500 "Open.")', ""].join("\n")),
+      parseChangelog(
+        [
+          "## 1.0.0 (2026-01-02): T",
+          "",
+          '![The picker](https://x.y/picker.png#w=500 "Open.")',
+          "",
+        ].join("\n"),
+      ),
       loadAssets(root),
     );
-    expect(html).toContain('<figure class="media" style="max-width:500px"><img src="https://x.y/picker.png"');
+    expect(html).toContain(
+      '<figure class="media" style="max-width:500px"><img src="https://x.y/picker.png"',
+    );
     expect(html).toContain("<figcaption>Open.</figcaption>");
   });
 
   test("a lead keeps its distance from a sentence and none from a comma", () => {
     const html = renderPage(
       parseChangelog(
-        ["## 1.0.0 (2026-01-02): T", "", "- **`leglas`**, the tool", "- **Lead.** Then words.", "- **Alone.**", ""].join("\n"),
+        [
+          "## 1.0.0 (2026-01-02): T",
+          "",
+          "- **`leglas`**, the tool",
+          "- **Lead.** Then words.",
+          "- **Alone.**",
+          "",
+        ].join("\n"),
       ),
       loadAssets(root),
     );
-    expect(html).toContain("<strong class=\"lead\"><code>leglas</code></strong>, the tool");
-    expect(html).toContain("<strong class=\"lead\">Lead.</strong> Then words.");
-    expect(html).toContain("<strong class=\"lead\">Alone.</strong></span>");
+    expect(html).toContain('<strong class="lead"><code>leglas</code></strong>, the tool');
+    expect(html).toContain('<strong class="lead">Lead.</strong> Then words.');
+    expect(html).toContain('<strong class="lead">Alone.</strong></span>');
   });
 
   test("a date reads the way a person says it", () => {

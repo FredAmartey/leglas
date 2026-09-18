@@ -8,12 +8,33 @@ import { describe, expect, test } from "vitest";
 import { releaseNotes, releasesIndex } from "./release-notes.ts";
 
 const markdown = [
-  "# Changelog", "", "## Unreleased", "", "- Still in progress.", "",
-  "## 1.0.0 (2026-09-06): Share the rail", "", "An introduction.", "", "### Added", "",
-  "- **Sharing.** Keep the `raw` markdown.", "  Keep this indent too.", "",
-  "![A rail](rail.png)", "",
-  "## 0.7.1 and 0.7.2 (2026-08-28): Two releases", "", "### Fixed", "", "- The fix.", "",
-  "## 0.7.0 (2026-08-27): An earlier release", "", "- Earlier work.", "",
+  "# Changelog",
+  "",
+  "## Unreleased",
+  "",
+  "- Still in progress.",
+  "",
+  "## 1.0.0 (2026-09-06): Share the rail",
+  "",
+  "An introduction.",
+  "",
+  "### Added",
+  "",
+  "- **Sharing.** Keep the `raw` markdown.",
+  "  Keep this indent too.",
+  "",
+  "![A rail](rail.png)",
+  "",
+  "## 0.7.1 and 0.7.2 (2026-08-28): Two releases",
+  "",
+  "### Fixed",
+  "",
+  "- The fix.",
+  "",
+  "## 0.7.0 (2026-08-27): An earlier release",
+  "",
+  "- Earlier work.",
+  "",
 ].join("\n");
 
 describe("releaseNotes", () => {
@@ -25,7 +46,10 @@ describe("releaseNotes", () => {
   });
 
   test.each(["0.7.1", "0.7.2"])("matches %s in a shared heading", (version) => {
-    expect(releaseNotes(markdown, version)).toEqual({ title: "Two releases", body: "### Fixed\n\n- The fix." });
+    expect(releaseNotes(markdown, version)).toEqual({
+      title: "Two releases",
+      body: "### Fixed\n\n- The fix.",
+    });
   });
 
   test("reads the last entry and returns null for absent or partial versions", () => {
@@ -36,11 +60,16 @@ describe("releaseNotes", () => {
   });
 
   test("handles Windows line endings without rewriting the body", () => {
-    expect(releaseNotes(markdown.replaceAll("\n", "\r\n"), "0.7.1")?.body).toBe("### Fixed\r\n\r\n- The fix.");
+    expect(releaseNotes(markdown.replaceAll("\n", "\r\n"), "0.7.1")?.body).toBe(
+      "### Fixed\r\n\r\n- The fix.",
+    );
   });
 
   test("the real 1.0.0 entry has a title and a body", () => {
-    const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), "1.0.0");
+    const notes = releaseNotes(
+      readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
+      "1.0.0",
+    );
     expect(notes?.title).toBe("Share the rail with someone who has no repo");
     expect(notes?.body).toContain("### Added");
     expect(notes?.body).toContain("**Share what is on your rail with someone who has no repo.**");
@@ -61,10 +90,19 @@ describe("releasesIndex", () => {
 
 describe("release-notes.ts command", () => {
   const script = join(import.meta.dirname, "release-notes.ts");
-  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), "1.0.0")!;
+  const notes = releaseNotes(
+    readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
+    "1.0.0",
+  )!;
 
-  test.each([[[], "body"], [["--title"], "title"]] as const)("prints %s from any working directory", (flags, key) => {
-    const result = spawnSync(process.execPath, [script, "1.0.0", ...flags], { encoding: "utf8", cwd: tmpdir() });
+  test.each([
+    [[], "body"],
+    [["--title"], "title"],
+  ] as const)("prints %s from any working directory", (flags, key) => {
+    const result = spawnSync(process.execPath, [script, "1.0.0", ...flags], {
+      encoding: "utf8",
+      cwd: tmpdir(),
+    });
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(`${notes[key]}\n`);

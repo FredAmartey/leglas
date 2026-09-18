@@ -100,7 +100,10 @@ function parseNew(rest: string[]): ParseResult {
       return { kind: "error", message: `leglas new does not take ${argument}.` };
     }
     if (surface !== undefined) {
-      return { kind: "error", message: `leglas new takes one surface name, received ${JSON.stringify(argument)} as well.` };
+      return {
+        kind: "error",
+        message: `leglas new takes one surface name, received ${JSON.stringify(argument)} as well.`,
+      };
     }
     surface = argument;
   }
@@ -144,9 +147,16 @@ function parseAdd(rest: string[]): ParseResult {
     }
 
     if (
-      !["--title", "--url", "--note", "--tag", "--branch", "--file", "--based-on", "--asked-for"].includes(
-        flag,
-      )
+      ![
+        "--title",
+        "--url",
+        "--note",
+        "--tag",
+        "--branch",
+        "--file",
+        "--based-on",
+        "--asked-for",
+      ].includes(flag)
     ) {
       return { kind: "error", message: `leglas add does not take ${flag}.` };
     }
@@ -165,7 +175,10 @@ function parseAdd(rest: string[]): ParseResult {
   }
 
   if (title === undefined) {
-    return { kind: "error", message: "leglas add needs --title, which is how the preview is identified." };
+    return {
+      kind: "error",
+      message: "leglas add needs --title, which is how the preview is identified.",
+    };
   }
   if (url === undefined && file === undefined) {
     return {
@@ -303,7 +316,10 @@ export function parseArgs(argv: string[]): ParseResult {
       if (argument === "--to" || argument.startsWith("--to=")) {
         to = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
         if (to === undefined || to === "") {
-          return { kind: "error", message: "--to needs a path, for example --to src/components/hero.tsx" };
+          return {
+            kind: "error",
+            message: "--to needs a path, for example --to src/components/hero.tsx",
+          };
         }
         continue;
       }
@@ -323,7 +339,10 @@ export function parseArgs(argv: string[]): ParseResult {
       };
     }
     if (to === undefined) {
-      return { kind: "error", message: "leglas keep needs --to, the path the winner should live at." };
+      return {
+        kind: "error",
+        message: "leglas keep needs --to, the path the winner should live at.",
+      };
     }
     return { kind: "keep", title, to, json };
   }
@@ -369,7 +388,8 @@ export function parseArgs(argv: string[]): ParseResult {
     if (surface === undefined) {
       return {
         kind: "error",
-        message: "leglas explore needs a surface name, for example: npx leglas explore hero --count 6",
+        message:
+          "leglas explore needs a surface name, for example: npx leglas explore hero --count 6",
       };
     }
     return { kind: "explore", surface, count, basedOn, json };
@@ -442,7 +462,10 @@ export function parseArgs(argv: string[]): ParseResult {
           continue;
         }
         if (!/^\d+$/.test(raw)) {
-          return { kind: "error", message: `--width needs a number, received ${JSON.stringify(raw)}.` };
+          return {
+            kind: "error",
+            message: `--width needs a number, received ${JSON.stringify(raw)}.`,
+          };
         }
         width = Number(raw);
         if (width < MIN_SHOW_WIDTH || width > MAX_SHOW_WIDTH) {
@@ -464,7 +487,8 @@ export function parseArgs(argv: string[]): ParseResult {
     if (title === undefined) {
       return {
         kind: "error",
-        message: 'leglas show needs a direction title, for example: npx leglas show "Aurora" --json',
+        message:
+          'leglas show needs a direction title, for example: npx leglas show "Aurora" --json',
       };
     }
     if (width !== null && !screenshot) {

@@ -174,7 +174,10 @@ export function planNew(options: {
     },
     {
       path: `${dir}/${slug}-a.tsx`,
-      contents: placeholder(`${name}A`, `A first direction for ${slug}. Change it and watch it reload.`),
+      contents: placeholder(
+        `${name}A`,
+        `A first direction for ${slug}. Change it and watch it reload.`,
+      ),
     },
   ];
 

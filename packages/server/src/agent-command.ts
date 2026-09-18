@@ -136,7 +136,5 @@ export function nextRequest(
   requests: readonly PendingRequest[],
   failed: ReadonlySet<string>,
 ): PendingRequest | null {
-  return (
-    requests.find((request) => request.status === "queued" && !failed.has(request.id)) ?? null
-  );
+  return requests.find((request) => request.status === "queued" && !failed.has(request.id)) ?? null;
 }

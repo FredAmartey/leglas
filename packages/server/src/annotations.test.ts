@@ -151,11 +151,7 @@ describe("the notes file", () => {
 
     await updateAnnotation(root, middle.id, "b again");
 
-    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual([
-      "a",
-      "b again",
-      "c",
-    ]);
+    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["a", "b again", "c"]);
   });
 
   // Clearing a note is a real edit. The pin still carries an address, which
@@ -356,12 +352,12 @@ describe("a swept region", () => {
     const written = describeAnchor(region);
 
     expect(written).toContain("an area inside <main>");
-    expect(written).toContain('covering <h1> “Dried fruit, done properly”, <p> “Made in Ghana”');
+    expect(written).toContain("covering <h1> “Dried fruit, done properly”, <p> “Made in Ghana”");
     expect(written).not.toContain("reading “Made in Ghana”");
   });
 
   test("an ordinary annotation is still described as its element", () => {
-    expect(describeAnchor(anchor())).toContain("<div>, class \"pouch\"");
+    expect(describeAnchor(anchor())).toContain('<div>, class "pouch"');
   });
 });
 
@@ -393,8 +389,8 @@ describe("describeAnnotations", () => {
   });
 
   test("a pin dropped without words still says where to look", () => {
-    expect(describeAnnotations([{ anchor: anchor(), id: "1", note: "", title: "Poster" }])).toContain(
-      "1. Look at this.",
-    );
+    expect(
+      describeAnnotations([{ anchor: anchor(), id: "1", note: "", title: "Poster" }]),
+    ).toContain("1. Look at this.");
   });
 });

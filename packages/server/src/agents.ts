@@ -32,10 +32,7 @@ const codexEffortConfig = (effort: AgentEffort | null): string[] =>
  * second one. Model stays with the user's agent; reasoning effort is only
  * overridden when they explicitly choose one in Leglas.
  */
-const CODEX_WORKSPACE_CONFIG = [
-  "-c",
-  "sandbox_workspace_write.network_access=true",
-] as const;
+const CODEX_WORKSPACE_CONFIG = ["-c", "sandbox_workspace_write.network_access=true"] as const;
 
 // `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
 // a human-watched terminal. Keep the pair in step when an agent's CLI changes.
@@ -49,7 +46,11 @@ export const KNOWN_AGENTS = {
     name: "Claude",
     binary: "claude",
     efforts: AGENT_EFFORTS,
-    args: (prompt: string, effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
+    args: (
+      prompt: string,
+      effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
+    ): string[] => [
       "-p",
       prompt,
       "--output-format",
@@ -59,13 +60,11 @@ export const KNOWN_AGENTS = {
       "acceptEdits",
       ...effortFlag(effort),
     ],
-    terminalArgs: (prompt: string, effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
-      "-p",
-      prompt,
-      "--permission-mode",
-      "acceptEdits",
-      ...effortFlag(effort),
-    ],
+    terminalArgs: (
+      prompt: string,
+      effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
+    ): string[] => ["-p", prompt, "--permission-mode", "acceptEdits", ...effortFlag(effort)],
     resumeArgs: (
       sessionId: string,
       prompt: string,
@@ -122,7 +121,11 @@ export const KNOWN_AGENTS = {
     // moves that precondition and only that: `-s workspace-write` still
     // confines writes to the project, so the sandbox boundary is unchanged,
     // and in a git repository the flag does nothing at all.
-    args: (prompt: string, effort: AgentEffort | null = null, images: readonly string[] = []): string[] => [
+    args: (
+      prompt: string,
+      effort: AgentEffort | null = null,
+      images: readonly string[] = [],
+    ): string[] => [
       "exec",
       "--json",
       ...CODEX_WORKSPACE_CONFIG,
@@ -133,7 +136,11 @@ export const KNOWN_AGENTS = {
       ...images.flatMap((image) => ["-i", image]),
       prompt,
     ],
-    terminalArgs: (prompt: string, effort: AgentEffort | null = null, images: readonly string[] = []): string[] => [
+    terminalArgs: (
+      prompt: string,
+      effort: AgentEffort | null = null,
+      images: readonly string[] = [],
+    ): string[] => [
       "exec",
       ...CODEX_WORKSPACE_CONFIG,
       ...codexEffortConfig(effort),
@@ -169,8 +176,7 @@ export const KNOWN_AGENTS = {
     activityVerified: true,
     authArgs: ["login", "status"],
     // `codex login status` exits 0 when logged in and nonzero when not.
-    authVerdict: (result: ProbeResult): AgentAuth =>
-      result.code === 0 ? "ok" : "signed-out",
+    authVerdict: (result: ProbeResult): AgentAuth => (result.code === 0 ? "ok" : "signed-out"),
   },
   cursor: {
     name: "Cursor",
@@ -183,14 +189,16 @@ export const KNOWN_AGENTS = {
     // project is the one the user pointed Leglas at, which is the trust the
     // flag grants. It is the only permission the run needs: with it alone,
     // the edit and the shell command in the same run both executed.
-    args: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => [
-      "-p",
-      prompt,
-      "--output-format",
-      "stream-json",
-      "--trust",
-    ],
-    terminalArgs: (prompt: string, _effort: AgentEffort | null = null, _images: readonly string[] = []): string[] => ["-p", prompt, "--trust"],
+    args: (
+      prompt: string,
+      _effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
+    ): string[] => ["-p", prompt, "--output-format", "stream-json", "--trust"],
+    terminalArgs: (
+      prompt: string,
+      _effort: AgentEffort | null = null,
+      _images: readonly string[] = [],
+    ): string[] => ["-p", prompt, "--trust"],
     // `--resume [chatId]` is documented alongside `--continue` in the CLI
     // parameter reference, and every stream-json event carries the
     // `session_id` to feed it. Cursor exposes no persistent transport the way
@@ -206,7 +214,15 @@ export const KNOWN_AGENTS = {
       prompt: string,
       _effort: AgentEffort | null = null,
       _images: readonly string[] = [],
-    ): string[] => ["-p", "--resume", sessionId, prompt, "--output-format", "stream-json", "--trust"],
+    ): string[] => [
+      "-p",
+      "--resume",
+      sessionId,
+      prompt,
+      "--output-format",
+      "stream-json",
+      "--trust",
+    ],
     sessionFrom: (event: Record<string, unknown>): string | null =>
       typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
     // Read against cursor-agent 2026.09.02: every event carries the id, a
@@ -264,10 +280,7 @@ export type AgentChoiceInput = {
 
 type BinaryLookup = (binary: string) => Promise<boolean>;
 
-export type AuthProbe = (
-  binary: string,
-  args: readonly string[],
-) => Promise<ProbeResult | null>;
+export type AuthProbe = (binary: string, args: readonly string[]) => Promise<ProbeResult | null>;
 
 const PROBE_TIMEOUT_MS = 3000;
 
@@ -350,11 +363,7 @@ export function agentSearchPath(
     env.NVM_BIN,
     env.BUN_INSTALL === undefined ? undefined : join(env.BUN_INSTALL, "bin"),
     env.CARGO_HOME === undefined ? undefined : join(env.CARGO_HOME, "bin"),
-    npmPrefix === undefined
-      ? undefined
-      : platform === "win32"
-        ? npmPrefix
-        : join(npmPrefix, "bin"),
+    npmPrefix === undefined ? undefined : platform === "win32" ? npmPrefix : join(npmPrefix, "bin"),
     home === "" ? undefined : join(home, ".local", "bin"),
     home === "" ? undefined : join(home, ".npm-global", "bin"),
     home === "" ? undefined : join(home, ".bun", "bin"),
@@ -364,9 +373,7 @@ export function agentSearchPath(
     home === "" ? undefined : join(home, ".local", "share", "mise", "shims"),
     home === "" ? undefined : join(home, ".local", "share", "pnpm"),
     home === "" ? undefined : join(home, "Library", "pnpm"),
-    ...(home === ""
-      ? []
-      : versionBins(join(home, ".nvm", "versions", "node"), ["bin"])),
+    ...(home === "" ? [] : versionBins(join(home, ".nvm", "versions", "node"), ["bin"])),
     ...(home === ""
       ? []
       : versionBins(join(home, ".local", "share", "fnm", "node-versions"), [
@@ -392,7 +399,9 @@ export async function pathLookup(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): Promise<boolean> {
-  const entries = agentSearchPath(env, platform).split(delimiter).filter((entry) => entry !== "");
+  const entries = agentSearchPath(env, platform)
+    .split(delimiter)
+    .filter((entry) => entry !== "");
   const extensions =
     platform === "win32"
       ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry !== "")
@@ -421,7 +430,10 @@ export async function detectAgents(
   lookup: BinaryLookup = pathLookup,
   probe: AuthProbe = execProbe,
 ): Promise<DetectedAgent[]> {
-  const entries = Object.entries(KNOWN_AGENTS) as [KnownAgentId, (typeof KNOWN_AGENTS)[KnownAgentId]][];
+  const entries = Object.entries(KNOWN_AGENTS) as [
+    KnownAgentId,
+    (typeof KNOWN_AGENTS)[KnownAgentId],
+  ][];
   return Promise.all(
     entries.map(async ([id, adapter]) => {
       const available = await lookup(adapter.binary).catch(() => false);
@@ -577,11 +589,7 @@ function cursorActivity(event: Record<string, unknown>, cwd: string): string | n
 }
 
 /** Reduce one agent JSONL event to a short, user-facing activity label. */
-export function activityFrom(
-  agent: AgentChoice,
-  line: string,
-  cwd = process.cwd(),
-): string | null {
+export function activityFrom(agent: AgentChoice, line: string, cwd = process.cwd()): string | null {
   let event: Record<string, unknown> | null;
   try {
     event = record(JSON.parse(line));
@@ -642,7 +650,8 @@ export function retryFrom(agent: AgentChoice, line: string): RetryNotice | null 
     attempt,
     max: typeof event.max_retries === "number" ? event.max_retries : null,
     status: typeof event.error_status === "number" ? event.error_status : null,
-    reason: typeof event.error === "string" && event.error !== "" ? event.error.toLowerCase() : null,
+    reason:
+      typeof event.error === "string" && event.error !== "" ? event.error.toLowerCase() : null,
   };
 }
 

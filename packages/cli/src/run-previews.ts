@@ -1,7 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { addLocalPreview, clearRequests, collectRequests, loadConfig, readLocalPreviews } from "@leglas/server";
+import {
+  addLocalPreview,
+  clearRequests,
+  collectRequests,
+  loadConfig,
+  readLocalPreviews,
+} from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
 
@@ -103,7 +109,10 @@ export async function runAdd(
           ? "A running interface picks this up within seconds."
           : "Restart Leglas to see this preview: branch checkouts and file mounts are built when Leglas starts.",
       ...(needsDevCommand
-        ? { warning: "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config." }
+        ? {
+            warning:
+              "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config.",
+          }
         : {}),
     });
   } else {

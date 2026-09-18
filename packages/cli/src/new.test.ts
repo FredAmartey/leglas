@@ -3,7 +3,10 @@ import { describe, expect, test } from "vitest";
 import { detectFramework, planNew, surfaceSlug } from "./new.js";
 
 const nextPkg = JSON.stringify({ dependencies: { next: "16.2.0", react: "19.0.0" } });
-const vitePkg = JSON.stringify({ devDependencies: { vite: "7.0.0" }, dependencies: { react: "19.0.0" } });
+const vitePkg = JSON.stringify({
+  devDependencies: { vite: "7.0.0" },
+  dependencies: { react: "19.0.0" },
+});
 
 describe("detectFramework", () => {
   test("recognises a Next app, which reads params on the server", () => {
@@ -60,7 +63,12 @@ describe("planNew", () => {
   test("ships a first variant so there is something to render immediately", () => {
     const paths = plan("hero").writes.map((write) => write.path);
 
-    expect(paths.some((path) => path.includes("/variants/hero/") && path.endsWith(".tsx") && !path.endsWith("switch.tsx"))).toBe(true);
+    expect(
+      paths.some(
+        (path) =>
+          path.includes("/variants/hero/") && path.endsWith(".tsx") && !path.endsWith("switch.tsx"),
+      ),
+    ).toBe(true);
   });
 
   test("adds the ignored directory to .gitignore", () => {
@@ -86,7 +94,7 @@ describe("planNew", () => {
   test("imports nothing from Leglas, so the code outlives the tool", () => {
     for (const write of plan("hero").writes) {
       expect(write.contents).not.toContain("@leglas");
-      expect(write.contents).not.toContain("from \"leglas\"");
+      expect(write.contents).not.toContain('from "leglas"');
     }
   });
 
@@ -108,7 +116,9 @@ describe("planNew", () => {
     // Generated code has to compile in a project that installed neither.
     const switcher = plan("hero", vitePkg).writes.find((w) => w.path.endsWith("switch.tsx"));
 
-    expect(switcher?.contents).not.toMatch(/(?<!as ImportMeta & \{ env\?: \{ PROD\?: boolean \} \};\n.*)import\.meta\.env\?/);
+    expect(switcher?.contents).not.toMatch(
+      /(?<!as ImportMeta & \{ env\?: \{ PROD\?: boolean \} \};\n.*)import\.meta\.env\?/,
+    );
     expect(switcher?.contents).toContain("globalThis as {");
     expect(switcher?.contents).toContain("ImportMeta & {");
   });

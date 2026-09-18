@@ -80,8 +80,20 @@ function firstOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
  * one platform and the wrong ones simply are not there.
  */
 const FOR_TESTING = [
-  ["chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"],
-  ["chrome-mac-x64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"],
+  [
+    "chrome-mac-arm64",
+    "Google Chrome for Testing.app",
+    "Contents",
+    "MacOS",
+    "Google Chrome for Testing",
+  ],
+  [
+    "chrome-mac-x64",
+    "Google Chrome for Testing.app",
+    "Contents",
+    "MacOS",
+    "Google Chrome for Testing",
+  ],
   ["chrome-linux64", "chrome"],
   ["chrome-linux", "chrome"],
   ["chrome-win64", "chrome.exe"],
@@ -213,7 +225,9 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
     // and on a machine with no desktop browser one of them is often the only
     // Chromium there is, so both are worth finding. Newest build first.
     const playwright = readdir(playwrightRoot)
-      .filter((entry) => entry.startsWith("chromium-") || entry.startsWith("chromium_headless_shell-"))
+      .filter(
+        (entry) => entry.startsWith("chromium-") || entry.startsWith("chromium_headless_shell-"),
+      )
       .sort((left, right) => buildNumber(right) - buildNumber(left))
       .flatMap((entry) => {
         const root = join(playwrightRoot, entry);
@@ -340,15 +354,15 @@ async function connectWebSocket(url: string): Promise<CdpSocket> {
  * nothing else, which on someone else's machine is a dead end: the one party
  * that knows why is the browser, and its own words were being thrown away.
  */
-function endpoint(
-  process: BrowserProcess,
-  timeoutMs: number,
-): Promise<string> {
+function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const said: string[] = [];
     const because = () => {
-      const tail = said.filter((line) => line.trim() !== "").slice(-3).join(" / ");
+      const tail = said
+        .filter((line) => line.trim() !== "")
+        .slice(-3)
+        .join(" / ");
       return tail === "" ? "" : ` It said: ${tail}`;
     };
     const finish = (value: string | Error) => {
@@ -425,9 +439,7 @@ function livePid(pid: number): boolean {
   } catch (error) {
     // EPERM means it exists and belongs to someone else, which still counts.
     return (
-      typeof error === "object" &&
-      error !== null &&
-      (error as { code?: unknown }).code === "EPERM"
+      typeof error === "object" && error !== null && (error as { code?: unknown }).code === "EPERM"
     );
   }
 }
@@ -442,7 +454,10 @@ function livePid(pid: number): boolean {
  * signalling it are two steps, the number can be reused in between, and the
  * cost of losing that race is a SIGKILL delivered to unrelated work.
  */
-async function closeOrphan(url: string, connect: (url: string) => Promise<CdpSocket>): Promise<boolean> {
+async function closeOrphan(
+  url: string,
+  connect: (url: string) => Promise<CdpSocket>,
+): Promise<boolean> {
   let socket: CdpSocket;
   try {
     socket = await connect(url);
@@ -840,13 +855,15 @@ export type BrowserPool = {
 };
 
 /** Hold one browser warm across nearby captures, then release it while idle. */
-export function createBrowserPool(options: {
-  find?: () => string | null;
-  launch?: typeof launchBrowser;
-  idleMs?: number;
-  setTimeout?: (cb: () => void, ms: number) => unknown;
-  clearTimeout?: (handle: unknown) => void;
-} = {}): BrowserPool {
+export function createBrowserPool(
+  options: {
+    find?: () => string | null;
+    launch?: typeof launchBrowser;
+    idleMs?: number;
+    setTimeout?: (cb: () => void, ms: number) => unknown;
+    clearTimeout?: (handle: unknown) => void;
+  } = {},
+): BrowserPool {
   const find = options.find ?? findBrowser;
   const launch = options.launch ?? launchBrowser;
   const idleMs = options.idleMs ?? 60_000;
@@ -858,7 +875,8 @@ export function createBrowserPool(options: {
       return timer;
     });
   const clearLater =
-    options.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    options.clearTimeout ??
+    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
 
   let browser: Browser | null = null;
   let exposed: Browser | null = null;

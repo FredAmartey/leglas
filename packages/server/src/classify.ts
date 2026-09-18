@@ -79,7 +79,11 @@ const IN_APP_STEPS = [
 ];
 
 export function classifyDirection(input: { changes: readonly DeclaredChange[] }): Placement {
-  const checkout = (reason: string): Placement => ({ level: "checkout", reason, steps: CHECKOUT_STEPS });
+  const checkout = (reason: string): Placement => ({
+    level: "checkout",
+    reason,
+    steps: CHECKOUT_STEPS,
+  });
 
   const manifest = input.changes.find((change) => isManifest(change.path));
   if (manifest !== undefined) {

@@ -28,13 +28,7 @@ import {
   updateShare,
 } from "./share-api.js";
 import { TOAST_TTL } from "./toasts.js";
-import type {
-  Preview,
-  ShareGrant,
-  ShareReach,
-  ShareStatus,
-  TunnelProviderId,
-} from "./types.js";
+import type { Preview, ShareGrant, ShareReach, ShareStatus, TunnelProviderId } from "./types.js";
 import type { ShellState } from "./useShellState.js";
 
 const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
@@ -45,16 +39,7 @@ const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
 /** How long the tick stays on the copy button before it turns back into one. */
 const COPIED_MS = 1400;
 
-type Busy =
-  | "start"
-  | "stop"
-  | "update"
-  | "grant"
-  | "revoke"
-  | "extend"
-  | "rotate"
-  | "allow"
-  | null;
+type Busy = "start" | "stop" | "update" | "grant" | "revoke" | "extend" | "rotate" | "allow" | null;
 
 /** A plus, for giving a link another day. */
 function PlusGlyph() {
@@ -119,8 +104,12 @@ function ScopeRow({
         />
       </span>
       <span className="min-w-0 flex-1">
-        <span className={`block text-xs ${checked ? "text-white" : "text-[#D1D5DB]"}`}>{title}</span>
-        <span className="mt-0.5 block truncate text-[10px] leading-snug text-[#84848C]">{detail}</span>
+        <span className={`block text-xs ${checked ? "text-white" : "text-[#D1D5DB]"}`}>
+          {title}
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] leading-snug text-[#84848C]">
+          {detail}
+        </span>
       </span>
     </button>
   );
@@ -243,7 +232,13 @@ function ShareSetup({
         onClick={onStart}
         type="button"
       >
-        {busy === "start" ? <Spinner /> : provider === "none" ? "Start on this machine" : "Start sharing"}
+        {busy === "start" ? (
+          <Spinner />
+        ) : provider === "none" ? (
+          "Start on this machine"
+        ) : (
+          "Start sharing"
+        )}
       </button>
       <p className="px-1 pb-0.5 pt-2 text-[10px] leading-snug text-[#84848C]">
         {reach === "open"
@@ -314,7 +309,11 @@ function GrantRow({
             onClick={onCopy}
             type="button"
           >
-            {copied ? <span className="text-[10px] text-emerald-300">✓</span> : <PIcon d={P.link} />}
+            {copied ? (
+              <span className="text-[10px] text-emerald-300">✓</span>
+            ) : (
+              <PIcon d={P.link} />
+            )}
           </button>
         </Tip>
         <Tip label="Another 24 hours">
@@ -443,7 +442,10 @@ function ShareLive({
         {tunnel.status === "ready" ? (
           <p className="flex items-center gap-1.5">
             <LiveDot />
-            <span className="min-w-0 flex-1 truncate select-text font-mono text-[10px] text-[#D1D5DB]" data-selectable>
+            <span
+              className="min-w-0 flex-1 truncate select-text font-mono text-[10px] text-[#D1D5DB]"
+              data-selectable
+            >
               {new URL(share.grants[0]?.url ?? "http://x").host}
             </span>
           </p>
@@ -786,7 +788,12 @@ export function SharePanel({
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopiedId(null), COPIED_MS);
       if (!quiet) {
-        notify({ kind: "share", message: "Share link copied", tone: "success", ttl: TOAST_TTL.plain });
+        notify({
+          kind: "share",
+          message: "Share link copied",
+          tone: "success",
+          ttl: TOAST_TTL.plain,
+        });
       }
     });
 
@@ -813,7 +820,12 @@ export function SharePanel({
       return;
     }
     if (tunnelStatus === "ready") {
-      notify({ kind: "share", message: "Your share is live.", tone: "success", ttl: TOAST_TTL.plain });
+      notify({
+        kind: "share",
+        message: "Your share is live.",
+        tone: "success",
+        ttl: TOAST_TTL.plain,
+      });
     }
     // notify and copyLink are stable enough for this; the share is the event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -873,11 +885,7 @@ export function SharePanel({
    * the server answers with, and say what happened. The server nudges as
    * well, so the panel is right either way; this only makes it immediate.
    */
-  const grantWrite = (
-    kind: Exclude<Busy, null>,
-    run: () => Promise<ShareStatus>,
-    said: string,
-  ) => {
+  const grantWrite = (kind: Exclude<Busy, null>, run: () => Promise<ShareStatus>, said: string) => {
     if (busy !== null) return;
     setBusy(kind);
     void run()
@@ -912,7 +920,9 @@ export function SharePanel({
       aria-hidden={!open}
       aria-label="Share"
       className={`absolute inset-x-3 top-full z-30 mt-1.5 origin-top-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-        open ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-95 opacity-0"
+        open
+          ? "translate-y-0 scale-100 opacity-100"
+          : "pointer-events-none -translate-y-1 scale-95 opacity-0"
       }`}
       inert={!open}
       ref={panelRef}
@@ -952,7 +962,11 @@ export function SharePanel({
             void copyLink(address, false, grant.id);
           }}
           onCreate={(name) =>
-            grantWrite("grant", () => createGrant(name), name === "" ? "Link made" : `Link for ${name}`)
+            grantWrite(
+              "grant",
+              () => createGrant(name),
+              name === "" ? "Link made" : `Link for ${name}`,
+            )
           }
           onExtend={(grant) =>
             grantWrite("extend", () => extendGrant(grant.id), "Another 24 hours on that link")
@@ -962,7 +976,11 @@ export function SharePanel({
             grantWrite("revoke", () => revokeGrant(grant.id), "That link is off")
           }
           onRotate={() =>
-            grantWrite("rotate", () => rotateShare(), "Every link replaced, and the address with them")
+            grantWrite(
+              "rotate",
+              () => rotateShare(),
+              "Every link replaced, and the address with them",
+            )
           }
           onStop={stop}
           onUpdate={update}

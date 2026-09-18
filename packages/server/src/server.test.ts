@@ -1,7 +1,16 @@
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -108,15 +117,16 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
   }
 };
 
-async function expectConditionalRead(url: string, change: () => Promise<void> | void): Promise<void> {
+async function expectConditionalRead(
+  url: string,
+  change: () => Promise<void> | void,
+): Promise<void> {
   const initial = await fetch(url);
   const initialBody = await initial.text();
   const initialEtag = initial.headers.get("etag");
 
   expect(initial.status).toBe(200);
-  expect(initialEtag).toBe(
-    `"${createHash("sha256").update(initialBody).digest("base64url")}"`,
-  );
+  expect(initialEtag).toBe(`"${createHash("sha256").update(initialBody).digest("base64url")}"`);
 
   const unchanged = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
   expect(unchanged.status).toBe(304);
@@ -131,9 +141,7 @@ async function expectConditionalRead(url: string, change: () => Promise<void> | 
   expect(changed.status).toBe(200);
   expect(changedBody).not.toBe(initialBody);
   expect(changedEtag).not.toBe(initialEtag);
-  expect(changedEtag).toBe(
-    `"${createHash("sha256").update(changedBody).digest("base64url")}"`,
-  );
+  expect(changedEtag).toBe(`"${createHash("sha256").update(changedBody).digest("base64url")}"`);
 
   const changedUnchanged = await fetch(url, {
     headers: { "if-none-match": changedEtag ?? "" },
@@ -181,7 +189,7 @@ function capturePool(loads = true): BrowserPool {
       listeners.set(method, group);
       return () => group.delete(listener);
     },
-    send: async <T,>(method: string, params: Record<string, unknown> = {}) => {
+    send: async <T>(method: string, params: Record<string, unknown> = {}) => {
       if (method === "Page.navigate") {
         if (loads) {
           queueMicrotask(() => {
@@ -210,7 +218,11 @@ function capturePool(loads = true): BrowserPool {
   return { acquire: async () => browser, reason: () => null, close: async () => {} };
 }
 
-function postWatchAs(server: RunningServer, host: string, origin = `http://${host}`): Promise<number> {
+function postWatchAs(
+  server: RunningServer,
+  host: string,
+  origin = `http://${host}`,
+): Promise<number> {
   const payload = JSON.stringify({ watching: true });
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -306,11 +318,7 @@ async function enterShare(localUrl: string): Promise<string> {
   return response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 }
 
-function openViewerSocket(
-  port: number,
-  cookie: string,
-  extraHeaders = "",
-): Promise<net.Socket> {
+function openViewerSocket(port: number, cookie: string, extraHeaders = ""): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, "127.0.0.1");
     let answer = "";
@@ -388,19 +396,29 @@ describe("startServer", () => {
 
   test("POST then GET exposes queued request state without collecting it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
-    const server = await start({ config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]), port: 0, cwd });
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]),
+      port: 0,
+      cwd,
+    });
     const posted = await fetch(`${server.url}/leglas/api/request`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Aurora", intent: "warmer" }),
     });
     expect(posted.status).toBe(200);
-    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as { requests: { id: string; status: string; intent: string; mode: string }[] };
+    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      requests: { id: string; status: string; intent: string; mode: string }[];
+    };
     // The mode travels with the status: a fork leaves its parent's document
     // alone, and the interface needs to know that to leave the parent's
     // duplicate verdict alone too.
-    expect(first.requests).toMatchObject([{ id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" }]);
-    const second = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof first;
+    expect(first.requests).toMatchObject([
+      { id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" },
+    ]);
+    const second = (await (
+      await fetch(`${server.url}/leglas/api/requests`)
+    ).json()) as typeof first;
     expect(second).toEqual(first);
   });
 
@@ -462,11 +480,7 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-length-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const response = await postRawReference(
-      server,
-      { "content-length": "10000001" },
-      null,
-    );
+    const response = await postRawReference(server, { "content-length": "10000001" }, null);
 
     expect(response).toEqual({
       status: 413,
@@ -479,11 +493,10 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-stream-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const response = await postRawReference(
-      server,
-      {},
-      [Buffer.alloc(5_000_000), Buffer.alloc(5_000_001)],
-    );
+    const response = await postRawReference(server, {}, [
+      Buffer.alloc(5_000_000),
+      Buffer.alloc(5_000_001),
+    ]);
 
     expect(response).toEqual({
       status: 413,
@@ -711,9 +724,7 @@ describe("startServer", () => {
     const body = (await response.json()) as { file: string; width: number; height: number };
 
     expect(response.status).toBe(200);
-    expect(body.file).toBe(
-      `.leglas/captures/show/poster-390-${note.annotation.id}.png`,
-    );
+    expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
     expect(body.width).toBe(640);
     expect(body.height).toBe(400);
   });
@@ -723,10 +734,16 @@ describe("startServer", () => {
     const nativeSetTimeout = globalThis.setTimeout;
     // The deadline fires first here; the load's own share is left real, so
     // this is the abandonment path and nothing else.
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(
-      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
-        nativeSetTimeout(callback, milliseconds === 15_000 ? 5 : milliseconds, ...args)) as typeof setTimeout,
-    );
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: (...args: any[]) => void,
+      milliseconds?: number,
+      ...args: any[]
+    ) =>
+      nativeSetTimeout(
+        callback,
+        milliseconds === 15_000 ? 5 : milliseconds,
+        ...args,
+      )) as typeof setTimeout);
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
@@ -752,10 +769,16 @@ describe("startServer", () => {
     const nativeSetTimeout = globalThis.setTimeout;
     // The load's share of the deadline lapses at once; the deadline itself
     // stays real, so the capture that follows has all the time it needs.
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(
-      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
-        nativeSetTimeout(callback, milliseconds === 9_000 ? 5 : milliseconds, ...args)) as typeof setTimeout,
-    );
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: (...args: any[]) => void,
+      milliseconds?: number,
+      ...args: any[]
+    ) =>
+      nativeSetTimeout(
+        callback,
+        milliseconds === 9_000 ? 5 : milliseconds,
+        ...args,
+      )) as typeof setTimeout);
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
@@ -838,9 +861,9 @@ describe("startServer", () => {
     expect(kept.status).toBe(200);
     const { annotation } = (await kept.json()) as { annotation: { id: string } };
 
-    const listed = (await (
-      await fetch(`${server.url}/leglas/api/annotations`)
-    ).json()) as { annotations: { note: string }[] };
+    const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+      annotations: { note: string }[];
+    };
     expect(listed.annotations).toMatchObject([{ note: "looks fake", title: "Poster" }]);
 
     const forgotten = await fetch(`${server.url}/leglas/api/annotations/delete`, {
@@ -890,9 +913,9 @@ describe("startServer", () => {
     // Reissued, so a change already holding the old id cannot sweep this.
     expect(reworded.id).not.toBe(annotation.id);
 
-    const listed = (await (
-      await fetch(`${server.url}/leglas/api/annotations`)
-    ).json()) as { annotations: { note: string }[] };
+    const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+      annotations: { note: string }[];
+    };
     expect(listed.annotations).toMatchObject([{ note: "looks printed", title: "Poster" }]);
 
     const gone = await fetch(`${server.url}/leglas/api/annotations/update`, {
@@ -923,9 +946,9 @@ describe("startServer", () => {
     });
     expect(wordless.status).toBe(400);
 
-    const survived = (await (
-      await fetch(`${server.url}/leglas/api/annotations`)
-    ).json()) as { annotations: { note: string }[] };
+    const survived = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+      annotations: { note: string }[];
+    };
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
   });
 
@@ -1097,7 +1120,10 @@ describe("startServer", () => {
   test("refuses a second copy of a change that is still waiting", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-"));
     const server = await start({
-      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }, { title: "Hero", url: "/hero" }]),
+      config: configFor(await startOrigin(), [
+        { title: "Poster", url: "/" },
+        { title: "Hero", url: "/hero" },
+      ]),
       port: 0,
       cwd,
     });
@@ -1235,12 +1261,19 @@ describe("startServer", () => {
             intent: "warmer",
             target: null,
             prompt: "make it warmer",
-            failure: { code: "provider-overloaded", message: "Claude's provider was overloaded and gave up." },
+            failure: {
+              code: "provider-overloaded",
+              message: "Claude's provider was overloaded and gave up.",
+            },
           },
         ],
       }),
     );
-    const server = await start({ config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]), port: 0, cwd });
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      port: 0,
+      cwd,
+    });
 
     const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { id: string; status: string; failure: { code: string } | null }[];
@@ -1296,8 +1329,20 @@ describe("startServer", () => {
       detect: async () => {
         probes += 1;
         return [
-          { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "medium", "high", "xhigh", "max"] },
-          { id: "codex", name: "Codex", available: true, auth: "signed-out", efforts: ["low", "medium", "high", "xhigh", "max"] },
+          {
+            id: "claude",
+            name: "Claude",
+            available: true,
+            auth: "ok",
+            efforts: ["low", "medium", "high", "xhigh", "max"],
+          },
+          {
+            id: "codex",
+            name: "Codex",
+            available: true,
+            auth: "signed-out",
+            efforts: ["low", "medium", "high", "xhigh", "max"],
+          },
           { id: "cursor", name: "Cursor", available: false, auth: "unknown", efforts: [] },
         ];
       },
@@ -1310,8 +1355,20 @@ describe("startServer", () => {
       effort: string | null;
     };
     expect(initial.agents).toEqual([
-      { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "medium", "high", "xhigh", "max"] },
-      { id: "codex", name: "Codex", available: true, auth: "signed-out", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      {
+        id: "claude",
+        name: "Claude",
+        available: true,
+        auth: "ok",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      },
+      {
+        id: "codex",
+        name: "Codex",
+        available: true,
+        auth: "signed-out",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      },
       { id: "cursor", name: "Cursor", available: false, auth: "unknown", efforts: [] },
     ]);
     expect(initial.choice).toBeNull();
@@ -1326,7 +1383,9 @@ describe("startServer", () => {
     });
     expect(saved.status).toBe(200);
 
-    const custom = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
+    const custom = (await (
+      await fetch(`${server.url}/leglas/api/agents`)
+    ).json()) as typeof initial;
     expect(custom).toMatchObject({ choice: "custom", customRun });
 
     await fetch(`${server.url}/leglas/api/agent`, {
@@ -1680,9 +1739,7 @@ describe("startServer", () => {
     expect(response.status).toBe(200);
     const [retried] = await readRequests(cwd);
     expect(retried?.id).not.toBe("old-id");
-    expect(retried?.attachments?.[0]?.file).toBe(
-      `.leglas/captures/${retried?.id}/frame.png`,
-    );
+    expect(retried?.attachments?.[0]?.file).toBe(`.leglas/captures/${retried?.id}/frame.png`);
     expect(readFileSync(join(cwd, retried?.attachments?.[0]?.file ?? ""), "utf8")).toBe("frame");
     expect(existsSync(join(cwd, CAPTURES_DIR, "old-id"))).toBe(false);
     // Watch, a custom command and `requests --json` read the prompt as text,
@@ -2002,9 +2059,9 @@ describe("startServer", () => {
       state: { status: "starting", phase: "checking out" },
     });
 
-    const whileStarting = (await (
-      await fetch(`${server.url}/leglas/api/config`)
-    ).json()) as { previews: Array<Record<string, unknown>> };
+    const whileStarting = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      previews: Array<Record<string, unknown>>;
+    };
     expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
 
     checkout.resolve({
@@ -2101,7 +2158,9 @@ describe("startServer", () => {
   });
 
   test("tells the shell when unopened preview scanning is disabled", async () => {
-    const config = configFor(await startOrigin(), [{ title: "Current", url: "/", note: undefined, tags: [] }]);
+    const config = configFor(await startOrigin(), [
+      { title: "Current", url: "/", note: undefined, tags: [] },
+    ]);
     config.scanPreviews = false;
     const server = await start({ config, port: 0 });
 
@@ -2285,7 +2344,9 @@ describe("startServer", () => {
     writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      errors: string[];
+    };
 
     expect(body.errors).toEqual([]);
   });
@@ -2303,7 +2364,9 @@ describe("startServer", () => {
     writeFileSync(configPath, JSON.stringify({ changed: true }));
     utimesSync(configPath, new Date(2020, 0, 1), new Date(2020, 0, 2));
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      errors: string[];
+    };
 
     expect(body.errors).toEqual([
       "existing config error",
@@ -2316,7 +2379,9 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      errors: string[];
+    };
 
     expect(body.errors).toContain(
       "leglas.config.json appeared after Leglas started. Restart leglas to pick it up.",
@@ -2330,7 +2395,9 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     unlinkSync(configPath);
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as { errors: string[] };
+    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      errors: string[];
+    };
 
     expect(body.errors).toContain(
       "leglas.config.json was removed after Leglas started. Restart leglas to run without it.",
@@ -2442,10 +2509,16 @@ describe("startServer", () => {
 
   test("nudges health once when reachability flips, not on steady probes", async () => {
     const nativeSetInterval = globalThis.setInterval;
-    vi.spyOn(globalThis, "setInterval").mockImplementation(
-      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
-        nativeSetInterval(callback, milliseconds === 3000 ? 10 : milliseconds, ...args)) as typeof setInterval,
-    );
+    vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: (...args: any[]) => void,
+      milliseconds?: number,
+      ...args: any[]
+    ) =>
+      nativeSetInterval(
+        callback,
+        milliseconds === 3000 ? 10 : milliseconds,
+        ...args,
+      )) as typeof setInterval);
     const target = http.createServer();
     await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
     origins.push(target);
@@ -2467,10 +2540,16 @@ describe("startServer", () => {
 
   test("does not probe health with no live listeners", async () => {
     const nativeSetInterval = globalThis.setInterval;
-    vi.spyOn(globalThis, "setInterval").mockImplementation(
-      ((callback: (...args: any[]) => void, milliseconds?: number, ...args: any[]) =>
-        nativeSetInterval(callback, milliseconds === 3000 ? 10 : milliseconds, ...args)) as typeof setInterval,
-    );
+    vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      callback: (...args: any[]) => void,
+      milliseconds?: number,
+      ...args: any[]
+    ) =>
+      nativeSetInterval(
+        callback,
+        milliseconds === 3000 ? 10 : milliseconds,
+        ...args,
+      )) as typeof setInterval);
     let connections = 0;
     const target = http.createServer();
     target.on("connection", () => {
@@ -2528,17 +2607,20 @@ describe("startServer", () => {
     expect(await res.text()).toContain("no such path");
   });
 
-  test.each([false, true])("returns a JSON 404 for an unknown API path (shell: %s)", async (withShell) => {
-    const shellDir = withShell ? mkdtempSync(join(tmpdir(), "leglas-api-404-shell-")) : null;
-    if (shellDir !== null) writeFileSync(join(shellDir, "index.html"), "<title>shell</title>");
-    const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir });
+  test.each([false, true])(
+    "returns a JSON 404 for an unknown API path (shell: %s)",
+    async (withShell) => {
+      const shellDir = withShell ? mkdtempSync(join(tmpdir(), "leglas-api-404-shell-")) : null;
+      if (shellDir !== null) writeFileSync(join(shellDir, "index.html"), "<title>shell</title>");
+      const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir });
 
-    const res = await fetch(`${server.url}/leglas/api/state`);
+      const res = await fetch(`${server.url}/leglas/api/state`);
 
-    expect(res.status).toBe(404);
-    expect(res.headers.get("content-type")).toContain("application/json");
-    expect(await res.json()).toEqual({ error: "No such Leglas API path." });
-  });
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      expect(await res.json()).toEqual({ error: "No such Leglas API path." });
+    },
+  );
 
   test("explains itself at /leglas when no shell has been built yet", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
@@ -2601,7 +2683,10 @@ describe("startServer", () => {
     const cookie = await enterShare(created.share.grants[0].localUrl);
     const remote = `http://127.0.0.1:${created.share.sharePort}`;
     // The entry answers HEAD too, so a link checker sees a live link.
-    const peek = await fetch(created.share.grants[0].localUrl, { method: "HEAD", redirect: "manual" });
+    const peek = await fetch(created.share.grants[0].localUrl, {
+      method: "HEAD",
+      redirect: "manual",
+    });
     expect(peek.status).toBe(302);
     const viewerConfig = (await (
       await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })
@@ -2619,10 +2704,7 @@ describe("startServer", () => {
     expect(viewerConfig.project).toMatch(/^share:[0-9a-f-]{36}$/);
     expect(viewerConfig.devServer).toBe("");
     expect(JSON.stringify(viewerConfig)).not.toContain(cwd);
-    expect(viewerConfig.previews.map((preview) => preview.title)).toEqual([
-      "Current",
-      "Paper",
-    ]);
+    expect(viewerConfig.previews.map((preview) => preview.title)).toEqual(["Current", "Paper"]);
     expect(viewerConfig.previews[1]?.url).toBe("/leglas/files/paper/index.html");
     expect(viewerConfig.errors).toEqual([]);
     expect(viewerConfig.warnings).toEqual([]);
@@ -2654,7 +2736,9 @@ describe("startServer", () => {
     );
     expect((await fetch(`${remote}/pricing`)).status).toBe(403);
     expect(
-      await (await fetch(`${remote}/leglas/files/paper/index.html`, { headers: { cookie } })).text(),
+      await (
+        await fetch(`${remote}/leglas/files/paper/index.html`, { headers: { cookie } })
+      ).text(),
     ).toContain("paper direction");
     // A mount is a whole directory keyed by a guessable slug: only the
     // mounts behind shared directions answer, and never a dotfile in one.
@@ -2830,16 +2914,30 @@ describe("startServer", () => {
       });
     });
     expect(
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers,
+      (
+        (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
+          share: { grants: { viewers: number }[] };
+        }
+      ).share.grants[0].viewers,
     ).toBe(0);
 
     const viewer = await openViewerSocket(created.share.sharePort, cookie);
-    await eventually(async () =>
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 1,
+    await eventually(
+      async () =>
+        (
+          (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
+            share: { grants: { viewers: number }[] };
+          }
+        ).share.grants[0].viewers === 1,
     );
     viewer.destroy();
-    await eventually(async () =>
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as { share: { grants: { viewers: number }[] } }).share.grants[0].viewers === 0,
+    await eventually(
+      async () =>
+        (
+          (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
+            share: { grants: { viewers: number }[] };
+          }
+        ).share.grants[0].viewers === 0,
     );
   });
 
@@ -2850,8 +2948,7 @@ describe("startServer", () => {
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
       port: 0,
       detectTunnels: async () => ["cloudflared"],
-      startTunnel: (options) =>
-        startTunnelProcess(options, { spawn, probe: async () => false }),
+      startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
     const created = (await (
       await postShare(server, {
@@ -2862,12 +2959,14 @@ describe("startServer", () => {
       })
     ).json()) as { share: { localUrl: string; sharePort: number } };
     const status = async () =>
-      ((await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-        share: {
-          grants: { url: string | null }[];
-          tunnel: { status: string; url?: string };
-        };
-      }).share;
+      (
+        (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
+          share: {
+            grants: { url: string | null }[];
+            tunnel: { status: string; url?: string };
+          };
+        }
+      ).share;
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
     child.stderr.write("| https://example-share.trycloudflare.com |\n");
     await eventually(async () => (await status()).tunnel.url !== undefined);
@@ -2900,8 +2999,7 @@ describe("startServer", () => {
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
       port: 0,
       detectTunnels: async () => ["cloudflared"],
-      startTunnel: (options) =>
-        startTunnelProcess(options, { spawn, probe: async () => false }),
+      startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
     const response = await postShare(server, {
       scope: "direction",
@@ -2915,9 +3013,7 @@ describe("startServer", () => {
     await server.close();
 
     expect(child.signals).toContain("SIGTERM");
-    await expect(
-      fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/`),
-    ).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/`)).rejects.toThrow();
   });
 
   test("closes cleanly while a live-reload socket is still open", async () => {
@@ -2949,7 +3045,11 @@ describe("update routes", () => {
     const status: UpdateStatus = {
       version: "1.0.0",
       install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
-      latest: { version: "1.1.0", title: "A release", url: "https://leglas.vercel.app/changelog/#v1.1.0" },
+      latest: {
+        version: "1.1.0",
+        title: "A release",
+        url: "https://leglas.vercel.app/changelog/#v1.1.0",
+      },
       checkedAt: "2026-09-07T10:00:00.000Z",
       checkError: null,
       skipped: null,
@@ -2961,7 +3061,10 @@ describe("update routes", () => {
       status: vi.fn(() => status),
       check: vi.fn(async () => status),
       skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
-      update: vi.fn(async () => ({ ...status, phase: { status: "installing" as const, version: "1.1.0" } })),
+      update: vi.fn(async () => ({
+        ...status,
+        phase: { status: "installing" as const, version: "1.1.0" },
+      })),
       notice: () => null,
       onRestart: vi.fn(),
       onBusy: vi.fn<(busy: () => boolean) => void>(),
@@ -2997,7 +3100,11 @@ describe("update routes", () => {
     const updates = updateService();
     const live = fakeLiveHub();
     let stopped!: () => void;
-    updates.close.mockReturnValue(new Promise((resolve) => { stopped = resolve; }));
+    updates.close.mockReturnValue(
+      new Promise((resolve) => {
+        stopped = resolve;
+      }),
+    );
     const server = await bootUpdates(updates, live);
     const closing = server.close();
     expect(server.close()).toBe(closing);
@@ -3009,16 +3116,21 @@ describe("update routes", () => {
     expect(updates.close).toHaveBeenCalledOnce();
   });
 
-  test.each([undefined, "text/plain", "application/x-www-form-urlencoded"])("skip rejects content-type %s before reading its valid JSON", async (type) => {
-    const updates = updateService();
-    const server = await bootUpdates(updates);
-    const response = await fetch(`${server.url}/leglas/api/update/skip`, {
-      method: "POST", headers: type === undefined ? {} : { "content-type": type }, body: JSON.stringify({ version: "1.1.0" }),
-    });
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
-    expect(updates.skip).not.toHaveBeenCalled();
-  });
+  test.each([undefined, "text/plain", "application/x-www-form-urlencoded"])(
+    "skip rejects content-type %s before reading its valid JSON",
+    async (type) => {
+      const updates = updateService();
+      const server = await bootUpdates(updates);
+      const response = await fetch(`${server.url}/leglas/api/update/skip`, {
+        method: "POST",
+        headers: type === undefined ? {} : { "content-type": type },
+        body: JSON.stringify({ version: "1.1.0" }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
+      expect(updates.skip).not.toHaveBeenCalled();
+    },
+  );
 
   test("GET returns an uncached status and wires the actual port and runner", async () => {
     const updates = updateService();
@@ -3035,7 +3147,11 @@ describe("update routes", () => {
   test("check forces a refresh and ignores its body", async () => {
     const updates = updateService();
     const server = await bootUpdates(updates);
-    const response = await fetch(`${server.url}/leglas/api/update/check`, { method: "POST", headers: { "content-type": "application/json" }, body: "ignored" });
+    const response = await fetch(`${server.url}/leglas/api/update/check`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "ignored",
+    });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual(updates.status());
@@ -3046,7 +3162,9 @@ describe("update routes", () => {
     const updates = updateService();
     const server = await bootUpdates(updates);
     const response = await fetch(`${server.url}/leglas/api/update/skip`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: "1.1.0" }),
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: "1.1.0" }),
     });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -3060,61 +3178,94 @@ describe("update routes", () => {
     const response = await fetch(`${server.url}/leglas/api/update/install`, { method: "POST" });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ ...updates.status(), phase: { status: "installing", version: "1.1.0" } });
+    expect(await response.json()).toEqual({
+      ...updates.status(),
+      phase: { status: "installing", version: "1.1.0" },
+    });
     expect(updates.update).toHaveBeenCalledOnce();
   });
 
-  test.each([["", "GET"], ["/check", "POST"], ["/skip", "POST"], ["/install", "POST"]])
-    ("%s returns 404 when updates were not provided", async (path, method) => {
-      const server = await bootUpdates();
-      const response = await fetch(`${server.url}/leglas/api/update${path}`, { method });
-      expect(response.status).toBe(404);
-      expect(await response.json()).toEqual({ ok: false, error: "Updates are not available here." });
-    });
+  test.each([
+    ["", "GET"],
+    ["/check", "POST"],
+    ["/skip", "POST"],
+    ["/install", "POST"],
+  ])("%s returns 404 when updates were not provided", async (path, method) => {
+    const server = await bootUpdates();
+    const response = await fetch(`${server.url}/leglas/api/update${path}`, { method });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ ok: false, error: "Updates are not available here." });
+  });
 
   test.each(["{", "null", "[]", "42"])("skip rejects a non-object body: %s", async (body) => {
     const updates = updateService();
     const server = await bootUpdates(updates);
-    const response = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const response = await fetch(`${server.url}/leglas/api/update/skip`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
     expect(updates.skip).not.toHaveBeenCalled();
   });
 
-  test.each([{}, { version: "" }, { version: " " }, { version: 1 }])("skip needs a nonempty version: %j", async (body) => {
-    const updates = updateService();
-    const server = await bootUpdates(updates);
-    const response = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ ok: false, error: "Body needs a version." });
-    expect(updates.skip).not.toHaveBeenCalled();
-  });
+  test.each([{}, { version: "" }, { version: " " }, { version: 1 }])(
+    "skip needs a nonempty version: %j",
+    async (body) => {
+      const updates = updateService();
+      const server = await bootUpdates(updates);
+      const response = await fetch(`${server.url}/leglas/api/update/skip`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ ok: false, error: "Body needs a version." });
+      expect(updates.skip).not.toHaveBeenCalled();
+    },
+  );
 
   test("a refused skip maps to 400 and a refused install maps to 409", async () => {
     const updates = updateService();
     updates.skip.mockRejectedValue(new Error("That is not the newest version."));
     updates.update.mockRejectedValue(new Error("A change is running. Wait for it to finish."));
     const server = await bootUpdates(updates);
-    const skip = await fetch(`${server.url}/leglas/api/update/skip`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: "1.0.1" }) });
+    const skip = await fetch(`${server.url}/leglas/api/update/skip`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: "1.0.1" }),
+    });
     expect(skip.status).toBe(400);
     expect(await skip.json()).toEqual({ ok: false, error: "That is not the newest version." });
     const install = await fetch(`${server.url}/leglas/api/update/install`, { method: "POST" });
     expect(install.status).toBe(409);
-    expect(await install.json()).toEqual({ ok: false, error: "A change is running. Wait for it to finish." });
+    expect(await install.json()).toEqual({
+      ok: false,
+      error: "A change is running. Wait for it to finish.",
+    });
   });
 
-  test.each(["check", "skip", "install"])("%s stays behind the cross-origin guard", async (action) => {
-    const updates = updateService();
-    const server = await bootUpdates(updates);
-    const response = await fetch(`${server.url}/leglas/api/update/${action}`, {
-      method: "POST", headers: { origin: "https://other.example" }, body: JSON.stringify({ version: "1.1.0" }),
-    });
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ ok: false, error: "Cross-origin API mutations are refused." });
-    expect(updates.check).not.toHaveBeenCalled();
-    expect(updates.skip).not.toHaveBeenCalled();
-    expect(updates.update).not.toHaveBeenCalled();
-  });
+  test.each(["check", "skip", "install"])(
+    "%s stays behind the cross-origin guard",
+    async (action) => {
+      const updates = updateService();
+      const server = await bootUpdates(updates);
+      const response = await fetch(`${server.url}/leglas/api/update/${action}`, {
+        method: "POST",
+        headers: { origin: "https://other.example" },
+        body: JSON.stringify({ version: "1.1.0" }),
+      });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: "Cross-origin API mutations are refused.",
+      });
+      expect(updates.check).not.toHaveBeenCalled();
+      expect(updates.skip).not.toHaveBeenCalled();
+      expect(updates.update).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("mutation trust", () => {
@@ -3136,10 +3287,7 @@ describe("mutation trust", () => {
     // so the socket decides and the headers only ever narrow further.
     expect(
       isTrustedMutation(
-        request(
-          { host: "192.168.1.20:4100", origin: "http://192.168.1.20:4100" },
-          "192.168.1.44",
-        ),
+        request({ host: "192.168.1.20:4100", origin: "http://192.168.1.20:4100" }, "192.168.1.44"),
       ),
     ).toBe(false);
     expect(
@@ -3196,7 +3344,12 @@ describe("what a capture may resolve", () => {
     writeFileSync(join(cwd, "fresh.html"), "<h1>fresh</h1>");
     writeFileSync(
       join(cwd, ".leglas", "previews.json"),
-      JSON.stringify({ previews: [{ title: "Fresh", file: "fresh.html" }, { title: "Live", url: "/live" }] }),
+      JSON.stringify({
+        previews: [
+          { title: "Fresh", file: "fresh.html" },
+          { title: "Live", url: "/live" },
+        ],
+      }),
     );
 
     const fresh = await fetch(`${server.url}/leglas/api/capture`, {
@@ -3235,22 +3388,35 @@ describe("what a capture may resolve", () => {
         body: JSON.stringify(body),
       });
 
-    expect((await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status).toBe(200);
+    expect(
+      (await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status,
+    ).toBe(200);
     // Exactly the same request, the retype-after-stop shape.
-    expect((await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status).toBe(409);
+    expect(
+      (await send({ title: "Poster", intent: "like the other one", compare: "Ledger" })).status,
+    ).toBe(409);
     // The same words meaning a different other one.
-    expect((await send({ title: "Poster", intent: "like the other one", compare: "Hero" })).status).toBe(200);
+    expect(
+      (await send({ title: "Poster", intent: "like the other one", compare: "Hero" })).status,
+    ).toBe(200);
     // The same words with nothing alongside.
     expect((await send({ title: "Poster", intent: "like the other one" })).status).toBe(200);
     // A picture is part of the ask too, by identity rather than by count.
     mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
-    const paste = (id: string) => writeFileSync(join(cwd, REFERENCES_DIR, `${id}.png`), TWO_BY_THREE_PNG);
+    const paste = (id: string) =>
+      writeFileSync(join(cwd, REFERENCES_DIR, `${id}.png`), TWO_BY_THREE_PNG);
     paste("r1");
-    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(200);
+    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(
+      200,
+    );
     paste("r1");
-    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(409);
+    expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(
+      409,
+    );
     paste("r2");
-    expect((await send({ title: "Poster", intent: "like this", references: ["r2"] })).status).toBe(200);
+    expect((await send({ title: "Poster", intent: "like this", references: ["r2"] })).status).toBe(
+      200,
+    );
     // One that was pruned in the meantime refuses the send rather than
     // quietly leaving the picture out.
     const gone = await send({ title: "Poster", intent: "like that", references: ["r9"] });

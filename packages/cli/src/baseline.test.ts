@@ -22,7 +22,9 @@ describe("baselineFrom", () => {
 
   test("drops the extension from the import specifier, as bundlers expect", () => {
     const result = baselineFrom("hero", "src/Hero.tsx", "export function Hero() {}");
-    const importLine = (result?.contents ?? "").split("\n").find((line) => line.startsWith("import"));
+    const importLine = (result?.contents ?? "")
+      .split("\n")
+      .find((line) => line.startsWith("import"));
 
     expect(importLine).toContain('"../../../src/Hero"');
     expect(importLine).not.toContain(".tsx");
@@ -41,7 +43,11 @@ describe("baselineFrom", () => {
   });
 
   test("computes the path from a nested surface directory", () => {
-    const result = baselineFrom("hero", "app/components/marketing/Hero.tsx", "export function Hero() {}");
+    const result = baselineFrom(
+      "hero",
+      "app/components/marketing/Hero.tsx",
+      "export function Hero() {}",
+    );
 
     expect(result?.contents).toContain('"../../../app/components/marketing/Hero"');
   });

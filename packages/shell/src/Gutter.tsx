@@ -97,7 +97,15 @@ export function railInsets(meta: ReadonlyMap<string, RowMeta>): { root: number; 
 }
 
 type Piece =
-  | { key: string; lane: number; segment: Segment; shape: "line"; x: number; y1: number; y2: number | string }
+  | {
+      key: string;
+      lane: number;
+      segment: Segment;
+      shape: "line";
+      x: number;
+      y1: number;
+      y2: number | string;
+    }
   | { key: string; lane: number; segment: Segment; shape: "path"; d: string };
 
 export function Gutter({
@@ -159,21 +167,67 @@ export function Gutter({
   const clear = active ? markRadius + 5 : 0;
   const pieces: Piece[] = [];
   for (const lane of row.through) {
-    pieces.push({ key: `t${lane}`, lane, segment: `through:${lane}`, shape: "line", x: x(lane), y1: 0, y2: "100%" });
+    pieces.push({
+      key: `t${lane}`,
+      lane,
+      segment: `through:${lane}`,
+      shape: "line",
+      x: x(lane),
+      y1: 0,
+      y2: "100%",
+    });
   }
-  if (row.fromAbove) pieces.push({ key: "a", lane: row.lane, segment: "above", shape: "line", x: cx, y1: 0, y2: cy - clear });
-  if (row.toBelow) pieces.push({ key: "b", lane: row.lane, segment: "below", shape: "line", x: cx, y1: cy + clear, y2: "100%" });
+  if (row.fromAbove)
+    pieces.push({
+      key: "a",
+      lane: row.lane,
+      segment: "above",
+      shape: "line",
+      x: cx,
+      y1: 0,
+      y2: cy - clear,
+    });
+  if (row.toBelow)
+    pieces.push({
+      key: "b",
+      lane: row.lane,
+      segment: "below",
+      shape: "line",
+      x: cx,
+      y1: cy + clear,
+      y2: "100%",
+    });
   for (const lane of row.forks) {
     // The curve always leaves the mark's centre; on the row on stage its
     // first stretch is cut so it starts outside the ring.
     const knee = forkKnee(cx, cy, x(lane));
     const curve = forkCurve(cx, cy, x(lane), clear);
-    if (curve !== "") pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, shape: "path", d: curve });
-    pieces.push({ key: `ft${lane}`, lane, segment: `fork:${lane}`, shape: "line", x: x(lane), y1: knee, y2: "100%" });
+    if (curve !== "")
+      pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, shape: "path", d: curve });
+    pieces.push({
+      key: `ft${lane}`,
+      lane,
+      segment: `fork:${lane}`,
+      shape: "line",
+      x: x(lane),
+      y1: knee,
+      y2: "100%",
+    });
   }
-  const draw = (piece: Piece, extra: React.SVGProps<SVGLineElement> & React.SVGProps<SVGPathElement>) =>
+  const draw = (
+    piece: Piece,
+    extra: React.SVGProps<SVGLineElement> & React.SVGProps<SVGPathElement>,
+  ) =>
     piece.shape === "line" ? (
-      <line key={piece.key} pathLength={1} x1={piece.x} x2={piece.x} y1={piece.y1} y2={piece.y2} {...extra} />
+      <line
+        key={piece.key}
+        pathLength={1}
+        x1={piece.x}
+        x2={piece.x}
+        y1={piece.y1}
+        y2={piece.y2}
+        {...extra}
+      />
     ) : (
       <path d={piece.d} key={piece.key} pathLength={1} {...extra} />
     );
@@ -225,7 +279,15 @@ export function Gutter({
             />
             {folded &&
               [8, 14, 20].map((below, index) => (
-                <circle cx={cx} cy={cy + below} fill={MARK} key={below} opacity={0.6 - index * 0.18} r={1} stroke="none" />
+                <circle
+                  cx={cx}
+                  cy={cy + below}
+                  fill={MARK}
+                  key={below}
+                  opacity={0.6 - index * 0.18}
+                  r={1}
+                  stroke="none"
+                />
               ))}
             {(landed || bloom > 0) && (
               <circle

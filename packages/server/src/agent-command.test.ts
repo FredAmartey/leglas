@@ -33,9 +33,10 @@ describe("parseTemplate", () => {
 
   test("accepts a command with no placeholder; the prompt rides along at the end", () => {
     expect(template("aider --message")).toEqual({ command: "aider", args: ["--message"] });
-    expect(
-      commandFor({ command: "aider", args: ["--message"] }, "make it warmer"),
-    ).toEqual({ command: "aider", args: ["--message", "make it warmer"] });
+    expect(commandFor({ command: "aider", args: ["--message"] }, "make it warmer")).toEqual({
+      command: "aider",
+      args: ["--message", "make it warmer"],
+    });
     expect(commandFor({ command: "my-agent", args: [] }, "make it warmer")).toEqual({
       command: "my-agent",
       args: ["make it warmer"],

@@ -64,9 +64,7 @@ describe("needsDevServer", () => {
   });
 
   test("a branch preview runs its own checkout", () => {
-    expect(
-      needsDevServer(preview({ url: "http://localhost:4101/", branch: "warm" })),
-    ).toBe(false);
+    expect(needsDevServer(preview({ url: "http://localhost:4101/", branch: "warm" }))).toBe(false);
   });
 
   test("an absolute url answers for itself", () => {

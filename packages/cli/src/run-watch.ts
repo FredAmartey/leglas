@@ -96,9 +96,7 @@ export async function runWatch(
   deps: WatchDeps,
 ): Promise<{ exitCode: number }> {
   const saved =
-    options.run === undefined
-      ? await readAgentChoice(options.cwd)
-      : { agent: null, run: null };
+    options.run === undefined ? await readAgentChoice(options.cwd) : { agent: null, run: null };
   const raw = options.run ?? saved.run;
   let template: WatchTemplate;
   let shownCommand: string;

@@ -112,7 +112,12 @@ describe("updateView", () => {
   });
 
   test("a newer version leads with it and says what Update will run", () => {
-    const view = updateView(status({ latest: newer, available: true }), { status: "none" }, false, NOW);
+    const view = updateView(
+      status({ latest: newer, available: true }),
+      { status: "none" },
+      false,
+      NOW,
+    );
     expect(view.heading).toBe("1.1.0 is out");
     expect(view.title).toBe(newer.title);
     expect(view.meta).toBe("You have 1.0.0");
@@ -126,7 +131,12 @@ describe("updateView", () => {
 
   test("each install kind gets its own note", () => {
     const of = (install: UpdateStatus["install"]) =>
-      updateView(status({ latest: newer, available: true, install }), { status: "none" }, false, NOW);
+      updateView(
+        status({ latest: newer, available: true, install }),
+        { status: "none" },
+        false,
+        NOW,
+      );
     expect(of({ kind: "npx", manager: "npm", command: "npx leglas@latest" }).note).toBe(
       "Restarts Leglas with 1.1.0 through npx. Your rail stays as it is.",
     );
@@ -135,7 +145,9 @@ describe("updateView", () => {
     );
     expect(
       of({ kind: "project", manager: "pnpm", command: "pnpm up leglas@latest", root: "/app" }).note,
-    ).toBe("Runs pnpm up leglas@1.1.0 in this project, then restarts Leglas. Your rail stays as it is.");
+    ).toBe(
+      "Runs pnpm up leglas@1.1.0 in this project, then restarts Leglas. Your rail stays as it is.",
+    );
     const source = of({ kind: "source", manager: "npm", command: null });
     expect(source.note).toBe("You run Leglas from a checkout, so pull to update.");
     expect(source.primary).toBeNull();
@@ -191,7 +203,9 @@ describe("updateView", () => {
       NOW,
     );
     expect(held.heading).toBe("Updating to 1.1.0");
-    expect(held.detail).toBe("Installed. Waiting for the running change to finish, then restarting.");
+    expect(held.detail).toBe(
+      "Installed. Waiting for the running change to finish, then restarting.",
+    );
     expect(held.spinner).toBe(true);
     expect(held.primary).toBeNull();
   });
@@ -215,8 +229,19 @@ describe("updateView", () => {
   });
 
   test("the wait states win over whatever the last status said", () => {
-    const gone = status({ latest: newer, available: true, phase: { status: "restarting", version: "1.1.0" } });
-    expect(updateView(gone, { status: "waiting", version: "1.1.0", since: NOW, until: NOW + 90_000 }, false, NOW)).toMatchObject({
+    const gone = status({
+      latest: newer,
+      available: true,
+      phase: { status: "restarting", version: "1.1.0" },
+    });
+    expect(
+      updateView(
+        gone,
+        { status: "waiting", version: "1.1.0", since: NOW, until: NOW + 90_000 },
+        false,
+        NOW,
+      ),
+    ).toMatchObject({
       heading: "Restarting Leglas",
       spinner: true,
       primary: null,
@@ -226,7 +251,9 @@ describe("updateView", () => {
       note: "Look in the terminal: it may have started on another port. Otherwise start it again there with leglas.",
       warning: true,
     });
-    expect(updateView(gone, { status: "wrong", version: "1.1.0", got: "1.0.0" }, false, NOW)).toMatchObject({
+    expect(
+      updateView(gone, { status: "wrong", version: "1.1.0", got: "1.0.0" }, false, NOW),
+    ).toMatchObject({
       heading: "Something else answered",
       detail: "Leglas 1.0.0 is on this port now, not the 1.1.0 that was installed.",
     });
@@ -240,15 +267,45 @@ describe("the commands a person is told", () => {
 
   test("startAgain matches how Leglas was started", () => {
     expect(startAgain(null)).toBe("npx leglas");
-    expect(startAgain(status({ install: { kind: "npx", manager: "npm", command: "npx leglas@latest" } }))).toBe("npx leglas");
-    expect(startAgain(status({ install: { kind: "npx", manager: "bun", command: "bunx leglas@latest" } }))).toBe("bunx leglas");
-    expect(startAgain(status({ install: { kind: "npx", manager: "yarn", command: "yarn dlx leglas@latest" } }))).toBe("yarn dlx leglas");
+    expect(
+      startAgain(
+        status({ install: { kind: "npx", manager: "npm", command: "npx leglas@latest" } }),
+      ),
+    ).toBe("npx leglas");
+    expect(
+      startAgain(
+        status({ install: { kind: "npx", manager: "bun", command: "bunx leglas@latest" } }),
+      ),
+    ).toBe("bunx leglas");
+    expect(
+      startAgain(
+        status({ install: { kind: "npx", manager: "yarn", command: "yarn dlx leglas@latest" } }),
+      ),
+    ).toBe("yarn dlx leglas");
     expect(startAgain(status())).toBe("leglas");
     expect(
-      startAgain(status({ install: { kind: "project", manager: "pnpm", command: "pnpm up leglas@latest", root: "/app" } })),
+      startAgain(
+        status({
+          install: {
+            kind: "project",
+            manager: "pnpm",
+            command: "pnpm up leglas@latest",
+            root: "/app",
+          },
+        }),
+      ),
     ).toBe("pnpm exec leglas");
     expect(
-      startAgain(status({ install: { kind: "project", manager: "npm", command: "npm install leglas@latest", root: "/app" } })),
+      startAgain(
+        status({
+          install: {
+            kind: "project",
+            manager: "npm",
+            command: "npm install leglas@latest",
+            root: "/app",
+          },
+        }),
+      ),
     ).toBe("npx leglas");
   });
 });

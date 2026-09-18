@@ -22,8 +22,7 @@ export const MCP_CONNECT_OPTIONS: Record<McpClient, McpConnectOption> = {
     copyLabel: "Copy Claude Code command",
     description: "Add Leglas with one terminal command.",
     label: "Claude Code",
-    nextStep:
-      "Run this command from your project, then ask Claude to list your Leglas directions.",
+    nextStep: "Run this command from your project, then ask Claude to list your Leglas directions.",
     snippet: "claude mcp add leglas -- npx -y leglas-mcp",
   },
   other: {

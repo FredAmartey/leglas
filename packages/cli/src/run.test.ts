@@ -62,13 +62,18 @@ function projectWith(config: string): string {
   return dir;
 }
 
-async function boot(
-  cwd: string,
-  options: Partial<Parameters<typeof run>[0]> = {},
-) {
+async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {}) {
   const { deps, opened, output } = harness();
   const result = await run(
-    { port: 0, userPort: undefined, configPath: undefined, open: true, json: false, cwd, ...options },
+    {
+      port: 0,
+      userPort: undefined,
+      configPath: undefined,
+      open: true,
+      json: false,
+      cwd,
+      ...options,
+    },
     deps,
   );
   stopping.push(result.stop);
@@ -91,7 +96,9 @@ describe("run", () => {
 
   test("opens the browser at the interface, not at the app", async () => {
     const port = await startOrigin();
-    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
+    );
 
     const { opened, result } = await boot(dir);
 
@@ -100,7 +107,9 @@ describe("run", () => {
 
   test("leaves the browser alone when told to", async () => {
     const port = await startOrigin();
-    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
+    );
 
     const { opened } = await boot(dir, { open: false });
 
@@ -144,7 +153,9 @@ describe("run", () => {
 
   test("prints a single json envelope for agents", async () => {
     const port = await startOrigin();
-    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
+    );
 
     const { output } = await boot(dir, { json: true, open: false });
     const envelope = JSON.parse(output) as { ok: boolean; url: string };
@@ -155,7 +166,9 @@ describe("run", () => {
 
   test("names the config file it used, so a surprising config is findable", async () => {
     const port = await startOrigin();
-    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
+    );
 
     const { output } = await boot(dir);
 
@@ -164,20 +177,18 @@ describe("run", () => {
 
   test("warns without blocking when a local dev server belongs to another project", async () => {
     const port = await startOrigin();
-    const dir = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`);
+    const dir = projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
+    );
 
-    inspectDevServer.mockResolvedValueOnce([
-      { pid: 42, cwd: "/work/other-app" },
-    ]);
+    inspectDevServer.mockResolvedValueOnce([{ pid: 42, cwd: "/work/other-app" }]);
     const { output, result } = await boot(dir, { open: false });
     const config = (await (
       await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
     ).json()) as { warnings: string[] };
 
     expect(output).toContain(`Port ${port} appears to be served from other-app`);
-    expect(config.warnings).toEqual([
-      expect.stringContaining("outside this project"),
-    ]);
+    expect(config.warnings).toEqual([expect.stringContaining("outside this project")]);
     expect(result.exitCode).toBe(0);
   });
 });
@@ -199,51 +210,62 @@ describe("startup update notice", () => {
     { json: false, notice: "An update is available.", printed: true },
     { json: true, notice: "An update is available.", printed: false },
     { json: false, notice: null, printed: false },
-  ])("prints the appropriate notice for $json JSON and $notice", async ({ json, notice, printed }) => {
-    vi.stubEnv("CI", "");
-    vi.stubEnv("LEGLAS_NO_UPDATE_CHECK", "");
-    const updates: UpdateService = {
-      status: () => status,
-      check: vi.fn(async () => status),
-      skip: async () => status,
-      update: async () => status,
-      notice: () => notice,
-      onBusy: () => {},
-      onRestart: () => {},
-      onChange: () => {},
-      setPort: () => {},
-      close: vi.fn(async () => {}),
-    };
-    const port = await startOrigin();
-    const cwd = projectWith(`export default { devServer: "http://127.0.0.1:${port}", previews: [] };`);
-    const output: string[] = [];
-    const result = await run(
-      { cwd, json, open: true, port: 0, userPort: undefined, configPath: undefined },
-      {
-        updates,
-        log: (line) => { output.push(line); },
-        open: async () => { expect(output.some((line) => line === notice)).toBe(false); },
-      },
-    );
-    stopping.push(result.stop);
-    await Promise.resolve();
-    if (printed) {
-      expect(output.at(-1)).toBe(notice);
-      expect(output[0]).toMatch(/^Leglas   /);
-      expect(output.indexOf(notice!)).toBeGreaterThan(output.findIndex((line) => line.startsWith("config   ")));
-    } else if (json) {
-      expect(output).toHaveLength(1);
-      expect(JSON.parse(output[0]!)).toMatchObject({ ok: true });
-      expect(updates.check).not.toHaveBeenCalled();
-    } else {
-      expect(output).toHaveLength(4);
-    }
-    const response = await fetch(`${result.url}/api/update`);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(status);
-    await result.stop();
-    expect(updates.close).toHaveBeenCalledOnce();
-  });
+  ])(
+    "prints the appropriate notice for $json JSON and $notice",
+    async ({ json, notice, printed }) => {
+      vi.stubEnv("CI", "");
+      vi.stubEnv("LEGLAS_NO_UPDATE_CHECK", "");
+      const updates: UpdateService = {
+        status: () => status,
+        check: vi.fn(async () => status),
+        skip: async () => status,
+        update: async () => status,
+        notice: () => notice,
+        onBusy: () => {},
+        onRestart: () => {},
+        onChange: () => {},
+        setPort: () => {},
+        close: vi.fn(async () => {}),
+      };
+      const port = await startOrigin();
+      const cwd = projectWith(
+        `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
+      );
+      const output: string[] = [];
+      const result = await run(
+        { cwd, json, open: true, port: 0, userPort: undefined, configPath: undefined },
+        {
+          updates,
+          log: (line) => {
+            output.push(line);
+          },
+          open: async () => {
+            expect(output.some((line) => line === notice)).toBe(false);
+          },
+        },
+      );
+      stopping.push(result.stop);
+      await Promise.resolve();
+      if (printed) {
+        expect(output.at(-1)).toBe(notice);
+        expect(output[0]).toMatch(/^Leglas   /);
+        expect(output.indexOf(notice!)).toBeGreaterThan(
+          output.findIndex((line) => line.startsWith("config   ")),
+        );
+      } else if (json) {
+        expect(output).toHaveLength(1);
+        expect(JSON.parse(output[0]!)).toMatchObject({ ok: true });
+        expect(updates.check).not.toHaveBeenCalled();
+      } else {
+        expect(output).toHaveLength(4);
+      }
+      const response = await fetch(`${result.url}/api/update`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(status);
+      await result.stop();
+      expect(updates.close).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe("branch previews without a devCommand", () => {

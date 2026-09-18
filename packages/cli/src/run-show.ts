@@ -29,8 +29,7 @@ type Screenshot = {
   cut: boolean;
 };
 
-const NOT_RUNNING =
-  "Leglas is not running here. Start it with npx leglas, then try again.";
+const NOT_RUNNING = "Leglas is not running here. Start it with npx leglas, then try again.";
 
 /**
  * Longer than the server's own deadline plus a cold browser launch, so a
@@ -172,7 +171,8 @@ export async function runShow(
       typeof captured.width !== "number" ||
       typeof captured.height !== "number" ||
       typeof captured.viewport !== "number"
-    ) return fail("The direction could not be captured.");
+    )
+      return fail("The direction could not be captured.");
     envelope.screenshot = {
       file: captured.file,
       width: captured.width,

@@ -18,7 +18,10 @@ describe("the site", () => {
     expect(html).toContain('href="./changelog/"');
     for (const capture of CAPTURES) {
       expect(html).toContain(`src="assets/${capture}"`);
-      expect(existsSync(join(root, ".github", "assets", "screenshots", capture)), `${capture} is missing`).toBe(true);
+      expect(
+        existsSync(join(root, ".github", "assets", "screenshots", capture)),
+        `${capture} is missing`,
+      ).toBe(true);
     }
     // Self-contained apart from its own captures: nothing fetched from elsewhere.
     expect(html).not.toMatch(/src="https?:/);
@@ -43,8 +46,10 @@ describe("the site", () => {
     expect(html).toContain('setProperty("--vt-x"');
     expect(html).toContain("Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))");
     // The sweep is motion, so it belongs to readers who did not ask for less.
-    expect(html).toMatch(/@media \(prefers-reduced-motion:no-preference\)\{\s*::view-transition-new\(root\)\{animation:theme-reveal/);
-    expect(html).toContain("matchMedia(\"(prefers-reduced-motion: reduce)\").matches");
+    expect(html).toMatch(
+      /@media \(prefers-reduced-motion:no-preference\)\{\s*::view-transition-new\(root\)\{animation:theme-reveal/,
+    );
+    expect(html).toContain('matchMedia("(prefers-reduced-motion: reduce)").matches');
     // A hidden document rejects, and an unread rejection reaches the console.
     expect(html).toContain(".ready.catch(function(){})");
   });
@@ -52,13 +57,20 @@ describe("the site", () => {
   test("the bar carries a star on both pages", () => {
     const assets = loadAssets(root);
     const home = renderHome(assets);
-    const changelog = renderPage(parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8")), assets);
+    const changelog = renderPage(
+      parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8")),
+      assets,
+    );
     for (const html of [home, changelog]) {
       // A plain link to the repository, so it works without a script, ahead of the command and the switch.
-      expect(html).toMatch(/<div class="bar-end">\n<a class="star" href="https:\/\/github\.com\/FredAmartey\/leglas">[\s\S]*?<span class="label">Star on GitHub<\/span><\/a>\n<button class="install"/);
+      expect(html).toMatch(
+        /<div class="bar-end">\n<a class="star" href="https:\/\/github\.com\/FredAmartey\/leglas">[\s\S]*?<span class="label">Star on GitHub<\/span><\/a>\n<button class="install"/,
+      );
     }
     // The swap rides a spring, with a bezier before it for browsers that drop linear().
-    expect(home).toMatch(/transition-timing-function:cubic-bezier\([^)]*\),ease;transition-timing-function:linear\(/);
+    expect(home).toMatch(
+      /transition-timing-function:cubic-bezier\([^)]*\),ease;transition-timing-function:linear\(/,
+    );
     expect(home).toContain(".star,.star .icon>*,.spark{transition:none}");
     // Nothing on the site shares any more.
     expect(home).not.toContain("data-share");
@@ -70,9 +82,18 @@ describe("the site", () => {
     const written = buildSite(root, out);
     const docs = readdirSync(join(root, "docs"))
       .filter((name) => name.endsWith(".md"))
-      .map((name) => (name === "README.md" ? "docs/index.html" : `docs/${name.slice(0, -3)}/index.html`));
+      .map((name) =>
+        name === "README.md" ? "docs/index.html" : `docs/${name.slice(0, -3)}/index.html`,
+      );
     expect(written.map((path) => path.slice(out.length + 1)).sort()).toEqual(
-      ["assets/compare-artboards.jpg", "assets/rail-single.jpg", "changelog/index.html", "index.html", "releases.json", ...docs].sort(),
+      [
+        "assets/compare-artboards.jpg",
+        "assets/rail-single.jpg",
+        "changelog/index.html",
+        "index.html",
+        "releases.json",
+        ...docs,
+      ].sort(),
     );
     expect(readFileSync(join(out, "changelog", "index.html"), "utf8")).toContain('href="../"');
   });
