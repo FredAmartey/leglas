@@ -4,3 +4,16 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  # The manifests under evals/tasks are other commits' package.json and
+  # lockfiles, kept byte for byte so the benchmark's verifier can compare the
+  # tree against them. Nothing depends on them, and a bump would make every
+  # trial of that task score 0, so every update there is ignored, security
+  # updates included.
+  - package-ecosystem: npm
+    directories:
+      - "/evals/tasks/*/tests/baseline"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
