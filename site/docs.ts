@@ -165,7 +165,7 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       });
     } else if (/^<[a-zA-Z!/]/.test(line)) {
       refuse(i, "HTML this page cannot show");
-    } else if (/^(>|\*|\+|#{4,})\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
+    } else if (/^(>|\*|\+|#{4,}|\d+\))\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
       refuse(i, "markdown this page cannot show");
     } else {
       const text: string[] = [];

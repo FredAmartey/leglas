@@ -272,6 +272,9 @@ describe("the reader", () => {
     expect(() => render("# T\n\n* a starred bullet\n")).toThrow(
       "x.md:3: markdown this page cannot show",
     );
+    expect(() => render("# T\n\n1) a list GitHub would number\n")).toThrow(
+      "x.md:3: markdown this page cannot show",
+    );
     expect(() => render("# T\n\n> a quote\n")).toThrow("x.md:3");
     expect(() => render("# T\n\n```\nnever closed\n")).toThrow("a code fence that never closes");
     expect(() => render("# T\n\n| a | b |\n| c | d |\n")).toThrow("a table without a header rule");
