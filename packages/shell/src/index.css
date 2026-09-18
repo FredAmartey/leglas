@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Tests are not markup. Tailwind scans every file it can reach for things
+   that look like class names, so a fixture title or a word in a sentence
+   ends up as a utility in the shipped stylesheet: a test that said it
+   "answers from a table" added `.table` to it. Nothing under a test file
+   is ever rendered, so nothing there should decide what ships. */
+@source not "./**/*.test.ts";
+@source not "./**/*.test.tsx";
+
 /* Satoshi is the default interface face and ships with the tool. Outfit,
    Geist, and Spline Sans Mono arrive as versioned dependencies (imported
    in main.tsx) rather than hand-downloaded files.
