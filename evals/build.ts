@@ -35,6 +35,7 @@ for (const task of manifest.tasks) {
   }
   writeFileSync(join(dir, "tests/files.txt"), tests.join("\n") + "\n");
   writeFileSync(join(dir, "tests/test.sh"), readFileSync(join(root, "evals/templates/test.sh"), "utf8"), { mode: 0o755 });
+  writeFileSync(join(dir, "tests/collected.mjs"), readFileSync(join(root, "evals/templates/collected.mjs"), "utf8"));
 
   // Oracle: the fix without its tests or changelog entry.
   const patch = git("diff", parent, task.fix, "--", ".", ":(exclude)*.test.ts", ":(exclude)CHANGELOG.md");
