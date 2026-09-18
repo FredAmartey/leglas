@@ -1,2 +1,9 @@
 # Prettier writes LF, and CI checks on Linux; a checkout must not turn that into CRLF.
 * text=auto eol=lf
+
+# These parts of a benchmark task are rewritten by evals/build.ts on every
+# run, most of them copied from other commits. Marking them generated keeps
+# them out of the language statistics and folds them in a pull request.
+evals/tasks/*/environment/** linguist-generated
+evals/tasks/*/solution/** linguist-generated
+evals/tasks/*/tests/** linguist-generated

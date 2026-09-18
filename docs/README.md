@@ -14,6 +14,9 @@ the manual.
 - [Working with agents](agents.md): add beside, never rewrite; the commands
   an agent runs; running requests; the MCP server; the Agent Plugin.
 - [Command line](cli.md): every command and the flags they share.
+- [How Leglas is built](architecture.md): for people changing Leglas
+  itself. What runs where, how the packages fit, where state lives and the
+  path a change request takes.
 
 The [changelog](https://leglas.vercel.app/changelog/) says what each release
 changed. How to work on Leglas itself is in

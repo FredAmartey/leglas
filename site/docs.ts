@@ -11,7 +11,8 @@ import { REPO, bar, document, escape, foot, type Assets } from "./chrome.ts";
  * ships with the code. The site renders the same files, so there is one
  * text to keep true. Like the changelog page, this reads the markdown these
  * files actually use rather than markdown in general: headings, paragraphs,
- * bullet lists, fenced code, tables and the centred capture blocks. A
+ * bullet and numbered lists, fenced code, tables and the centred capture
+ * blocks. A
  * construct the page cannot show fails here, in the pull request that
  * added it, rather than quietly rendering as its source.
  */
@@ -26,7 +27,7 @@ export type DocPage = {
 };
 
 /** Reading order for the pages the README table names; anything else follows alphabetically. */
-const ORDER = ["guide", "sharing", "configuration", "agents", "cli"];
+const ORDER = ["guide", "sharing", "configuration", "agents", "cli", "architecture"];
 
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
@@ -63,7 +64,7 @@ export function docsPath(slug: string): string {
 export type Block =
   | { kind: "heading"; level: 2 | 3; text: string }
   | { kind: "paragraph"; text: string }
-  | { kind: "list"; items: string[] }
+  | { kind: "list"; ordered: boolean; items: string[] }
   | { kind: "code"; lang: string; text: string }
   | { kind: "table"; head: string[]; rows: string[][] }
   | { kind: "html"; text: string };
@@ -130,7 +131,24 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         }
         items.push(item);
       }
-      blocks.push({ kind: "list", items });
+      blocks.push({ kind: "list", ordered: false, items });
+    } else if (/^\d+\. /.test(line)) {
+      // GitHub numbers a list from whatever its first item says and ignores
+      // the rest, so only 1, 2, 3 reads the same there and here.
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i] ?? "")) {
+        const [, number = "", rest = ""] = /^(\d+)\. (.*)$/.exec(lines[i] ?? "") ?? [];
+        if (Number(number) !== items.length + 1)
+          refuse(i, "a numbered list that does not count from 1");
+        let item = rest;
+        i += 1;
+        while (i < lines.length && (lines[i] ?? "").startsWith("  ")) {
+          item += ` ${(lines[i] ?? "").trim()}`;
+          i += 1;
+        }
+        items.push(item);
+      }
+      blocks.push({ kind: "list", ordered: true, items });
     } else if (CAPTURE.test(line)) {
       // The centred capture blocks the docs use. They are the one HTML the
       // page shows, and they are rebuilt from an allowlist rather than
@@ -147,14 +165,14 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       });
     } else if (/^<[a-zA-Z!/]/.test(line)) {
       refuse(i, "HTML this page cannot show");
-    } else if (/^(\d+\.|>|\*|\+|#{4,})\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
+    } else if (/^(>|\*|\+|#{4,}|\d+\))\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
       refuse(i, "markdown this page cannot show");
     } else {
       const text: string[] = [];
       while (
         i < lines.length &&
         (lines[i] ?? "").trim() !== "" &&
-        !/^(#{1,3} |```|\||- )/.test(lines[i] ?? "") &&
+        !/^(#{1,3} |```|\||- |1\. )/.test(lines[i] ?? "") &&
         !CAPTURE.test(lines[i] ?? "")
       ) {
         text.push((lines[i] ?? "").trim());
@@ -289,9 +307,13 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
       case "paragraph":
         html.push(`<p>${text(block.text)}</p>`);
         break;
-      case "list":
-        html.push(`<ul>${block.items.map((item) => `<li>${text(item)}</li>`).join("")}</ul>`);
+      case "list": {
+        const tag = block.ordered ? "ol" : "ul";
+        html.push(
+          `<${tag}>${block.items.map((item) => `<li>${text(item)}</li>`).join("")}</${tag}>`,
+        );
         break;
+      }
       case "code":
         html.push(
           `<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`,
@@ -328,7 +350,7 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 .doc h3{margin:32px 0 8px;font-size:19px;font-weight:500;letter-spacing:-.015em;color:var(--ink)}
 .doc h2:first-child{margin-top:0}
 .doc p{margin:0 0 14px}
-.doc ul{margin:0 0 14px;padding-left:20px}
+.doc ul,.doc ol{margin:0 0 14px;padding-left:20px}
 .doc li+li{margin-top:6px}
 .doc li::marker{color:var(--ink-4)}
 .doc a{text-decoration:underline;text-decoration-color:var(--ink-4);text-underline-offset:3px}
