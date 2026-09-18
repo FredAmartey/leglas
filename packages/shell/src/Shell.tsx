@@ -2,8 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState }
 import { ThinkingOrb } from "thinking-orbs";
 
 import {
-  BranchOverlay,
-  ErrorOverlay,
   ICON_BUTTON,
   ROW_BUTTON,
   LiveDot,
@@ -13,7 +11,6 @@ import {
   PIcon,
   ShareGlyph,
   RenameForm,
-  SkeletonOverlay,
   Switch,
   Tip,
   Toasts,
@@ -117,6 +114,7 @@ import {
 } from "./agents/agent-api.js";
 import { McpConnectDialog } from "./agents/McpConnectDialog.js";
 import { StatusCard } from "./agents/StatusCard.js";
+import { Pane } from "./stage/Pane.js";
 import { ToolsPopover } from "./stage/ToolsPopover.js";
 import { FONTS } from "./ui/fonts.js";
 import { HelpOverlay } from "./HelpOverlay.js";
@@ -3558,163 +3556,51 @@ export function Shell({
         ref={attachStage}
       >
         {mounted.map((title) => (
-          <div
-            className={
-              !visible.includes(title)
-                ? "hidden"
-                : splitting
-                  ? `relative min-w-0 flex-1 overflow-auto ${
-                      title === compare ? "border-l border-[#232328]" : ""
-                    } ${
-                      scaling
-                        ? "flex flex-col items-center justify-center gap-2.5"
-                        : framed
-                          ? "flex min-h-full justify-center p-6"
-                          : ""
-                    }`
-                  : framed
-                    ? "flex min-h-full justify-center p-6"
-                    : "absolute inset-0"
-            }
-            key={title}
-            style={splitting ? { order: visible.indexOf(title) } : undefined}
-          >
-            {splitting && (
-              // Two panes need naming; one does not, because the rail already
-              // shows which is active.
-              // Scaled, the name belongs to its artboard and sits on top of
-              // it; floating at the top of the pane leaves it stranded above
-              // the space the letterboxing opens up.
-              <div
-                className={
-                  scaling
-                    ? "pointer-events-none z-10 flex justify-center"
-                    : "pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3"
-                }
-              >
-                <span className="rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur">
-                  {st.displayName(title)}
-                  {/* Say the scale rather than let it be guessed from the type
-                      looking small. The width is the useful half: it is what
-                      the design is actually being drawn at. */}
-                  {scaling && (
-                    <span className="ml-1.5 font-normal text-[#8E8E96]">
-                      {Math.round(designWidth)}px · {Math.round(paneScale * 100)}%
-                    </span>
-                  )}
-                </span>
-              </div>
-            )}
-            <div
-              className={
-                scaling
-                  ? // Its own artboard, so the room around it reads as canvas
-                    // rather than as a pane that failed to fill.
-                    "relative shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-                  : framed
-                    ? `relative h-[calc(100dvh-48px)] shrink-0 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_rgba(255,255,255,0.10)] transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
-                    : "relative size-full"
-              }
-              style={
-                scaling
-                  ? { height: boxHeight, width: boxWidth }
-                  : framed
-                    ? { width: st.prefs.viewport ?? undefined }
-                    : undefined
-              }
-            >
-              {/*
-                The frame keeps its own dimensions and is scaled as a whole, so
-                the app inside measures the width it was designed for. Media
-                queries answer against that width, not against the pane, which
-                is the entire point. Overlays stay outside this box: an error
-                worth reading is not worth reading at half size.
-              */}
-              <div
-                className={scaling ? "relative origin-top-left" : "relative size-full"}
-                style={
-                  scaling
-                    ? {
-                        height: frameHeight,
-                        transform: `scale(${paneScale})`,
-                        width: designWidth,
-                      }
-                    : undefined
-                }
-              >
-                {(() => {
-                  const branch = st.branchState(title);
-                  return branch !== null && branch.status !== "ready" ? (
-                    <BranchOverlay
-                      branch={st.previewFor(title)?.branch ?? title}
-                      onStart={() => st.startBranch(title)}
-                      state={branch}
-                    />
-                  ) : (
-                    <iframe
-                      className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
-                      key={paneIdentityFor(title)}
-                      onError={() => setErrored((current) => ({ ...current, [title]: true }))}
-                      onLoad={(event) => {
-                        const src = st.urlFor(title);
-                        const identity = event.currentTarget.dataset.previewIdentity;
-                        // Cross-origin previews expose only the event. Same-origin
-                        // previews must have left about:blank and produced a real
-                        // readable document before they are considered loaded.
-                        if (
-                          identity !== undefined &&
-                          (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
-                        ) {
-                          markPreviewReady(title, identity, event.currentTarget);
-                        }
-                      }}
-                      data-preview={title}
-                      data-preview-identity={paneIdentityFor(title)}
-                      src={st.urlFor(title)}
-                      title={`Preview: ${st.displayName(title)}`}
-                    />
-                  );
-                })()}
-                {!viewing && annotating && title === st.active ? (
-                  <AnnotateLayer
-                    notes={activeNotes}
-                    onExit={stopAnnotating}
-                    onForget={forgetNote}
-                    onKeep={(anchor, words) => keepNote(title, anchor, words)}
-                    onRevise={reviseNote}
-                    paneScale={paneScale}
-                    scaling={scaling}
-                    sent={notesSent}
-                    title={title}
-                  />
-                ) : null}
-              </div>
-              {st.branchState(title) !== null &&
-              st.branchState(title)?.status !== "ready" ? null : errored[title] ? (
-                <ErrorOverlay
-                  onReload={() => reloadPane(title)}
-                  reason={
-                    health.reachable || !appPanes.has(title)
-                      ? `${st.urlFor(title)} didn’t respond.`
-                      : "Your dev server stopped. This returns on its own once it is back."
-                  }
+          <Pane
+            annotate={
+              !viewing && annotating && title === st.active ? (
+                <AnnotateLayer
+                  notes={activeNotes}
+                  onExit={stopAnnotating}
+                  onForget={forgetNote}
+                  onKeep={(anchor, words) => keepNote(title, anchor, words)}
+                  onRevise={reviseNote}
+                  paneScale={paneScale}
+                  scaling={scaling}
+                  sent={notesSent}
+                  title={title}
                 />
-              ) : (
-                <SkeletonOverlay loaded={paneLoaded(title)} />
-              )}
-              {/* A pane that loaded before the server died keeps showing that
-                  render. Saying so is the difference between a stale preview
-                  and a lie — but only for panes the server rendered. A file
-                  preview is served by Leglas and is as current as ever. */}
-              {!health.reachable && paneLoaded(title) && appPanes.has(title) && (
-                <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
-                  <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">
-                    Stale — dev server stopped
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+              ) : null
+            }
+            boxHeight={boxHeight}
+            boxWidth={boxWidth}
+            branch={st.branchState(title)}
+            branchName={st.previewFor(title)?.branch ?? title}
+            busy={busy}
+            designWidth={designWidth}
+            errored={errored[title] === true}
+            frameHeight={frameHeight}
+            framed={framed}
+            fromApp={appPanes.has(title)}
+            identity={paneIdentityFor(title)}
+            key={title}
+            loaded={paneLoaded(title)}
+            name={st.displayName(title)}
+            onError={() => setErrored((current) => ({ ...current, [title]: true }))}
+            onReady={(identity, frame) => markPreviewReady(title, identity, frame)}
+            onReload={() => reloadPane(title)}
+            onStartBranch={() => st.startBranch(title)}
+            order={visible.indexOf(title)}
+            paneScale={paneScale}
+            scaling={scaling}
+            second={title === compare}
+            serverUp={health.reachable}
+            shown={visible.includes(title)}
+            splitting={splitting}
+            src={st.urlFor(title)}
+            title={title}
+            viewport={st.prefs.viewport}
+          />
         ))}
 
         <div
