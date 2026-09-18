@@ -127,6 +127,29 @@ describe("the reader", () => {
     expect(render(`# T\n\n${block}\n\n<p align="center"><i>Caption.</i></p>\n`)).toBe(`${block}\n<p align="center"><i>Caption.</i></p>`);
   });
 
+  test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {
+    expect(slug("Über die Schiene")).toBe("über-die-schiene");
+    expect(slug("What's `LEGLAS_NO_UPDATE_CHECK` for?")).toBe("whats-leglas_no_update_check-for");
+    expect(render("# T\n\n## Keys\n\n## Keys\n\n## Keys\n")).toBe(
+      '<h2 id="keys">Keys</h2>\n<h2 id="keys-1">Keys</h2>\n<h2 id="keys-2">Keys</h2>',
+    );
+  });
+
+  test("a pipe escaped inside a cell stays in the cell", () => {
+    expect(render("# T\n\n| a | b |\n| --- | --- |\n| `x \\| y` | z |\n")).toContain("<td><code>x | y</code></td><td>z</td>");
+  });
+
+  test("a line that starts with < is prose unless it opens a capture block", () => {
+    expect(render("# T\n\nfinishes in\n< 5 minutes.\n")).toBe("<p>finishes in &lt; 5 minutes.</p>");
+    expect(() => render("# T\n\n<div>raw</div>\n")).toThrow("HTML this page cannot show");
+    expect(() => render("# T\n\n<p align=\"center\">\n  <img src=\"x\">\n")).toThrow("a capture block that does not close");
+  });
+
+  test("an absolute path resolves from the repository root", () => {
+    expect(resolveLink("/docs/agents.md#mcp-server", page("guide"), pages)).toBe("../agents/#mcp-server");
+    expect(resolveLink("/SECURITY.md", page(""), pages)).toBe("https://github.com/FredAmartey/leglas/blob/main/SECURITY.md");
+  });
+
   test("refuses markdown the page cannot show, naming the line", () => {
     expect(() => render("# T\n\n1. a numbered list\n")).toThrow("x.md:3: markdown this page cannot show");
     expect(() => render("# T\n\n> a quote\n")).toThrow("x.md:3");

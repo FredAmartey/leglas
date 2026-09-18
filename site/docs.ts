@@ -118,18 +118,24 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         items.push(item);
       }
       blocks.push({ kind: "list", items });
-    } else if (line.startsWith("<")) {
+    } else if (CAPTURE.test(line)) {
+      // The centred capture blocks the docs use, passed through as written.
+      // They are the one HTML the page shows; any other tag is refused below
+      // rather than copied into the page unread.
       const html: string[] = [];
       while (i < lines.length && (lines[i] ?? "").trim() !== "") {
         html.push(lines[i] ?? "");
         i += 1;
       }
+      if (!/<\/p>\s*$/.test(html[html.length - 1] ?? "")) refuse(i - 1, "a capture block that does not close");
       blocks.push({ kind: "html", text: html.join("\n") });
+    } else if (/^<[a-zA-Z!/]/.test(line)) {
+      refuse(i, "HTML this page cannot show");
     } else if (/^(\d+\.|>|\*|\+|#{4,})\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
       refuse(i, "markdown this page cannot show");
     } else {
       const text: string[] = [];
-      while (i < lines.length && (lines[i] ?? "").trim() !== "" && !/^(#{1,3} |```|\||- |<)/.test(lines[i] ?? "")) {
+      while (i < lines.length && (lines[i] ?? "").trim() !== "" && !/^(#{1,3} |```|\||- )/.test(lines[i] ?? "") && !CAPTURE.test(lines[i] ?? "")) {
         text.push((lines[i] ?? "").trim());
         i += 1;
       }
@@ -139,12 +145,16 @@ export function parseBlocks(markdown: string, file: string): Block[] {
   return blocks;
 }
 
+/** A capture block opens with a paragraph tag; the docs centre their images that way. */
+const CAPTURE = /^<p[\s>]/;
+
+/** Cells split on pipes that are not escaped, the way GitHub reads `\|` inside a cell. */
 function cells(row: string): string[] {
   return row
     .replace(/^\|/, "")
     .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.trim().replaceAll("\\|", "|"));
 }
 
 /** GitHub's heading ids, so a link written for the repository resolves on the site too. */
@@ -152,7 +162,7 @@ export function slug(text: string): string {
   return text
     .toLowerCase()
     .replace(/`/g, "")
-    .replace(/[^\w\s-]/g, "")
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
     .trim()
     .replace(/\s+/g, "-");
 }
@@ -169,7 +179,7 @@ export function resolveLink(href: string, page: DocPage, pages: DocPage[]): stri
   const hash = href.indexOf("#");
   const [path, fragment] = hash === -1 ? [href, ""] : [href.slice(0, hash), href.slice(hash)];
   const up = page.slug === "" ? "./" : "../";
-  const inTree = posix.normalize(posix.join("docs", path));
+  const inTree = posix.normalize(path.startsWith("/") ? path.slice(1) : posix.join("docs", path));
   if (inTree.startsWith("docs/")) {
     const target = pages.find((candidate) => `docs/${candidate.file}` === inTree);
     if (target !== undefined) return `${up}${target.slug === "" ? "" : `${target.slug}/`}${fragment}`;
@@ -184,11 +194,17 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
   const text = (markdown: string): string =>
     inline(markdown.replace(LINK, (_, label: string, href: string) => `[${label}](${resolveLink(href, page, pages)})`));
   const html: string[] = [];
+  const seen = new Map<string, number>();
   for (const block of blocks) {
     switch (block.kind) {
-      case "heading":
-        html.push(`<h${block.level} id="${slug(block.text)}">${text(block.text)}</h${block.level}>`);
+      case "heading": {
+        const base = slug(block.text);
+        const count = seen.get(base) ?? 0;
+        seen.set(base, count + 1);
+        const id = count === 0 ? base : `${base}-${count}`;
+        html.push(`<h${block.level} id="${id}">${text(block.text)}</h${block.level}>`);
         break;
+      }
       case "paragraph":
         html.push(`<p>${text(block.text)}</p>`);
         break;
