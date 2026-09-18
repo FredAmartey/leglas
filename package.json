@@ -10,6 +10,8 @@
     "test": "pnpm build && vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "pnpm build && pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "build": "pnpm -r build",
     "api:update": "node scripts/api-surface.ts",
     "site": "node site/build.ts"
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "ajv": "^8.20.0",
+    "prettier": "^3.9.8",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }

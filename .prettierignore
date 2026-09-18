@@ -1,0 +1,16 @@
+# Generated or vendored
+node_modules
+dist
+pnpm-lock.yaml
+api-surface.txt
+schemas
+# Copies of other commits and job output; build.ts regenerates the tasks from git
+evals/tasks
+evals/jobs
+evals/results
+# Prose is wrapped by hand, and CHANGELOG.md is read by a parser that expects its shape
+*.md
+# Local
+.claude
+.vercel
+.leglas
