@@ -279,6 +279,14 @@ describe("asking for a change", () => {
   });
 });
 
+describe("what assistive technology is told", () => {
+  test("attaching an image is one control, the button, and the file input behind it is not announced", async () => {
+    await mount({});
+    expect(find('form button[aria-label="Attach a reference image"]')).not.toBeNull();
+    expect(find('form input[type="file"]').getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
 describe("somebody else's rail", () => {
   test("a viewer can look, flip and compare, and is given nothing that changes it", async () => {
     const sent = await mount({

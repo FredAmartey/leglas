@@ -20,8 +20,11 @@ export function AttachButton({
 }) {
   return (
     <>
+      {/* Hidden from assistive technology as well as from sight: the button
+          below is the control, and a second, unnamed one beside it is noise. */}
       <input
         accept={REFERENCE_TYPES.join(",")}
+        aria-hidden="true"
         className="sr-only"
         multiple
         onChange={(event) => {
