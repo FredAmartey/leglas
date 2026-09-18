@@ -40,7 +40,7 @@ describe("releaseNotes", () => {
   });
 
   test("the real 1.0.0 entry has a title and a body", () => {
-    const notes = releaseNotes(readFileSync(join(import.meta.dirname, "CHANGELOG.md"), "utf8"), "1.0.0");
+    const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), "1.0.0");
     expect(notes?.title).toBe("Share the rail with someone who has no repo");
     expect(notes?.body).toContain("### Added");
     expect(notes?.body).toContain("**Share what is on your rail with someone who has no repo.**");
@@ -61,7 +61,7 @@ describe("releasesIndex", () => {
 
 describe("release-notes.ts command", () => {
   const script = join(import.meta.dirname, "release-notes.ts");
-  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "CHANGELOG.md"), "utf8"), "1.0.0")!;
+  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), "1.0.0")!;
 
   test.each([[[], "body"], [["--title"], "title"]] as const)("prints %s from any working directory", (flags, key) => {
     const result = spawnSync(process.execPath, [script, "1.0.0", ...flags], { encoding: "utf8", cwd: tmpdir() });

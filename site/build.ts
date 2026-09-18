@@ -37,7 +37,7 @@ export function buildSite(root: string, out: string): string[] {
 }
 
 if (import.meta.main) {
-  const root = import.meta.dirname;
+  const root = join(import.meta.dirname, "..");
   for (const path of buildSite(root, join(root, "dist", "site"))) {
     process.stdout.write(`${path}\n`);
   }

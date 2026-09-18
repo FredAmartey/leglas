@@ -17,7 +17,7 @@ import { describe, expect, test } from "vitest";
  * network fails for reasons that have nothing to do with the change under it.
  */
 
-const root = import.meta.dirname;
+const root = join(import.meta.dirname, "..");
 
 const read = (path: string): string => readFileSync(join(root, path), "utf8");
 const readJson = (path: string): Record<string, unknown> =>

@@ -18,7 +18,7 @@ import { SNAPSHOT, publicSurface, resolve, topLevelDeclarations } from "./api-su
  */
 describe("the public API surface", () => {
   test("matches the snapshot", () => {
-    const root = import.meta.dirname;
+    const root = join(import.meta.dirname, "..");
     const recorded = readFileSync(join(root, SNAPSHOT), "utf8");
 
     expect(

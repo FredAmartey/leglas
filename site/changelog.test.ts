@@ -6,10 +6,10 @@ import { describe, expect, test } from "vitest";
 
 import { anchor, inline, longDate, parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
-import { buildSite } from "./site.ts";
+import { buildSite } from "./build.ts";
 import { releasesIndex } from "./release-notes.ts";
 
-const root = import.meta.dirname;
+const root = join(import.meta.dirname, "..");
 
 /**
  * The page is made from CHANGELOG.md and nothing else, so the file has to

@@ -7,9 +7,9 @@ import { describe, expect, test } from "vitest";
 import { parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
 import { CAPTURES, renderHome } from "./home.ts";
-import { buildSite } from "./site.ts";
+import { buildSite } from "./build.ts";
 
-const root = import.meta.dirname;
+const root = join(import.meta.dirname, "..");
 
 describe("the site", () => {
   test("the homepage carries the command, the captures and the way to the changelog", () => {

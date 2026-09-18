@@ -1,12 +1,12 @@
 import { REPO, bar, document, foot, type Assets } from "./chrome.ts";
 
 /**
- * The homepage. Everything on it is in the README at greater length; this is
+ * The homepage. Everything on it is in the README and docs at greater length; this is
  * the short form, in the same chrome as the changelog, for someone arriving
  * from a link rather than from npm.
  */
 
-/** The README's own captures, copied beside the page by site.ts. */
+/** The README's own captures, copied beside the page by build.ts. */
 export const CAPTURES = ["rail-single.jpg", "compare-artboards.jpg"] as const;
 
 const STYLES = `
@@ -119,7 +119,7 @@ ${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
 </div>
 </section>
 </main>
-${foot(`The <a href="${REPO}#readme">README</a> says all of this at length.`)}`;
+${foot(`The <a href="${REPO}/tree/main/docs">docs</a> say all of this at length.`)}`;
   return document({
     title: "Leglas",
     description: "Compare design directions inside your own running app.",

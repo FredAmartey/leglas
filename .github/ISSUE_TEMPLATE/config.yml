@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/FredAmartey/leglas/tree/main/docs
+    about: Setting up a project, using the interface, sharing a rail and working with agents.
+  - name: Changelog
+    url: https://leglas.vercel.app/changelog/
+    about: What each release changed.
+  - name: Report a vulnerability
+    url: https://github.com/FredAmartey/leglas/security/advisories/new
+    about: Privately, rather than in an issue.

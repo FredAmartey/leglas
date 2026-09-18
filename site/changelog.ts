@@ -6,8 +6,8 @@ import { REPO, bar, document, escape, foot, type Assets } from "./chrome.ts";
  * The changelog is the record: every release edits it, a cut dates it, and it
  * is what a GitHub or npm reader already sees. The page is made from it and
  * from nothing else, so there is one text to keep true and no second copy to
- * drift. `pnpm site` (site.ts) writes the page under dist/site; the Pages
- * workflow does the same on main and publishes what it wrote.
+ * drift. `pnpm site` (build.ts) writes the page under dist/site, and Vercel
+ * runs the same build on every push.
  *
  * The reader understands the markdown this file actually uses rather than
  * markdown in general: a release heading, a group heading, a bullet with a
