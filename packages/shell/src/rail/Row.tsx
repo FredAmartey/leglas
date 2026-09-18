@@ -18,6 +18,213 @@ function rowIdent(title: string): string {
 }
 
 /**
+ * What is happening to a direction, in the corner of its row. One thing at a
+ * time, the most pressing first: being carried by a drag, being compared,
+ * being worked on, rendering the same as another, being checked, and at rest
+ * its first tag.
+ */
+function RowBadge({
+  aside,
+  carrying,
+  comparing,
+  same,
+  scanning,
+  tag,
+  working,
+}: {
+  /** How the badge steps aside for the row's buttons, a drag or a rename. */
+  aside: string;
+  /** Rows folded under this one while it is dragged. */
+  carrying: number;
+  comparing: boolean;
+  same: readonly string[] | undefined;
+  scanning: boolean;
+  tag: string | undefined;
+  working: boolean;
+}) {
+  return carrying > 0 ? (
+    <span
+      className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal tabular-nums text-[#E8E8EA] ${aside}`}
+    >
+      +{carrying}
+    </span>
+  ) : comparing ? (
+    <span
+      className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${aside}`}
+    >
+      Comparing
+    </span>
+  ) : working ? (
+    <span
+      className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
+    >
+      <ThinkingOrb aria-label="Working on direction" size={20} state={MOOD} theme="dark" />
+      Cooking
+    </span>
+  ) : same ? (
+    <Tip
+      label={`Rendered structure, layout, visual styles, media and vector geometry match ${same?.join(", ")} in a 1280 × 800 comparison.`}
+    >
+      <span
+        className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${aside}`}
+      >
+        Same as {same?.length === 1 ? same?.[0] : `${same?.length} others`}
+      </span>
+    </Tip>
+  ) : scanning ? (
+    <span
+      className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
+    >
+      <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
+      Cooking
+    </span>
+  ) : (
+    tag !== undefined && (
+      <span
+        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${aside}`}
+        style={tagTone(tag)}
+      >
+        {tag}
+      </span>
+    )
+  );
+}
+
+/**
+ * The buttons that act on a direction, floating over the end of its row and
+ * only there under the pointer or the keyboard's focus.
+ */
+function RowActions({
+  comparing,
+  dragging,
+  onToggleCompare,
+  renaming,
+  st,
+  title,
+  viewing,
+}: {
+  comparing: boolean;
+  dragging: boolean;
+  onToggleCompare: () => void;
+  /** This row's name is being edited, so the buttons stand down. */
+  renaming: boolean;
+  st: ShellState;
+  title: string;
+  viewing: boolean;
+}) {
+  return (
+    <div
+      className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
+        renaming ? "invisible" : ""
+      } ${
+        dragging
+          ? ""
+          : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
+      }`}
+    >
+      {/* Choosing the second direction belongs where the directions are.
+        The active row is the left pane, so this only appears on the
+        others. */}
+      {title !== st.active && (
+        <Tip label={comparing ? "Stop comparing" : `Compare with ${st.displayName(st.active)}`}>
+          <button
+            aria-label={
+              comparing
+                ? `Stop comparing ${st.displayName(title)}`
+                : `Compare ${st.displayName(title)} with ${st.displayName(st.active)}`
+            }
+            aria-pressed={comparing}
+            className={`${ICON_BUTTON} ${comparing ? "text-white" : ""}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCompare();
+            }}
+            type="button"
+          >
+            <PIcon d={P.split} />
+          </button>
+        </Tip>
+      )}
+      {/* The reflex copy: someone says "show me" and this goes into the
+        message. The reference is the deliberate one, and it lives here
+        too now: both copies are of this direction, so both belong on
+        its row rather than one of them squatting under the composer.
+        None of the four for a viewer: a link would only work in their
+        own browser, and the rest change a rail that is not theirs. */}
+      {!viewing && (
+        <>
+          <Tip
+            label={
+              st.copied?.kind === "link" && st.copied.title === title
+                ? "Copied"
+                : "Copy preview link"
+            }
+          >
+            <button
+              aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
+              className={ICON_BUTTON}
+              onClick={() => st.copyLink(title)}
+              type="button"
+            >
+              {st.copied?.kind === "link" && st.copied.title === title ? (
+                <span className="text-[10px] text-emerald-300">✓</span>
+              ) : (
+                <PIcon d={P.link} />
+              )}
+            </button>
+          </Tip>
+          <Tip
+            label={
+              st.copied?.kind === "reference" && st.copied.title === title ? (
+                "Copied"
+              ) : (
+                <>
+                  <span className="block">Copy a detailed reference.</span>
+                  <span className="block">For a teammate or an agent.</span>
+                </>
+              )
+            }
+          >
+            <button
+              aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
+              className={ICON_BUTTON}
+              onClick={() => st.copyReference(title)}
+              type="button"
+            >
+              {st.copied?.kind === "reference" && st.copied.title === title ? (
+                <span className="text-[10px] text-emerald-300">✓</span>
+              ) : (
+                <PIcon d={P.copy} size={12} />
+              )}
+            </button>
+          </Tip>
+          <Tip label="Rename">
+            <button
+              aria-label={`Rename the ${st.displayName(title)} direction`}
+              className={ICON_BUTTON}
+              onClick={() => st.startRename(title)}
+              type="button"
+            >
+              <PIcon d={P.pencil} size={12} />
+            </button>
+          </Tip>
+          <Tip label="Remove from list">
+            <button
+              aria-label={`Remove the ${st.displayName(title)} direction from the list`}
+              className={ICON_BUTTON}
+              onClick={() => st.hide(title)}
+              type="button"
+            >
+              <PIcon d={P.trash} size={12} />
+            </button>
+          </Tip>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * One direction in the rail: its place in the lineage, its name and note, the
  * badge that says what is happening to it, and the buttons that act on it.
  *
@@ -342,62 +549,15 @@ export function RailRow({
                   </span>
                 </span>
               )}
-              {carrying > 0 ? (
-                <span
-                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal tabular-nums text-[#E8E8EA] ${badgeAside}`}
-                >
-                  +{carrying}
-                </span>
-              ) : comparing ? (
-                <span
-                  className={`shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#E8E8EA] ${badgeAside}`}
-                >
-                  Comparing
-                </span>
-              ) : isWorking ? (
-                <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
-                >
-                  <ThinkingOrb
-                    aria-label="Working on direction"
-                    size={20}
-                    state={MOOD}
-                    theme="dark"
-                  />
-                  Cooking
-                </span>
-              ) : same ? (
-                <Tip
-                  label={`Rendered structure, layout, visual styles, media and vector geometry match ${same?.join(", ")} in a 1280 × 800 comparison.`}
-                >
-                  <span
-                    className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
-                  >
-                    Same as {same?.length === 1 ? same?.[0] : `${same?.length} others`}
-                  </span>
-                </Tip>
-              ) : scanning ? (
-                <span
-                  className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
-                >
-                  <ThinkingOrb
-                    aria-label="Checking for duplicates"
-                    size={20}
-                    state={MOOD}
-                    theme="dark"
-                  />
-                  Cooking
-                </span>
-              ) : (
-                preview?.tags[0] && (
-                  <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-normal ${badgeAside}`}
-                    style={tagTone(preview.tags[0])}
-                  >
-                    {preview.tags[0]}
-                  </span>
-                )
-              )}
+              <RowBadge
+                aside={badgeAside}
+                carrying={carrying}
+                comparing={comparing}
+                same={same}
+                scanning={scanning}
+                tag={preview?.tags[0]}
+                working={isWorking}
+              />
             </span>
             {/* A refused name takes this line rather than adding one. The two
                 are never both worth reading, and swapping them keeps the row
@@ -424,114 +584,15 @@ export function RailRow({
           </span>
         </div>
       </RowCard>
-      <div
-        className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
-          renamingThis ? "invisible" : ""
-        } ${
-          dragging
-            ? ""
-            : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
-        }`}
-      >
-        {/* Choosing the second direction belongs where the directions are.
-            The active row is the left pane, so this only appears on the
-            others. */}
-        {title !== st.active && (
-          <Tip label={comparing ? "Stop comparing" : `Compare with ${st.displayName(st.active)}`}>
-            <button
-              aria-label={
-                comparing
-                  ? `Stop comparing ${st.displayName(title)}`
-                  : `Compare ${st.displayName(title)} with ${st.displayName(st.active)}`
-              }
-              aria-pressed={comparing}
-              className={`${ICON_BUTTON} ${comparing ? "text-white" : ""}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleCompare();
-              }}
-              type="button"
-            >
-              <PIcon d={P.split} />
-            </button>
-          </Tip>
-        )}
-        {/* The reflex copy: someone says "show me" and this goes into the
-            message. The reference is the deliberate one, and it lives here
-            too now: both copies are of this direction, so both belong on
-            its row rather than one of them squatting under the composer.
-            None of the four for a viewer: a link would only work in their
-            own browser, and the rest change a rail that is not theirs. */}
-        {!viewing && (
-          <>
-            <Tip
-              label={
-                st.copied?.kind === "link" && st.copied.title === title
-                  ? "Copied"
-                  : "Copy preview link"
-              }
-            >
-              <button
-                aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
-                className={ICON_BUTTON}
-                onClick={() => st.copyLink(title)}
-                type="button"
-              >
-                {st.copied?.kind === "link" && st.copied.title === title ? (
-                  <span className="text-[10px] text-emerald-300">✓</span>
-                ) : (
-                  <PIcon d={P.link} />
-                )}
-              </button>
-            </Tip>
-            <Tip
-              label={
-                st.copied?.kind === "reference" && st.copied.title === title ? (
-                  "Copied"
-                ) : (
-                  <>
-                    <span className="block">Copy a detailed reference.</span>
-                    <span className="block">For a teammate or an agent.</span>
-                  </>
-                )
-              }
-            >
-              <button
-                aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
-                className={ICON_BUTTON}
-                onClick={() => st.copyReference(title)}
-                type="button"
-              >
-                {st.copied?.kind === "reference" && st.copied.title === title ? (
-                  <span className="text-[10px] text-emerald-300">✓</span>
-                ) : (
-                  <PIcon d={P.copy} size={12} />
-                )}
-              </button>
-            </Tip>
-            <Tip label="Rename">
-              <button
-                aria-label={`Rename the ${st.displayName(title)} direction`}
-                className={ICON_BUTTON}
-                onClick={() => st.startRename(title)}
-                type="button"
-              >
-                <PIcon d={P.pencil} size={12} />
-              </button>
-            </Tip>
-            <Tip label="Remove from list">
-              <button
-                aria-label={`Remove the ${st.displayName(title)} direction from the list`}
-                className={ICON_BUTTON}
-                onClick={() => st.hide(title)}
-                type="button"
-              >
-                <PIcon d={P.trash} size={12} />
-              </button>
-            </Tip>
-          </>
-        )}
-      </div>
+      <RowActions
+        comparing={comparing}
+        dragging={dragging}
+        onToggleCompare={onToggleCompare}
+        renaming={renamingThis}
+        st={st}
+        title={title}
+        viewing={viewing}
+      />
     </li>
   );
 }

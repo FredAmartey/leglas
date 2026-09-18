@@ -949,6 +949,8 @@ export function Shell({
     rows: st.rows,
   });
   const visible = paneTitles({ active: st.active, compare, split });
+  /** Where each direction on the stage sits, left to right. */
+  const stagePlace = new Map(visible.map((title, index) => [title, index]));
   const splitting = visible.length > 1;
   // Keep only the visible stage alive. An exported app can carry a full client
   // runtime, so retaining every previously opened direction multiplies both
@@ -2622,12 +2624,12 @@ export function Shell({
             onReady={(identity, frame) => markPreviewReady(title, identity, frame)}
             onReload={() => reloadPane(title)}
             onStartBranch={() => st.startBranch(title)}
-            order={visible.indexOf(title)}
+            order={stagePlace.get(title) ?? -1}
             paneScale={paneScale}
             scaling={scaling}
             second={title === compare}
             serverUp={health.reachable}
-            shown={visible.includes(title)}
+            shown={stagePlace.has(title)}
             splitting={splitting}
             src={st.urlFor(title)}
             title={title}

@@ -4,12 +4,58 @@ import type { Prefs } from "../prefs.js";
 import { SharePanel } from "../share/SharePanel.js";
 import { totalViewers, viewersLine } from "../share/share.js";
 import { useShare } from "../share/useShare.js";
-import type { Preview } from "../types.js";
+import type { Preview, UpdateStatus } from "../types.js";
 import { LiveDot, Mark, P, PIcon, ShareGlyph, Tip, Wordmark } from "../ui/kit.js";
 import type { Toast } from "../ui/toasts.js";
 import { UpdatePanel } from "../update/UpdatePanel.js";
 import { chipLabel, hasNews } from "../update/update.js";
 import { useUpdate } from "../update/useUpdate.js";
+
+/**
+ * The version, said quietly beside the name. It brightens and wears a dot when
+ * a newer Leglas exists, and opens the one place to bring it in.
+ */
+function VersionChip({
+  buttonRef,
+  news,
+  onToggle,
+  open,
+  status,
+}: {
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  news: boolean;
+  onToggle: () => void;
+  open: boolean;
+  status: UpdateStatus;
+}) {
+  return (
+    <Tip label={chipLabel(status)}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={
+          news
+            ? `Leglas ${status.version}. ${chipLabel(status)}. Open updates`
+            : `Leglas ${status.version}. Open updates`
+        }
+        className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
+          news || open ? "text-[#D1D5DB] hover:text-white" : "text-[#84848C] hover:text-[#D1D5DB]"
+        }`}
+        onClick={onToggle}
+        ref={buttonRef}
+        type="button"
+      >
+        {status.version}
+        {news && (
+          <span
+            aria-hidden
+            className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
+          />
+        )}
+      </button>
+    </Tip>
+  );
+}
 
 /**
  * The top of the rail: the name, the version and whether a newer one exists,
@@ -61,36 +107,16 @@ export function RailHeader({
           place to bring it in. A viewer sees the sharer's Leglas, not
           their own, so they get no chip. */}
         {!viewing && updates.status !== null && (
-          <Tip label={chipLabel(updates.status)}>
-            <button
-              aria-expanded={updateOpen}
-              aria-haspopup="dialog"
-              aria-label={
-                news
-                  ? `Leglas ${updates.status.version}. ${chipLabel(updates.status)}. Open updates`
-                  : `Leglas ${updates.status.version}. Open updates`
-              }
-              className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
-                news || updateOpen
-                  ? "text-[#D1D5DB] hover:text-white"
-                  : "text-[#84848C] hover:text-[#D1D5DB]"
-              }`}
-              onClick={() => {
-                setShareOpen(false);
-                setUpdateOpen((open) => !open);
-              }}
-              ref={updateButtonRef}
-              type="button"
-            >
-              {updates.status.version}
-              {news && (
-                <span
-                  aria-hidden
-                  className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
-                />
-              )}
-            </button>
-          </Tip>
+          <VersionChip
+            buttonRef={updateButtonRef}
+            news={news}
+            onToggle={() => {
+              setShareOpen(false);
+              setUpdateOpen((open) => !open);
+            }}
+            open={updateOpen}
+            status={updates.status}
+          />
         )}
       </span>
       <span className="flex shrink-0 items-center gap-0.5">
