@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { expect, test } from "vitest";
@@ -30,4 +31,24 @@ const committed = (): string[] => {
 
 test("every committed page of the manual is one the site knows to serve", () => {
   expect([...committed()].sort()).toEqual(["README", ...PAGES].sort());
+});
+
+/**
+ * The cost of naming the pages in code is a second list: the index a reader
+ * actually sees. Two lists drift, and this one drifts quietly, since a page
+ * missing from the index is still built and still reachable from every other
+ * page's nav. Nobody notices until somebody opens the manual at the front.
+ *
+ * Asking where each name appears in the file, rather than which links the
+ * file holds, keeps this out of the business of parsing markdown: that was
+ * tried, and every round of it found another shape that dropped a page.
+ */
+test("the index mentions every page, in the order the site shows them", () => {
+  const index = readFileSync(join(root, "docs/README.md"), "utf8");
+  const at = PAGES.map((page) => ({ page, index: index.indexOf(`${page}.md`) }));
+
+  expect(at.filter((entry) => entry.index === -1).map((entry) => entry.page)).toEqual([]);
+  expect(at.map((entry) => entry.page)).toEqual(
+    [...at].sort((a, b) => a.index - b.index).map((entry) => entry.page),
+  );
 });

@@ -44,7 +44,7 @@ const page = (name: string): DocPage => {
  * where a new construct would first appear.
  */
 describe("docs/", () => {
-  test("the index leads and the pages follow the order it links them in", () => {
+  test("the index leads and the pages follow in the order the manual names them", () => {
     expect(pages[0]?.slug).toBe("");
     expect(pages.slice(1).map((entry) => entry.slug)).toEqual([
       "guide",
