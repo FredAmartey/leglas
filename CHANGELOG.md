@@ -16,6 +16,16 @@ it was about.
 
 ### Fixed
 
+- **A direction's card shows when you hover its row.** A direction made
+  from another one, or from something you asked for, carries a card that
+  says where it came from, and hovering its row in the rail is meant to
+  open it beside the row. Since 0.9.0 it opened and was never drawn. The
+  rail fades its top and bottom edges with a mask, and a mask hides
+  everything inside it that reaches past its box, which is exactly where
+  the card opens: to the right, over the stage. Every tip now draws on the
+  interface as a whole, so nothing a row sits inside can cut it off.
+  (`leglas`)
+
 - **A screen reader is told about the attach button once, not twice.** The
   button that attaches a reference image sits in front of a hidden file
   input, and that input carried no name of its own, so it was announced as a
