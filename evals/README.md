@@ -5,10 +5,13 @@ from this repository's own history. Each task is a bug that was really fixed
 here: the agent gets the repo as it was just before the fix, a bug report,
 and a working toolchain. The tests the fix added or changed stay hidden and
 decide the score afterwards, along with `pnpm build` and `pnpm -r typecheck`.
-The verifier refuses a run that touched `vitest.config.ts` or the package
-manifests, and checks by name that every hidden file was collected and
-passed, since a green exit code is also what a run that collected nothing
-returns.
+The verifier refuses a run in which `vitest.config.ts` or the package
+manifests differ from copies kept beside the hidden tests, and checks by
+name that every hidden file was collected and passed, since a green exit
+code is also what a run that collected nothing returns. It runs inside the
+agent's own container, as Harbor verifiers do, so an agent that rewrote the
+test runner itself is not defended against: the benchmark measures agents
+fixing bugs, not agents attacking the scorer.
 
 Harbor is the harness behind Terminal-Bench 2.0. It builds each task's
 container, installs the agent under test inside it, runs the instruction,

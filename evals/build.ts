@@ -17,6 +17,9 @@ import { dirname, join } from "node:path";
 const root = join(import.meta.dirname, "..");
 const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf8"));
 
+/** The runner's own configuration and the manifests: test.sh scores 0 if any differ from the base state. */
+const GUARDED = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"];
+
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
@@ -34,6 +37,15 @@ for (const task of manifest.tasks) {
     writeFileSync(target, git("show", `${task.fix}:${f}`));
   }
   writeFileSync(join(dir, "tests/files.txt"), tests.join("\n") + "\n");
+
+  // Baseline copies of the files the verifier refuses changes to. They sit
+  // beside the hidden tests, which the agent cannot reach, rather than in the
+  // tree's own git, which it can rewrite.
+  for (const f of GUARDED) {
+    const target = join(dir, "tests/baseline", f);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, git("show", `${parent}:${f}`));
+  }
   writeFileSync(join(dir, "tests/test.sh"), readFileSync(join(root, "evals/templates/test.sh"), "utf8"), { mode: 0o755 });
   writeFileSync(join(dir, "tests/collected.mjs"), readFileSync(join(root, "evals/templates/collected.mjs"), "utf8"));
 
