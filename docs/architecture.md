@@ -101,8 +101,10 @@ with tests.
 At the top, `App.tsx` reads the config and decides between the interface, a
 notice and a share that has ended. `Shell.tsx` is the rail and the stage.
 `useShellState.ts` is the behaviour under them: selection, search, rename
-and remove, the keyboard, resizing and which panes are mounted. `types.ts`,
-`prefs.ts`, `keymap.ts` and `naming.ts` are shared by all of it.
+and remove, the keyboard, resizing and which panes are mounted. `reference.ts`
+is the text a copied direction carries, which has nothing to do with the
+images in `references/`. `types.ts`, `prefs.ts`, `keymap.ts` and `naming.ts`
+are shared by all of it.
 
 ## Where state lives
 

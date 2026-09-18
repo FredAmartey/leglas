@@ -15,7 +15,7 @@ import { railInsets } from "./lineage/Gutter.js";
 import { copyText } from "./ui/clipboard.js";
 import { resolveKey } from "./keymap.js";
 import { checkName } from "./naming.js";
-import { absoluteUrl, referenceText } from "./references/reference.js";
+import { absoluteUrl, referenceText } from "./reference.js";
 import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./preview/preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./ui/toasts.js";
 import { adoptLayout, viewerPrefsRaw } from "./share/share.js";
