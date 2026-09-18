@@ -202,6 +202,46 @@ export function waitingLabel(waiting: AgentWaiting): string {
 }
 
 /**
+ * The card's two lines, worked out here rather than in nested ternaries down
+ * in the markup. The headline says what happened; the detail says the one
+ * useful thing about it, which for a failure is the server's own verdict and
+ * never the agent's raw output.
+ */
+export function cardHeadline(card: RequestCard): string {
+  return card.kind === "running"
+    ? card.stopping
+      ? `Stopping ${card.name}`
+      : `${card.name} is on it`
+    : card.kind === "queued"
+      ? card.count === 1
+        ? "Change queued"
+        : `${card.count} changes queued`
+      : card.kind === "picked-up"
+        ? "Your agent is on it"
+        : card.kind === "stopped"
+          ? "You stopped that change"
+          : "That change failed";
+}
+
+export function cardDetail(card: RequestCard): string | null {
+  return card.kind === "running"
+    ? card.stopping
+      ? "waiting for it to exit"
+      : card.waiting !== null
+        ? waitingLabel(card.waiting)
+        : (card.activity ?? card.title)
+    : card.kind === "queued"
+      ? card.attended
+        ? "your agent picks it up next"
+        : "pick who runs your changes"
+      : card.kind === "failed"
+        ? (card.reason ?? card.title)
+        : card.kind === "stopped"
+          ? card.title
+          : null;
+}
+
+/**
  * Seconds under a minute, then whole minutes with seconds. Runs are minutes
  * long at most, so hours would be dressing the format up for a case the
  * cancel button exists to prevent.

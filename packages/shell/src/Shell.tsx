@@ -19,7 +19,7 @@ import {
   Wordmark,
 } from "./ui/kit.js";
 import { copyText } from "./ui/clipboard.js";
-import { searchCap, shortcutList } from "./keymap.js";
+import { searchCap } from "./keymap.js";
 import { MOOD } from "./ui/orb.js";
 import { FALLBACK_MS, liveConnection } from "./net/live.js";
 import { startPoll } from "./net/poll.js";
@@ -97,10 +97,8 @@ import type { Preview, ViewerInfo } from "./types.js";
 import {
   changingRequestTitles,
   composerAgent,
-  formatElapsed,
   notesAwaitingChange,
   requestCard,
-  waitingLabel,
   workingRequestTitles,
   type AgentEffort,
   type AgentStatus,
@@ -117,58 +115,13 @@ import {
   type AgentsPayload,
 } from "./agents/agent-api.js";
 import { McpConnectDialog } from "./agents/McpConnectDialog.js";
-
-/**
- * A tip that is only there when there is something to say.
- *
- * The rail asks for a card on every row and gets one on the few rows that
- * record where they came from. Wrapping unconditionally and letting the label
- * be null would open an empty bubble on every hover, which is how a surface
- * teaches people to ignore it.
- */
-function HoverCard({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
-  if (label === null) return <>{children}</>;
-  return (
-    <Tip label={label} side="right" wide>
-      {children}
-    </Tip>
-  );
-}
-
-/**
- * What the rail cannot fit: the note in full, and the origin under a rule.
- *
- * The note is repeated deliberately. It is clamped to two lines in the row,
- * and the moment someone hovers a row to ask what it is, the truncated half
- * is the half they wanted. `basedOn` holds the parent's title as it was at
- * registration, so it is resolved through the same rename map the rail uses
- * or a renamed parent is named twice, differently, on one screen.
- */
-function cardFor(
-  preview: Preview | undefined,
-  name: string,
-  displayName: (title: string) => string,
-): React.ReactNode {
-  const origin = provenanceOf(preview);
-  if (origin === null) return null;
-
-  return (
-    <>
-      <span className="block text-white">{name}</span>
-      {preview?.note ? (
-        <span className="mt-0.5 block font-normal text-[#D1D5DB]">{preview.note}</span>
-      ) : null}
-      <span className="mt-1.5 block border-t border-white/10 pt-1.5 font-normal text-[#84848C]">
-        {origin.basedOn === null ? null : (
-          <span className="block">Variant of {displayName(origin.basedOn)}</span>
-        )}
-        {origin.askedFor === null ? null : (
-          <span className="mt-0.5 block">You asked for “{origin.askedFor}”</span>
-        )}
-      </span>
-    </>
-  );
-}
+import { StatusCard } from "./agents/StatusCard.js";
+import { HelpOverlay } from "./HelpOverlay.js";
+import { DeleteRemovedDialog } from "./rail/DeleteRemovedDialog.js";
+import { RowCard } from "./rail/RowCard.js";
+import { Search } from "./rail/Search.js";
+import { tagTone } from "./rail/tags.js";
+import { ViewerBanner } from "./share/ViewerBanner.js";
 
 /**
  * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
@@ -184,23 +137,6 @@ const FONTS = [
   { key: "outfit", label: "Outfit", stack: "var(--font-outfit)" },
   { key: "geist", label: "Geist", stack: "var(--font-geist)" },
 ] as const;
-
-/**
- * Tag pills colour themselves from their text: bright accents spaced around
- * the wheel, all at the same saturation so no tag reads as more important
- * than another. The same text lands on the same colour every session, so
- * nobody configures a palette. Amber is left out; it means "duplicate" here.
- */
-const TAG_TONES = ["#34D399", "#38BDF8", "#818CF8", "#C084FC", "#FB7185", "#FB923C"] as const;
-
-function tagTone(tag: string) {
-  let hash = 0;
-  for (const char of tag) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  const tone = TAG_TONES[Math.abs(hash) % TAG_TONES.length] ?? TAG_TONES[0];
-  // Text at full strength on a 13% wash of itself, so the pill glows a
-  // little against the dark rail instead of sitting flat on it.
-  return { backgroundColor: `${tone}22`, color: tone };
-}
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -249,202 +185,6 @@ const EFFORT_LABELS: Record<AgentEffort, string> = {
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const SEARCH_CAP = searchCap(IS_MAC);
-
-/**
- * The keymap, on ? and from the tools popover.
- *
- * It reads SHORTCUTS rather than restating the bindings, so the list cannot
- * describe a key that no longer does anything. Defined here rather than inside
- * Shell so it is not a new component type on every render.
- */
-function HelpOverlay({
-  mac,
-  onClose,
-  viewer,
-}: {
-  mac: boolean;
-  onClose: () => void;
-  viewer: boolean;
-}) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const shortcuts = shortcutList(mac, viewer);
-
-  useEffect(() => {
-    const returnTo = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      returnTo?.focus?.();
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        aria-label="Keyboard shortcuts"
-        aria-modal="true"
-        className="w-full max-w-sm rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl focus:outline-none"
-        ref={panelRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <span className="block pb-3 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
-          Keyboard
-        </span>
-        <dl className="flex flex-col gap-2.5">
-          {shortcuts.map((shortcut) => (
-            <div className="flex items-baseline justify-between gap-4" key={shortcut.label}>
-              <dt className="flex shrink-0 items-baseline gap-1">
-                {shortcut.keys.map((cap, index) => (
-                  <span className="flex items-baseline gap-1" key={cap}>
-                    {index > 0 && shortcut.join ? (
-                      <span className="text-[10px] text-[#84848C]">{shortcut.join}</span>
-                    ) : null}
-                    <kbd className="rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[11px] text-[#E8E8EA]">
-                      {cap}
-                    </kbd>
-                  </span>
-                ))}
-              </dt>
-              <dd className="text-right text-xs leading-snug text-[#9CA3AF]">{shortcut.label}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-    </div>
-  );
-}
-
-function DeleteRemovedDialog({
-  busy,
-  count,
-  error,
-  fallbackFocusRef,
-  name,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  count: number;
-  error: string | null;
-  fallbackFocusRef: React.RefObject<HTMLElement | null>;
-  name: string | null;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const cancelRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const onCancelRef = useRef(onCancel);
-  onCancelRef.current = onCancel;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    const returnTo = document.activeElement as HTMLElement | null;
-    const onDialogCancel = (event: Event) => {
-      event.preventDefault();
-      onCancelRef.current();
-    };
-    const onDialogKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const controls = Array.from(
-        dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
-      );
-      const first = controls[0];
-      const last = controls.at(-1);
-      if (first === undefined || last === undefined) {
-        event.preventDefault();
-        dialog.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    dialog.addEventListener("cancel", onDialogCancel);
-    dialog.addEventListener("keydown", onDialogKeyDown);
-    if (!dialog.open) dialog.showModal();
-    cancelRef.current?.focus();
-    return () => {
-      dialog.removeEventListener("cancel", onDialogCancel);
-      dialog.removeEventListener("keydown", onDialogKeyDown);
-      if (dialog.open) dialog.close();
-      (returnTo?.isConnected ? returnTo : fallbackFocusRef.current)?.focus();
-    };
-  }, []);
-
-  const single = count === 1;
-  const title = single ? "Delete removed direction?" : "Clear removed directions?";
-  const description = single
-    ? `This permanently removes “${name ?? "this direction"}” from Leglas.`
-    : `This permanently removes all ${count} directions from Leglas.`;
-
-  return (
-    <dialog
-      aria-describedby="delete-removed-description"
-      aria-labelledby="delete-removed-title"
-      aria-modal="true"
-      className="m-auto max-h-[calc(100dvh-3rem)] max-w-none overflow-visible border-0 bg-transparent p-0 text-left text-inherit backdrop:bg-black/50 backdrop:backdrop-blur-sm"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
-      ref={dialogRef}
-      role="alertdialog"
-      tabIndex={-1}
-    >
-      <div className="w-[calc(100vw-3rem)] max-w-sm overscroll-contain rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl">
-        <h2 className="text-sm font-medium text-white" id="delete-removed-title">
-          {title}
-        </h2>
-        <div
-          className="mt-2 space-y-1 text-xs leading-relaxed text-[#9CA3AF]"
-          id="delete-removed-description"
-        >
-          <p>{description}</p>
-          <p>Source files and shared project config stay untouched.</p>
-        </div>
-        {error !== null ? (
-          <p className="mt-3 text-xs leading-relaxed text-red-300" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            className="rounded-md px-3 py-1.5 text-xs text-[#D1D5DB] transition-[background-color,color,scale] hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:opacity-50"
-            disabled={busy}
-            onClick={onCancel}
-            ref={cancelRef}
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            className="rounded-md bg-red-500/90 px-3 py-1.5 text-xs font-medium text-white transition-[background-color,scale] hover:bg-red-500 active:scale-[0.96] disabled:opacity-60"
-            disabled={busy}
-            onClick={onConfirm}
-            type="button"
-          >
-            {busy ? "Deleting…" : single ? "Delete" : "Delete all"}
-          </button>
-        </div>
-      </div>
-    </dialog>
-  );
-}
 
 /** The rail's top and bottom edges, over which its rows and lines fade. */
 const RAIL_FADE =
@@ -730,7 +470,6 @@ export function Shell({
       setDeletingRemoved(false);
     }
   };
-  const [searchFocused, setSearchFocused] = useState(false);
   // The widget is the only way into the tools, so it must never end up under
   // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
   const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
@@ -1633,54 +1372,6 @@ export function Shell({
     requestSnapshot.agent,
     chip.kind === "chosen" || requestSnapshot.agent.attached,
   );
-  // One line each, worked out here rather than in five nested ternaries down
-  // in the markup. The headline says what happened; the detail says the one
-  // useful thing about it, which for a failure is the server's own verdict
-  // and never the agent's raw output.
-  const cardHeadline =
-    card === null
-      ? null
-      : card.kind === "running"
-        ? card.stopping
-          ? `Stopping ${card.name}`
-          : `${card.name} is on it`
-        : card.kind === "queued"
-          ? card.count === 1
-            ? "Change queued"
-            : `${card.count} changes queued`
-          : card.kind === "picked-up"
-            ? "Your agent is on it"
-            : card.kind === "stopped"
-              ? "You stopped that change"
-              : "That change failed";
-  const cardDetail =
-    card === null
-      ? null
-      : card.kind === "running"
-        ? card.stopping
-          ? "waiting for it to exit"
-          : card.waiting !== null
-            ? waitingLabel(card.waiting)
-            : (card.activity ?? card.title)
-        : card.kind === "queued"
-          ? card.attended
-            ? "your agent picks it up next"
-            : "pick who runs your changes"
-          : card.kind === "failed"
-            ? (card.reason ?? card.title)
-            : card.kind === "stopped"
-              ? card.title
-              : null;
-  // The elapsed counter ticks locally between polls; the anchor comes from
-  // the server so a reload half-way through a run does not restart it.
-  const runStartedAt = card?.kind === "running" ? card.startedAt : null;
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    if (runStartedAt === null) return;
-    setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [runStartedAt]);
   useEffect(() => {
     if (chip.kind === "none") setAgentMenuOpen(false);
   }, [chip.kind]);
@@ -2455,8 +2146,11 @@ export function Shell({
             working={isWorking}
           />
         ) : null}
-        <HoverCard
-          label={renamingThis ? null : cardFor(preview, st.displayName(title), st.displayName)}
+        <RowCard
+          displayName={st.displayName}
+          name={st.displayName(title)}
+          preview={preview}
+          quiet={renamingThis}
         >
           <div
             aria-pressed={isActive}
@@ -2693,7 +2387,7 @@ export function Shell({
               </span>
             </span>
           </div>
-        </HoverCard>
+        </RowCard>
         <div
           className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
             renamingThis ? "invisible" : ""
@@ -2961,67 +2655,9 @@ export function Shell({
             )}
           </div>
 
-          {/* Whose rail this is, said once at the top and left there: a
-              viewer should never wonder why the composer is missing. */}
-          {viewer !== undefined && (
-            <Tip
-              label={
-                <>
-                  <span className="block">Someone is sharing their Leglas with you, live.</span>
-                  <span className="block text-[#9CA3AF]">
-                    Flip, compare and change the width. Nothing you do reaches their machine.
-                  </span>
-                </>
-              }
-              side="right"
-              wide
-            >
-              <div className="flex shrink-0 items-center gap-2 border-b border-[#232328] bg-[#1E1E22] px-3 py-1.5">
-                <LiveDot />
-                <span className="text-[11px] text-[#D1D5DB]">Shared with you</span>
-                <span className="ml-auto min-w-0 truncate text-[10px] text-[#84848C]">
-                  {viewer.scope === "rail"
-                    ? "the whole rail"
-                    : viewer.scope === "compare"
-                      ? "a comparison"
-                      : "one direction"}
-                </span>
-              </div>
-            </Tip>
-          )}
+          {viewer !== undefined && <ViewerBanner scope={viewer.scope} />}
 
-          <div className="px-3 pb-1 pt-2">
-            <div className="relative">
-              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#D1D5DB]">
-                <PIcon d={P.search} />
-              </span>
-              {/* The hint steps aside once the field is in use, so it never
-                  sits behind what is being typed. */}
-              <kbd
-                className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[10px] leading-none tracking-wide text-[#84848C] transition-opacity duration-150 motion-reduce:transition-none ${
-                  st.query || searchFocused ? "opacity-0" : "opacity-100"
-                }`}
-              >
-                {SEARCH_CAP}
-              </kbd>
-              <input
-                aria-label="Search directions"
-                className="w-full rounded-md border border-[#232328] bg-[#2E2E2E]/40 py-1.5 pl-7 pr-16 text-xs text-white placeholder:text-[#E8EAED] focus:outline-none focus:ring-1 focus:ring-[#D1D5DB]/60"
-                onBlur={() => setSearchFocused(false)}
-                onFocus={() => setSearchFocused(true)}
-                onChange={(event) => st.setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") return;
-                  if (st.query) st.setQuery("");
-                  else event.currentTarget.blur();
-                }}
-                placeholder="Search directions…"
-                ref={searchRef}
-                type="text"
-                value={st.query}
-              />
-            </div>
-          </div>
+          <Search cap={SEARCH_CAP} inputRef={searchRef} onQuery={st.setQuery} query={st.query} />
 
           {warnings.length > 0 && (
             <section
@@ -3193,159 +2829,14 @@ export function Shell({
               composer gives it a height that moves and the toasts stack on
               whatever that height turns out to be. */}
           <div ref={railFooterRef}>
-            {/* One card, one event: the run in flight, the queue waiting, or
-                the failure asking what to do about it. It lives above the
-                composer the way a reply lives above the thing being typed,
-                and it never takes the chooser or the field hostage. */}
             {!viewing && card !== null && (
-              <div
-                className="mx-3 mt-2 rounded-lg border border-[#232328] bg-[#1E1E22] px-2.5 py-2 shadow-lg"
-                role="status"
-              >
-                <div className="flex items-center gap-2">
-                  {card.kind === "stopped" ? (
-                    /* The same square as the button that did it: a stop is
-                       not a warning, and the amber triangle said otherwise. */
-                    <span
-                      aria-hidden="true"
-                      className="flex size-3.5 shrink-0 items-center justify-center text-[#84848C]"
-                    >
-                      <span className="block size-2 rounded-[2px] bg-current" />
-                    </span>
-                  ) : card.kind === "failed" ? (
-                    <svg
-                      aria-hidden="true"
-                      className="shrink-0 text-amber-400/90"
-                      fill="none"
-                      height="14"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.5"
-                      viewBox="0 0 16 16"
-                      width="14"
-                    >
-                      <path d="M8 2.6 14.6 13.4H1.4Z" />
-                      <path d="M8 6.8v2.7" />
-                      <path d="M8 11.6h.01" />
-                    </svg>
-                  ) : card.kind === "queued" ? (
-                    <span
-                      aria-hidden="true"
-                      className="flex size-3.5 shrink-0 items-center justify-center"
-                    >
-                      <span className="size-1.5 animate-pulse rounded-full bg-[#84848C] motion-reduce:animate-none" />
-                    </span>
-                  ) : (
-                    <span
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-white/15 border-t-white/70 motion-reduce:animate-none"
-                    />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] font-medium leading-tight text-[#D1D5DB]">
-                      {cardHeadline}
-                    </p>
-                    {cardDetail !== null && (
-                      /* Not truncated to one line: a failure's reason is the
-                         whole point of showing it, and "Claude is not signed
-                         in" cut at the rail's width says nothing. */
-                      <p className="mt-0.5 text-[10px] leading-tight text-[#84848C]">
-                        {cardDetail}
-                      </p>
-                    )}
-                  </div>
-                  {card.kind === "running" && runStartedAt !== null && (
-                    <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
-                      {formatElapsed(clock - runStartedAt)}
-                    </span>
-                  )}
-                  {card.kind === "running" && (
-                    <Tip label="Stop this run">
-                      <button
-                        aria-label="Stop this run"
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
-                        disabled={requestAction !== null || card.stopping}
-                        onClick={() => cancelRequest(card.id)}
-                        type="button"
-                      >
-                        {requestAction === "cancel" || card.stopping ? (
-                          <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                        ) : (
-                          <span className="block size-2 rounded-[2px] bg-current" />
-                        )}
-                      </button>
-                    </Tip>
-                  )}
-                  {(card.kind === "failed" || card.kind === "stopped") && (
-                    <span className="flex shrink-0 items-center">
-                      <Tip label={card.kind === "stopped" ? "Run it after all" : "Try it again"}>
-                        <button
-                          aria-label={
-                            card.kind === "stopped"
-                              ? "Run this change after all"
-                              : "Retry this change"
-                          }
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
-                          disabled={requestAction !== null}
-                          onClick={() => retryRequest(card.id)}
-                          type="button"
-                        >
-                          {requestAction === "retry" ? (
-                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                          ) : (
-                            <svg
-                              aria-hidden="true"
-                              fill="none"
-                              height="13"
-                              stroke="currentColor"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                              viewBox="0 0 16 16"
-                              width="13"
-                            >
-                              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
-                              <path d="M13.7 1.8v2.7H11" />
-                            </svg>
-                          )}
-                        </button>
-                      </Tip>
-                      <Tip label="Let it go">
-                        <button
-                          aria-label={
-                            card.kind === "stopped"
-                              ? "Dismiss this stopped change"
-                              : "Dismiss this failed change"
-                          }
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:cursor-wait disabled:opacity-40 motion-reduce:transition-none"
-                          disabled={requestAction !== null}
-                          onClick={() => dismissRequest(card.id)}
-                          type="button"
-                        >
-                          {requestAction === "dismiss" ? (
-                            <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                          ) : (
-                            <svg
-                              aria-hidden="true"
-                              fill="none"
-                              height="13"
-                              stroke="currentColor"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="1.75"
-                              viewBox="0 0 16 16"
-                              width="13"
-                            >
-                              <path d="m4 4 8 8M12 4l-8 8" />
-                            </svg>
-                          )}
-                        </button>
-                      </Tip>
-                    </span>
-                  )}
-                </div>
-              </div>
+              <StatusCard
+                action={requestAction}
+                card={card}
+                onCancel={cancelRequest}
+                onDismiss={dismissRequest}
+                onRetry={retryRequest}
+              />
             )}
             {/* Enter both queues the request and copies the prompt, so it works
               whether the agent drains the queue or the prompt gets pasted into
