@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { loadAssets } from "./chrome.ts";
 import {
+  PAGES,
   docsPath,
   loadDocs,
   parseBlocks,
@@ -17,6 +18,18 @@ import {
 } from "./docs.ts";
 
 const root = join(import.meta.dirname, "..");
+/** A checkout of the manual, with every page it names and nothing else. */
+function manual(): string {
+  const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+  mkdirSync(join(dir, "docs"));
+  writeFileSync(
+    join(dir, "docs/README.md"),
+    `# The manual\n\n${PAGES.map((page) => `- [${page}](${page}.md): a page.`).join("\n")}\n`,
+  );
+  for (const page of PAGES) writeFileSync(join(dir, `docs/${page}.md`), `# ${page}\n\nWords.\n`);
+  return dir;
+}
+
 const pages = loadDocs(root);
 const page = (name: string): DocPage => {
   const found = pages.find((candidate) => candidate.slug === name);
@@ -31,7 +44,7 @@ const page = (name: string): DocPage => {
  * where a new construct would first appear.
  */
 describe("docs/", () => {
-  test("the index leads and the pages follow the README's order", () => {
+  test("the index leads and the pages follow in the order the manual names them", () => {
     expect(pages[0]?.slug).toBe("");
     expect(pages.slice(1).map((entry) => entry.slug)).toEqual([
       "guide",
@@ -43,6 +56,31 @@ describe("docs/", () => {
     ]);
     expect(docsPath("")).toBe("docs/index.html");
     expect(docsPath("guide")).toBe("docs/guide/index.html");
+  });
+
+  /**
+   * `docs/` is the public manual, but it is also where this repository's own
+   * conventions put notes that are never committed: `docs/lessons.md` and
+   * `docs/plans/`, both in `.git/info/exclude`. A reader that served every
+   * markdown file it found turned those into pages of the manual in any
+   * checkout that had them, which is every maintainer's.
+   */
+  test("a file the manual does not name is not one of its pages", () => {
+    const dir = manual();
+    writeFileSync(join(dir, "docs/lessons.md"), "# Lessons\n\nNot for anybody else.\n");
+    mkdirSync(join(dir, "docs/plans"));
+    writeFileSync(join(dir, "docs/plans/thing.md"), "# A plan\n\nLater.\n");
+
+    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", ...PAGES]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a page the manual names and nobody wrote fails the build, naming it", () => {
+    const dir = manual();
+    rmSync(join(dir, "docs/sharing.md"));
+
+    expect(() => loadDocs(dir)).toThrow("docs/sharing.md is named in the manual but not there");
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("every page renders with nothing left as markdown", () => {
@@ -89,17 +127,6 @@ describe("docs/", () => {
         }
       }
     }
-  });
-});
-
-describe("page names", () => {
-  test("a file name that would not survive as a directory or an href is refused", () => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs", "README.md"), "# Index\n");
-    writeFileSync(join(dir, "docs", 'a"b.md'), "# Bad\n");
-    expect(() => loadDocs(dir)).toThrow('docs/a"b.md: a page name this site cannot serve.');
-    rmSync(dir, { recursive: true, force: true });
   });
 });
 

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
 
 import { inline } from "./changelog.ts";
@@ -26,34 +26,47 @@ export type DocPage = {
   markdown: string;
 };
 
-/** Reading order for the pages the README table names; anything else follows alphabetically. */
-const ORDER = ["guide", "sharing", "configuration", "agents", "cli", "architecture"];
+/**
+ * The manual, in the order the site shows it.
+ *
+ * Named here rather than found by reading the folder, because `docs/` holds
+ * more than the manual: this repository's own conventions put uncommitted
+ * notes beside it, `docs/lessons.md` and `docs/plans/`, both in
+ * `.git/info/exclude`. A reader that served every markdown file it found
+ * built those as pages of the public manual in any checkout that had them,
+ * and failed this suite there while passing in CI, which has only what is
+ * committed.
+ *
+ * Naming them is also the only way this file can tell a page that is missing
+ * from one that was never meant to be here, so a name below with no file
+ * stops the build. The other half of the bargain, that no committed page is
+ * left out of this list, is `test/docs.test.ts`, which asks git.
+ */
+export const PAGES = [
+  "guide",
+  "sharing",
+  "configuration",
+  "agents",
+  "cli",
+  "architecture",
+] as const;
 
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
-  const files = readdirSync(dir).filter((name) => name.endsWith(".md"));
-  const pages = files.map((file) => {
-    const markdown = readFileSync(join(dir, file), "utf8");
+  const read = (file: string): DocPage => {
+    const path = join(dir, file);
+    if (!existsSync(path)) throw new Error(`docs/${file} is named in the manual but not there.`);
+    const markdown = readFileSync(path, "utf8");
     const heading = markdown.split("\n").find((line) => line.startsWith("# "));
     if (heading === undefined) throw new Error(`docs/${file} has no title heading.`);
-    const slug = file === "README.md" ? "" : file.slice(0, -".md".length);
-    // The slug becomes a directory and an href on every page, so it is
-    // checked here rather than escaped there: lowercase letters, digits
-    // and hyphens, the way the existing pages are named.
-    if (slug !== "" && !/^[a-z0-9-]+$/.test(slug))
-      throw new Error(`docs/${file}: a page name this site cannot serve.`);
-    return { file, slug, title: heading.slice(2).trim(), markdown };
-  });
-  const rank = (page: DocPage): number => (page.slug === "" ? -1 : ORDER.indexOf(page.slug));
-  return pages.sort((a, b) => {
-    const [ra, rb] = [rank(a), rank(b)];
-    if (ra !== rb)
-      return (
-        (ra === -1 && a.slug !== "" ? ORDER.length : ra) -
-        (rb === -1 && b.slug !== "" ? ORDER.length : rb)
-      );
-    return a.slug.localeCompare(b.slug);
-  });
+    return {
+      file,
+      slug: file === "README.md" ? "" : file.slice(0, -".md".length),
+      title: heading.slice(2).trim(),
+      markdown,
+    };
+  };
+  return [read("README.md"), ...PAGES.map((page) => read(`${page}.md`))];
 }
 
 /** Where a page is written under the site, so build.ts and the tests agree. */
