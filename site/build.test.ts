@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -65,11 +65,14 @@ describe("the site", () => {
     expect(home).not.toContain("navigator.share");
   });
 
-  test("builds both pages and the captures beside them", () => {
+  test("builds the pages, the docs and the captures beside them", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);
+    const docs = readdirSync(join(root, "docs"))
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => (name === "README.md" ? "docs/index.html" : `docs/${name.slice(0, -3)}/index.html`));
     expect(written.map((path) => path.slice(out.length + 1)).sort()).toEqual(
-      ["assets/compare-artboards.jpg", "assets/rail-single.jpg", "changelog/index.html", "index.html", "releases.json"].sort(),
+      ["assets/compare-artboards.jpg", "assets/rail-single.jpg", "changelog/index.html", "index.html", "releases.json", ...docs].sort(),
     );
     expect(readFileSync(join(out, "changelog", "index.html"), "utf8")).toContain('href="../"');
   });

@@ -198,14 +198,14 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
 }
 
 /** Where a page lives relative to the other, so links hold at any base. */
-export type Place = { home: string; changelog: string; active: "home" | "changelog" };
+export type Place = { home: string; docs: string; changelog: string; active: "home" | "docs" | "changelog" };
 
 export function bar(assets: Assets, place: Place): string {
   const link = (href: string, label: string, active: boolean): string =>
     active ? `<span class="active" aria-current="page">${label}</span>` : `<a href="${href}">${label}</a>`;
   return `<header class="bar"><div class="bar-row">
 <a class="brand" href="${place.home}">${assets.mark}${assets.wordmark}</a>
-<nav class="nav" aria-label="Site">${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
+<nav class="nav" aria-label="Site">${link(place.docs, "Docs", place.active === "docs")}${link(place.changelog, "Changelog", place.active === "changelog")}<a href="${REPO}#readme">README</a><a href="${NPM}">npm</a></nav>
 <div class="bar-end">
 <a class="star" href="${REPO}"><span class="icon">${GITHUB}<span class="to">${STAR}${SPARK("spark-a")}${SPARK("spark-b")}</span></span><span class="label">Star on GitHub</span></a>
 <button class="install" type="button" data-copy="npx leglas" aria-label="Copy npx leglas" title="Copy"><span class="cmd">npx leglas</span><span class="done">Copied</span></button>

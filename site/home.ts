@@ -53,7 +53,7 @@ h1{margin:0;font-size:68px;font-weight:500;letter-spacing:-.035em;line-height:1.
 
 export function renderHome(assets: Assets): string {
   const body = `<div class="dots" aria-hidden="true"></div>
-${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
+${bar(assets, { home: "./", docs: "./docs/", changelog: "./changelog/", active: "home" })}
 <main class="home">
 <section class="hero rise">
 <h1>Your app is the canvas.</h1>
@@ -119,7 +119,7 @@ ${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
 </div>
 </section>
 </main>
-${foot(`The <a href="${REPO}/tree/main/docs">docs</a> say all of this at length.`)}`;
+${foot(`The <a href="./docs/">docs</a> say all of this at length.`)}`;
   return document({
     title: "Leglas",
     description: "Compare design directions inside your own running app.",

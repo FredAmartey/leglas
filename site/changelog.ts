@@ -331,7 +331,7 @@ export function renderPage(changelog: Changelog, assets: Assets): string {
   );
   const entries = changelog.entries.map(renderEntry).join("");
   const body = `<div class="dots" aria-hidden="true"></div>
-${bar(assets, { home: "../", changelog: "./", active: "changelog" })}
+${bar(assets, { home: "../", docs: "../docs/", changelog: "./", active: "changelog" })}
 <main class="page">
 <div class="head rise">
 <p class="eyebrow">Changelog</p>
