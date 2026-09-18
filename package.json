@@ -11,8 +11,8 @@
     "test:watch": "vitest",
     "typecheck": "pnpm build && pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build",
-    "api:update": "node api-surface.ts",
-    "site": "node site.ts"
+    "api:update": "node scripts/api-surface.ts",
+    "site": "node site/build.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

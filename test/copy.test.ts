@@ -22,7 +22,7 @@ import { describe, expect, test } from "vitest";
  * correct code is a check somebody deletes.
  */
 
-const root = import.meta.dirname;
+const root = join(import.meta.dirname, "..");
 
 function sources(directory: string): string[] {
   const found: string[] = [];

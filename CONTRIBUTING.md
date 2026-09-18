@@ -10,12 +10,30 @@ pnpm typecheck   # every package
 pnpm site        # the homepage and changelog, into dist/site
 ```
 
-| Package           | Contents                                           |
-| ----------------- | -------------------------------------------------- |
-| `packages/server` | Config loading, the proxy and the local server     |
-| `packages/shell`  | The interface, a React application built with Vite |
-| `packages/cli`    | The `leglas` binary                                |
-| `packages/mcp`    | The `leglas-mcp` stdio server for agent hosts      |
+## Where things are
+
+| Path              | What it is                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `packages/server` | Config loading, the proxy and the local server                                                      |
+| `packages/shell`  | The interface, a React application built with Vite                                                  |
+| `packages/cli`    | The `leglas` binary                                                                                 |
+| `packages/mcp`    | The `leglas-mcp` stdio server for agent hosts                                                       |
+| `skills/leglas`   | The agent skill. With `plugin.json` and `mcp.json` at the root it makes the repository an Agent Plugin |
+| `schemas`         | The Agent Plugins schemas, vendored so the manifests validate without the network                   |
+| `site`            | The homepage, the changelog page and the release notes, all made from `CHANGELOG.md`                |
+| `scripts`         | `pnpm api:update`, which records the public API surface in `api-surface.txt`                        |
+| `test`            | Tests about the repository itself: the manifests, the publish workflow, what the CLI tells people to type |
+
+Tests sit beside the code they test, in the same directory.
+
+## Ways to help
+
+Bugs and ideas go in [issues](https://github.com/FredAmartey/leglas/issues);
+the forms ask for what makes a report actionable. A security problem goes
+through [private reporting](SECURITY.md) instead. A small fix to the docs is
+welcome as a pull request with no issue first. For anything larger, open an
+issue before writing code so the shape can be agreed on. Everyone here
+follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Working on it
 
@@ -62,6 +80,6 @@ publishing. A tag that disagrees with the manifests is refused. No npm
 token exists anywhere in the project.
 
 The [site](https://leglas.vercel.app/) is two pages, the homepage and the
-[changelog](https://leglas.vercel.app/changelog/), written by `site.ts` and
-built by Vercel from `vercel.json` on every push. `main` is the live site,
+[changelog](https://leglas.vercel.app/changelog/), written by `site/build.ts`
+and built by Vercel from `vercel.json` on every push. `main` is the live site,
 and every pull request gets a preview.

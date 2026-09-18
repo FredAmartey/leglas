@@ -1,6 +1,6 @@
 {
   // The packages each own a tsconfig and exclude their tests from it. This one
-  // exists for the tests that sit at the root, which belong to no package and
+  // exists for site/, scripts/ and test/, which belong to no package and
   // would otherwise be checked by nothing at all: vitest erases types rather
   // than reading them, so a mistake here would surface as a failing run, or
   // not at all.
@@ -9,9 +9,9 @@
     "noEmit": true,
     "declaration": false,
     "types": ["node"],
-    // Node strips types but does not rewrite specifiers, so a root script that
+    // Node strips types but does not rewrite specifiers, so a script here that
     // imports a sibling names the .ts file. Only legal with noEmit, which this is.
     "allowImportingTsExtensions": true
   },
-  "include": ["*.ts"]
+  "include": ["site/*.ts", "scripts/*.ts", "test/*.ts"]
 }

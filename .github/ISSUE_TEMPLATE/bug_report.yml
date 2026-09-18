@@ -1,0 +1,42 @@
+name: Bug report
+description: Something Leglas does wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what Leglas did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      description: The steps, the config if it matters and the command you ran.
+      placeholder: |
+        1. Start the dev server
+        2. npx leglas
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Leglas version
+      description: From `npx leglas --version`, or the number beside the wordmark in the interface.
+      placeholder: 1.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node version, what the dev server is and the browser.
+      placeholder: macOS 26, Node 24.4, Vite 7, Chrome
+  - type: textarea
+    id: output
+    attributes:
+      label: Terminal output
+      description: What Leglas printed. Paste it as is; it is formatted for you.
+      render: shell
