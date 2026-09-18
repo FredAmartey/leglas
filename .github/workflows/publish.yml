@@ -153,8 +153,8 @@ jobs:
             echo "Release $GITHUB_REF_NAME exists."
             exit 0
           fi
-          title="$(node release-notes.ts "$version" --title)"
-          node release-notes.ts "$version" > notes.md
+          title="$(node site/release-notes.ts "$version" --title)"
+          node site/release-notes.ts "$version" > notes.md
           {
             echo
             echo "Update: \`npx leglas@latest\`, or \`npm i -g leglas@latest\` for a global install. Leglas also offers it from its own interface."

@@ -30,7 +30,7 @@ export function releasesIndex(markdown: string): { version: string; date: string
 
 if (import.meta.main) {
   const version = process.argv[2] ?? "(missing version)";
-  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "CHANGELOG.md"), "utf8"), version);
+  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), version);
   if (notes === null) {
     process.stderr.write(`No changelog entry for ${version}.\n`);
     process.exitCode = 1;

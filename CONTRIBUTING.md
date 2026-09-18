@@ -62,6 +62,6 @@ publishing. A tag that disagrees with the manifests is refused. No npm
 token exists anywhere in the project.
 
 The [site](https://leglas.vercel.app/) is two pages, the homepage and the
-[changelog](https://leglas.vercel.app/changelog/), written by `site.ts` and
-built by Vercel from `vercel.json` on every push. `main` is the live site,
+[changelog](https://leglas.vercel.app/changelog/), written by `site/build.ts`
+and built by Vercel from `vercel.json` on every push. `main` is the live site,
 and every pull request gets a preview.

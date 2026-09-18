@@ -311,7 +311,7 @@ export function publicSurface(root: string): string {
  * disagree about what it is.
  */
 if (import.meta.main) {
-  const root = import.meta.dirname;
+  const root = join(import.meta.dirname, "..");
   writeFileSync(join(root, SNAPSHOT), publicSurface(root));
   process.stdout.write(`${SNAPSHOT} updated\n`);
 }

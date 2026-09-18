@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-const workflow = readFileSync(new URL(".github/workflows/publish.yml", import.meta.url), "utf8");
+const workflow = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
 
 function script(name: string): string {
   const step = workflow.split(`      - name: ${name}\n`)[1];
