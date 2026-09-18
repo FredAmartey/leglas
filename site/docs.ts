@@ -26,8 +26,20 @@ export type DocPage = {
   markdown: string;
 };
 
-/** The pages the index links, in the order it links them: its bullet list, and nothing else. */
-const LINKED = /^- \[[^\]]+\]\(([^)\s/]+\.md)\)/gm;
+/** Where the index links, in the order it links: its bullet list, and nothing else. */
+const LINKED = /^- \[[^\]]+\]\(([^)]+)\)/gm;
+
+/**
+ * What a bullet in the index points at, as markdown means it: a destination,
+ * optionally wrapped in angle brackets so it may hold spaces, optionally
+ * followed by a title.
+ */
+function destination(link: string): string {
+  const raw = link.trim();
+  if (!raw.startsWith("<")) return raw.split(/\s+/)[0] ?? "";
+  const close = raw.indexOf(">");
+  return close === -1 ? raw : raw.slice(1, close);
+}
 
 /**
  * The manual, as its own index names it.
@@ -62,13 +74,20 @@ export function loadDocs(root: string): DocPage[] {
     };
   };
   const index = read("README.md");
-  const linked = [...index.markdown.matchAll(LINKED)].map((match) => match[1] ?? "");
-  for (const file of linked) {
-    // The name becomes a directory and an href on every page, so it is
-    // checked here rather than escaped there: lowercase letters, digits and
-    // hyphens, the way the existing pages are named.
-    if (!/^[a-z0-9-]+\.md$/.test(file))
-      throw new Error(`docs/${file}: a page name this site cannot serve.`);
+  const linked: string[] = [];
+  for (const match of index.markdown.matchAll(LINKED)) {
+    const target = destination(match[1] ?? "");
+    // Somewhere else entirely, and not a page of this manual: the changelog,
+    // a heading on this page, the repository's own files above it.
+    if (!target.endsWith(".md") || target.startsWith("../")) continue;
+    // Everything left is meant to be a page. The name becomes a directory and
+    // an href, so it is checked here rather than escaped there: lowercase
+    // letters, digits and hyphens, the way the existing pages are named. A
+    // link this site cannot serve stops the build instead of quietly leaving
+    // its page out of the manual.
+    if (!/^[a-z0-9-]+\.md$/.test(target))
+      throw new Error(`docs/${target}: a page name this site cannot serve.`);
+    linked.push(target);
   }
   return [index, ...linked.map(read)];
 }

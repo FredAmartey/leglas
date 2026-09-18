@@ -62,6 +62,26 @@ describe("docs/", () => {
     expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
   });
 
+  test("a link out of the manual, or out to the web, is not a page", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(
+      join(dir, "docs/README.md"),
+      [
+        "# The manual",
+        "",
+        "- [Using it](guide.md): how.",
+        "- [Contributing](../CONTRIBUTING.md): the repository.",
+        "- [The changelog](https://leglas.vercel.app/changelog/): what changed.",
+        "- [This page](#anchor): here.",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
+
+    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
+  });
+
   test("an index that links a page nobody wrote fails the build, naming it", () => {
     const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
     mkdirSync(join(dir, "docs"));
@@ -118,12 +138,22 @@ describe("docs/", () => {
 });
 
 describe("page names", () => {
-  test("a file name that would not survive as a directory or an href is refused", () => {
+  /**
+   * The site serves this one folder, flat. A name it could not turn into a
+   * directory and an href has to stop the build rather than quietly leave a
+   * page out of the manual, which is what a pattern that simply failed to
+   * match such a link would do.
+   */
+  test.each([
+    ['- [Bad](a"b.md): no.', 'a"b.md'],
+    ["- [Nested](nested/guide.md): no.", "nested/guide.md"],
+    ["- [Spaced](<bad name.md>): no.", "bad name.md"],
+    ["- [Shouting](GUIDE.md): no.", "GUIDE.md"],
+  ])("a page name this site cannot serve is refused: %s", (link, named) => {
     const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
     mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs", "README.md"), '# Index\n\n- [Bad](a"b.md): no.\n');
-    writeFileSync(join(dir, "docs", 'a"b.md'), "# Bad\n");
-    expect(() => loadDocs(dir)).toThrow('docs/a"b.md: a page name this site cannot serve.');
+    writeFileSync(join(dir, "docs", "README.md"), `# Index\n\n${link}\n`);
+    expect(() => loadDocs(dir)).toThrow(`docs/${named}: a page name this site cannot serve.`);
     rmSync(dir, { recursive: true, force: true });
   });
 });
