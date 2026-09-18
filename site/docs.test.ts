@@ -73,6 +73,7 @@ describe("docs/", () => {
         "- [Using it](guide.md): how.",
         "- [Contributing](../CONTRIBUTING.md): the repository.",
         "- [The changelog](https://leglas.vercel.app/changelog/): what changed.",
+        "- [A file on the web](https://example.com/a.md): not ours.",
         "- [This page](#anchor): here.",
         "",
       ].join("\n"),
@@ -80,6 +81,18 @@ describe("docs/", () => {
     writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
 
     expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
+  });
+
+  test("the same page linked twice fails the build rather than appearing twice", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(
+      join(dir, "docs/README.md"),
+      "# The manual\n\n- [Using it](guide.md): how.\n- [Again](guide.md): also how.\n",
+    );
+    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
+
+    expect(() => loadDocs(dir)).toThrow("docs/README.md links docs/guide.md twice");
   });
 
   test("an index that links a page nobody wrote fails the build, naming it", () => {
@@ -149,6 +162,10 @@ describe("page names", () => {
     ["- [Nested](nested/guide.md): no.", "nested/guide.md"],
     ["- [Spaced](<bad name.md>): no.", "bad name.md"],
     ["- [Shouting](GUIDE.md): no.", "GUIDE.md"],
+    ["- [Bracketed](<bad).md>): no.", "bad).md"],
+    ["- **[Bold](a_b.md)**: no.", "a_b.md"],
+    ["- [Fragment](a_b.md#part): no.", "a_b.md"],
+    ["- [Rooted](/guide.md): no.", "/guide.md"],
   ])("a page name this site cannot serve is refused: %s", (link, named) => {
     const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
     mkdirSync(join(dir, "docs"));

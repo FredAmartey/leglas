@@ -26,37 +26,39 @@ export type DocPage = {
   markdown: string;
 };
 
-/** Where the index links, in the order it links: its bullet list, and nothing else. */
-const LINKED = /^- \[[^\]]+\]\(([^)]+)\)/gm;
+/** A line that opens a list item, wherever the manual lists its pages. */
+const BULLET = /^\s*[-*+] /;
+
+/** Every markdown link on such a line, with what it points at. */
+const INDEX_LINK = /\[[^\]]*\]\((<[^>]*>|[^()]*)\)/g;
 
 /**
- * What a bullet in the index points at, as markdown means it: a destination,
- * optionally wrapped in angle brackets so it may hold spaces, optionally
- * followed by a title.
+ * What a link points at, as markdown means it: a destination, optionally
+ * wrapped in angle brackets so it may hold spaces or a closing parenthesis,
+ * optionally followed by a title, optionally ending in a heading on the page
+ * it names.
  */
 function destination(link: string): string {
   const raw = link.trim();
-  if (!raw.startsWith("<")) return raw.split(/\s+/)[0] ?? "";
-  const close = raw.indexOf(">");
-  return close === -1 ? raw : raw.slice(1, close);
+  const target =
+    raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : (raw.split(/\s+/)[0] ?? "");
+  const hash = target.indexOf("#");
+  return hash === -1 ? target : target.slice(0, hash);
 }
 
 /**
- * The manual, as its own index names it.
+ * Whether a link is a page of this manual at all, before its name is judged.
  *
- * The pages come from the links in `docs/README.md` rather than from whatever
- * markdown the folder happens to hold, for two reasons. A page nobody can
- * navigate to is not part of a manual, and this repository's own conventions
- * put uncommitted notes in the same folder: `docs/lessons.md` and
- * `docs/plans/` are both in `.git/info/exclude`, so a reader that served
- * every file it found published a maintainer's notes from their checkout and
- * failed this suite there while passing in CI.
- *
- * The index is also the only reading order there is now. It used to be
- * repeated here as a list of names, which is a second copy of something the
- * page itself already says, in the file a contributor is least likely to
- * open.
+ * Three kinds are not, and every one of them appears in the index today or
+ * plausibly will: somewhere on the web, a heading on the page doing the
+ * linking, and the repository's own files in the directory above.
  */
+function isPage(target: string): boolean {
+  if (target === "" || !target.endsWith(".md")) return false;
+  if (target.includes("://")) return false;
+  return !target.startsWith("../");
+}
+
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
   const read = (file: string): DocPage => {
@@ -75,19 +77,24 @@ export function loadDocs(root: string): DocPage[] {
   };
   const index = read("README.md");
   const linked: string[] = [];
-  for (const match of index.markdown.matchAll(LINKED)) {
-    const target = destination(match[1] ?? "");
-    // Somewhere else entirely, and not a page of this manual: the changelog,
-    // a heading on this page, the repository's own files above it.
-    if (!target.endsWith(".md") || target.startsWith("../")) continue;
-    // Everything left is meant to be a page. The name becomes a directory and
-    // an href, so it is checked here rather than escaped there: lowercase
-    // letters, digits and hyphens, the way the existing pages are named. A
-    // link this site cannot serve stops the build instead of quietly leaving
-    // its page out of the manual.
-    if (!/^[a-z0-9-]+\.md$/.test(target))
-      throw new Error(`docs/${target}: a page name this site cannot serve.`);
-    linked.push(target);
+  for (const line of index.markdown.split("\n")) {
+    if (!BULLET.test(line)) continue;
+    for (const match of line.matchAll(INDEX_LINK)) {
+      const target = destination(match[1] ?? "");
+      if (!isPage(target)) continue;
+      // Everything left is meant to be a page of this manual. The name
+      // becomes a directory and an href, so it is checked here rather than
+      // escaped there: lowercase letters, digits and hyphens, the way the
+      // existing pages are named. A link this site cannot serve stops the
+      // build instead of quietly leaving its page out of the manual, which
+      // is the whole reason the index is read rather than the folder.
+      if (!/^[a-z0-9-]+\.md$/.test(target))
+        throw new Error(`docs/${target}: a page name this site cannot serve.`);
+      // Twice is a mistake in the index, and a quiet one: the page would be
+      // written twice and sit twice in every page's nav, active in both.
+      if (linked.includes(target)) throw new Error(`docs/README.md links docs/${target} twice.`);
+      linked.push(target);
+    }
   }
   return [index, ...linked.map(read)];
 }
