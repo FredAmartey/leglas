@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/leglas"><img src="https://img.shields.io/npm/v/leglas" alt="npm"></a>
   <a href="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml"><img src="https://github.com/FredAmartey/leglas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/npm/l/leglas" alt="license"></a>
+  <a href="https://github.com/FredAmartey/leglas/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/leglas" alt="license"></a>
   <a href="https://leglas.vercel.app/changelog/"><img src="https://img.shields.io/badge/changelog-what's%20new-0B1839" alt="changelog"></a>
 </p>
 
@@ -57,7 +57,7 @@ and sessions that clean up after themselves.
   right. Your opinion of every idea survives a long exploration.
 - Share the rail with someone who has no repo: a client, a cofounder, a
   teammate on another machine. They get the real app, in your order, and
-  cannot change anything. See [Sharing](docs/sharing.md).
+  cannot change anything. See [Sharing](https://github.com/FredAmartey/leglas/blob/main/docs/sharing.md).
 - Compare things no design tool can hold: three git branches, a local build
   against production, yesterday's direction against today's.
 - Hand the workflow to your coding agent. `leglas init` teaches it, and
@@ -101,7 +101,7 @@ export default {
 
 Each preview is a URL your dev server already answers. Every field, plain
 HTML files with no dev server, git branches side by side and how the proxy
-works are in [Setting up a project](docs/configuration.md).
+works are in [Setting up a project](https://github.com/FredAmartey/leglas/blob/main/docs/configuration.md).
 
 It works with whatever you are building in. Leglas never imports or
 executes your framework, so the target can be Next, Vite, Remix, SvelteKit,
@@ -123,17 +123,17 @@ workflow into `AGENTS.md`, so Claude Code, Cursor, Codex or whatever you
 switch to next opens the project already knowing how to add design
 directions to it. The one rule that workflow centers on, the commands an
 agent runs, the MCP server and the Agent Plugin are in
-[Working with agents](docs/agents.md).
+[Working with agents](https://github.com/FredAmartey/leglas/blob/main/docs/agents.md).
 
 ## Documentation
 
 | Page                                          | What it covers                                                                                                              |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| [Using Leglas](docs/guide.md)                 | The rail and the stage, comparing, asking for a change, pointing at the problem, the keys, updating                        |
-| [Sharing](docs/sharing.md)                    | Sending the rail to someone with no repo, how far a viewer can go, links and the tunnel                                     |
-| [Setting up a project](docs/configuration.md) | The config file and every field, plain HTML without a dev server, comparing branches, how the proxy works, limitations     |
-| [Working with agents](docs/agents.md)         | Add beside, never rewrite; the commands an agent runs; running requests; the MCP server; the Agent Plugin                   |
-| [Command line](docs/cli.md)                   | Every command and the flags they share                                                                                      |
+| [Using Leglas](https://github.com/FredAmartey/leglas/blob/main/docs/guide.md)                 | The rail and the stage, comparing, asking for a change, pointing at the problem, the keys, updating                        |
+| [Sharing](https://github.com/FredAmartey/leglas/blob/main/docs/sharing.md)                    | Sending the rail to someone with no repo, how far a viewer can go, links and the tunnel                                     |
+| [Setting up a project](https://github.com/FredAmartey/leglas/blob/main/docs/configuration.md) | The config file and every field, plain HTML without a dev server, comparing branches, how the proxy works, limitations     |
+| [Working with agents](https://github.com/FredAmartey/leglas/blob/main/docs/agents.md)         | Add beside, never rewrite; the commands an agent runs; running requests; the MCP server; the Agent Plugin                   |
+| [Command line](https://github.com/FredAmartey/leglas/blob/main/docs/cli.md)                   | Every command and the flags they share                                                                                      |
 | [Changelog](https://leglas.vercel.app/changelog/) | What each release changed                                                                                               |
 
 ## Contributing
@@ -142,8 +142,8 @@ Bugs and ideas go in [issues](https://github.com/FredAmartey/leglas/issues).
 Two packages are published from this repository, `leglas` and `leglas-mcp`,
 and the repository is also the Agent Plugin. How to build, what a pull
 request needs and how a release is cut are in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/FredAmartey/leglas/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/FredAmartey/leglas/blob/main/LICENSE)
