@@ -4,17 +4,14 @@ import { ThinkingOrb } from "thinking-orbs";
 import {
   ICON_BUTTON,
   ROW_BUTTON,
-  LiveDot,
   Mark,
   BrandMark,
   P,
   PIcon,
-  ShareGlyph,
   RenameForm,
   Switch,
   Tip,
   Toasts,
-  Wordmark,
 } from "./ui/kit.js";
 import { copyText } from "./ui/clipboard.js";
 import { searchCap } from "./keymap.js";
@@ -63,12 +60,6 @@ import { TOAST_TTL } from "./ui/toasts.js";
 import { useShellState } from "./useShellState.js";
 import { provenanceLine, provenanceOf } from "./lineage/provenance.js";
 import { AnnotateLayer } from "./annotate/AnnotateLayer.js";
-import { SharePanel } from "./share/SharePanel.js";
-import { totalViewers, viewersLine } from "./share/share.js";
-import { UpdatePanel } from "./update/UpdatePanel.js";
-import { chipLabel, hasNews } from "./update/update.js";
-import { useUpdate } from "./update/useUpdate.js";
-import { useShare } from "./share/useShare.js";
 import { ReferenceStrip } from "./references/ReferenceStrip.js";
 import { uploadReference } from "./references/references-api.js";
 import {
@@ -119,6 +110,7 @@ import { ToolsPopover } from "./stage/ToolsPopover.js";
 import { FONTS } from "./ui/fonts.js";
 import { HelpOverlay } from "./HelpOverlay.js";
 import { DeleteRemovedDialog } from "./rail/DeleteRemovedDialog.js";
+import { RailHeader } from "./rail/Header.js";
 import { RowCard } from "./rail/RowCard.js";
 import { Search } from "./rail/Search.js";
 import { tagTone } from "./rail/tags.js";
@@ -271,16 +263,6 @@ export function Shell({
    * stays; everything that changes what runs, or what the sharer sees, goes.
    */
   const viewing = st.viewing;
-  const [shareOpen, setShareOpen] = useState(false);
-  const closeShare = useCallback(() => setShareOpen(false), []);
-  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
-  const shareState = useShare(!viewing);
-  /** Which Leglas this is and whether a newer one exists; the chip by the wordmark. */
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const closeUpdate = useCallback(() => setUpdateOpen(false), []);
-  const updateButtonRef = useRef<HTMLButtonElement | null>(null);
-  const updates = useUpdate(!viewing, updateOpen, st.notify);
-  const news = hasNews(updates.status);
   /** The lineage gutter's width, shared by every row so the titles align. */
   const gutter = gutterWidth(st.lanes);
   const insets = st.insets;
@@ -2524,126 +2506,16 @@ export function Shell({
           inert={st.prefs.collapsed}
           style={{ width: st.prefs.width }}
         >
-          <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
-            {/* The product names itself here rather than in the list below it:
-                the search field and every command already say "directions". */}
-            <span className="flex min-w-0 items-center gap-2">
-              <Mark size={28} />
-              <Wordmark height={18} />
-              {/* The version, said quietly beside the name. It brightens and
-                  wears a dot when a newer Leglas exists, and opens the one
-                  place to bring it in. A viewer sees the sharer's Leglas, not
-                  their own, so they get no chip. */}
-              {!viewing && updates.status !== null && (
-                <Tip label={chipLabel(updates.status)}>
-                  <button
-                    aria-expanded={updateOpen}
-                    aria-haspopup="dialog"
-                    aria-label={
-                      news
-                        ? `Leglas ${updates.status.version}. ${chipLabel(updates.status)}. Open updates`
-                        : `Leglas ${updates.status.version}. Open updates`
-                    }
-                    className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
-                      news || updateOpen
-                        ? "text-[#D1D5DB] hover:text-white"
-                        : "text-[#84848C] hover:text-[#D1D5DB]"
-                    }`}
-                    onClick={() => {
-                      setShareOpen(false);
-                      setUpdateOpen((open) => !open);
-                    }}
-                    ref={updateButtonRef}
-                    type="button"
-                  >
-                    {updates.status.version}
-                    {news && (
-                      <span
-                        aria-hidden
-                        className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
-                      />
-                    )}
-                  </button>
-                </Tip>
-              )}
-            </span>
-            <span className="flex shrink-0 items-center gap-0.5">
-              {/* Sharing sits with the rail it shares. While a share is live
-                  the control wears the light's own dot, so the fact that
-                  somebody may be looking is never more than a glance away. */}
-              {!viewing && (
-                <Tip
-                  label={
-                    shareState.share === null
-                      ? "Share this rail"
-                      : shareState.share.tunnel.status === "ready"
-                        ? `Sharing · ${viewersLine(totalViewers(shareState.share.grants))}`
-                        : "Sharing"
-                  }
-                >
-                  <button
-                    aria-expanded={shareOpen}
-                    aria-haspopup="dialog"
-                    aria-label={
-                      shareState.share === null ? "Share" : "Sharing. Open the share panel"
-                    }
-                    className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
-                      shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
-                    }`}
-                    onClick={() => {
-                      setUpdateOpen(false);
-                      setShareOpen((open) => !open);
-                    }}
-                    ref={shareButtonRef}
-                    type="button"
-                  >
-                    <ShareGlyph />
-                    {shareState.share !== null && <LiveDot className="absolute right-0 top-0" />}
-                  </button>
-                </Tip>
-              )}
-              <Tip
-                label={
-                  <>
-                    Collapse panel <kbd className="ml-1 text-[#9CA3AF]">[</kbd>
-                  </>
-                }
-                side="right"
-              >
-                <button
-                  aria-label="Collapse the directions panel"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 text-[#9CA3AF] transition-colors hover:bg-[#2E2E2E] hover:text-white"
-                  onClick={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
-                  type="button"
-                >
-                  <PIcon d={P.sidebar} size={16} />
-                </button>
-              </Tip>
-            </span>
-            {!viewing && (
-              <UpdatePanel
-                onClose={closeUpdate}
-                open={updateOpen}
-                triggerRef={updateButtonRef}
-                updates={updates}
-              />
-            )}
-            {!viewing && (
-              <SharePanel
-                active={st.active}
-                compare={splitting ? compare : null}
-                displayName={st.displayName}
-                notify={st.notify}
-                onClose={closeShare}
-                open={shareOpen}
-                prefs={st.prefs}
-                previews={previews}
-                share={shareState.share}
-                triggerRef={shareButtonRef}
-                tunnels={shareState.tunnels}
-              />
-            )}
-          </div>
+          <RailHeader
+            active={st.active}
+            compare={splitting ? compare : null}
+            displayName={st.displayName}
+            notify={st.notify}
+            onCollapse={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
+            prefs={st.prefs}
+            previews={previews}
+            viewing={viewing}
+          />
 
           {viewer !== undefined && <ViewerBanner scope={viewer.scope} />}
 

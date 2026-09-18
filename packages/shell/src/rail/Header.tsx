@@ -1,0 +1,172 @@
+import { useCallback, useRef, useState } from "react";
+
+import type { Prefs } from "../prefs.js";
+import { SharePanel } from "../share/SharePanel.js";
+import { totalViewers, viewersLine } from "../share/share.js";
+import { useShare } from "../share/useShare.js";
+import type { Preview } from "../types.js";
+import { LiveDot, Mark, P, PIcon, ShareGlyph, Tip, Wordmark } from "../ui/kit.js";
+import type { Toast } from "../ui/toasts.js";
+import { UpdatePanel } from "../update/UpdatePanel.js";
+import { chipLabel, hasNews } from "../update/update.js";
+import { useUpdate } from "../update/useUpdate.js";
+
+/**
+ * The top of the rail: the name, the version and whether a newer one exists,
+ * sharing, and the way to fold the rail away. The share and the update each
+ * keep their own panel and their own reading of the server here, since
+ * nothing else in the interface asks about either.
+ */
+export function RailHeader({
+  active,
+  compare,
+  displayName,
+  notify,
+  onCollapse,
+  prefs,
+  previews,
+  viewing,
+}: {
+  active: string;
+  /** The right-hand pane while two are on the stage, so a share can carry both. */
+  compare: string | null;
+  displayName: (title: string) => string;
+  notify: (toast: Omit<Toast, "id">) => void;
+  onCollapse: () => void;
+  prefs: Prefs;
+  previews: Preview[];
+  /** Somebody else's rail: no sharing of it, and no version that is not theirs. */
+  viewing: boolean;
+}) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const closeShare = useCallback(() => setShareOpen(false), []);
+  const shareButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shareState = useShare(!viewing);
+  /** Which Leglas this is and whether a newer one exists; the chip by the wordmark. */
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const closeUpdate = useCallback(() => setUpdateOpen(false), []);
+  const updateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const updates = useUpdate(!viewing, updateOpen, notify);
+  const news = hasNews(updates.status);
+
+  return (
+    <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
+      {/* The product names itself here rather than in the list below it:
+        the search field and every command already say "directions". */}
+      <span className="flex min-w-0 items-center gap-2">
+        <Mark size={28} />
+        <Wordmark height={18} />
+        {/* The version, said quietly beside the name. It brightens and
+          wears a dot when a newer Leglas exists, and opens the one
+          place to bring it in. A viewer sees the sharer's Leglas, not
+          their own, so they get no chip. */}
+        {!viewing && updates.status !== null && (
+          <Tip label={chipLabel(updates.status)}>
+            <button
+              aria-expanded={updateOpen}
+              aria-haspopup="dialog"
+              aria-label={
+                news
+                  ? `Leglas ${updates.status.version}. ${chipLabel(updates.status)}. Open updates`
+                  : `Leglas ${updates.status.version}. Open updates`
+              }
+              className={`relative mt-px flex h-5 shrink-0 items-center rounded px-1 text-[10px] font-medium leading-none tabular-nums transition-colors duration-150 hover:bg-white/[0.06] ${
+                news || updateOpen
+                  ? "text-[#D1D5DB] hover:text-white"
+                  : "text-[#84848C] hover:text-[#D1D5DB]"
+              }`}
+              onClick={() => {
+                setShareOpen(false);
+                setUpdateOpen((open) => !open);
+              }}
+              ref={updateButtonRef}
+              type="button"
+            >
+              {updates.status.version}
+              {news && (
+                <span
+                  aria-hidden
+                  className="absolute -right-px top-0 size-1.5 rounded-full bg-[#7C9CFF]"
+                />
+              )}
+            </button>
+          </Tip>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5">
+        {/* Sharing sits with the rail it shares. While a share is live
+          the control wears the light's own dot, so the fact that
+          somebody may be looking is never more than a glance away. */}
+        {!viewing && (
+          <Tip
+            label={
+              shareState.share === null
+                ? "Share this rail"
+                : shareState.share.tunnel.status === "ready"
+                  ? `Sharing · ${viewersLine(totalViewers(shareState.share.grants))}`
+                  : "Sharing"
+            }
+          >
+            <button
+              aria-expanded={shareOpen}
+              aria-haspopup="dialog"
+              aria-label={shareState.share === null ? "Share" : "Sharing. Open the share panel"}
+              className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
+                shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
+              }`}
+              onClick={() => {
+                setUpdateOpen(false);
+                setShareOpen((open) => !open);
+              }}
+              ref={shareButtonRef}
+              type="button"
+            >
+              <ShareGlyph />
+              {shareState.share !== null && <LiveDot className="absolute right-0 top-0" />}
+            </button>
+          </Tip>
+        )}
+        <Tip
+          label={
+            <>
+              Collapse panel <kbd className="ml-1 text-[#9CA3AF]">[</kbd>
+            </>
+          }
+          side="right"
+        >
+          <button
+            aria-label="Collapse the directions panel"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 text-[#9CA3AF] transition-colors hover:bg-[#2E2E2E] hover:text-white"
+            onClick={onCollapse}
+            type="button"
+          >
+            <PIcon d={P.sidebar} size={16} />
+          </button>
+        </Tip>
+      </span>
+      {!viewing && (
+        <UpdatePanel
+          onClose={closeUpdate}
+          open={updateOpen}
+          triggerRef={updateButtonRef}
+          updates={updates}
+        />
+      )}
+      {!viewing && (
+        <SharePanel
+          active={active}
+          compare={compare}
+          displayName={displayName}
+          notify={notify}
+          onClose={closeShare}
+          open={shareOpen}
+          prefs={prefs}
+          previews={previews}
+          share={shareState.share}
+          triggerRef={shareButtonRef}
+          tunnels={shareState.tunnels}
+        />
+      )}
+    </div>
+  );
+}
