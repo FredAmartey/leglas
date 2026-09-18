@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  cardDetail,
+  cardHeadline,
   changingRequestTitles,
   composerAgent,
   formatElapsed,
@@ -10,6 +12,7 @@ import {
   workingRequestTitles,
   type AgentOption,
   type AgentStatus,
+  type RequestCard,
   type RequestFailure,
   type RequestStatus,
 } from "./request-status.js";
@@ -364,5 +367,61 @@ describe("notesAwaitingChange", () => {
     ]);
 
     expect([...found]).toEqual(["a"]);
+  });
+});
+
+describe("what the status card says", () => {
+  const running: Extract<RequestCard, { kind: "running" }> = {
+    kind: "running",
+    id: "r1",
+    name: "Claude",
+    activity: "Editing hero.tsx",
+    startedAt: 1_000,
+    title: "Aurora",
+    stopping: false,
+    waiting: null,
+  };
+
+  test("a run names its agent, then the one useful thing about it", () => {
+    expect(cardHeadline(running)).toBe("Claude is on it");
+    expect(cardDetail(running)).toBe("Editing hero.tsx");
+    // No activity yet: the direction it is changing is the next best thing.
+    expect(cardDetail({ ...running, activity: null })).toBe("Aurora");
+    // A provider backing off outranks the activity, so the wait is explained.
+    expect(
+      cardDetail({ ...running, waiting: { attempt: 2, max: 5, status: 429, reason: null } }),
+    ).toBe("provider is rate limiting · retry 2 of 5");
+  });
+
+  test("a stop in progress says so until the agent actually goes", () => {
+    expect(cardHeadline({ ...running, stopping: true })).toBe("Stopping Claude");
+    expect(cardDetail({ ...running, stopping: true })).toBe("waiting for it to exit");
+  });
+
+  test("the queue counts itself and says who takes it next", () => {
+    expect(cardHeadline({ kind: "queued", count: 1, attended: true })).toBe("Change queued");
+    expect(cardHeadline({ kind: "queued", count: 3, attended: true })).toBe("3 changes queued");
+    expect(cardDetail({ kind: "queued", count: 1, attended: true })).toBe(
+      "your agent picks it up next",
+    );
+    expect(cardDetail({ kind: "queued", count: 1, attended: false })).toBe(
+      "pick who runs your changes",
+    );
+  });
+
+  test("a failure shows the server's verdict, and the direction when there is none", () => {
+    const failed = { kind: "failed", id: "r1", title: "Aurora", reason: "Claude is not signed in" };
+    expect(cardHeadline({ ...failed, kind: "failed" })).toBe("That change failed");
+    expect(cardDetail({ ...failed, kind: "failed" })).toBe("Claude is not signed in");
+    expect(cardDetail({ ...failed, kind: "failed", reason: null })).toBe("Aurora");
+  });
+
+  test("a stop is named as the person's own, and a pickup needs no detail", () => {
+    expect(cardHeadline({ kind: "stopped", id: "r1", title: "Aurora" })).toBe(
+      "You stopped that change",
+    );
+    expect(cardDetail({ kind: "stopped", id: "r1", title: "Aurora" })).toBe("Aurora");
+    expect(cardHeadline({ kind: "picked-up" })).toBe("Your agent is on it");
+    expect(cardDetail({ kind: "picked-up" })).toBeNull();
   });
 });
