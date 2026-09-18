@@ -59,6 +59,26 @@ What `leglas` and `leglas-mcp` export is recorded in `api-surface.txt` at
 the root. `pnpm api:update` rewrites it from the built type declarations,
 and a patch release is refused when it has moved.
 
+## Inside the server
+
+`packages/server/src` keeps what answers requests at the top and groups the
+rest by area:
+
+| Folder | What is in it |
+| --- | --- |
+| `agents/` | Finding the agents on the machine, the three ways to reach one, the runner that drains the queue and the reasons a run can end |
+| `requests/` | The queue, the notes left on a preview and the images that ride with a request |
+| `capture/` | Finding and driving a browser over the DevTools protocol, the screenshot and its crops, hydration evidence |
+| `config/` | Finding and loading `leglas.config.ts`, and what is local to one machine: added directions and renames |
+| `branches/` | Deciding whether a direction needs its own branch, and the worktree, install and dev server when it does |
+| `share/` | The share itself and the tunnel it borrows |
+
+At the top, `server.ts` is the HTTP server and every API route, `proxy.ts`
+forwards to the dev server, `live.ts` is the WebSocket, `server-info.ts`
+writes `server.json`, `update.ts` is the update check, `log.ts` composes the
+design log entries `leglas keep` writes, and `index.ts` is what the package
+exports.
+
 ## Where state lives
 
 Leglas has no database and no account. The committed `leglas.config.ts` is
