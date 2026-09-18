@@ -68,62 +68,56 @@ reasoning_effort=...` is added to the run.
 
 ## Results
 
-These numbers come from the verifier as it was on 2026-09-16, before it
-learned to refuse a changed test configuration and to check that every
-hidden file ran. Every agent fixed every task, so the hardened checks would
-not have changed a reward, but the run has not been repeated under them.
-
-Run 2026-09-16 on an Apple Silicon Mac, Docker Desktop, two trials at a
-time, one attempt per task, every model at its default reasoning effort.
-Harbor 0.23.0, Claude Code 2.1.273 on `claude-fable-5-1`, Codex CLI
-0.154.0 on `gpt-6-astra` (default effort low) and on `gpt-5.5` (default
-effort medium). Calibration first: the oracle agent scored 8/8 and the nop
-agent 0/8, so a pass means the hidden tests went from red to green and a
-fail means they did not.
+Run 2026-09-18 on an Apple Silicon Mac, Docker Desktop, one attempt per
+task, every model at its default reasoning effort. Harbor 0.23.0, Claude
+Code 2.1.276 on `claude-fable-5-1`, Codex CLI 0.155.0 on `gpt-5.5` and on
+`gpt-6-astra`. This is the verifier described above, calibrated the same
+day: the oracle scored 8/8 and the nop agent 0/8, so a pass means the
+hidden tests went from red to green and a fail means they did not.
 
 | Agent | Model | Trials | Pass rate | Exceptions | Median agent time | Mean tokens / trial (in + out) | Cost |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| claude-code | claude-fable-5-1 | 8 | 100% (8/8) | 0 | 1.7 min | 215k (211k + 4.3k) | $4.75 |
-| codex | gpt-5.5 | 8 | 100% (8/8) | 0 | 1.3 min | 203k (200k + 2.5k) | $2.20 |
-| codex | gpt-6-astra | 8 | 100% (8/8) | 0 | 2.1 min | 266k (265k + 1.6k) | $4.21 |
+| oracle | | 8 | 100% (8/8) | 0 | 0.0 min | 0 (0 + 0) | n/a |
+| nop | | 8 | 0% (0/8) | 0 | 0.0 min | 0 (0 + 0) | n/a |
+| codex | gpt-5.5 | 8 | 88% (7/8) | 0 | 1.2 min | 209k (206k + 2.5k) | $2.39 |
+| codex | gpt-6-astra | 12 | 67% (8/12) | 4 | 1.0 min | 105k (104k + 699) | $3.46 |
+| claude-code | claude-fable-5-1 | 8 | 100% (8/8) | 0 | 1.7 min | 236k (231k + 4.6k) | $4.93 |
 
-| Task | claude-code (claude-fable-5-1) | codex (gpt-5.5) | codex (gpt-6-astra) |
-| --- | --- | --- | --- |
-| agents-edit-without-path | pass, 2.7 min, 137k tok | pass, 1.0 min, 161k tok | pass, 8.4 min, 531k tok |
-| changelog-parser-refusals | pass, 1.6 min, 319k tok | pass, 1.9 min, 240k tok | pass, 1.4 min, 177k tok |
-| hydration-evidence | pass, 1.6 min, 182k tok | pass, 2.1 min, 222k tok | pass, 1.0 min, 108k tok |
-| share-backslash-paths | pass, 0.9 min, 147k tok | pass, 1.3 min, 165k tok | pass, 1.7 min, 187k tok |
-| share-dotfile-viewers | pass, 3.4 min, 356k tok | pass, 1.3 min, 177k tok | pass, 3.6 min, 468k tok |
-| share-stop-mid-start | pass, 4.4 min, 349k tok | pass, 2.5 min, 376k tok | pass, 6.3 min, 290k tok |
-| shell-branch-preview-blank | pass, 0.5 min, 79k tok | pass, 0.9 min, 107k tok | pass, 1.0 min, 137k tok |
-| worktree-loopback-probe | pass, 1.9 min, 154k tok | pass, 1.3 min, 174k tok | pass, 2.5 min, 232k tok |
+| Task | oracle | nop | codex (gpt-5.5) | codex (gpt-6-astra) | claude-code (claude-fable-5-1) |
+| --- | --- | --- | --- | --- | --- |
+| agents-edit-without-path | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 0.8 min, 174k tok | fail, n/a, 0 tok; pass, 1.3 min, 168k tok | pass, 2.1 min, 184k tok |
+| changelog-parser-refusals | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 2.4 min, 376k tok | pass, 1.1 min, 146k tok | pass, 1.6 min, 241k tok |
+| hydration-evidence | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | fail, 1.5 min, 224k tok | fail, 0.0 min, 0 tok; pass, 0.8 min, 89k tok | pass, 0.8 min, 128k tok |
+| share-backslash-paths | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 1.0 min, 165k tok | fail, 0.0 min, 0 tok; pass, 0.9 min, 182k tok | pass, 1.0 min, 167k tok |
+| share-dotfile-viewers | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 2.0 min, 289k tok | pass, 1.5 min, 233k tok | pass, 1.9 min, 259k tok |
+| share-stop-mid-start | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 1.3 min, 242k tok | fail, n/a, 0 tok; pass, 1.5 min, 211k tok | pass, 1.9 min, 265k tok |
+| shell-branch-preview-blank | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 0.7 min, 100k tok | pass, 0.7 min, 117k tok | pass, 3.7 min, 478k tok |
+| worktree-loopback-probe | pass, 0.0 min, 0 tok | fail, 0.0 min, 0 tok | pass, 0.8 min, 99k tok | pass, 1.0 min, 114k tok | pass, 0.9 min, 161k tok |
 
 What the numbers say:
 
-- Every harness and model fixed every task on the first attempt, so at
-  this size the set separates them on time and tokens, not on correctness.
-  Eight tasks and one attempt each is a profile, not a leaderboard.
-- The workload is prefill. Input averaged 211k tokens a trial for Claude
-  Code, 200k for Codex on GPT-5.5 and 265k for Codex on GPT-6 astra; 92%,
-  89% and 92% of that input was prompt cache reads, and output was 2.0%,
-  1.2% and 0.6% of all tokens. Time to first token and cache hit rate
-  decide the latency here, not decode throughput.
-- Same harness, two models: GPT-6 astra at its default low effort read
-  more and took longer than GPT-5.5 at medium (median 2.1 vs 1.3 min),
-  with one 8-minute, 531k-token outlier on the easiest task. Reasoning
-  effort is a harness knob worth profiling on its own.
-- Agent setup, installing the harness into a fresh container, took 1.7 to
-  3.1 minutes a trial for the first two runs and up to 16 minutes for the
-  astra run, when the npm registry slowed down. Setup is excluded from the
-  agent times above but it is real wall time a harness pays.
-- The cost column is Harbor's estimate at API list prices. All runs went
-  through subscriptions (`claude setup-token`, `~/.codex/auth.json`).
-- Token counts are what Harbor parsed from each agent's trajectory. A later
-  run on another repository showed that parse under-counting Codex when the
-  agent starts a nested `codex review`; nothing here asks Codex to do that,
-  but the raw usage events for these trials were not kept, so the Codex
-  counts above stand unaudited.
+- Claude Code fixed every task. GPT-6 astra fixed every task it ran. GPT-5.5
+  missed one: on hydration-evidence 22 of its 23 hidden tests passed, and
+  the last expects the literal wording `the app` for a framework the
+  detector does not recognise, which the instruction leaves to the agent.
+- Four GPT-6 astra trials raised before the agent ran: the host disk filled
+  during the run and Docker returned I/O errors. They count as failures in
+  the table, which is how `report.ts` is written, and the four tasks were
+  rerun one at a time and passed. Over the eight completed astra trials the
+  mean is 158k tokens a trial, against the 105k the table averages over
+  twelve.
+- The hardened verifier changed no reward. No trial in the run was refused
+  for touching a guarded file; every refusal was hidden tests that did not
+  pass. Against the run of 2026-09-16 under the old verifier, the only
+  difference is GPT-5.5's one miss, which is the agent, not the checks.
+- The first legs ran two trials at a time and the rest one at a time, so
+  wall time is not comparable across the run. The times here are each
+  agent's own, as before, and setup is excluded.
+- Token counts are what Harbor parsed from each agent's trajectory. The
+  Codex counts stand unaudited, as noted for the earlier run.
 
 The full report, with the JSON summary, is in
-[`results/2026-09-16.md`](results/2026-09-16.md). Regenerate it from the
+[`results/2026-09-18.md`](results/2026-09-18.md). The run of 2026-09-16,
+under the verifier before it was hardened, is kept in
+[`results/2026-09-16.md`](results/2026-09-16.md). Regenerate a report from
 job directories with `node evals/report.ts`.
