@@ -59,6 +59,9 @@ for (const task of manifest.tasks) {
   // beside the hidden tests, which the agent cannot reach, rather than in the
   // tree's own git, which it can rewrite. baseline.txt lists them, so the
   // verifier compares exactly what was captured for this task's base commit.
+  // Each copy carries a .snapshot suffix so nothing that scans the tree for
+  // manifests, GitHub's dependency graph included, takes eight old lockfiles
+  // for eight projects to keep patched.
   // The root list is filtered by what the base commit has: the root
   // tsconfig.json arrived after some of these fixes.
   const guarded = [
@@ -69,7 +72,7 @@ for (const task of manifest.tasks) {
       .filter((f) => GUARDED_IN_PACKAGES.test(f)),
   ];
   for (const f of guarded) {
-    const target = join(dir, "tests/baseline", f);
+    const target = join(dir, "tests/baseline", `${f}.snapshot`);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, git("show", `${parent}:${f}`));
   }
