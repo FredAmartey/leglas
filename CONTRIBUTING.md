@@ -23,6 +23,7 @@ pnpm site        # the homepage and changelog, into dist/site
 | `site`            | The homepage, the changelog page and the release notes, all made from `CHANGELOG.md`                |
 | `scripts`         | `pnpm api:update`, which records the public API surface in `api-surface.txt`                        |
 | `test`            | Tests about the repository itself: the manifests, the publish workflow, what the CLI tells people to type |
+| `docs`            | The manual the README links to: using the interface, sharing, setting up a project, agents, the command line |
 
 Tests sit beside the code they test, in the same directory.
 
@@ -62,6 +63,9 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
   describing the change.
 - A change to the interface comes with a screenshot of it, before and
   after where that helps.
+- Links in `README.md` are absolute. The file is also the npm package
+  page, and npm resolves relative links against `packages/cli`, where
+  nothing they point at exists.
 
 ## Pull requests
 

@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://github.com/FredAmartey/leglas#readme
+    url: https://github.com/FredAmartey/leglas/tree/main/docs
     about: Setting up a project, using the interface, sharing a rail and working with agents.
   - name: Changelog
     url: https://leglas.vercel.app/changelog/

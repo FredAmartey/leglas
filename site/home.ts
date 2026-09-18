@@ -119,7 +119,7 @@ ${bar(assets, { home: "./", changelog: "./changelog/", active: "home" })}
 </div>
 </section>
 </main>
-${foot(`The <a href="${REPO}#readme">README</a> says all of this at length.`)}`;
+${foot(`The <a href="${REPO}/tree/main/docs">docs</a> say all of this at length.`)}`;
   return document({
     title: "Leglas",
     description: "Compare design directions inside your own running app.",
