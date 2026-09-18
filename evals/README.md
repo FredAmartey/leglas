@@ -68,6 +68,11 @@ reasoning_effort=...` is added to the run.
 
 ## Results
 
+These numbers come from the verifier as it was on 2026-09-16, before it
+learned to refuse a changed test configuration and to check that every
+hidden file ran. Every agent fixed every task, so the hardened checks would
+not have changed a reward, but the run has not been repeated under them.
+
 Run 2026-09-16 on an Apple Silicon Mac, Docker Desktop, two trials at a
 time, one attempt per task, every model at its default reasoning effort.
 Harbor 0.23.0, Claude Code 2.1.273 on `claude-fable-5-1`, Codex CLI
