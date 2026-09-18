@@ -2,6 +2,8 @@ vitest.config.ts
 package.json
 pnpm-workspace.yaml
 pnpm-lock.yaml
+tsconfig.base.json
+tsconfig.json
 packages/cli/package.json
 packages/cli/tsconfig.declarations.json
 packages/cli/tsconfig.json

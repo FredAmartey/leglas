@@ -20,10 +20,11 @@ const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf
 /**
  * The files that decide what build, typecheck and vitest mean: test.sh scores
  * 0 if any differ from the base state. The root four, plus every package's
- * manifest and compiler or bundler configuration, since \`pnpm build\` and
- * \`pnpm -r typecheck\` delegate to those.
+ * manifest and compiler or bundler configuration, since `pnpm build` and
+ * `pnpm -r typecheck` delegate to those, and the root tsconfigs they inherit
+ * from.
  */
-const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"];
+const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.base.json", "tsconfig.json"];
 const GUARDED_IN_PACKAGES = /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
 
 const git = (...args: string[]) =>
@@ -48,8 +49,10 @@ for (const task of manifest.tasks) {
   // beside the hidden tests, which the agent cannot reach, rather than in the
   // tree's own git, which it can rewrite. baseline.txt lists them, so the
   // verifier compares exactly what was captured for this task's base commit.
+  // The root list is filtered by what the base commit has: the root
+  // tsconfig.json arrived after some of these fixes.
   const guarded = [
-    ...GUARDED_ROOT,
+    ...GUARDED_ROOT.filter((f) => git("ls-tree", "--name-only", parent, "--", f).trim() === f),
     ...git("ls-tree", "-r", "--name-only", parent, "packages").trim().split("\n").filter((f) => GUARDED_IN_PACKAGES.test(f)),
   ];
   for (const f of guarded) {

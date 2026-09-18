@@ -15,7 +15,7 @@ export CI=1
 reward=0
 # The agent edits the same tree the tests run in, so the files that decide
 # what build, typecheck and vitest mean are off limits: a vitest.config.ts
-# that excludes the hidden files, a package script turned into \`true\`, a
+# that excludes the hidden files, a package script turned into true, a
 # loosened tsconfig. The baseline copies sit beside the hidden tests, which
 # the agent cannot reach; the tree's own git is not the baseline, since the
 # agent can commit to it. None of the real fixes touched these files.
