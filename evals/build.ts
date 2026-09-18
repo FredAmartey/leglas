@@ -24,7 +24,7 @@ const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf
  * `pnpm -r typecheck` delegate to those, and the root tsconfigs they inherit
  * from.
  */
-const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.base.json", "tsconfig.json"];
+const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig.base.json", "tsconfig.json", ".npmrc", ".pnpmfile.cjs"];
 const GUARDED_IN_PACKAGES = /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
 
 const git = (...args: string[]) =>

@@ -19,12 +19,30 @@ reward=0
 # workspace glob and have its scripts run, and a second runner config beside
 # the guarded one could take its place, so anything of either kind that has
 # no baseline copy is refused too.
+# Nothing the agent left running may outlive its turn: a process that waits
+# for the hidden tests to appear and swaps them is the one attack that needs
+# no change to any file the checks below compare. Everything outside this
+# script's own ancestry goes, before each stage, PID 1 aside.
+reap() {
+  keep=" $$ "
+  p=$$
+  while [ "$p" != "0" ] && [ "$p" != "1" ]; do
+    p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null || echo 0)
+    keep="$keep$p "
+  done
+  for d in /proc/[0-9]*; do
+    pid=${d#/proc/}
+    [ "$pid" = 1 ] && continue
+    case "$keep" in *" $pid "*) continue;; esac
+    kill -9 "$pid" 2>/dev/null || true
+  done
+}
 unchanged() {
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     cmp -s "/tests/baseline/$f" "/app/$f" || return 1
   done < /tests/baseline.txt
-  for f in packages/*/package.json vitest.config.* vitest.workspace.* vite.config.*; do
+  for f in packages/*/package.json packages/*/.npmrc .npmrc .pnpmfile.cjs vitest.config.* vitest.workspace.* vite.config.*; do
     [ -e "$f" ] || continue
     [ -f "/tests/baseline/$f" ] || return 1
   done
@@ -36,11 +54,14 @@ refuse() {
   exit 0
 }
 
+reap
 unchanged || refuse "the test configuration or the manifests differ from the base state"
 pnpm build > /logs/verifier/build.log 2>&1 || refuse "the build failed"
-# The build ran project code, so the guarded files are checked again before
-# anything trusts them. The hidden tests go back only now, after every
-# package script has run, so nothing the build did can have touched them.
+# The build ran project code, so leftover processes go and the guarded files
+# are checked again before anything trusts them. The hidden tests go back
+# only now, after every package script has run and been reaped, so nothing
+# the build did can touch them.
+reap
 unchanged || refuse "the test configuration or the manifests were changed by the build"
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -51,9 +72,15 @@ done < /tests/files.txt
 # passed: an exit code alone cannot tell "all green" from "none ran".
 pnpm exec vitest run --reporter=json --outputFile=/logs/verifier/vitest.json $(tr '\n' ' ' < /tests/files.txt) > /logs/verifier/vitest.log 2>&1 \
   || refuse "the hidden tests did not pass"
+# The tests ran project code too: reap, then confirm the hidden files are
+# still the protected copies before the report is believed.
+reap
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  cmp -s "/tests/files/$f" "/app/$f" || refuse "a hidden test file was changed during the run"
+done < /tests/files.txt
 node /tests/collected.mjs /logs/verifier/vitest.json /tests/files.txt > /logs/verifier/collected.log 2>&1 \
   || refuse "a hidden test file was not collected or did not pass"
-# The tests ran project code too, so the same check before the typecheck.
 unchanged || refuse "the test configuration or the manifests were changed by the tests"
 pnpm -r typecheck > /logs/verifier/typecheck.log 2>&1 || refuse "the typecheck failed"
 reward=1
