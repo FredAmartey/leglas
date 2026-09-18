@@ -57,7 +57,10 @@ export function isReferenceImage(file: FileLike): boolean {
 export function imageFilesFrom<T extends FileLike>(
   files: Iterable<T | null | undefined> | ArrayLike<T | null | undefined>,
 ): T[] {
-  const list = Symbol.iterator in files ? [...(files as Iterable<T | null | undefined>)] : Array.from(files as ArrayLike<T | null | undefined>);
+  const list =
+    Symbol.iterator in files
+      ? [...(files as Iterable<T | null | undefined>)]
+      : Array.from(files as ArrayLike<T | null | undefined>);
   return list.filter((file): file is T => file != null && isReferenceImage(file));
 }
 
@@ -104,7 +107,9 @@ export function admit<T extends FileLike>(
  * and one message is what they can act on. Counts are said in words the
  * strip already implies, not as numbers of bytes.
  */
-export function refusalMessage(refused: readonly { file: FileLike; why: Refusal }[]): string | null {
+export function refusalMessage(
+  refused: readonly { file: FileLike; why: Refusal }[],
+): string | null {
   const first = refused[0];
   if (first === undefined) return null;
   const many = refused.length > 1;
@@ -136,7 +141,9 @@ export function displayName(name: string): string {
  * only has to be something the request can carry.
  */
 export function headerName(name: string): string {
-  const ascii = displayName(name).replace(/[^\x20-\x7E]/g, "").trim();
+  const ascii = displayName(name)
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim();
   return (ascii === "" ? "image" : ascii).slice(0, 80);
 }
 
@@ -151,7 +158,9 @@ export function describeBytes(bytes: number): string {
 
 /** The ids a request names: only what actually landed. */
 export function referenceIds(drafts: readonly ReferenceDraft[]): string[] {
-  return drafts.flatMap((draft) => (draft.status === "ready" && draft.id !== null ? [draft.id] : []));
+  return drafts.flatMap((draft) =>
+    draft.status === "ready" && draft.id !== null ? [draft.id] : [],
+  );
 }
 
 /**

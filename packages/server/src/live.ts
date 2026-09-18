@@ -96,7 +96,8 @@ export function createCoalescer(
       return timer;
     });
   const clearLater =
-    options.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    options.clearTimeout ??
+    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
 
   // One pending nudge per kind, so a burst of config changes cannot delay a
   // requests nudge that arrived in the middle of it.
@@ -154,9 +155,7 @@ export function createLiveHub(
   const read = (listener: Listener, chunk: Buffer | string): void => {
     const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     listener.buffered =
-      listener.buffered.length === 0
-        ? incoming
-        : Buffer.concat([listener.buffered, incoming]);
+      listener.buffered.length === 0 ? incoming : Buffer.concat([listener.buffered, incoming]);
 
     while (listener.buffered.length >= 2) {
       const first = listener.buffered[0] ?? 0;

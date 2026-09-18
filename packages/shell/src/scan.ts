@@ -1,13 +1,11 @@
 import type { Preview } from "./types.js";
 
 export type PreviewScan =
-  | { url: string; status: "complete"; signature: string | null }
-  | { url: string; status: "failed" };
+  { url: string; status: "complete"; signature: string | null } | { url: string; status: "failed" };
 
 export type PreviewScans = Readonly<Record<string, PreviewScan>>;
 export type PreviewScanOutcome =
-  | { status: "complete"; signature: string | null }
-  | { status: "failed" };
+  { status: "complete"; signature: string | null } | { status: "failed" };
 
 function currentScan(preview: Preview, scans: PreviewScans): PreviewScan | null {
   const scan = scans[preview.title];
@@ -65,10 +63,7 @@ export function recordScan(
     (current?.status === "complete" &&
       record.status === "complete" &&
       current.signature === record.signature);
-  if (
-    current?.url === record.url &&
-    sameOutcome
-  ) {
+  if (current?.url === record.url && sameOutcome) {
     return scans;
   }
   return { ...scans, [preview.title]: record };
@@ -95,10 +90,7 @@ export function scanSignatures(
  * title stays the same. Failed reads stop retrying for this page load without
  * pretending they produced a comparable signature.
  */
-export function scanQueue(
-  previews: readonly Preview[],
-  scans: PreviewScans,
-): Preview[] {
+export function scanQueue(previews: readonly Preview[], scans: PreviewScans): Preview[] {
   return previews.filter((preview) => {
     // A branch preview that has not started has no url to read yet.
     if (!preview.url?.startsWith("/")) return false;

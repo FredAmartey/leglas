@@ -139,7 +139,8 @@ export function Trail({
       marks.forEach((mark, index) => {
         const bloom = blooms.current[index];
         if (!bloom) return;
-        if (inRun && centre >= mark.y && (passed[index] ?? -Infinity) < cycleStart) passed[index] = t;
+        if (inRun && centre >= mark.y && (passed[index] ?? -Infinity) < cycleStart)
+          passed[index] = t;
         const since = t - (passed[index] ?? -Infinity);
         const settle = since < BLOOM_MS ? 1 - since / BLOOM_MS : 0;
         const glow = settle * settle * (3 - 2 * settle);
@@ -201,7 +202,13 @@ export function Trail({
         <path d={d} opacity={0.24} strokeWidth={3.5} />
         <path d={d} opacity={0.85} strokeWidth={1.75} />
       </g>
-      <g opacity={0} ref={surgeLayer} stroke={`url(#${surgeId})`} strokeLinecap="round" strokeLinejoin="round">
+      <g
+        opacity={0}
+        ref={surgeLayer}
+        stroke={`url(#${surgeId})`}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d={d} opacity={0.16} strokeWidth={9} />
         <path d={d} opacity={0.4} strokeWidth={4} />
         <path d={d} opacity={0.9} strokeWidth={1.75} />

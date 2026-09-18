@@ -2,12 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { Duplex } from "node:stream";
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  LIVE_DEBOUNCE_MS,
-  createCoalescer,
-  createLiveHub,
-  encodeFrame,
-} from "./live.js";
+import { LIVE_DEBOUNCE_MS, createCoalescer, createLiveHub, encodeFrame } from "./live.js";
 
 class RecordingSocket extends Duplex {
   readonly writes: Buffer[] = [];
@@ -81,17 +76,20 @@ describe("createLiveHub", () => {
     expect(refused.destroyed).toBe(true);
   });
 
-  test.each(["config", "update"] as const)("sends the exact %s nudge to every listener", (change) => {
-    const hub = createLiveHub();
-    const first = listen(hub);
-    const second = listen(hub);
+  test.each(["config", "update"] as const)(
+    "sends the exact %s nudge to every listener",
+    (change) => {
+      const hub = createLiveHub();
+      const first = listen(hub);
+      const second = listen(hub);
 
-    hub.nudge(change);
+      hub.nudge(change);
 
-    const expected = encodeFrame(0x1, JSON.stringify({ changed: change }));
-    expect(Buffer.concat(first.writes)).toEqual(expected);
-    expect(Buffer.concat(second.writes)).toEqual(expected);
-  });
+      const expected = encodeFrame(0x1, JSON.stringify({ changed: change }));
+      expect(Buffer.concat(first.writes)).toEqual(expected);
+      expect(Buffer.concat(second.writes)).toEqual(expected);
+    },
+  );
 
   test.each([
     { length: 125, marker: 125, header: 2 },

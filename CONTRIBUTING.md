@@ -7,6 +7,7 @@ pnpm install
 pnpm build       # build every package
 pnpm test        # the suite, build included
 pnpm typecheck   # every package
+pnpm format      # prettier, over everything but prose and vendored files
 pnpm site        # the homepage and changelog, into dist/site
 ```
 
@@ -52,7 +53,8 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 
 ## Before opening a pull request
 
-- `pnpm test` and `pnpm typecheck` pass.
+- `pnpm test`, `pnpm typecheck` and `pnpm format:check` pass. CI runs all
+  three; `pnpm format` fixes the last one.
 - If your change touches what the packages export, run `pnpm api:update`
   and commit `api-surface.txt`. It is the record of the public surface, and
   a patch release is refused when it has moved since the previous one.

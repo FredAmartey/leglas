@@ -36,7 +36,9 @@ export async function writeServerInfo(cwd: string, info: ServerInfo): Promise<vo
 
 export async function readServerInfo(cwd: string): Promise<ServerInfo | null> {
   try {
-    const value = JSON.parse(await readFile(join(cwd, SERVER_INFO_PATH), "utf8")) as Partial<ServerInfo>;
+    const value = JSON.parse(
+      await readFile(join(cwd, SERVER_INFO_PATH), "utf8"),
+    ) as Partial<ServerInfo>;
     if (
       typeof value.port !== "number" ||
       !Number.isInteger(value.port) ||
@@ -46,7 +48,8 @@ export async function readServerInfo(cwd: string): Promise<ServerInfo | null> {
       value.url === "" ||
       typeof value.pid !== "number" ||
       !Number.isInteger(value.pid)
-    ) return null;
+    )
+      return null;
     return { port: value.port, url: value.url, pid: value.pid };
   } catch {
     return null;
@@ -67,7 +70,8 @@ export async function removeServerInfo(
 ): Promise<void> {
   if (expected !== undefined) {
     const current = await readServerInfo(cwd);
-    if (current !== null && (current.port !== expected.port || current.pid !== expected.pid)) return;
+    if (current !== null && (current.port !== expected.port || current.pid !== expected.pid))
+      return;
   }
   await rm(join(cwd, SERVER_INFO_PATH), { force: true });
 }

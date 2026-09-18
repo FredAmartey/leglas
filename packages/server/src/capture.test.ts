@@ -10,13 +10,7 @@ import {
   type Browser,
   type CdpPage,
 } from "./browser.js";
-import {
-  CROP_MIN,
-  FRAME_MAX_HEIGHT,
-  capturePage,
-  cropBox,
-  type Focus,
-} from "./capture.js";
+import { CROP_MIN, FRAME_MAX_HEIGHT, capturePage, cropBox, type Focus } from "./capture.js";
 
 /**
  * A live test's ceiling, derived rather than chosen.
@@ -43,21 +37,16 @@ describe("cropBox", () => {
 
   test("grows a tiny element around its centre", () => {
     expect(
-      cropBox(
-        { x: 490, y: 390, width: 20, height: 20 },
-        undefined,
-        { width: 1000, height: 800 },
-      ),
+      cropBox({ x: 490, y: 390, width: 20, height: 20 }, undefined, { width: 1000, height: 800 }),
     ).toEqual({ x: 340, y: 300, width: 320, height: 200 });
   });
 
   test("an element larger than the page becomes the page", () => {
     expect(
-      cropBox(
-        { x: -100, y: -100, width: 2000, height: 1600 },
-        undefined,
-        { width: 800, height: 600 },
-      ),
+      cropBox({ x: -100, y: -100, width: 2000, height: 1600 }, undefined, {
+        width: 800,
+        height: 600,
+      }),
     ).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });
 });
@@ -189,7 +178,8 @@ describe("capturePage", () => {
     page.loadErrors = [
       ...Array.from(
         { length: 11 },
-        (_, index) => `Refused to connect to https://example.com/${index} because it violates the Content Security Policy`,
+        (_, index) =>
+          `Refused to connect to https://example.com/${index} because it violates the Content Security Policy`,
       ),
       message,
     ];
@@ -221,7 +211,9 @@ describe("capturePage", () => {
     const captured = await capturePage(browser, {
       url: "http://127.0.0.1/long",
       width: 320,
-      focuses: [{ selector: "#deep", text: "Deep", tag: "p", rect: { x: 0, y: 0, width: 0, height: 0 } }],
+      focuses: [
+        { selector: "#deep", text: "Deep", tag: "p", rect: { x: 0, y: 0, width: 0, height: 0 } },
+      ],
     });
 
     // The overview still stops at the cap; the crop does not.
@@ -240,9 +232,9 @@ describe("capturePage", () => {
       withPage: async (work) => work(page),
     };
 
-    await expect(capturePage(browser, { url: "http://127.0.0.1/down", width: 800 })).rejects.toThrow(
-      "The page did not load: the app answered HTTP 502.",
-    );
+    await expect(
+      capturePage(browser, { url: "http://127.0.0.1/down", width: 800 }),
+    ).rejects.toThrow("The page did not load: the app answered HTTP 502.");
   });
 
   test("throws a navigation error and drops an unusable recorded rectangle", async () => {
@@ -258,9 +250,9 @@ describe("capturePage", () => {
       withPage: async (work) => work(page),
     };
 
-    await expect(
-      capturePage(browser, { url: "http://127.0.0.1:1", width: 800 }),
-    ).rejects.toThrow("The page did not load: net::ERR_CONNECTION_REFUSED");
+    await expect(capturePage(browser, { url: "http://127.0.0.1:1", width: 800 })).rejects.toThrow(
+      "The page did not load: net::ERR_CONNECTION_REFUSED",
+    );
   });
 });
 
@@ -289,46 +281,46 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "renders a local page, crops its element and reads console errors",
     async () => {
-    const server = http.createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        "<h1>Hello there</h1><p id=\"x\">Body copy</p><script>console.error('boom')</script>",
-      );
-    });
-    liveServers.push(server);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as AddressInfo).port;
-    const browser = await launchBrowser(executable as string);
-    liveBrowsers.push(browser);
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(
+          "<h1>Hello there</h1><p id=\"x\">Body copy</p><script>console.error('boom')</script>",
+        );
+      });
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as AddressInfo).port;
+      const browser = await launchBrowser(executable as string);
+      liveBrowsers.push(browser);
 
-    const captured = await capturePage(browser, {
-      url: `http://127.0.0.1:${port}/`,
-      width: 800,
-      focuses: [
-        {
-          selector: "#x",
-          text: "Body copy",
-          tag: "p",
-          rect: { x: 0, y: 0, width: 10, height: 10 },
-        },
-        {
-          selector: "#nope",
-          text: "absent",
-          tag: "p",
-          rect: { x: 0, y: 0, width: 0, height: 0 },
-        },
-      ],
-    });
+      const captured = await capturePage(browser, {
+        url: `http://127.0.0.1:${port}/`,
+        width: 800,
+        focuses: [
+          {
+            selector: "#x",
+            text: "Body copy",
+            tag: "p",
+            rect: { x: 0, y: 0, width: 10, height: 10 },
+          },
+          {
+            selector: "#nope",
+            text: "absent",
+            tag: "p",
+            rect: { x: 0, y: 0, width: 0, height: 0 },
+          },
+        ],
+      });
 
-    expect([...captured.frame.png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(pngSize(captured.frame.png).width).toBe(800);
-    const crop = captured.crops[0];
-    expect(crop?.resolved).toBe("element");
-    const cropSize = pngSize(crop?.shot.png ?? Buffer.alloc(24));
-    expect(cropSize.width).toBeGreaterThanOrEqual(CROP_MIN.width * 2);
-    expect(cropSize.height).toBeGreaterThanOrEqual(CROP_MIN.height * 2);
-    expect(captured.crops[1]).toBeNull();
-    expect(captured.errors.join(" ")).toContain("boom");
+      expect([...captured.frame.png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(pngSize(captured.frame.png).width).toBe(800);
+      const crop = captured.crops[0];
+      expect(crop?.resolved).toBe("element");
+      const cropSize = pngSize(crop?.shot.png ?? Buffer.alloc(24));
+      expect(cropSize.width).toBeGreaterThanOrEqual(CROP_MIN.width * 2);
+      expect(cropSize.height).toBeGreaterThanOrEqual(CROP_MIN.height * 2);
+      expect(captured.crops[1]).toBeNull();
+      expect(captured.errors.join(" ")).toContain("boom");
     },
     LIVE_TEST_TIMEOUT_MS,
   );

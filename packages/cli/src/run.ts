@@ -19,10 +19,7 @@ import {
 } from "@leglas/server";
 
 import type { RunOptions } from "./args.js";
-import {
-  devServerOwnerWarning,
-  inspectLocalDevServer,
-} from "./dev-server-owner.js";
+import { devServerOwnerWarning, inspectLocalDevServer } from "./dev-server-owner.js";
 
 /**
  * Locate the built interface. The published package is self-contained, with
@@ -70,10 +67,13 @@ export type RunDeps = {
 
 /** Automated runs and an explicit opt-out should never ask npm at startup. */
 export function skipStartupCheck(env: NodeJS.ProcessEnv): boolean {
-  const off = (value: string | undefined): boolean => value === undefined || value === "" || value === "0" || value === "false";
+  const off = (value: string | undefined): boolean =>
+    value === undefined || value === "" || value === "0" || value === "false";
   // CI follows ci-info: only the literal false opts out of a nonempty CI value.
-  return (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
-    !off(env.LEGLAS_NO_UPDATE_CHECK);
+  return (
+    (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
+    !off(env.LEGLAS_NO_UPDATE_CHECK)
+  );
 }
 
 export type RunResult = {
@@ -102,7 +102,7 @@ export async function run(
 
   let devServer =
     options.userPort === undefined
-      ? loaded.config?.devServer ?? "http://localhost:3000"
+      ? (loaded.config?.devServer ?? "http://localhost:3000")
       : `http://localhost:${options.userPort}`;
 
   // Locally added previews append after the shared ones, so the committed
@@ -175,9 +175,9 @@ export async function run(
 
   const config = merged === null ? null : { ...merged, previews };
   const configWarnings: string[] = [];
-  const projectRoot = await realpath(loaded.path === null ? options.cwd : dirname(loaded.path)).catch(
-    () => resolve(loaded.path === null ? options.cwd : dirname(loaded.path)),
-  );
+  const projectRoot = await realpath(
+    loaded.path === null ? options.cwd : dirname(loaded.path),
+  ).catch(() => resolve(loaded.path === null ? options.cwd : dirname(loaded.path)));
   const ownerWarning =
     needsApp && app === null
       ? inspectLocalDevServer(devServer)

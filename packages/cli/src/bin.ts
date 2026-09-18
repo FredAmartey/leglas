@@ -221,7 +221,13 @@ if (parsed.kind === "show") {
 
 if (parsed.kind === "new") {
   const outcome = await runNew(
-    { surface: parsed.surface, print: parsed.print, json: parsed.json, from: parsed.from, cwd: process.cwd() },
+    {
+      surface: parsed.surface,
+      print: parsed.print,
+      json: parsed.json,
+      from: parsed.from,
+      cwd: process.cwd(),
+    },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
   process.exit(outcome.exitCode);
@@ -238,7 +244,9 @@ const updates = createUpdateService({
   entry,
   argv: process.argv,
   cwd: process.cwd(),
-  deps: { log: (line) => (parsed.options.json ? process.stderr : process.stdout).write(`${line}\n`) },
+  deps: {
+    log: (line) => (parsed.options.json ? process.stderr : process.stdout).write(`${line}\n`),
+  },
 });
 
 const result = await run(
@@ -247,11 +255,13 @@ const result = await run(
 );
 
 const { handOff, handedOff } = createHandoff();
-updates.onRestart((command) => handOff(command, result.stop, {
-  spawn,
-  exit: (code) => process.exit(code),
-  target: process,
-}));
+updates.onRestart((command) =>
+  handOff(command, result.stop, {
+    spawn,
+    exit: (code) => process.exit(code),
+    target: process,
+  }),
+);
 
 installShutdown(async () => {
   if (handedOff()) return;

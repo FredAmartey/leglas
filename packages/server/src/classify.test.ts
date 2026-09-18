@@ -32,7 +32,10 @@ describe("classifyDirection", () => {
 
   test("routes a dependency change to a checkout", () => {
     const placement = classifyDirection({
-      changes: [change("package.json"), change(".leglas/variants/hero/motion.tsx", { exists: false })],
+      changes: [
+        change("package.json"),
+        change(".leglas/variants/hero/motion.tsx", { exists: false }),
+      ],
     });
 
     expect(placement.level).toBe("checkout");
@@ -92,7 +95,11 @@ describe("classifyDirection", () => {
 
   test("the dependency reason wins when several rules match", () => {
     const placement = classifyDirection({
-      changes: [rewrite("src/components/hero.tsx"), change("next.config.ts"), change("package.json")],
+      changes: [
+        rewrite("src/components/hero.tsx"),
+        change("next.config.ts"),
+        change("package.json"),
+      ],
     });
 
     expect(placement.reason).toContain("dependency");

@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { parseChangelog } from "./changelog.ts";
 
-export function releaseNotes(markdown: string, version: string): { title: string; body: string } | null {
+export function releaseNotes(
+  markdown: string,
+  version: string,
+): { title: string; body: string } | null {
   const headings = [...markdown.matchAll(/^## ([^\r\n]*)\r?$/gm)];
   for (let i = 0; i < headings.length; i += 1) {
     const heading = headings[i]!;
@@ -19,18 +22,26 @@ export function releaseNotes(markdown: string, version: string): { title: string
   return null;
 }
 
-export function releasesIndex(markdown: string): { version: string; date: string; title: string }[] {
-  return parseChangelog(markdown).entries.flatMap((entry) => {
-    if (entry.date === null || entry.title === null || entry.versions.includes("Unreleased")) return [];
-    const { date, title } = entry;
-    // Shared headings list the earlier version first; the feed leads with the later one.
-    return entry.versions.toReversed().map((version) => ({ version, date, title }));
-  }).sort((a, b) => b.date.localeCompare(a.date));
+export function releasesIndex(
+  markdown: string,
+): { version: string; date: string; title: string }[] {
+  return parseChangelog(markdown)
+    .entries.flatMap((entry) => {
+      if (entry.date === null || entry.title === null || entry.versions.includes("Unreleased"))
+        return [];
+      const { date, title } = entry;
+      // Shared headings list the earlier version first; the feed leads with the later one.
+      return entry.versions.toReversed().map((version) => ({ version, date, title }));
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 if (import.meta.main) {
   const version = process.argv[2] ?? "(missing version)";
-  const notes = releaseNotes(readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"), version);
+  const notes = releaseNotes(
+    readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
+    version,
+  );
   if (notes === null) {
     process.stderr.write(`No changelog entry for ${version}.\n`);
     process.exitCode = 1;

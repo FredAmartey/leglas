@@ -238,8 +238,7 @@ const EFFORT_LABELS: Record<AgentEffort, string> = {
 };
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
-const IS_MAC =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const SEARCH_CAP = searchCap(IS_MAC);
 
 /**
@@ -398,9 +397,7 @@ function DeleteRemovedDialog({
       role="alertdialog"
       tabIndex={-1}
     >
-      <div
-        className="w-[calc(100vw-3rem)] max-w-sm overscroll-contain rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl"
-      >
+      <div className="w-[calc(100vw-3rem)] max-w-sm overscroll-contain rounded-lg border border-[#232328] bg-[#1E1E22] p-4 shadow-2xl">
         <h2 className="text-sm font-medium text-white" id="delete-removed-title">
           {title}
         </h2>
@@ -441,7 +438,8 @@ function DeleteRemovedDialog({
 }
 
 /** The rail's top and bottom edges, over which its rows and lines fade. */
-const RAIL_FADE = "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)";
+const RAIL_FADE =
+  "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)";
 
 /** A title as a CSS identifier, for a row's view-transition-name. */
 function rowIdent(title: string): string {
@@ -650,11 +648,11 @@ export function Shell({
   // for polls and frames far more often than every 700ms, and a timer reset
   // on each of those would never fire.
   const gutterSignature = st.rows
-      .map((title) => {
-        const graph = st.rowMeta.get(title)?.graph;
-        return graph ? `${title}=${segmentsOf(graph).join(",")}` : title;
-      })
-      .join("|");
+    .map((title) => {
+      const graph = st.rowMeta.get(title)?.graph;
+      return graph ? `${title}=${segmentsOf(graph).join(",")}` : title;
+    })
+    .join("|");
   useEffect(() => {
     const snapshot = st.rows.map((title) => [title, st.rowMeta.get(title)?.graph] as const);
     const wasDrawing = drawing.current;
@@ -806,17 +804,15 @@ export function Shell({
       st.notify({ kind: "reference", message, tone: "info", ttl: TOAST_TTL.action });
     }
     if (accepted.length === 0) return;
-    const drafts = accepted.map(
-      (file): ReferenceDraft => ({
-        key: crypto.randomUUID(),
-        name: referenceName(file.name),
-        type: file.type,
-        bytes: file.size,
-        url: URL.createObjectURL(file),
-        status: "uploading",
-        id: null,
-      }),
-    );
+    const drafts = accepted.map((file): ReferenceDraft => ({
+      key: crypto.randomUUID(),
+      name: referenceName(file.name),
+      type: file.type,
+      bytes: file.size,
+      url: URL.createObjectURL(file),
+      status: "uploading",
+      id: null,
+    }));
     setReferences((current) => [...current, ...drafts]);
     drafts.forEach((draft, index) => {
       const file = accepted[index];
@@ -1013,7 +1009,8 @@ export function Shell({
       const slot = meta.rows[to];
       let settle = 0;
       if (start && slot) {
-        settle = (to <= current.from ? slot.top : slot.top + slot.height - start.height) - start.top;
+        settle =
+          (to <= current.from ? slot.top : slot.top + slot.height - start.height) - start.top;
       }
       setDrag({ ...current, dy: settle, settling: true, to });
       window.setTimeout(() => {
@@ -1163,7 +1160,9 @@ export function Shell({
   const dragging = drag?.started ?? false;
 
   const [stillMotion] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
   /**
    * The light running down the traced line, measured from the marks the rail
@@ -1230,7 +1229,9 @@ export function Shell({
       // Every edge is its own subpath, so a tree with forks is one path the
       // light can run down and split along.
       const d = traceEdges
-        .map(([parent, child]) => trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark]))
+        .map(([parent, child]) =>
+          trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark]),
+        )
         .join(" ");
       replaceTrail({ d, height: list.scrollHeight, marks: [...at.values()] });
     };
@@ -1258,7 +1259,8 @@ export function Shell({
   const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
   // A pushed share moves the stage with it, settled while rendering so the
   // frame never shows the old pair first.
-  const viewerStage = viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
+  const viewerStage =
+    viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
   const [seenStage, setSeenStage] = useState(viewerStage);
   if (viewerStage !== seenStage) {
     setSeenStage(viewerStage);
@@ -1572,11 +1574,7 @@ export function Shell({
   // Two independent readings of one snapshot: the chip says who Enter sends
   // to, the card says what is happening right now. They used to fight over a
   // single footer slot, which is how a running request could hide the chooser.
-  const chip = composerAgent(
-    agentState.choice,
-    agentState.agents,
-    agentState.customRun,
-  );
+  const chip = composerAgent(agentState.choice, agentState.agents, agentState.customRun);
   // Focus on the composer is the first honest sign a request is coming, and
   // the seconds spent typing it are where the agent's start-up cost hides.
   // Nothing is warmed before this: a saved choice is not a request.
@@ -1876,8 +1874,12 @@ export function Shell({
   // stage; with only mounted titles remembered, those had no previous
   // identity to differ from, so the change was missed and a restart that
   // altered the page could still be called a duplicate of what it used to be.
-  const scanIdentities = new Map(previews.map((preview) => [preview.title, paneIdentityFor(preview.title)]));
-  const scanIdentityKey = [...scanIdentities].map(([title, identity]) => `${title}${identity}`).join("");
+  const scanIdentities = new Map(
+    previews.map((preview) => [preview.title, paneIdentityFor(preview.title)]),
+  );
+  const scanIdentityKey = [...scanIdentities]
+    .map(([title, identity]) => `${title}${identity}`)
+    .join("");
   const previousScanPanes = useRef(new Map<string, string>());
   useLayoutEffect(() => {
     const changed = replacedPanes(previousScanPanes.current, scanIdentities);
@@ -2001,9 +2003,10 @@ export function Shell({
     }
 
     const fontDeadline = new Promise<void>((resolve) => window.setTimeout(resolve, 900));
-    const fontsReady = fonts?.status === "loading"
-      ? Promise.race([fonts.ready.then(() => undefined), fontDeadline])
-      : Promise.resolve();
+    const fontsReady =
+      fonts?.status === "loading"
+        ? Promise.race([fonts.ready.then(() => undefined), fontDeadline])
+        : Promise.resolve();
 
     void fontsReady.then(() => {
       const run = () => {
@@ -2024,9 +2027,7 @@ export function Shell({
   const markPreviewReady = (title: string, identity: string, frame: HTMLIFrameElement) => {
     if (currentPaneIdentities.current.get(title) !== identity) return;
     st.markLoaded(title, identity);
-    setErrored((current) =>
-      current[title] ? { ...current, [title]: false } : current,
-    );
+    setErrored((current) => (current[title] ? { ...current, [title]: false } : current));
 
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
 
@@ -2038,7 +2039,6 @@ export function Shell({
     }
     if (doc === null || readyDocuments.current.has(doc)) return;
     readyDocuments.current.add(doc);
-
   };
 
   const markPreviewReadyRef = useRef(markPreviewReady);
@@ -2085,11 +2085,12 @@ export function Shell({
    * record N failures — but a preview Leglas serves itself never went down,
    * so those scan regardless.
    */
-  const scannable = scanPreviews && !viewing
-    ? health.reachable
-      ? previews
-      : previews.filter((preview) => !needsDevServer(preview))
-    : [];
+  const scannable =
+    scanPreviews && !viewing
+      ? health.reachable
+        ? previews
+        : previews.filter((preview) => !needsDevServer(preview))
+      : [];
   const changingTitles = changingRequestTitles(requestSnapshot.requests);
   const changingTitlesKey = changingTitles.toSorted().join("\u0000");
   const scanBlocked = requestSnapshot.agent.running || changingTitles.length > 0;
@@ -2108,8 +2109,7 @@ export function Shell({
   }, [changingTitlesKey]);
 
   const visibleReady = mounted.every((title) => paneLoaded(title));
-  const scansForDisplay =
-    changingTitles.length > 0 ? forgetScans(scans, changingTitles) : scans;
+  const scansForDisplay = changingTitles.length > 0 ? forgetScans(scans, changingTitles) : scans;
   const signatures = scanSignatures(previews, scansForDisplay);
   const twins = twinsOf(signatures);
   const scanningPreview =
@@ -2122,14 +2122,12 @@ export function Shell({
   const activeScan = useRef(scanKey);
   activeScan.current = scanKey;
   const activeScanFrame = useRef<HTMLIFrameElement | null>(null);
-  const currentPreviewUrls = useRef(new Map(previews.map((preview) => [preview.title, preview.url])));
+  const currentPreviewUrls = useRef(
+    new Map(previews.map((preview) => [preview.title, preview.url])),
+  );
   currentPreviewUrls.current = new Map(previews.map((preview) => [preview.title, preview.url]));
 
-  const finishScan = (
-    preview: Preview,
-    outcome: PreviewScanOutcome,
-    frame: HTMLIFrameElement,
-  ) => {
+  const finishScan = (preview: Preview, outcome: PreviewScanOutcome, frame: HTMLIFrameElement) => {
     const expected = `${preview.title}\u0000${preview.url}`;
     if (activeScan.current !== expected) return;
     if (activeScanFrame.current !== frame) return;
@@ -2161,9 +2159,7 @@ export function Shell({
       scheduleRenderedRead(frame, (signature) => {
         finishScan(
           preview,
-          signature === undefined
-            ? { status: "failed" }
-            : { status: "complete", signature },
+          signature === undefined ? { status: "failed" } : { status: "complete", signature },
           frame,
         );
       });
@@ -2182,13 +2178,11 @@ export function Shell({
 
       // A known-down dev server needs no waiting, but a file preview is served
       // by Leglas itself and still gets the ordinary navigation window.
-      const timeoutMs =
-        health.reachable || !appPanes.has(title) ? LOAD_TIMEOUT_MS : 0;
+      const timeoutMs = health.reachable || !appPanes.has(title) ? LOAD_TIMEOUT_MS : 0;
       stopWatching.push(
         watchPreviewFrame({
           frame,
-          onFailure: () =>
-            setErrored((current) => ({ ...current, [title]: true })),
+          onFailure: () => setErrored((current) => ({ ...current, [title]: true })),
           onReady: () => markPreviewReady(title, identity, frame),
           sameOrigin: st.urlFor(title).startsWith("/"),
           timeoutMs,
@@ -2238,12 +2232,12 @@ export function Shell({
       const siblings = parent === null ? st.railRoots : (st.railChildren.get(parent) ?? [title]);
       const reason =
         siblings.length < 2
-            ? parent === null
-              ? "Nothing to reorder"
-              : `${st.displayName(parent)}'s only variant`
-            : parent === null
-              ? null
-              : `Stays under ${st.displayName(parent)}`;
+          ? parent === null
+            ? "Nothing to reorder"
+            : `${st.displayName(parent)}'s only variant`
+          : parent === null
+            ? null
+            : `Stays under ${st.displayName(parent)}`;
       dragMeta.current = {
         maxDy: rowRect ? view.bottom - rowRect.bottom : 0,
         minDy: rowRect ? view.top - rowRect.top : 0,
@@ -2453,9 +2447,7 @@ export function Shell({
           />
         ) : null}
         <HoverCard
-          label={
-            renamingThis ? null : cardFor(preview, st.displayName(title), st.displayName)
-          }
+          label={renamingThis ? null : cardFor(preview, st.displayName(title), st.displayName)}
         >
           <div
             aria-pressed={isActive}
@@ -2525,7 +2517,13 @@ export function Shell({
                 }`}
               >
                 {variantCount > 0 && (
-                  <Tip label={folded ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}` : "Fold the variants away"}>
+                  <Tip
+                    label={
+                      folded
+                        ? `Show ${variantCount} variant${variantCount === 1 ? "" : "s"}`
+                        : "Fold the variants away"
+                    }
+                  >
                     <button
                       aria-expanded={!folded}
                       aria-label={`${folded ? "Show" : "Hide"} the variants of ${st.displayName(title)}`}
@@ -2547,7 +2545,9 @@ export function Shell({
                         <path d="M2 3.5 5 6.5 8 3.5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       {folded ? (
-                        <span className="text-[10px] leading-none tabular-nums">{variantCount}</span>
+                        <span className="text-[10px] leading-none tabular-nums">
+                          {variantCount}
+                        </span>
                       ) : null}
                     </button>
                   </Tip>
@@ -2616,7 +2616,12 @@ export function Shell({
                   <span
                     className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
                   >
-                    <ThinkingOrb aria-label="Working on direction" size={20} state={MOOD} theme="dark" />
+                    <ThinkingOrb
+                      aria-label="Working on direction"
+                      size={20}
+                      state={MOOD}
+                      theme="dark"
+                    />
                     Cooking
                   </span>
                 ) : twins[title] ? (
@@ -2626,14 +2631,22 @@ export function Shell({
                     <span
                       className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${badgeAside}`}
                     >
-                      Same as {twins[title]?.length === 1 ? twins[title]?.[0] : `${twins[title]?.length} others`}
+                      Same as{" "}
+                      {twins[title]?.length === 1
+                        ? twins[title]?.[0]
+                        : `${twins[title]?.length} others`}
                     </span>
                   </Tip>
                 ) : scanning === title ? (
                   <span
                     className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${badgeAside}`}
                   >
-                    <ThinkingOrb aria-label="Checking for duplicates" size={20} state={MOOD} theme="dark" />
+                    <ThinkingOrb
+                      aria-label="Checking for duplicates"
+                      size={20}
+                      state={MOOD}
+                      theme="dark"
+                    />
                     Cooking
                   </span>
                 ) : (
@@ -2699,9 +2712,7 @@ export function Shell({
                     : `Compare ${st.displayName(title)} with ${st.displayName(st.active)}`
                 }
                 aria-pressed={splitting && title === compare}
-                className={`${ICON_BUTTON} ${
-                  splitting && title === compare ? "text-white" : ""
-                }`}
+                className={`${ICON_BUTTON} ${splitting && title === compare ? "text-white" : ""}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (splitting && title === compare) {
@@ -2724,73 +2735,73 @@ export function Shell({
               None of the four for a viewer: a link would only work in their
               own browser, and the rest change a rail that is not theirs. */}
           {!viewing && (
-          <>
-          <Tip
-            label={
-              st.copied?.kind === "link" && st.copied.title === title
-                ? "Copied"
-                : "Copy preview link"
-            }
-          >
-            <button
-              aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
-              className={ICON_BUTTON}
-              onClick={() => st.copyLink(title)}
-              type="button"
-            >
-              {st.copied?.kind === "link" && st.copied.title === title ? (
-                <span className="text-[10px] text-emerald-300">✓</span>
-              ) : (
-                <PIcon d={P.link} />
-              )}
-            </button>
-          </Tip>
-          <Tip
-            label={
-              st.copied?.kind === "reference" && st.copied.title === title ? (
-                "Copied"
-              ) : (
-                <>
-                  <span className="block">Copy a detailed reference.</span>
-                  <span className="block">For a teammate or an agent.</span>
-                </>
-              )
-            }
-          >
-            <button
-              aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
-              className={ICON_BUTTON}
-              onClick={() => st.copyReference(title)}
-              type="button"
-            >
-              {st.copied?.kind === "reference" && st.copied.title === title ? (
-                <span className="text-[10px] text-emerald-300">✓</span>
-              ) : (
-                <PIcon d={P.copy} size={12} />
-              )}
-            </button>
-          </Tip>
-          <Tip label="Rename">
-            <button
-              aria-label={`Rename the ${st.displayName(title)} direction`}
-              className={ICON_BUTTON}
-              onClick={() => st.startRename(title)}
-              type="button"
-            >
-              <PIcon d={P.pencil} size={12} />
-            </button>
-          </Tip>
-          <Tip label="Remove from list">
-            <button
-              aria-label={`Remove the ${st.displayName(title)} direction from the list`}
-              className={ICON_BUTTON}
-              onClick={() => st.hide(title)}
-              type="button"
-            >
-              <PIcon d={P.trash} size={12} />
-            </button>
-          </Tip>
-          </>
+            <>
+              <Tip
+                label={
+                  st.copied?.kind === "link" && st.copied.title === title
+                    ? "Copied"
+                    : "Copy preview link"
+                }
+              >
+                <button
+                  aria-label={`Copy the preview link to the ${st.displayName(title)} direction`}
+                  className={ICON_BUTTON}
+                  onClick={() => st.copyLink(title)}
+                  type="button"
+                >
+                  {st.copied?.kind === "link" && st.copied.title === title ? (
+                    <span className="text-[10px] text-emerald-300">✓</span>
+                  ) : (
+                    <PIcon d={P.link} />
+                  )}
+                </button>
+              </Tip>
+              <Tip
+                label={
+                  st.copied?.kind === "reference" && st.copied.title === title ? (
+                    "Copied"
+                  ) : (
+                    <>
+                      <span className="block">Copy a detailed reference.</span>
+                      <span className="block">For a teammate or an agent.</span>
+                    </>
+                  )
+                }
+              >
+                <button
+                  aria-label={`Copy a detailed reference to the ${st.displayName(title)} direction`}
+                  className={ICON_BUTTON}
+                  onClick={() => st.copyReference(title)}
+                  type="button"
+                >
+                  {st.copied?.kind === "reference" && st.copied.title === title ? (
+                    <span className="text-[10px] text-emerald-300">✓</span>
+                  ) : (
+                    <PIcon d={P.copy} size={12} />
+                  )}
+                </button>
+              </Tip>
+              <Tip label="Rename">
+                <button
+                  aria-label={`Rename the ${st.displayName(title)} direction`}
+                  className={ICON_BUTTON}
+                  onClick={() => st.startRename(title)}
+                  type="button"
+                >
+                  <PIcon d={P.pencil} size={12} />
+                </button>
+              </Tip>
+              <Tip label="Remove from list">
+                <button
+                  aria-label={`Remove the ${st.displayName(title)} direction from the list`}
+                  className={ICON_BUTTON}
+                  onClick={() => st.hide(title)}
+                  type="button"
+                >
+                  <PIcon d={P.trash} size={12} />
+                </button>
+              </Tip>
+            </>
           )}
         </div>
       </li>
@@ -2809,9 +2820,7 @@ export function Shell({
         className={`relative shrink-0 overflow-hidden border-r border-[#232328] ${
           st.prefs.collapsed ? "" : "shadow-2xl"
         } ${
-          st.resizing
-            ? ""
-            : `transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
+          st.resizing ? "" : `transition-[width] duration-200 ${EASE} motion-reduce:transition-none`
         }`}
         style={{ width: st.prefs.collapsed ? 48 : st.prefs.width }}
       >
@@ -2882,7 +2891,9 @@ export function Shell({
                   <button
                     aria-expanded={shareOpen}
                     aria-haspopup="dialog"
-                    aria-label={shareState.share === null ? "Share" : "Sharing. Open the share panel"}
+                    aria-label={
+                      shareState.share === null ? "Share" : "Sharing. Open the share panel"
+                    }
                     className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
                       shareOpen || shareState.share !== null ? "text-white" : "text-[#9CA3AF]"
                     }`}
@@ -2894,9 +2905,7 @@ export function Shell({
                     type="button"
                   >
                     <ShareGlyph />
-                    {shareState.share !== null && (
-                      <LiveDot className="absolute right-0 top-0" />
-                    )}
+                    {shareState.share !== null && <LiveDot className="absolute right-0 top-0" />}
                   </button>
                 </Tip>
               )}
@@ -3025,8 +3034,8 @@ export function Shell({
             <div className="mx-3 mb-1 mt-1 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2.5 py-2">
               <p className="text-xs font-medium text-amber-300/90">Dev server not responding</p>
               <p className="mt-0.5 text-[11px] leading-snug text-[#9CA3AF]">
-                Anything on screen is from before it stopped. Previews return on their own once
-                it is back.
+                Anything on screen is from before it stopped. Previews return on their own once it
+                is back.
               </p>
             </div>
           )}
@@ -3064,10 +3073,25 @@ export function Shell({
               {leaving
                 .filter((entry) => entry.d !== trail?.d)
                 .map((entry) => (
-                  <Trail d={entry.d} height={entry.height} key={`leaving:${entry.d}`} leaving marks={entry.marks} still={stillMotion} width={gutter} />
+                  <Trail
+                    d={entry.d}
+                    height={entry.height}
+                    key={`leaving:${entry.d}`}
+                    leaving
+                    marks={entry.marks}
+                    still={stillMotion}
+                    width={gutter}
+                  />
                 ))}
               {trail !== null && (
-                <Trail d={trail.d} height={trail.height} key={trail.d} marks={trail.marks} still={stillMotion} width={gutter} />
+                <Trail
+                  d={trail.d}
+                  height={trail.height}
+                  key={trail.d}
+                  marks={trail.marks}
+                  still={stillMotion}
+                  width={gutter}
+                />
               )}
             </ul>
 
@@ -3108,9 +3132,7 @@ export function Shell({
                 {st.showHidden ? (
                   <button
                     className="rounded px-3 py-1.5 text-[11px] text-[#9CA3AF] transition-[color,scale] hover:text-red-300 active:scale-[0.96]"
-                    onClick={() =>
-                      setDeletePrompt({ error: null, titles: [...st.prefs.hidden] })
-                    }
+                    onClick={() => setDeletePrompt({ error: null, titles: [...st.prefs.hidden] })}
                     type="button"
                   >
                     Clear all
@@ -3316,669 +3338,679 @@ export function Shell({
                 </div>
               </div>
             )}
-          {/* Enter both queues the request and copies the prompt, so it works
+            {/* Enter both queues the request and copies the prompt, so it works
               whether the agent drains the queue or the prompt gets pasted into
               a chat by hand. The confirmation is a toast rather than the
               placeholder it used to swap in, which vanished with the panel
               that carried it. */}
-          {!viewing && (
-          <form
-            className="relative px-3 pb-2.5 pt-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = intent.trim();
-              const title = st.active;
-              // A note carries its own words and its own address, so pins
-              // alone are a request. Nothing at all still is not.
-              if ((!value && activeNotes.length === 0) || !title || sending) return;
-              const name = st.displayName(title);
-              // An image still uploading lands in a moment; one that failed
-              // needs a decision, because sending without it would quietly
-              // drop the thing that was attached on purpose.
-              const blocker = sendBlocker(references);
-              if (blocker !== null) {
-                st.notify({
-                  kind: "request",
-                  message:
-                    blocker === "uploading"
-                      ? "Still uploading an image. Try again in a moment."
-                      : "One image did not upload. Retry it or remove it, then send.",
-                  tone: "info",
-                  ttl: TOAST_TTL.action,
-                });
-                return;
-              }
-              const attached = referenceIds(references);
-              setSending(true);
-              void fetch("/leglas/api/request", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  title,
-                  intent: value,
-                  mode,
-                  // The width the design is drawn at, so the agent sees the
-                  // layout being judged rather than a default one.
-                  ...(drawnWidth === null ? {} : { width: drawnWidth }),
-                  // The other pane, when there is one: "the other one" in the
-                  // words typed means it, and the agent should see it too.
-                  ...(splitting && compare !== null && compare !== title ? { compare } : {}),
-                  ...(attached.length === 0 ? {} : { references: attached }),
-                }),
-              })
-                .then(
-                  (response) =>
-                    response.json() as Promise<{
-                      ok: boolean;
-                      prompt?: string;
-                      duplicate?: boolean;
-                      error?: string;
-                    }>,
-                )
-                .then((result) => {
-                  // The same words at the same direction, already waiting.
-                  // The field keeps them: this is the moment to change the
-                  // wording or wait, not to lose what was typed. Anything
-                  // else still queues, so the queue keeps being a queue.
-                  if (result.duplicate === true) {
-                    setSending(false);
+            {!viewing && (
+              <form
+                className="relative px-3 pb-2.5 pt-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const value = intent.trim();
+                  const title = st.active;
+                  // A note carries its own words and its own address, so pins
+                  // alone are a request. Nothing at all still is not.
+                  if ((!value && activeNotes.length === 0) || !title || sending) return;
+                  const name = st.displayName(title);
+                  // An image still uploading lands in a moment; one that failed
+                  // needs a decision, because sending without it would quietly
+                  // drop the thing that was attached on purpose.
+                  const blocker = sendBlocker(references);
+                  if (blocker !== null) {
                     st.notify({
                       kind: "request",
-                      message: `That exact change to ${name} is already queued.`,
+                      message:
+                        blocker === "uploading"
+                          ? "Still uploading an image. Try again in a moment."
+                          : "One image did not upload. Retry it or remove it, then send.",
                       tone: "info",
                       ttl: TOAST_TTL.action,
                     });
                     return;
                   }
-                  // A refusal with a reason (an image pruned while the
-                  // composer sat open) keeps the words and the thumbnails:
-                  // the reason says what to do with them.
-                  if (!result.ok && typeof result.error === "string") {
-                    setSending(false);
-                    st.notify({
-                      kind: "request",
-                      message: result.error,
-                      tone: "danger",
-                      ttl: TOAST_TTL.action,
+                  const attached = referenceIds(references);
+                  setSending(true);
+                  void fetch("/leglas/api/request", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      title,
+                      intent: value,
+                      mode,
+                      // The width the design is drawn at, so the agent sees the
+                      // layout being judged rather than a default one.
+                      ...(drawnWidth === null ? {} : { width: drawnWidth }),
+                      // The other pane, when there is one: "the other one" in the
+                      // words typed means it, and the agent should see it too.
+                      ...(splitting && compare !== null && compare !== title ? { compare } : {}),
+                      ...(attached.length === 0 ? {} : { references: attached }),
+                    }),
+                  })
+                    .then(
+                      (response) =>
+                        response.json() as Promise<{
+                          ok: boolean;
+                          prompt?: string;
+                          duplicate?: boolean;
+                          error?: string;
+                        }>,
+                    )
+                    .then((result) => {
+                      // The same words at the same direction, already waiting.
+                      // The field keeps them: this is the moment to change the
+                      // wording or wait, not to lose what was typed. Anything
+                      // else still queues, so the queue keeps being a queue.
+                      if (result.duplicate === true) {
+                        setSending(false);
+                        st.notify({
+                          kind: "request",
+                          message: `That exact change to ${name} is already queued.`,
+                          tone: "info",
+                          ttl: TOAST_TTL.action,
+                        });
+                        return;
+                      }
+                      // A refusal with a reason (an image pruned while the
+                      // composer sat open) keeps the words and the thumbnails:
+                      // the reason says what to do with them.
+                      if (!result.ok && typeof result.error === "string") {
+                        setSending(false);
+                        st.notify({
+                          kind: "request",
+                          message: result.error,
+                          tone: "danger",
+                          ttl: TOAST_TTL.action,
+                        });
+                        return;
+                      }
+                      if (!result.ok || !result.prompt) throw new Error("refused");
+                      setIntent("");
+                      clearReferences();
+                      // The send is over once the queue has the request; the
+                      // clipboard is a bonus that must not hold the field. A
+                      // browser sitting on a permission prompt never settles its
+                      // write either way, and waiting on it here once left the
+                      // composer disabled for good.
+                      setSending(false);
+                      bumpRequests();
+                      st.notify({
+                        kind: "request",
+                        message: `Asked for a change to ${name}.`,
+                        tone: "success",
+                        ttl: TOAST_TTL.plain,
+                      });
+                      // The copy then supersedes that line whenever it settles,
+                      // since toasts of one kind replace rather than stack.
+                      void copyText(result.prompt).then((outcome) => {
+                        st.notify({
+                          kind: "request",
+                          // A blocked clipboard costs nothing here: the request is
+                          // already queued, and the command that drains it is the
+                          // path the prompt was written for anyway.
+                          message:
+                            outcome === "copied"
+                              ? `Asked for a change to ${name}. Prompt copied.`
+                              : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
+                          tone: "success",
+                          ttl: TOAST_TTL.plain,
+                        });
+                      });
+                    })
+                    .catch(() => {
+                      setSending(false);
+                      st.notify({
+                        kind: "request",
+                        message: `That request never reached Leglas. ${name} is unchanged.`,
+                        tone: "danger",
+                        ttl: TOAST_TTL.action,
+                      });
                     });
-                    return;
-                  }
-                  if (!result.ok || !result.prompt) throw new Error("refused");
-                  setIntent("");
-                  clearReferences();
-                  // The send is over once the queue has the request; the
-                  // clipboard is a bonus that must not hold the field. A
-                  // browser sitting on a permission prompt never settles its
-                  // write either way, and waiting on it here once left the
-                  // composer disabled for good.
-                  setSending(false);
-                  bumpRequests();
-                  st.notify({
-                    kind: "request",
-                    message: `Asked for a change to ${name}.`,
-                    tone: "success",
-                    ttl: TOAST_TTL.plain,
-                  });
-                  // The copy then supersedes that line whenever it settles,
-                  // since toasts of one kind replace rather than stack.
-                  void copyText(result.prompt).then((outcome) => {
-                    st.notify({
-                      kind: "request",
-                      // A blocked clipboard costs nothing here: the request is
-                      // already queued, and the command that drains it is the
-                      // path the prompt was written for anyway.
-                      message:
-                        outcome === "copied"
-                          ? `Asked for a change to ${name}. Prompt copied.`
-                          : `Asked for a change to ${name}. Your browser blocked the clipboard, so read it with npx leglas requests.`,
-                      tone: "success",
-                      ttl: TOAST_TTL.plain,
-                    });
-                  });
-                })
-                .catch(() => {
-                  setSending(false);
-                  st.notify({
-                    kind: "request",
-                    message: `That request never reached Leglas. ${name} is unchanged.`,
-                    tone: "danger",
-                    ttl: TOAST_TTL.action,
-                  });
-                });
-            }}
-          >
-            {/* One surface, like every composer people already know: what to
+                }}
+              >
+                {/* One surface, like every composer people already know: what to
                 change on top, who runs it and the send below, inside the same
                 border. The field takes the focus ring for the whole object. */}
-            <div
-              className={`rounded-md border bg-[#2E2E2E]/40 transition-colors ${
-                dropping
-                  ? "border-[#7C9CFF]/70 ring-1 ring-[#7C9CFF]/40"
-                  : "border-[#232328] focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40"
-              }`}
-              onDragEnter={(event) => {
-                if (!carriesFiles(event.dataTransfer.types)) return;
-                event.preventDefault();
-                dropDepth.current += 1;
-                setDropping(true);
-              }}
-              onDragLeave={(event) => {
-                if (!carriesFiles(event.dataTransfer.types)) return;
-                dropDepth.current = Math.max(0, dropDepth.current - 1);
-                if (dropDepth.current === 0) setDropping(false);
-              }}
-              onDragOver={(event) => {
-                if (!carriesFiles(event.dataTransfer.types)) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "copy";
-              }}
-              onDrop={(event) => {
-                if (!carriesFiles(event.dataTransfer.types)) return;
-                event.preventDefault();
-                dropDepth.current = 0;
-                setDropping(false);
-                // Every dropped file goes through admission, so a PDF or an
-                // SVG is refused with a reason rather than ignored.
-                attachReferences(Array.from(event.dataTransfer.files));
-              }}
-            >
-              <ReferenceStrip
-                drafts={references}
-                onRemove={removeReference}
-                onRetry={retryReference}
-              />
-              {/* Enter sends and Shift+Enter breaks the line, the contract
-                  every chat composer has already taught. */}
-              <textarea
-                aria-label={
-                  st.active
-                    ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                    : "Ask your agent to change a direction"
-                }
-                className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={sending || !st.active}
-                onChange={(event) => {
-                  // The first character is a second signal, for a composer
-                  // that kept focus across the idle window and never refocused.
-                  if (intent === "" && event.target.value !== "") warmChosenAgent();
-                  setIntent(event.target.value);
-                }}
-                onFocus={warmChosenAgent}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                <div
+                  className={`rounded-md border bg-[#2E2E2E]/40 transition-colors ${
+                    dropping
+                      ? "border-[#7C9CFF]/70 ring-1 ring-[#7C9CFF]/40"
+                      : "border-[#232328] focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40"
+                  }`}
+                  onDragEnter={(event) => {
+                    if (!carriesFiles(event.dataTransfer.types)) return;
                     event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                onPaste={(event) => {
-                  const files = Array.from(event.clipboardData.files);
-                  if (files.length === 0) return;
-                  // A pasted image is the request. The text a browser puts
-                  // beside it is a filename nobody typed.
-                  event.preventDefault();
-                  attachReferences(files);
-                }}
-                placeholder={
-                  st.active === null
-                    ? "No direction to change yet"
-                    : dropping
-                      ? "Drop the image here"
-                      : references.length > 0 && activeNotes.length === 0
-                        ? `Say what to take from the ${
-                            references.length === 1 ? "image" : "images"
-                          }…`
-                        : activeNotes.length > 0
-                          ? `Send ${
-                              activeNotes.length === 1
-                                ? "the annotation"
-                                : `${activeNotes.length} annotations`
-                            }, or add words…`
-                          : `Change ${st.displayName(st.active)}…`
-                }
-                ref={requestRef}
-                rows={1}
-                value={intent}
-              />
-              <div className="flex items-center justify-end gap-1.5 p-1">
-                {/* What the change does to the direction it is aimed at, in
+                    dropDepth.current += 1;
+                    setDropping(true);
+                  }}
+                  onDragLeave={(event) => {
+                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    dropDepth.current = Math.max(0, dropDepth.current - 1);
+                    if (dropDepth.current === 0) setDropping(false);
+                  }}
+                  onDragOver={(event) => {
+                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDrop={(event) => {
+                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    event.preventDefault();
+                    dropDepth.current = 0;
+                    setDropping(false);
+                    // Every dropped file goes through admission, so a PDF or an
+                    // SVG is refused with a reason rather than ignored.
+                    attachReferences(Array.from(event.dataTransfer.files));
+                  }}
+                >
+                  <ReferenceStrip
+                    drafts={references}
+                    onRemove={removeReference}
+                    onRetry={retryReference}
+                  />
+                  {/* Enter sends and Shift+Enter breaks the line, the contract
+                  every chat composer has already taught. */}
+                  <textarea
+                    aria-label={
+                      st.active
+                        ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                        : "Ask your agent to change a direction"
+                    }
+                    className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={sending || !st.active}
+                    onChange={(event) => {
+                      // The first character is a second signal, for a composer
+                      // that kept focus across the idle window and never refocused.
+                      if (intent === "" && event.target.value !== "") warmChosenAgent();
+                      setIntent(event.target.value);
+                    }}
+                    onFocus={warmChosenAgent}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    onPaste={(event) => {
+                      const files = Array.from(event.clipboardData.files);
+                      if (files.length === 0) return;
+                      // A pasted image is the request. The text a browser puts
+                      // beside it is a filename nobody typed.
+                      event.preventDefault();
+                      attachReferences(files);
+                    }}
+                    placeholder={
+                      st.active === null
+                        ? "No direction to change yet"
+                        : dropping
+                          ? "Drop the image here"
+                          : references.length > 0 && activeNotes.length === 0
+                            ? `Say what to take from the ${
+                                references.length === 1 ? "image" : "images"
+                              }…`
+                            : activeNotes.length > 0
+                              ? `Send ${
+                                  activeNotes.length === 1
+                                    ? "the annotation"
+                                    : `${activeNotes.length} annotations`
+                                }, or add words…`
+                              : `Change ${st.displayName(st.active)}…`
+                    }
+                    ref={requestRef}
+                    rows={1}
+                    value={intent}
+                  />
+                  <div className="flex items-center justify-end gap-1.5 p-1">
+                    {/* What the change does to the direction it is aimed at, in
                     the one place the aiming happens. A chip rather than a
                     setting: it is a per-change decision, and the answer has to
                     be readable in the second before Enter. */}
-                <Tip
-                  label={
-                    mode === "variant"
-                      ? "Builds a new direction beside this one and leaves this one alone."
-                      : "Changes this direction itself. Nothing is kept of what it was."
-                  }
-                >
-                  <button
-                    aria-label={
-                      mode === "variant"
-                        ? "This change makes a new variant. Switch to changing the direction itself."
-                        : "This change edits the direction itself. Switch to making a new variant."
-                    }
-                    className="mr-auto flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                    onClick={() => setMode(mode === "variant" ? "replace" : "variant")}
-                    type="button"
-                  >
-                    {mode === "variant" ? (
-                      <svg
-                        aria-hidden
-                        fill="none"
-                        height="11"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        viewBox="0 0 16 16"
-                        width="11"
+                    <Tip
+                      label={
+                        mode === "variant"
+                          ? "Builds a new direction beside this one and leaves this one alone."
+                          : "Changes this direction itself. Nothing is kept of what it was."
+                      }
+                    >
+                      <button
+                        aria-label={
+                          mode === "variant"
+                            ? "This change makes a new variant. Switch to changing the direction itself."
+                            : "This change edits the direction itself. Switch to making a new variant."
+                        }
+                        className="mr-auto flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                        onClick={() => setMode(mode === "variant" ? "replace" : "variant")}
+                        type="button"
                       >
-                        <circle cx="4.5" cy="3.6" r="1.9" />
-                        <circle cx="11.5" cy="12.4" r="1.9" />
-                        <path d="M4.5 5.5v2.6a4.3 4.3 0 0 0 4.3 4.3h0.8" strokeLinecap="round" />
-                      </svg>
-                    ) : (
-                      <svg
-                        aria-hidden
-                        fill="none"
-                        height="11"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        viewBox="0 0 16 16"
-                        width="11"
-                      >
-                        <path
-                          d="M10.8 2.9 13.1 5.2 5.6 12.7H3.3v-2.3z"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                    {mode === "variant" ? "as a variant" : "in place"}
-                  </button>
-                </Tip>
-                {/* Showing beats describing: a screenshot of the thing the
+                        {mode === "variant" ? (
+                          <svg
+                            aria-hidden
+                            fill="none"
+                            height="11"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            viewBox="0 0 16 16"
+                            width="11"
+                          >
+                            <circle cx="4.5" cy="3.6" r="1.9" />
+                            <circle cx="11.5" cy="12.4" r="1.9" />
+                            <path
+                              d="M4.5 5.5v2.6a4.3 4.3 0 0 0 4.3 4.3h0.8"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            aria-hidden
+                            fill="none"
+                            height="11"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            viewBox="0 0 16 16"
+                            width="11"
+                          >
+                            <path
+                              d="M10.8 2.9 13.1 5.2 5.6 12.7H3.3v-2.3z"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                        {mode === "variant" ? "as a variant" : "in place"}
+                      </button>
+                    </Tip>
+                    {/* Showing beats describing: a screenshot of the thing the
                     words are about, or of the thing they should become. Paste
                     and drop do the same job; this is the way in for anyone who
                     does neither. */}
-                <input
-                  accept={REFERENCE_TYPES.join(",")}
-                  className="sr-only"
-                  multiple
-                  onChange={(event) => {
-                    attachReferences(Array.from(event.currentTarget.files ?? []));
-                    // Cleared so the same file can be chosen again after a
-                    // remove; a file input only fires when its value changes.
-                    event.currentTarget.value = "";
-                  }}
-                  ref={referenceInputRef}
-                  tabIndex={-1}
-                  type="file"
-                />
-                <Tip
-                  label={
-                    <>
-                      <span className="block">Attach a reference image</span>
-                      <span className="block text-[#9CA3AF]">Paste or drop one, too</span>
-                    </>
-                  }
-                >
-                  <button
-                    aria-label={
-                      references.length > 0
-                        ? `Attach another image, ${references.length} attached`
-                        : "Attach a reference image"
-                    }
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
-                    disabled={!st.active || sending || references.length >= REFERENCE_CAP}
-                    onClick={() => referenceInputRef.current?.click()}
-                    type="button"
-                  >
-                    <svg
-                      aria-hidden
-                      fill="none"
-                      height="11"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.7"
-                      viewBox="0 0 16 16"
-                      width="11"
+                    <input
+                      accept={REFERENCE_TYPES.join(",")}
+                      className="sr-only"
+                      multiple
+                      onChange={(event) => {
+                        attachReferences(Array.from(event.currentTarget.files ?? []));
+                        // Cleared so the same file can be chosen again after a
+                        // remove; a file input only fires when its value changes.
+                        event.currentTarget.value = "";
+                      }}
+                      ref={referenceInputRef}
+                      tabIndex={-1}
+                      type="file"
+                    />
+                    <Tip
+                      label={
+                        <>
+                          <span className="block">Attach a reference image</span>
+                          <span className="block text-[#9CA3AF]">Paste or drop one, too</span>
+                        </>
+                      }
                     >
-                      <rect height="10.5" rx="1.8" width="12.5" x="1.75" y="2.75" />
-                      <circle cx="5.6" cy="6.3" r="1.1" />
-                      <path d="m14.25 10.4-3.1-3.1a1 1 0 0 0-1.4 0L4.5 12.5" />
-                    </svg>
-                  </button>
-                </Tip>
-                {/* The way in that is not a keystroke, and the count that says
+                      <button
+                        aria-label={
+                          references.length > 0
+                            ? `Attach another image, ${references.length} attached`
+                            : "Attach a reference image"
+                        }
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
+                        disabled={!st.active || sending || references.length >= REFERENCE_CAP}
+                        onClick={() => referenceInputRef.current?.click()}
+                        type="button"
+                      >
+                        <svg
+                          aria-hidden
+                          fill="none"
+                          height="11"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="1.7"
+                          viewBox="0 0 16 16"
+                          width="11"
+                        >
+                          <rect height="10.5" rx="1.8" width="12.5" x="1.75" y="2.75" />
+                          <circle cx="5.6" cy="6.3" r="1.1" />
+                          <path d="m14.25 10.4-3.1-3.1a1 1 0 0 0-1.4 0L4.5 12.5" />
+                        </svg>
+                      </button>
+                    </Tip>
+                    {/* The way in that is not a keystroke, and the count that says
                     the pins are still there once the mode is left. */}
-                <Tip
-                  label={
-                    <>
-                      <span className="block">
-                        {annotating
-                          ? "Stop annotating"
-                          : activeNotes.length > 0
-                            ? "Show what you marked up"
-                            : "Point at what is wrong, instead of describing where it is"}
-                      </span>
-                      <span className="block text-[#9CA3AF]">
-                        {annotating ? (
-                          "Click a detail · drag an area · Esc to stop"
-                        ) : (
-                          <kbd className="font-sans">A</kbd>
-                        )}
-                      </span>
-                    </>
-                  }
-                >
-                  <button
-                    aria-keyshortcuts="a"
-                    aria-label={
-                      annotating
-                        ? "Stop annotating the design"
-                        : `Annotate the design${
-                            activeNotes.length > 0
-                              ? `, ${activeNotes.length} annotation${
-                                  activeNotes.length === 1 ? "" : "s"
-                                } so far`
-                              : ""
-                          }`
-                    }
-                    aria-pressed={annotating}
-                    className={`flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none transition-colors ${
-                      annotating
-                        ? "bg-[#7C9CFF]/20 text-[#AFC2FF]"
-                        : "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                    }`}
-                    onClick={() => (annotating ? stopAnnotating() : setAnnotating(true))}
-                    type="button"
-                  >
-                    <svg
-                      aria-hidden
-                      fill="none"
-                      height="11"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                      viewBox="0 0 16 16"
-                      width="11"
+                    <Tip
+                      label={
+                        <>
+                          <span className="block">
+                            {annotating
+                              ? "Stop annotating"
+                              : activeNotes.length > 0
+                                ? "Show what you marked up"
+                                : "Point at what is wrong, instead of describing where it is"}
+                          </span>
+                          <span className="block text-[#9CA3AF]">
+                            {annotating ? (
+                              "Click a detail · drag an area · Esc to stop"
+                            ) : (
+                              <kbd className="font-sans">A</kbd>
+                            )}
+                          </span>
+                        </>
+                      }
                     >
-                      <path d="M8 1.8a4.2 4.2 0 0 1 4.2 4.2c0 3-4.2 8-4.2 8S3.8 9 3.8 6A4.2 4.2 0 0 1 8 1.8Z" strokeLinejoin="round" />
-                      <circle cx="8" cy="6" r="1.4" />
-                    </svg>
-                    Annotate
-                    {activeNotes.length > 0 ? (
-                      <span className="rounded-full bg-white/15 px-1 text-[9px] leading-[1.5] text-white">
-                        {activeNotes.length}
-                      </span>
-                    ) : null}
-                  </button>
-                </Tip>
-                {chip.kind === "none" ? (
-                  <button
-                    className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[10px] leading-none text-[#84848C] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                    onClick={() => setMcpConnectOpen(true)}
-                    ref={mcpConnectTriggerRef}
-                    type="button"
-                  >
-                    <PIcon d={P.link} size={12} />
-                    <span className="truncate">Connect agent via MCP…</span>
-                  </button>
-                ) : (
-                  /* An inline select beside the send it configures: the menu
+                      <button
+                        aria-keyshortcuts="a"
+                        aria-label={
+                          annotating
+                            ? "Stop annotating the design"
+                            : `Annotate the design${
+                                activeNotes.length > 0
+                                  ? `, ${activeNotes.length} annotation${
+                                      activeNotes.length === 1 ? "" : "s"
+                                    } so far`
+                                  : ""
+                              }`
+                        }
+                        aria-pressed={annotating}
+                        className={`flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none transition-colors ${
+                          annotating
+                            ? "bg-[#7C9CFF]/20 text-[#AFC2FF]"
+                            : "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                        }`}
+                        onClick={() => (annotating ? stopAnnotating() : setAnnotating(true))}
+                        type="button"
+                      >
+                        <svg
+                          aria-hidden
+                          fill="none"
+                          height="11"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          viewBox="0 0 16 16"
+                          width="11"
+                        >
+                          <path
+                            d="M8 1.8a4.2 4.2 0 0 1 4.2 4.2c0 3-4.2 8-4.2 8S3.8 9 3.8 6A4.2 4.2 0 0 1 8 1.8Z"
+                            strokeLinejoin="round"
+                          />
+                          <circle cx="8" cy="6" r="1.4" />
+                        </svg>
+                        Annotate
+                        {activeNotes.length > 0 ? (
+                          <span className="rounded-full bg-white/15 px-1 text-[9px] leading-[1.5] text-white">
+                            {activeNotes.length}
+                          </span>
+                        ) : null}
+                      </button>
+                    </Tip>
+                    {chip.kind === "none" ? (
+                      <button
+                        className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[10px] leading-none text-[#84848C] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#D1D5DB]"
+                        onClick={() => setMcpConnectOpen(true)}
+                        ref={mcpConnectTriggerRef}
+                        type="button"
+                      >
+                        <PIcon d={P.link} size={12} />
+                        <span className="truncate">Connect agent via MCP…</span>
+                      </button>
+                    ) : (
+                      /* An inline select beside the send it configures: the menu
                      hangs off the chip itself, sized to its options, the way
                      a model picker behaves in every composer people know. */
-                  <div className="relative flex min-w-0 items-center">
-                    <div
-                      aria-hidden={!agentMenuOpen}
-                      aria-label="Who runs your changes"
-                      className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-48 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-                        agentMenuOpen
-                          ? "translate-y-0 scale-100 opacity-100"
-                          : "pointer-events-none translate-y-1 scale-95 opacity-0"
-                      }`}
-                      inert={!agentMenuOpen}
-                      ref={agentMenuRef}
-                      role="dialog"
-                      tabIndex={-1}
-                    >
-                      {agentState.agents
-                        .filter((agent) => agent.available)
-                        .map((agent) => {
-                          const active = chip.kind === "chosen" && agent.id === chip.id;
-                          return (
-                            <button
-                              className={ROW_BUTTON}
-                              disabled={pickingAgent !== null || savingEffort}
-                              key={agent.id}
-                              onClick={() =>
-                                active ? setAgentMenuOpen(false) : pickAgent(agent.id)
-                              }
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <BrandMark id={agent.id} />
-                                <span className="truncate">{agent.name}</span>
-                              </span>
-                              {pickingAgent === agent.id ? (
-                                <span
-                                  aria-label="selecting"
-                                  className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                                />
-                              ) : agent.auth === "signed-out" ? (
-                                /* Caught before the run instead of after
+                      <div className="relative flex min-w-0 items-center">
+                        <div
+                          aria-hidden={!agentMenuOpen}
+                          aria-label="Who runs your changes"
+                          className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-48 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
+                            agentMenuOpen
+                              ? "translate-y-0 scale-100 opacity-100"
+                              : "pointer-events-none translate-y-1 scale-95 opacity-0"
+                          }`}
+                          inert={!agentMenuOpen}
+                          ref={agentMenuRef}
+                          role="dialog"
+                          tabIndex={-1}
+                        >
+                          {agentState.agents
+                            .filter((agent) => agent.available)
+                            .map((agent) => {
+                              const active = chip.kind === "chosen" && agent.id === chip.id;
+                              return (
+                                <button
+                                  className={ROW_BUTTON}
+                                  disabled={pickingAgent !== null || savingEffort}
+                                  key={agent.id}
+                                  onClick={() =>
+                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
+                                  }
+                                  type="button"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <BrandMark id={agent.id} />
+                                    <span className="truncate">{agent.name}</span>
+                                  </span>
+                                  {pickingAgent === agent.id ? (
+                                    <span
+                                      aria-label="selecting"
+                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
+                                    />
+                                  ) : agent.auth === "signed-out" ? (
+                                    /* Caught before the run instead of after
                                    it: the CLI itself says its login is
                                    gone, and hiding the row would only
                                    hide the fix. */
-                                <span className="text-[10px] text-amber-400/80">
-                                  signed out
-                                </span>
-                              ) : (
-                                active && <span aria-label="current choice">✓</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      {chip.kind === "chosen" && chip.id === "custom" ? (
-                        <button
-                          className={ROW_BUTTON}
-                          onClick={() => setAgentMenuOpen(false)}
-                          type="button"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <BrandMark id="custom" />
-                            <span className="truncate">{chip.name}</span>
-                          </span>
-                          <span aria-label="current choice">✓</span>
-                        </button>
-                      ) : null}
-                      {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
-                        <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
-                          <label className="flex min-h-7 items-center justify-between gap-3">
-                            <span className="text-[10px] font-medium text-[#84848C]">Effort</span>
-                            <select
-                              aria-busy={savingEffort}
-                              aria-label={`${selectedAgent.name} effort`}
-                              className="min-h-7 rounded-md border border-[#303038] bg-[#17171B] px-2 text-[10px] text-[#D1D5DB] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
-                              disabled={savingEffort || pickingAgent !== null}
-                              onChange={(event) => {
-                                const value = event.currentTarget.value;
-                                pickEffort(value === "" ? null : (value as AgentEffort));
-                              }}
-                              value={selectedEffort ?? ""}
+                                    <span className="text-[10px] text-amber-400/80">
+                                      signed out
+                                    </span>
+                                  ) : (
+                                    active && <span aria-label="current choice">✓</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          {chip.kind === "chosen" && chip.id === "custom" ? (
+                            <button
+                              className={ROW_BUTTON}
+                              onClick={() => setAgentMenuOpen(false)}
+                              type="button"
                             >
-                              <option value="">Agent default</option>
-                              {selectedAgent.efforts.map((effort) => (
-                                <option key={effort} value={effort}>
-                                  {EFFORT_LABELS[effort]}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <BrandMark id="custom" />
+                                <span className="truncate">{chip.name}</span>
+                              </span>
+                              <span aria-label="current choice">✓</span>
+                            </button>
+                          ) : null}
+                          {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
+                            <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
+                              <label className="flex min-h-7 items-center justify-between gap-3">
+                                <span className="text-[10px] font-medium text-[#84848C]">
+                                  Effort
+                                </span>
+                                <select
+                                  aria-busy={savingEffort}
+                                  aria-label={`${selectedAgent.name} effort`}
+                                  className="min-h-7 rounded-md border border-[#303038] bg-[#17171B] px-2 text-[10px] text-[#D1D5DB] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
+                                  disabled={savingEffort || pickingAgent !== null}
+                                  onChange={(event) => {
+                                    const value = event.currentTarget.value;
+                                    pickEffort(value === "" ? null : (value as AgentEffort));
+                                  }}
+                                  value={selectedEffort ?? ""}
+                                >
+                                  <option value="">Agent default</option>
+                                  {selectedAgent.efforts.map((effort) => (
+                                    <option key={effort} value={effort}>
+                                      {EFFORT_LABELS[effort]}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          ) : null}
+                          <div className="mt-1 border-t border-[#232328] pt-1">
+                            <button
+                              className={`${ROW_BUTTON} text-[#84848C]`}
+                              onClick={() => {
+                                setAgentMenuOpen(false);
+                                setMcpConnectOpen(true);
+                              }}
+                              ref={mcpConnectTriggerRef}
+                              type="button"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <PIcon d={P.link} size={14} />
+                                <span className="truncate">Connect agent via MCP…</span>
+                              </span>
+                            </button>
+                          </div>
                         </div>
-                      ) : null}
-                      <div className="mt-1 border-t border-[#232328] pt-1">
                         <button
-                          className={`${ROW_BUTTON} text-[#84848C]`}
+                          aria-expanded={agentMenuOpen}
+                          aria-haspopup="dialog"
+                          className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
                           onClick={() => {
-                            setAgentMenuOpen(false);
-                            setMcpConnectOpen(true);
+                            // Opening re-asks the CLIs about their logins, so a
+                            // sign-in that happened after boot shows up here.
+                            if (!agentMenuOpen) refreshAgents();
+                            setAgentMenuOpen((open) => !open);
                           }}
-                          ref={mcpConnectTriggerRef}
+                          ref={agentTriggerRef}
                           type="button"
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <PIcon d={P.link} size={14} />
-                            <span className="truncate">Connect agent via MCP…</span>
+                          {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
+                          <span className="truncate">
+                            {chip.kind === "chosen"
+                              ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
+                              : "Choose an agent"}
                           </span>
+                          {chosenSignedOut && (
+                            <span
+                              className="size-1.5 shrink-0 rounded-full bg-amber-400"
+                              title="This CLI is signed out. Sign in in your terminal."
+                            >
+                              <span className="sr-only">signed out</span>
+                            </span>
+                          )}
+                          <svg
+                            aria-hidden="true"
+                            className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                              agentMenuOpen ? "rotate-180" : ""
+                            }`}
+                            fill="none"
+                            height="12"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.75"
+                            viewBox="0 0 16 16"
+                            width="12"
+                          >
+                            <path d="M4 6.5 8 10.5l4-4" />
+                          </svg>
                         </button>
                       </div>
-                    </div>
-                    <button
-                      aria-expanded={agentMenuOpen}
-                      aria-haspopup="dialog"
-                      className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                      onClick={() => {
-                        // Opening re-asks the CLIs about their logins, so a
-                        // sign-in that happened after boot shows up here.
-                        if (!agentMenuOpen) refreshAgents();
-                        setAgentMenuOpen((open) => !open);
-                      }}
-                      ref={agentTriggerRef}
-                      type="button"
-                    >
-                      {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
-                      <span className="truncate">
-                        {chip.kind === "chosen"
-                          ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
-                          : "Choose an agent"}
-                      </span>
-                      {chosenSignedOut && (
-                        <span
-                          className="size-1.5 shrink-0 rounded-full bg-amber-400"
-                          title="This CLI is signed out. Sign in in your terminal."
-                        >
-                          <span className="sr-only">signed out</span>
-                        </span>
-                      )}
-                      <svg
-                        aria-hidden="true"
-                        className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
-                          agentMenuOpen ? "rotate-180" : ""
-                        }`}
-                        fill="none"
-                        height="12"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="1.75"
-                        viewBox="0 0 16 16"
-                        width="12"
-                      >
-                        <path d="M4 6.5 8 10.5l4-4" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
-                {/* A real send button, because Enter alone is an invisible
+                    )}
+                    {/* A real send button, because Enter alone is an invisible
                     contract. Dim and inert until there is something to send;
                     the field's one moment of light once there is. */}
-                <button
-                  aria-label={
-                    st.active
-                      ? `Send the change to ${st.displayName(st.active)}`
-                      : "Send the change"
-                  }
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
-                    (intent.trim() !== "" || activeNotes.length > 0) && st.active && !sending
-                      ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
-                      : "pointer-events-none text-[#84848C]/60"
-                  }`}
-                  disabled={(intent.trim() === "" && activeNotes.length === 0) || !st.active || sending}
-                  type="submit"
-                >
-                  {sending ? (
-                    <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                  ) : (
-                    <svg
-                      aria-hidden="true"
-                      fill="none"
-                      height="13"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.75"
-                      viewBox="0 0 16 16"
-                      width="13"
+                    <button
+                      aria-label={
+                        st.active
+                          ? `Send the change to ${st.displayName(st.active)}`
+                          : "Send the change"
+                      }
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
+                        (intent.trim() !== "" || activeNotes.length > 0) && st.active && !sending
+                          ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
+                          : "pointer-events-none text-[#84848C]/60"
+                      }`}
+                      disabled={
+                        (intent.trim() === "" && activeNotes.length === 0) || !st.active || sending
+                      }
+                      type="submit"
                     >
-                      <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-          </form>
-          )}
+                      {sending ? (
+                        <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
+                      ) : (
+                        <svg
+                          aria-hidden="true"
+                          fill="none"
+                          height="13"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="1.75"
+                          viewBox="0 0 16 16"
+                          width="13"
+                        >
+                          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
 
-          {sending ? (
-            /* The send takes a second or two now: Leglas loads the direction
+            {sending ? (
+              /* The send takes a second or two now: Leglas loads the direction
                in a headless browser so the agent sees what the user sees. Said
                in words, because a field that goes quiet for two seconds reads
                as a hang. It takes the provenance line's slot rather than
                stacking under it. */
-            <div className="px-3 pb-2">
-              <p
-                aria-live="polite"
-                className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
-              >
-                Capturing the design for your agent…
-              </p>
-            </div>
-          ) : activeChain.length > 0 ? (
-            <Crumbs
-              askedFor={provenanceOf(st.previewFor(st.active))?.askedFor ?? null}
-              chain={activeChain}
-              displayName={st.displayName}
-              onCompare={(title) => {
-                setComparePin(title);
-                setSplit(true);
-              }}
-              onGo={st.setActive}
-              onRail={(title) => st.rows.includes(title)}
-              onTrace={traceFromCrumb}
-              openAsk
-              self={st.active}
-              tint={tint}
-              traced={traced}
-            />
-          ) : activeOrigin === null ? null : (
-            <div className="px-3 pb-2">
-              <p
-                className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
-                title={activeOrigin}
-              >
-                {activeOrigin}
-              </p>
-            </div>
-          )}
-          {/* One quiet line under the composer, and only when it has a job:
+              <div className="px-3 pb-2">
+                <p
+                  aria-live="polite"
+                  className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
+                >
+                  Capturing the design for your agent…
+                </p>
+              </div>
+            ) : activeChain.length > 0 ? (
+              <Crumbs
+                askedFor={provenanceOf(st.previewFor(st.active))?.askedFor ?? null}
+                chain={activeChain}
+                displayName={st.displayName}
+                onCompare={(title) => {
+                  setComparePin(title);
+                  setSplit(true);
+                }}
+                onGo={st.setActive}
+                onRail={(title) => st.rows.includes(title)}
+                onTrace={traceFromCrumb}
+                openAsk
+                self={st.active}
+                tint={tint}
+                traced={traced}
+              />
+            ) : activeOrigin === null ? null : (
+              <div className="px-3 pb-2">
+                <p
+                  className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
+                  title={activeOrigin}
+                >
+                  {activeOrigin}
+                </p>
+              </div>
+            )}
+            {/* One quiet line under the composer, and only when it has a job:
               the way back to the hidden tools, or word that a terminal
               watcher is holding the queue. */}
-          {!st.prefs.showWidget ? (
-            <div className="px-3 pb-2">
-              <button
-                className="min-w-0 max-w-full truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
-                onClick={() => setWidgetOpen(true)}
-                type="button"
-              >
-                Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
-              </button>
-            </div>
-          ) : !viewing && requestSnapshot.agent.attached && card === null ? (
-            <div className="px-3 pb-2">
-              <p className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
-                Your agent is listening
-              </p>
-            </div>
-          ) : null}
+            {!st.prefs.showWidget ? (
+              <div className="px-3 pb-2">
+                <button
+                  className="min-w-0 max-w-full truncate rounded text-left text-[10px] leading-snug text-[#84848C] transition-colors hover:text-[#D1D5DB]"
+                  onClick={() => setWidgetOpen(true)}
+                  type="button"
+                >
+                  Bring the tools back <kbd className="font-sans text-[#9CA3AF]">T</kbd>
+                </button>
+              </div>
+            ) : !viewing && requestSnapshot.agent.attached && card === null ? (
+              <div className="px-3 pb-2">
+                <p className="min-w-0 truncate text-[10px] leading-snug text-[#84848C]">
+                  Your agent is listening
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -4118,54 +4150,55 @@ export function Shell({
                     : undefined
                 }
               >
-              {(() => {
-                const branch = st.branchState(title);
-                return branch !== null && branch.status !== "ready" ? (
-                  <BranchOverlay
-                    branch={st.previewFor(title)?.branch ?? title}
-                    onStart={() => st.startBranch(title)}
-                    state={branch}
+                {(() => {
+                  const branch = st.branchState(title);
+                  return branch !== null && branch.status !== "ready" ? (
+                    <BranchOverlay
+                      branch={st.previewFor(title)?.branch ?? title}
+                      onStart={() => st.startBranch(title)}
+                      state={branch}
+                    />
+                  ) : (
+                    <iframe
+                      className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
+                      key={paneIdentityFor(title)}
+                      onError={() => setErrored((current) => ({ ...current, [title]: true }))}
+                      onLoad={(event) => {
+                        const src = st.urlFor(title);
+                        const identity = event.currentTarget.dataset.previewIdentity;
+                        // Cross-origin previews expose only the event. Same-origin
+                        // previews must have left about:blank and produced a real
+                        // readable document before they are considered loaded.
+                        if (
+                          identity !== undefined &&
+                          (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
+                        ) {
+                          markPreviewReady(title, identity, event.currentTarget);
+                        }
+                      }}
+                      data-preview={title}
+                      data-preview-identity={paneIdentityFor(title)}
+                      src={st.urlFor(title)}
+                      title={`Preview: ${st.displayName(title)}`}
+                    />
+                  );
+                })()}
+                {!viewing && annotating && title === st.active ? (
+                  <AnnotateLayer
+                    notes={activeNotes}
+                    onExit={stopAnnotating}
+                    onForget={forgetNote}
+                    onKeep={(anchor, words) => keepNote(title, anchor, words)}
+                    onRevise={reviseNote}
+                    paneScale={paneScale}
+                    scaling={scaling}
+                    sent={notesSent}
+                    title={title}
                   />
-                ) : (
-              <iframe
-                className={`size-full border-0 bg-white ${busy ? "pointer-events-none" : ""}`}
-                key={paneIdentityFor(title)}
-                onError={() => setErrored((current) => ({ ...current, [title]: true }))}
-                onLoad={(event) => {
-                  const src = st.urlFor(title);
-                  const identity = event.currentTarget.dataset.previewIdentity;
-                  // Cross-origin previews expose only the event. Same-origin
-                  // previews must have left about:blank and produced a real
-                  // readable document before they are considered loaded.
-                  if (
-                    identity !== undefined &&
-                    (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
-                  ) {
-                    markPreviewReady(title, identity, event.currentTarget);
-                  }
-                }}
-                data-preview={title}
-                data-preview-identity={paneIdentityFor(title)}
-                src={st.urlFor(title)}
-                title={`Preview: ${st.displayName(title)}`}
-              />
-                );
-              })()}
-              {!viewing && annotating && title === st.active ? (
-                <AnnotateLayer
-                  notes={activeNotes}
-                  onExit={stopAnnotating}
-                  onForget={forgetNote}
-                  onKeep={(anchor, words) => keepNote(title, anchor, words)}
-                  onRevise={reviseNote}
-                  paneScale={paneScale}
-                  scaling={scaling}
-                  sent={notesSent}
-                  title={title}
-                />
-              ) : null}
+                ) : null}
               </div>
-              {st.branchState(title) !== null && st.branchState(title)?.status !== "ready" ? null : errored[title] ? (
+              {st.branchState(title) !== null &&
+              st.branchState(title)?.status !== "ready" ? null : errored[title] ? (
                 <ErrorOverlay
                   onReload={() => reloadPane(title)}
                   reason={
@@ -4317,9 +4350,7 @@ export function Shell({
             </button>
             <button
               aria-checked={st.prefs.showWidget}
-              className={`${ROW_BUTTON} ${
-                st.prefs.showWidget ? "text-white" : "text-[#9CA3AF]"
-              }`}
+              className={`${ROW_BUTTON} ${st.prefs.showWidget ? "text-white" : "text-[#9CA3AF]"}`}
               onClick={() => {
                 const show = !st.prefs.showWidget;
                 st.setPrefs((current) => ({ ...current, showWidget: show }));
@@ -4456,9 +4487,7 @@ export function Shell({
           error={deletePrompt.error}
           fallbackFocusRef={searchRef}
           name={
-            deletePrompt.titles.length === 1
-              ? st.displayName(deletePrompt.titles[0] ?? "")
-              : null
+            deletePrompt.titles.length === 1 ? st.displayName(deletePrompt.titles[0] ?? "") : null
           }
           onCancel={closeDeletePrompt}
           onConfirm={() => void confirmDeleteRemoved()}

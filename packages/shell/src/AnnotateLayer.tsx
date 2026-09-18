@@ -91,8 +91,7 @@ const LABEL_CAP = 80;
 
 /** What a pin answers to, for anyone not looking at the colours. */
 function label(pin: Pin): string {
-  const said =
-    pin.note.length > LABEL_CAP ? `${pin.note.slice(0, LABEL_CAP - 1)}…` : pin.note;
+  const said = pin.note.length > LABEL_CAP ? `${pin.note.slice(0, LABEL_CAP - 1)}…` : pin.note;
   return [
     `Annotation ${pin.number}`,
     said === "" ? null : `: ${said}`,
@@ -227,78 +226,81 @@ export function AnnotateLayer({
    * the picker quiet while making text spans, image layers and other fine
    * details directly annotatable.
    */
-  const elementAt = useCallback((at: Geometry, point: Point): { box: Box; element: Element } | null => {
-    const hit = at.doc.elementFromPoint(point.x, point.y);
-    if (hit === null) return null;
+  const elementAt = useCallback(
+    (at: Geometry, point: Point): { box: Box; element: Element } | null => {
+      const hit = at.doc.elementFromPoint(point.x, point.y);
+      if (hit === null) return null;
 
-    const candidates = new Set<Element>();
-    let scope: Element | null = hit;
-    let scanned = 0;
-    // Looking through the hit element and its two closest containers catches
-    // layered siblings without turning every pointer move into a page-wide
-    // layout scan.
-    for (let depth = 0; scope !== null && depth < 3 && scanned < PICK_SCAN_CAP; depth += 1) {
-      candidates.add(scope);
-      const walk = at.doc.createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
-      let descendant = walk.nextNode();
-      while (descendant !== null && scanned < PICK_SCAN_CAP) {
-        if (!candidates.has(descendant as Element)) {
-          candidates.add(descendant as Element);
-          scanned += 1;
+      const candidates = new Set<Element>();
+      let scope: Element | null = hit;
+      let scanned = 0;
+      // Looking through the hit element and its two closest containers catches
+      // layered siblings without turning every pointer move into a page-wide
+      // layout scan.
+      for (let depth = 0; scope !== null && depth < 3 && scanned < PICK_SCAN_CAP; depth += 1) {
+        candidates.add(scope);
+        const walk = at.doc.createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
+        let descendant = walk.nextNode();
+        while (descendant !== null && scanned < PICK_SCAN_CAP) {
+          if (!candidates.has(descendant as Element)) {
+            candidates.add(descendant as Element);
+            scanned += 1;
+          }
+          descendant = walk.nextNode();
         }
-        descendant = walk.nextNode();
+        scope = scope.parentElement;
       }
-      scope = scope.parentElement;
-    }
 
-    const weight = (element: Element) => {
-      const tag = element.tagName.toLowerCase();
-      const text = elementText(element.textContent);
-      return (
-        (text === "" ? 0 : 4) +
-        (tag === "a" || tag === "button" || tag === "img" ? 3 : 0) +
-        (/^h[1-6]$/.test(tag) || tag === "p" || tag === "li" ? 2 : 0)
-      );
-    };
-
-    const visible = [...candidates]
-      .filter((element) => {
+      const weight = (element: Element) => {
         const tag = element.tagName.toLowerCase();
-        if (
-          element === at.doc.body ||
-          element === at.doc.documentElement ||
-          tag === "head" ||
-          tag === "script" ||
-          tag === "style"
-        ) {
-          return false;
-        }
-        const box = boxOf(element.getBoundingClientRect());
-        if (box.width <= 0 || box.height <= 0 || !containsPoint(box, point)) return false;
-        const style = at.view.getComputedStyle(element);
-        return style.display !== "none" && style.visibility !== "hidden";
-      })
-      .map((element) => ({
-        box: boxOf(element.getBoundingClientRect()),
-        element,
-        weight: weight(element),
-      }));
+        const text = elementText(element.textContent);
+        return (
+          (text === "" ? 0 : 4) +
+          (tag === "a" || tag === "button" || tag === "img" ? 3 : 0) +
+          (/^h[1-6]$/.test(tag) || tag === "p" || tag === "li" ? 2 : 0)
+        );
+      };
 
-    if (visible.length === 0) return null;
+      const visible = [...candidates]
+        .filter((element) => {
+          const tag = element.tagName.toLowerCase();
+          if (
+            element === at.doc.body ||
+            element === at.doc.documentElement ||
+            tag === "head" ||
+            tag === "script" ||
+            tag === "style"
+          ) {
+            return false;
+          }
+          const box = boxOf(element.getBoundingClientRect());
+          if (box.width <= 0 || box.height <= 0 || !containsPoint(box, point)) return false;
+          const style = at.view.getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden";
+        })
+        .map((element) => ({
+          box: boxOf(element.getBoundingClientRect()),
+          element,
+          weight: weight(element),
+        }));
 
-    visible.sort((a, b) => {
-      const aContainsB = a.element.contains(b.element);
-      const bContainsA = b.element.contains(a.element);
-      if (aContainsB !== bContainsA) return aContainsB ? 1 : -1;
+      if (visible.length === 0) return null;
 
-      const weightDifference = b.weight - a.weight;
-      if (weightDifference !== 0) return weightDifference;
+      visible.sort((a, b) => {
+        const aContainsB = a.element.contains(b.element);
+        const bContainsA = b.element.contains(a.element);
+        if (aContainsB !== bContainsA) return aContainsB ? 1 : -1;
 
-      return a.box.width * a.box.height - b.box.width * b.box.height;
-    });
+        const weightDifference = b.weight - a.weight;
+        if (weightDifference !== 0) return weightDifference;
 
-    return visible[0] ?? null;
-  }, []);
+        return a.box.width * a.box.height - b.box.width * b.box.height;
+      });
+
+      return visible[0] ?? null;
+    },
+    [],
+  );
 
   /**
    * Where one anchor points now.
@@ -671,7 +673,9 @@ export function AnnotateLayer({
           {pin.region === null ? null : (
             <div
               className={`pointer-events-none absolute rounded-sm border-2 border-dashed ${
-                pin.stale ? "border-amber-500/70 bg-amber-500/5" : "border-[#7C9CFF]/70 bg-[#7C9CFF]/5"
+                pin.stale
+                  ? "border-amber-500/70 bg-amber-500/5"
+                  : "border-[#7C9CFF]/70 bg-[#7C9CFF]/5"
               }`}
               style={{
                 height: pin.region.height + REGION_PAD * 2,

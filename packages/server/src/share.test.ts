@@ -146,10 +146,9 @@ describe("createShareManager", () => {
     );
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 
-    const allowed = await fetch(
-      `http://127.0.0.1:${created.share.sharePort}/pricing`,
-      { headers: { cookie } },
-    );
+    const allowed = await fetch(`http://127.0.0.1:${created.share.sharePort}/pricing`, {
+      headers: { cookie },
+    });
     expect(allowed.status).toBe(200);
     expect(await allowed.text()).toBe("passed gate");
 
@@ -157,10 +156,9 @@ describe("createShareManager", () => {
     expect(missing.status).toBe(403);
     expect(await missing.json()).toEqual({ ok: false, error: "This link isn't active." });
 
-    const wrong = await fetch(
-      `http://127.0.0.1:${created.share.sharePort}/leglas/s/wrong`,
-      { redirect: "manual" },
-    );
+    const wrong = await fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/s/wrong`, {
+      redirect: "manual",
+    });
     expect(wrong.status).toBe(403);
     expect(await wrong.json()).toEqual({ ok: false, error: "This link isn't active." });
 
@@ -183,10 +181,10 @@ describe("createShareManager", () => {
     const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 
-    const response = await fetch(
-      `http://127.0.0.1:${created.share.sharePort}/leglas/api/watch`,
-      { method: "POST", headers: { cookie } },
-    );
+    const response = await fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/api/watch`, {
+      method: "POST",
+      headers: { cookie },
+    });
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -198,7 +196,12 @@ describe("createShareManager", () => {
 
   test("gives a viewer config to a live link and nothing to a stranger", async () => {
     const { manager } = managerFor();
-    const created = await manager.create({ scope: "rail", titles: ["Aurora"], layout, tunnel: "none" });
+    const created = await manager.create({
+      scope: "rail",
+      titles: ["Aurora"],
+      layout,
+      tunnel: "none",
+    });
     if (!created.ok) throw new Error(created.error);
     const id = created.share.grants[0].id;
     expect(await manager.viewerConfig(id)).not.toBeNull();
@@ -307,8 +310,7 @@ describe("many links to one share", () => {
     if (!created.ok) throw new Error(created.error);
     return { manager, live, share: created.share };
   };
-  const enter = async (url: string): Promise<Response> =>
-    fetch(url, { redirect: "manual" });
+  const enter = async (url: string): Promise<Response> => fetch(url, { redirect: "manual" });
 
   test("a share opens with one link, and every later one is its own", async () => {
     const { manager, share } = await start();
@@ -356,13 +358,18 @@ describe("many links to one share", () => {
     const gone = await enter(cut.localUrl);
     expect(gone.status).toBe(410);
     expect(await gone.text()).toMatch(/turned off/);
-    const stranger = await enter(kept.localUrl.replace(/\/s\/.+$/, "/s/notatokenatallnotatokenatall12"));
+    const stranger = await enter(
+      kept.localUrl.replace(/\/s\/.+$/, "/s/notatokenatallnotatokenatall12"),
+    );
     expect(stranger.status).toBe(403);
   });
 
   test("a link past its deadline is expired, not merely unknown", async () => {
     let at = 1_000_000;
-    const { manager, share } = await start({ now: () => at, nowMono: () => BigInt(at) * 1_000_000n });
+    const { manager, share } = await start({
+      now: () => at,
+      nowMono: () => BigInt(at) * 1_000_000n,
+    });
     const link = share.grants[0];
     expect((await enter(link.localUrl)).status).toBe(302);
 
@@ -390,7 +397,10 @@ describe("many links to one share", () => {
 
   test("extend moves a live link's deadline and will not raise a dead one", async () => {
     let at = 2_000_000;
-    const { manager, share } = await start({ now: () => at, nowMono: () => BigInt(at) * 1_000_000n });
+    const { manager, share } = await start({
+      now: () => at,
+      nowMono: () => BigInt(at) * 1_000_000n,
+    });
     const link = share.grants[0];
     const first = link.expiresAt;
 
@@ -917,9 +927,7 @@ describe("the ceiling on viewer traffic", () => {
     const otherCookie = await share.cookieFor(other.localUrl);
 
     // The loud link takes every slot and queues eighteen more behind it.
-    const loud = Array.from({ length: 30 }, (_, i) =>
-      raw(share.port, `/loud-${i}`, share.cookie),
-    );
+    const loud = Array.from({ length: 30 }, (_, i) => raw(share.port, `/loud-${i}`, share.cookie));
     await Promise.all(loud.map((request) => request.sent));
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
@@ -1038,9 +1046,7 @@ describe("the ceiling on viewer traffic", () => {
     const answers = await Promise.all(all.map((pending) => pending.catch(() => null)));
     const shed = answers.filter((response) => response?.status === 503);
 
-    expect(answers.filter((response) => response?.status === 200).length).toBe(
-      VIEWER_CONCURRENCY,
-    );
+    expect(answers.filter((response) => response?.status === 200).length).toBe(VIEWER_CONCURRENCY);
     expect(shed.length).toBeGreaterThan(0);
     expect(await shed[0]?.json()).toEqual({
       ok: false,

@@ -81,9 +81,9 @@ describe("fractionsIn and boxFromFractions", () => {
   });
 
   test("survives a container with no size to divide by", () => {
-    expect(fractionsIn({ height: 0, width: 0, x: 0, y: 0 }, { height: 5, width: 5, x: 0, y: 0 })).toEqual(
-      { height: 1, width: 1, x: 0, y: 0 },
-    );
+    expect(
+      fractionsIn({ height: 0, width: 0, x: 0, y: 0 }, { height: 5, width: 5, x: 0, y: 0 }),
+    ).toEqual({ height: 1, width: 1, x: 0, y: 0 });
   });
 });
 

@@ -129,9 +129,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
 
   const devServer = source["devServer"] ?? DEFAULT_DEV_SERVER;
   if (typeof devServer !== "string" || !isValidOrigin(devServer)) {
-    errors.push(
-      `devServer must be an http(s) URL, received ${JSON.stringify(devServer)}.`,
-    );
+    errors.push(`devServer must be an http(s) URL, received ${JSON.stringify(devServer)}.`);
   }
 
   const rawPreviews = source["previews"] ?? [IMPLICIT_PREVIEW];

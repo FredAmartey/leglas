@@ -173,7 +173,11 @@ export function Crumbs({
           }`}
         >
           {tint !== undefined && (
-            <span aria-hidden className="inline-block size-[5px] shrink-0 rounded-full" style={{ background: tint }} />
+            <span
+              aria-hidden
+              className="inline-block size-[5px] shrink-0 rounded-full"
+              style={{ background: tint }}
+            />
           )}
           {displayName(self)}
         </span>
@@ -194,7 +198,10 @@ export function Crumbs({
           <span className={!askOpen && askSettled ? "line-clamp-1" : "block"}>{ask}</span>
         </button>
       ) : (
-        <p className="mt-0.5 min-w-0 truncate text-[10px] leading-snug text-[#84848C]" title={askedFor ?? ""}>
+        <p
+          className="mt-0.5 min-w-0 truncate text-[10px] leading-snug text-[#84848C]"
+          title={askedFor ?? ""}
+        >
           {ask}
         </p>
       )}

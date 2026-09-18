@@ -16,21 +16,32 @@ describe("nextCompare", () => {
   });
 
   test("honours a pinned direction over history", () => {
-    expect(nextCompare({ active: "Quiet", previous: "Current", pinned: "Kinetic" })).toBe("Kinetic");
+    expect(nextCompare({ active: "Quiet", previous: "Current", pinned: "Kinetic" })).toBe(
+      "Kinetic",
+    );
   });
 
   test("never compares a direction against itself", () => {
-    expect(nextCompare({ active: "Quiet", previous: "Quiet", pinned: null, rows: ["Quiet"] })).toBeNull();
+    expect(
+      nextCompare({ active: "Quiet", previous: "Quiet", pinned: null, rows: ["Quiet"] }),
+    ).toBeNull();
   });
 
   test("drops a pin that no longer exists", () => {
     expect(
-      nextCompare({ active: "Quiet", previous: null, pinned: "Deleted", rows: ["Quiet", "Kinetic"] }),
+      nextCompare({
+        active: "Quiet",
+        previous: null,
+        pinned: "Deleted",
+        rows: ["Quiet", "Kinetic"],
+      }),
     ).toBe("Kinetic");
   });
 
   test("returns nothing when there is only one direction to show", () => {
-    expect(nextCompare({ active: "Only", previous: null, pinned: null, rows: ["Only"] })).toBeNull();
+    expect(
+      nextCompare({ active: "Only", previous: null, pinned: null, rows: ["Only"] }),
+    ).toBeNull();
   });
 });
 
@@ -95,7 +106,13 @@ describe("a variant's default comparison", () => {
 });
 
 describe("how one side of a split is drawn", () => {
-  const stage = { gutter: 48, scaleSplit: true, stageHeight: 950, stageWidth: 1358, viewport: null };
+  const stage = {
+    gutter: 48,
+    scaleSplit: true,
+    stageHeight: 950,
+    stageWidth: 1358,
+    viewport: null,
+  };
 
   test("a single pane is left alone", () => {
     const geometry = paneGeometry({ ...stage, panes: 1 });

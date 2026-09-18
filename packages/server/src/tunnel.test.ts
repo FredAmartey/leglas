@@ -51,9 +51,7 @@ describe("startTunnel", () => {
       { spawn: spawned.spawn, probe },
     );
 
-    spawned.children[0]?.stderr.write(
-      "| https://example-share.trycloudflare.com |\n",
-    );
+    spawned.children[0]?.stderr.write("| https://example-share.trycloudflare.com |\n");
     await vi.waitFor(() => expect(states.at(-1)?.status).toBe("ready"));
 
     expect(states).toEqual([

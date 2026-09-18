@@ -26,7 +26,13 @@ async function readIfPresent(path: string): Promise<string | null> {
  * more than a line of copying.
  */
 export async function runNew(
-  options: { surface: string; print: boolean; json: boolean; from?: string | undefined; cwd: string },
+  options: {
+    surface: string;
+    print: boolean;
+    json: boolean;
+    from?: string | undefined;
+    cwd: string;
+  },
   deps: NewDeps,
 ): Promise<NewResult> {
   let from: { path: string; contents: string } | undefined;
@@ -60,7 +66,14 @@ export async function runNew(
 
   if (options.print) {
     if (options.json) {
-      deps.log(JSON.stringify({ ok: true, files: plan.writes, instructions: plan.instructions, previews: plan.previews }));
+      deps.log(
+        JSON.stringify({
+          ok: true,
+          files: plan.writes,
+          instructions: plan.instructions,
+          previews: plan.previews,
+        }),
+      );
       return { exitCode: 0, written: [] };
     }
     for (const write of plan.writes) {
@@ -73,7 +86,9 @@ export async function runNew(
 
   const existing = plan.writes.filter((write) => existsSync(join(options.cwd, write.path)));
   if (existing.length > 0) {
-    return fail(`${existing[0]?.path} already exists. Delete it first, or pick another surface name.`);
+    return fail(
+      `${existing[0]?.path} already exists. Delete it first, or pick another surface name.`,
+    );
   }
 
   const written: string[] = [];
@@ -91,7 +106,12 @@ export async function runNew(
 
   if (options.json) {
     deps.log(
-      JSON.stringify({ ok: true, written, instructions: plan.instructions, previews: plan.previews }),
+      JSON.stringify({
+        ok: true,
+        written,
+        instructions: plan.instructions,
+        previews: plan.previews,
+      }),
     );
     return { exitCode: 0, written };
   }
@@ -102,7 +122,9 @@ export async function runNew(
   deps.log("Then register them so they appear in the interface:");
   deps.log("");
   for (const preview of plan.previews) {
-    deps.log(`  npx leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`);
+    deps.log(
+      `  npx leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`,
+    );
   }
 
   return { exitCode: 0, written };

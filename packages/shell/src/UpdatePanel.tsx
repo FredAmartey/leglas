@@ -60,7 +60,9 @@ export function UpdatePanel({
       aria-hidden={!open}
       aria-label="Updates"
       className={`absolute inset-x-3 top-full z-30 mt-1.5 origin-top-left rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-        open ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-95 opacity-0"
+        open
+          ? "translate-y-0 scale-100 opacity-100"
+          : "pointer-events-none -translate-y-1 scale-95 opacity-0"
       }`}
       inert={!open}
       ref={panelRef}

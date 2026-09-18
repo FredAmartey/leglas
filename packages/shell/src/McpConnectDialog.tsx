@@ -240,7 +240,9 @@ export function McpConnectDialog({
               ) : null}
             </span>
             <span className="min-w-0">
-              <span className={`block text-xs font-medium ${connected ? "text-emerald-200" : "text-[#D1D5DB]"}`}>
+              <span
+                className={`block text-xs font-medium ${connected ? "text-emerald-200" : "text-[#D1D5DB]"}`}
+              >
                 {status.title}
               </span>
               <span className="mt-0.5 block text-[10px] leading-relaxed text-[#84848C]">

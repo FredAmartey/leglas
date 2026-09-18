@@ -61,7 +61,7 @@ function note(id: string, text: string): Annotation {
 const fakeBrowser: Browser = {
   closed: false,
   close: async () => {},
-  withPage: async <T,>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+  withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
 };
 
 function pool(browser: Browser | null, reason = NO_BROWSER): BrowserPool {
@@ -102,9 +102,9 @@ describe("previewUrl", () => {
     expect(previewUrl("http://127.0.0.1:4100", preview("Poster", "/?v-hero=poster"))).toBe(
       "http://127.0.0.1:4100/?v-hero=poster",
     );
-    expect(previewUrl("http://127.0.0.1:4100", preview("Staging", "https://staging.example.com/x"))).toBe(
-      "https://staging.example.com/x",
-    );
+    expect(
+      previewUrl("http://127.0.0.1:4100", preview("Staging", "https://staging.example.com/x")),
+    ).toBe("https://staging.example.com/x");
   });
 });
 
@@ -240,14 +240,16 @@ describe("attachRequest", () => {
     // One load for the direction and its notes, one for the compared pane.
     expect(captured).toHaveBeenCalledTimes(2);
     expect((captured.mock.calls[0]?.[1] as { url: string }).url).toBe("http://127.0.0.1:4100/");
-    expect((captured.mock.calls[1]?.[1] as { url: string }).url).toBe("http://127.0.0.1:4100/ledger");
+    expect((captured.mock.calls[1]?.[1] as { url: string }).url).toBe(
+      "http://127.0.0.1:4100/ledger",
+    );
   });
 
   test("a note whose crop could not be taken is left out rather than misnumbered", async () => {
     const cwd = root();
-    const captured = vi.fn().mockResolvedValue(
-      capture({ crops: [null, { shot: shot("second"), resolved: "element" }] }),
-    );
+    const captured = vi
+      .fn()
+      .mockResolvedValue(capture({ crops: [null, { shot: shot("second"), resolved: "element" }] }));
 
     const result = await attachRequest(
       cwd,

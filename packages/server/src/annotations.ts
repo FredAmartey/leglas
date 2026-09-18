@@ -266,10 +266,7 @@ export async function updateAnnotation(
 }
 
 /** Drop the named notes, reporting how many were there to drop. */
-export async function removeAnnotations(
-  cwd: string,
-  ids: readonly string[],
-): Promise<number> {
+export async function removeAnnotations(cwd: string, ids: readonly string[]): Promise<number> {
   return inTurn(async () => {
     const wanted = new Set(ids);
     const annotations = await readAnnotations(cwd);
@@ -283,10 +280,7 @@ export async function removeAnnotations(
 }
 
 /** The notes on one direction, in the order they were left. */
-export function annotationsFor(
-  annotations: readonly Annotation[],
-  title: string,
-): Annotation[] {
+export function annotationsFor(annotations: readonly Annotation[], title: string): Annotation[] {
   return annotations.filter((entry) => entry.title === title);
 }
 

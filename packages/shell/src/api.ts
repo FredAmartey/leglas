@@ -18,4 +18,3 @@ export async function postJson<T>(path: string, body: unknown, fallback: string)
   if (!response.ok) throw await refusal(response, fallback);
   return response.json() as Promise<T>;
 }
-

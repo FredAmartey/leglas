@@ -124,9 +124,11 @@ const jobs = [...merged.values()].map((parts) => {
   if (parts.length === 1) return parts[0];
   const trials = parts.reduce((n, p) => n + p.trials, 0);
   const passed = parts.reduce((n, p) => n + p.passed, 0);
-  const wsum = (f: (p: Summary) => number) => parts.reduce((n, p) => n + f(p) * p.trials, 0) / trials;
+  const wsum = (f: (p: Summary) => number) =>
+    parts.reduce((n, p) => n + f(p) * p.trials, 0) / trials;
   const perTask: Record<string, TaskRun[]> = {};
-  for (const p of parts) for (const [t, rs] of Object.entries(p.perTask)) (perTask[t] ??= []).push(...rs);
+  for (const p of parts)
+    for (const [t, rs] of Object.entries(p.perTask)) (perTask[t] ??= []).push(...rs);
   const minutes = parts.flatMap((p) => p.agentMinutes);
   const costs = parts.flatMap((p) => (p.totalCostUsd === null ? [] : [p.totalCostUsd]));
   return {
@@ -153,7 +155,9 @@ if (jobs.length === 0) {
 
 const tasks = [...new Set(jobs.flatMap((j) => Object.keys(j.perTask)))].sort();
 
-console.log("| Agent | Model | Trials | Pass rate | Exceptions | Median agent time | Mean tokens / trial (in + out) | Cost |");
+console.log(
+  "| Agent | Model | Trials | Pass rate | Exceptions | Median agent time | Mean tokens / trial (in + out) | Cost |",
+);
 console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
 for (const j of jobs) {
   console.log(
@@ -161,13 +165,22 @@ for (const j of jobs) {
   );
 }
 console.log();
-const run = (r: TaskRun) => `${r.reward >= 1 ? "pass" : "fail"}, ${r.minutes === null ? "n/a" : `${r.minutes.toFixed(1)} min`}, ${k(r.tokens)} tok`;
+const run = (r: TaskRun) =>
+  `${r.reward >= 1 ? "pass" : "fail"}, ${r.minutes === null ? "n/a" : `${r.minutes.toFixed(1)} min`}, ${k(r.tokens)} tok`;
 console.log(`| Task | ${jobs.map((j) => `${j.agent} (${j.model})`).join(" | ")} |`);
 console.log(`| --- |${jobs.map(() => " --- ").join("|")}|`);
 for (const t of tasks) {
-  console.log(`| ${t} | ${jobs.map((j) => (j.perTask[t] ?? []).map(run).join("; ") || "n/a").join(" | ")} |`);
+  console.log(
+    `| ${t} | ${jobs.map((j) => (j.perTask[t] ?? []).map(run).join("; ") || "n/a").join(" | ")} |`,
+  );
 }
 console.log();
 console.log("```json");
-console.log(JSON.stringify(jobs.map(({ perTask: _perTask, agentMinutes: _minutes, ...rest }) => rest), null, 2));
+console.log(
+  JSON.stringify(
+    jobs.map(({ perTask: _perTask, agentMinutes: _minutes, ...rest }) => rest),
+    null,
+    2,
+  ),
+);
 console.log("```");

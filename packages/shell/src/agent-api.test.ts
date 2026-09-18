@@ -16,9 +16,7 @@ function recorder(body: unknown = { ok: true }, status = 200) {
     if (init === undefined) calls.push({ input });
     else {
       const { signal: _signal, ...recorded } = init;
-      calls.push(
-        Object.keys(recorded).length === 0 ? { input } : { input, init: recorded },
-      );
+      calls.push(Object.keys(recorded).length === 0 ? { input } : { input, init: recorded });
     }
     return new Response(JSON.stringify(body), {
       status,

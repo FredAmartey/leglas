@@ -39,9 +39,7 @@ describe("substitutePort", () => {
   });
 
   test("replaces every occurrence, since some commands need it twice", () => {
-    expect(substitutePort("serve --port {port} --hmr {port}", 90)).toBe(
-      "serve --port 90 --hmr 90",
-    );
+    expect(substitutePort("serve --port {port} --hmr {port}", 90)).toBe("serve --port 90 --hmr 90");
   });
 });
 

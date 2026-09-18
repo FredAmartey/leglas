@@ -82,7 +82,10 @@ export function createBranchRegistry(options: {
     const current = stopping.get(title);
     if (current !== undefined) return current;
     const pending = (async () => {
-      await proxies.get(title)?.close().catch(() => {});
+      await proxies
+        .get(title)
+        ?.close()
+        .catch(() => {});
       await state.worktree.stop().catch(() => {});
       proxies.delete(title);
       lastActivity.delete(title);

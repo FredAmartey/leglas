@@ -18,8 +18,15 @@ const PREVIEWS = [
 
 describe("scanQueue", () => {
   test("a branch preview that has not started has no url yet, and is skipped rather than thrown on", () => {
-    const idle = { title: "Warm red", url: undefined as unknown as string, tags: [], branch: "warm-red" };
-    expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain("Warm red");
+    const idle = {
+      title: "Warm red",
+      url: undefined as unknown as string,
+      tags: [],
+      branch: "warm-red",
+    };
+    expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain(
+      "Warm red",
+    );
   });
 
   test("queues same-origin previews without current results", () => {
@@ -60,10 +67,15 @@ describe("scanQueue", () => {
 
   test("previews that appear mid-session join the queue", () => {
     const grown = [...PREVIEWS, { title: "New", url: "/?v-hero=new", tags: [] }];
-    const scans = PREVIEWS.reduce<Record<string, { url: string; status: "complete"; signature: string }>>(
+    const scans = PREVIEWS.reduce<
+      Record<string, { url: string; status: "complete"; signature: string }>
+    >(
       (current, preview) =>
         preview.url.startsWith("/")
-          ? { ...current, [preview.title]: { url: preview.url, status: "complete", signature: "sig" } }
+          ? {
+              ...current,
+              [preview.title]: { url: preview.url, status: "complete", signature: "sig" },
+            }
           : current,
       {},
     );

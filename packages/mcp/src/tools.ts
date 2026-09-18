@@ -106,7 +106,12 @@ export function registerLeglasTools(
         "When building a set, call this first and give the user the URL before " +
         "any direction exists: the rail updates live, so they watch the set fill in.",
       inputSchema: {
-        port: z.number().int().min(0).max(65535).optional()
+        port: z
+          .number()
+          .int()
+          .min(0)
+          .max(65535)
+          .optional()
           .describe("Port for Leglas itself; defaults to 4100, next free if taken."),
       },
     },
@@ -114,7 +119,10 @@ export function registerLeglasTools(
       if (viewer !== null) {
         return {
           content: [
-            { type: "text", text: JSON.stringify({ ok: true, url: viewer.url, alreadyRunning: true }) },
+            {
+              type: "text",
+              text: JSON.stringify({ ok: true, url: viewer.url, alreadyRunning: true }),
+            },
           ],
         };
       }
@@ -141,17 +149,28 @@ export function registerLeglasTools(
         "Then call show with screenshot: true to look at what you registered.",
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),
-        url: z.string().min(1).optional()
+        url: z
+          .string()
+          .min(1)
+          .optional()
           .describe('Root-relative ("/?v-hero=aurora") or absolute URL. Omit for a file preview.'),
         note: z.string().optional().describe("One line on the idea, shown under the title."),
         tags: z.array(z.string()).optional(),
-        branch: z.string().optional()
+        branch: z
+          .string()
+          .optional()
           .describe("Back the preview with a checkout of this git branch."),
-        file: z.string().optional()
+        file: z
+          .string()
+          .optional()
           .describe("Project-relative HTML file for Leglas to serve itself; no dev server needed."),
-        basedOn: z.string().optional()
+        basedOn: z
+          .string()
+          .optional()
           .describe("Title of the direction this is a variant of; the rail groups the family."),
-        askedFor: z.string().optional()
+        askedFor: z
+          .string()
+          .optional()
           .describe(
             "The change this direction was asked for, in the words that were typed. " +
               "Pass it verbatim when building a variant someone requested; the rail shows it.",
@@ -201,7 +220,9 @@ export function registerLeglasTools(
       const located = await project.locate();
       if (!located.ok) {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: located.reason }) }],
+          content: [
+            { type: "text" as const, text: JSON.stringify({ ok: false, error: located.reason }) },
+          ],
           isError: true,
         };
       }
@@ -256,8 +277,11 @@ export function registerLeglasTools(
           .array(
             z.object({
               path: z.string().min(1).describe("Project-relative path."),
-              kind: z.enum(["change", "rewrite"])
-                .describe('"change": create or wire up. "rewrite": alter what an existing file renders.'),
+              kind: z
+                .enum(["change", "rewrite"])
+                .describe(
+                  '"change": create or wire up. "rewrite": alter what an existing file renders.',
+                ),
             }),
           )
           .min(1),
@@ -282,7 +306,9 @@ export function registerLeglasTools(
           .string()
           .min(1)
           .optional()
-          .describe("An existing direction's title: ask for variants of it instead of new directions."),
+          .describe(
+            "An existing direction's title: ask for variants of it instead of new directions.",
+          ),
       },
     },
     async ({ surface, count, basedOn }) =>

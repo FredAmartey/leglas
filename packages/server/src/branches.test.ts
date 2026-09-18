@@ -31,11 +31,13 @@ const branch = { title: "Wave", branch: "feature/wave" };
 
 afterEach(() => vi.useRealTimers());
 
-function proxy(options: {
-  active?: () => boolean;
-  onActivity?: () => void;
-  onClose?: () => void;
-} = {}): (input: { target: string; onActivity?: () => void }) => Promise<RunningProxy> {
+function proxy(
+  options: {
+    active?: () => boolean;
+    onActivity?: () => void;
+    onClose?: () => void;
+  } = {},
+): (input: { target: string; onActivity?: () => void }) => Promise<RunningProxy> {
   return async (input) => {
     options.onActivity?.();
     return {
@@ -115,9 +117,7 @@ describe("branch preview registry", () => {
       installCommand: "pnpm install",
       devCommand: "pnpm dev --port {port}",
       onChange: (_title, state) => {
-        states.push(
-          state.status === "starting" ? `${state.status}:${state.phase}` : state.status,
-        );
+        states.push(state.status === "starting" ? `${state.status}:${state.phase}` : state.status);
       },
       startProxy: proxy(),
       startWorktree: async (options) => {

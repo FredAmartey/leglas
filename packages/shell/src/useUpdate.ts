@@ -125,7 +125,12 @@ export function useUpdate(
             const going = leaving(latest.current.status);
             if (going === null) return;
             const now = Date.now();
-            setWait({ status: "waiting", version: going.version, since: now, until: now + going.allowance });
+            setWait({
+              status: "waiting",
+              version: going.version,
+              since: now,
+              until: now + going.allowance,
+            });
             // Any other miss is the fallback's problem; the last status stands.
           }),
       {
@@ -146,7 +151,10 @@ export function useUpdate(
     if (wait.status !== "waiting") return;
     const { version, until } = wait;
     const timer = window.setTimeout(
-      () => setWait((current) => (current.status === "waiting" ? { status: "lost", version } : current)),
+      () =>
+        setWait((current) =>
+          current.status === "waiting" ? { status: "lost", version } : current,
+        ),
       Math.max(0, until - Date.now()),
     );
     return () => window.clearTimeout(timer);

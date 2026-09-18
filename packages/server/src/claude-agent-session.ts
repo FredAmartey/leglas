@@ -180,8 +180,7 @@ class ClaudeTurnChild implements RunnerChild {
   once(
     event: "error" | "close",
     listener:
-      | ((error: Error) => void)
-      | ((code: number | null, signal: NodeJS.Signals | null) => void),
+      ((error: Error) => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
   ): RunnerChild {
     if (event === "close" && this.terminal !== null) {
       const terminal = this.terminal;
@@ -291,11 +290,8 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
     })
       .then((warmQuery) => {
-        if (
-          this.closed ||
-          controller.signal.aborted ||
-          this.processAbort !== controller
-        ) warmQuery.close();
+        if (this.closed || controller.signal.aborted || this.processAbort !== controller)
+          warmQuery.close();
         else this.warmQuery = warmQuery;
       })
       .catch((error: unknown) => {
@@ -467,11 +463,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     }
   }
 
-  private interrupt(
-    query: ClaudeSdkQuery,
-    child: ClaudeTurnChild,
-    signal: NodeJS.Signals,
-  ): void {
+  private interrupt(query: ClaudeSdkQuery, child: ClaudeTurnChild, signal: NodeJS.Signals): void {
     if (this.active !== child || this.query !== query) return;
     if (signal === "SIGKILL") {
       this.active = null;

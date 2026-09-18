@@ -37,7 +37,10 @@ export function buildSite(root: string, out: string): string[] {
   // The homepage shows the README's captures, which stay in the tree because
   // they ship with the documentation.
   for (const capture of CAPTURES) {
-    copyFileSync(join(root, ".github", "assets", "screenshots", capture), join(out, "assets", capture));
+    copyFileSync(
+      join(root, ".github", "assets", "screenshots", capture),
+      join(out, "assets", capture),
+    );
     written.push(join(out, "assets", capture));
   }
   return written;

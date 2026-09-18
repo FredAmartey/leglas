@@ -123,8 +123,7 @@ export function routeAllowed(routes: readonly string[], url: string): boolean {
 }
 
 export type ShareResult =
-  | { ok: true; share: ShareStatus }
-  | { ok: false; status: 400 | 404 | 409 | 500; error: string };
+  { ok: true; share: ShareStatus } | { ok: false; status: 400 | 404 | 409 | 500; error: string };
 
 type RequestContext = {
   publicOrigin: string;
@@ -140,11 +139,7 @@ type ShareManagerOptions = {
     devServer: string;
     scanPreviews: boolean;
   };
-  request: (
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-    context: RequestContext,
-  ) => void;
+  request: (req: http.IncomingMessage, res: http.ServerResponse, context: RequestContext) => void;
   upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => boolean;
   detectTunnels?: typeof detectTunnels;
   startTunnel?: typeof startTunnel;
@@ -166,10 +161,7 @@ type ActiveShare = ShareManifest & {
   server: http.Server;
   sockets: Set<Duplex>;
   grantSockets: Map<string, Set<Duplex>>;
-  grantRequests: Map<
-    string,
-    Set<{ req: http.IncomingMessage; res: http.ServerResponse }>
-  >;
+  grantRequests: Map<string, Set<{ req: http.IncomingMessage; res: http.ServerResponse }>>;
   launch: ReturnType<typeof setImmediate> | null;
   expiryTimer: ReturnType<typeof setTimeout> | null;
   /** Paths `listed` mode turned away, newest last, so they can be allowed. */
@@ -502,10 +494,7 @@ function stringArray(value: unknown): value is string[] {
 }
 
 function stringRecord(value: unknown): value is Record<string, string> {
-  return (
-    isRecord(value) &&
-    Object.values(value).every((entry) => typeof entry === "string")
-  );
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
 function layoutFrom(value: unknown): ShareLayout | null {
@@ -558,11 +547,7 @@ function manifestFrom(
       error: `Directions are not available to share: ${unknown.join(", ")}.`,
     };
   }
-  const branches = [
-    ...new Set(
-      titles.filter((title) => byTitle.get(title)?.branch !== undefined),
-    ),
-  ];
+  const branches = [...new Set(titles.filter((title) => byTitle.get(title)?.branch !== undefined))];
   if (branches.length > 0) {
     return {
       ok: false,
@@ -659,7 +644,7 @@ function expired(grant: Grant, now: number, nowMono: bigint): boolean {
 
 function cookieToken(req: http.IncomingMessage): string | null {
   const raw = req.headers.cookie;
-  const cookies = (Array.isArray(raw) ? raw.join(";") : raw ?? "").split(";");
+  const cookies = (Array.isArray(raw) ? raw.join(";") : (raw ?? "")).split(";");
   for (const cookie of cookies) {
     const separator = cookie.indexOf("=");
     if (separator === -1) continue;
@@ -737,7 +722,7 @@ function refuse(
 ): void {
   const refusal = REFUSALS[cause];
   const accept = req.headers.accept;
-  const html = (Array.isArray(accept) ? accept.join(",") : accept ?? "").includes("text/html");
+  const html = (Array.isArray(accept) ? accept.join(",") : (accept ?? "")).includes("text/html");
   if (!html) {
     return sendJson(res, refusal.status, { ok: false, error: refusal.sentence });
   }
@@ -1369,10 +1354,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         tombstones: [],
         port,
         startedAt: now(),
-        tunnel:
-          provider === "none"
-            ? { status: "none" }
-            : { status: "starting", provider },
+        tunnel: provider === "none" ? { status: "none" } : { status: "starting", provider },
         runningTunnel: null,
         tunnelGeneration: 0,
         server,
@@ -1396,20 +1378,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         share.launch = setImmediate(() => {
           share.launch = null;
           if (active !== share) return;
-          share.runningTunnel = runTunnel(
-            {
-              provider,
-              port,
-              // Whichever link exists when the tunnel starts: the probe only
-              // needs a path the listener answers, and a share always has one.
-              entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
-              onState: (next) => {
-                if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
-                share.tunnel = next;
-                options.live.nudge("share");
-              },
+          share.runningTunnel = runTunnel({
+            provider,
+            port,
+            // Whichever link exists when the tunnel starts: the probe only
+            // needs a path the listener answers, and a share always has one.
+            entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
+            onState: (next) => {
+              if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
+              share.tunnel = next;
+              options.live.nudge("share");
             },
-          );
+          });
         });
         share.launch.unref?.();
       }
@@ -1612,7 +1592,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const previews = await options.previews();
     return previews.some((preview) => {
       if (!titles.has(preview.title) || preview.file === undefined) return false;
-      const rest = preview.url.startsWith(FILES_PREFIX_PATH) ? preview.url.slice(FILES_PREFIX_PATH.length) : "";
+      const rest = preview.url.startsWith(FILES_PREFIX_PATH)
+        ? preview.url.slice(FILES_PREFIX_PATH.length)
+        : "";
       const slash = rest.indexOf("/");
       return (slash === -1 ? rest : rest.slice(0, slash)) === slug;
     });

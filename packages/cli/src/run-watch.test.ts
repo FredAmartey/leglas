@@ -33,7 +33,11 @@ const input = {
 
 function deps() {
   const lines: string[] = [];
-  return { lines, log: (line: string) => lines.push(line), error: (line: string) => lines.push(line) };
+  return {
+    lines,
+    log: (line: string) => lines.push(line),
+    error: (line: string) => lines.push(line),
+  };
 }
 
 function writeWatchConfig(root: string, config: Record<string, unknown>): void {
@@ -67,13 +71,12 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
   const controller = new AbortController();
   const d = deps();
   let outcome: Awaited<ReturnType<typeof runWatch>> | null = null;
-  const running = runWatch(
-    { run, port: DEAD_PORT, cwd: root, signal: controller.signal },
-    d,
-  ).then((result) => {
-    outcome = result;
-    return result;
-  });
+  const running = runWatch({ run, port: DEAD_PORT, cwd: root, signal: controller.signal }, d).then(
+    (result) => {
+      outcome = result;
+      return result;
+    },
+  );
 
   await until(() => outcome !== null || d.lines.some((line) => line.startsWith("Watching ")));
   expect(outcome).toBeNull();
@@ -116,7 +119,12 @@ describe("runWatch", () => {
 
     const controller = new AbortController();
     const running = runWatch(
-      { run: 'node -e "process.exit(0)" {prompt}', port: DEAD_PORT, cwd: root, signal: controller.signal },
+      {
+        run: 'node -e "process.exit(0)" {prompt}',
+        port: DEAD_PORT,
+        cwd: root,
+        signal: controller.signal,
+      },
       deps(),
     );
     await until(async () => (await readRequests(root)).length === 0);
@@ -245,7 +253,12 @@ describe("runWatch", () => {
     const controller = new AbortController();
     const d = deps();
     const running = runWatch(
-      { run: "leglas-watch-test-no-such-program {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
+      {
+        run: "leglas-watch-test-no-such-program {prompt}",
+        port: DEAD_PORT,
+        cwd: root,
+        signal: controller.signal,
+      },
       d,
     );
 
@@ -273,7 +286,9 @@ describe("runWatch", () => {
 
     await until(() => {
       try {
-        return JSON.parse(readFileSync(join(root, ".leglas/watch.json"), "utf8")).run === "node {prompt}";
+        return (
+          JSON.parse(readFileSync(join(root, ".leglas/watch.json"), "utf8")).run === "node {prompt}"
+        );
       } catch {
         return false;
       }
@@ -318,4 +333,3 @@ describe("stopping before the loop is listening", () => {
     expect(outcome.exitCode).toBe(0);
   });
 });
-

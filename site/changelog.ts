@@ -30,7 +30,13 @@ export const TARGETS = {
 export type Target = (typeof TARGETS)[keyof typeof TARGETS]["key"];
 
 /** One bullet: an optional bold lead, its text, further paragraphs, and who it reaches. */
-export type Item = { kind: "item"; lead: string | null; text: string; more: string[]; reaches: Target[] };
+export type Item = {
+  kind: "item";
+  lead: string | null;
+  text: string;
+  more: string[];
+  reaches: Target[];
+};
 export type Paragraph = { kind: "paragraph"; text: string };
 export type Media = { kind: "media"; src: string; alt: string; caption: string | null };
 export type Group = { kind: "group"; heading: string; blocks: (Item | Paragraph | Media)[] };
@@ -42,7 +48,12 @@ export type Block = Item | Paragraph | Media | Group;
  * as `## 0.8.0 (2026-08-28): What the release is about`, and an Unreleased
  * section carries neither.
  */
-export type Entry = { versions: string[]; date: string | null; title: string | null; blocks: Block[] };
+export type Entry = {
+  versions: string[];
+  date: string | null;
+  title: string | null;
+  blocks: Block[];
+};
 export type Changelog = { preamble: Block[]; entries: Entry[] };
 
 const RELEASE = /^## (.+?)(?: \((\d{4}-\d{2}-\d{2})\))?(?:: (.+))?$/;
@@ -114,7 +125,8 @@ export function parseChangelog(markdown: string): Changelog {
     if (item) {
       if (/^ {2,}\S/.test(line)) {
         // A nested list would be absorbed as prose, marker and all.
-        if (/^ {2,}- /.test(line)) throw new Error(`A bullet inside a bullet is not supported: "${line.trim()}".`);
+        if (/^ {2,}- /.test(line))
+          throw new Error(`A bullet inside a bullet is not supported: "${line.trim()}".`);
         if (item.gap) item.paragraphs.push([]);
         item.paragraphs[item.paragraphs.length - 1]!.push(line.trim());
         item.gap = false;
@@ -184,7 +196,8 @@ export function inline(markdown: string): string {
     const [whole, code, bold, label, href] = match;
     if (code !== undefined) html += `<code>${escape(code)}</code>`;
     else if (bold !== undefined) html += `<strong>${inline(bold)}</strong>`;
-    else if (label !== undefined && href !== undefined) html += `<a href="${escape(href)}">${inline(label)}</a>`;
+    else if (label !== undefined && href !== undefined)
+      html += `<a href="${escape(href)}">${inline(label)}</a>`;
     last = match.index + whole.length;
   }
   return html + escape(markdown.slice(last));
@@ -208,7 +221,8 @@ function renderItem(item: Item): string {
   // A lead running straight into punctuation ("**`leglas`**, the command
   // line tool") keeps no space; one followed by a sentence gets one.
   const joiner = item.text === "" || /^[,.;:!?)]/.test(item.text) ? "" : " ";
-  const lead = item.lead === null ? "" : `<strong class="lead">${inline(item.lead)}</strong>${joiner}`;
+  const lead =
+    item.lead === null ? "" : `<strong class="lead">${inline(item.lead)}</strong>${joiner}`;
   const more = item.more.map((text) => `<p class="more">${inline(text)}</p>`).join("");
   const reaches =
     item.reaches.length === 0
@@ -246,7 +260,8 @@ function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: stri
       // CHANGELOG.md reads the same everywhere.
       const [src, hint] = block.src.split("#w=");
       const width = hint !== undefined && /^\d+$/.test(hint) ? ` style="max-width:${hint}px"` : "";
-      const caption = block.caption === null ? "" : `<figcaption>${inline(block.caption)}</figcaption>`;
+      const caption =
+        block.caption === null ? "" : `<figcaption>${inline(block.caption)}</figcaption>`;
       out.push(
         `<figure class="media"${width}><img src="${escape(src ?? "")}" alt="${escape(block.alt)}" loading="lazy" decoding="async">${caption}</figure>`,
       );
@@ -258,16 +273,24 @@ function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: stri
 
 function renderEntry(entry: Entry): string {
   const id = anchor(entry);
-  const aliases = entry.versions.slice(1).map((version) => `<span id="v${escape(version)}"></span>`).join("");
+  const aliases = entry.versions
+    .slice(1)
+    .map((version) => `<span id="v${escape(version)}"></span>`)
+    .join("");
   const pills = entry.versions
-    .map((version) => `<a class="pill" href="#${id}">${/^\d/.test(version) ? `v${version}` : escape(version)}</a>`)
+    .map(
+      (version) =>
+        `<a class="pill" href="#${id}">${/^\d/.test(version) ? `v${version}` : escape(version)}</a>`,
+    )
     .join("");
   const date =
     entry.date === null
       ? `<span class="date">Not yet released</span>`
       : `<time class="date" datetime="${entry.date}">${longDate(entry.date)}</time>`;
   const title =
-    entry.title === null ? "" : `<h2 class="title"><a href="#${id}">${inline(entry.title)}</a></h2>`;
+    entry.title === null
+      ? ""
+      : `<h2 class="title"><a href="#${id}">${inline(entry.title)}</a></h2>`;
   const body = entry.blocks
     .map((block) =>
       block.kind === "group"
@@ -343,7 +366,8 @@ ${bar(assets, { home: "../", docs: "../docs/", changelog: "./", active: "changel
 ${foot(`Made from <a href="${REPO}/blob/main/CHANGELOG.md">CHANGELOG.md</a>.`)}`;
   return document({
     title: "Leglas Changelog",
-    description: "What changed in each release of Leglas: the command line tool, the MCP server and the Agent Plugin.",
+    description:
+      "What changed in each release of Leglas: the command line tool, the MCP server and the Agent Plugin.",
     assets,
     styles: STYLES,
     body,

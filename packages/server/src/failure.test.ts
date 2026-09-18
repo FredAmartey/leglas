@@ -58,9 +58,9 @@ describe("classifyFailure", () => {
   });
 
   test("output carries the verdict when no retry event does", () => {
-    expect(
-      verdict({ agent: "Claude", exitCode: 1, lines: ["API Error: 529 Overloaded"] }),
-    ).toBe("provider-overloaded");
+    expect(verdict({ agent: "Claude", exitCode: 1, lines: ["API Error: 529 Overloaded"] })).toBe(
+      "provider-overloaded",
+    );
     expect(
       verdict({ agent: "Codex", exitCode: 1, lines: ["stream error: 429 Too Many Requests"] }),
     ).toBe("provider-limit");

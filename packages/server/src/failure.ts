@@ -75,7 +75,8 @@ const LIMIT = /\b429\b|rate limit|usage limit|quota exceeded|too many requests/i
 const OVERLOADED = /\b(?:503|529)\b|overloaded|service unavailable/i;
 
 function fromStatus(status: number | null, reason: string | null): FailureCode | null {
-  if (status === 401 || status === 403 || reason === "authentication_failed") return "not-signed-in";
+  if (status === 401 || status === 403 || reason === "authentication_failed")
+    return "not-signed-in";
   if (status === 429 || reason === "rate_limit") return "provider-limit";
   if (status === 529 || status === 503 || reason === "overloaded") return "provider-overloaded";
   return null;
@@ -147,10 +148,10 @@ export function classifyFailure(input: FailureInput): Failure {
           ? "stopped"
           : error !== null && MISSING_BINARY.test(error)
             ? "missing-agent"
-            : (error !== null ? fromLines([error]) : null) ??
+            : ((error !== null ? fromLines([error]) : null) ??
               fromStatus(input.retry?.status ?? null, input.retry?.reason ?? null) ??
               fromLines(lines) ??
-              "agent-error";
+              "agent-error");
 
   return { code, message: message(code, input) };
 }

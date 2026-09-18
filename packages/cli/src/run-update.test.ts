@@ -46,7 +46,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("CI", "");
   vi.stubEnv("LEGLAS_NO_UPDATE_CHECK", "");
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ reachable: true })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ reachable: true })),
+  );
   server.start.mockResolvedValue({ url: "http://localhost:4105", port: 4105, close: server.close });
 });
 
@@ -57,7 +60,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const options = { cwd: "/work/app", open: true, json: false, port: undefined, userPort: undefined, configPath: undefined };
+const options = {
+  cwd: "/work/app",
+  open: true,
+  json: false,
+  port: undefined,
+  userPort: undefined,
+  configPath: undefined,
+};
 
 describe("skipStartupCheck", () => {
   test.each([undefined, "", "false"])("CI=%s permits the check", (CI) => {
@@ -66,9 +76,14 @@ describe("skipStartupCheck", () => {
   test.each(["true", "1", "0", "FALSE"])("CI=%s skips the check", (CI) => {
     expect(skipStartupCheck({ CI })).toBe(true);
   });
-  test.each([undefined, "", "0", "false"])("LEGLAS_NO_UPDATE_CHECK=%s permits the check", (value) => {
-    expect(skipStartupCheck(value === undefined ? {} : { LEGLAS_NO_UPDATE_CHECK: value })).toBe(false);
-  });
+  test.each([undefined, "", "0", "false"])(
+    "LEGLAS_NO_UPDATE_CHECK=%s permits the check",
+    (value) => {
+      expect(skipStartupCheck(value === undefined ? {} : { LEGLAS_NO_UPDATE_CHECK: value })).toBe(
+        false,
+      );
+    },
+  );
   test.each(["1", "true", "FALSE"])("LEGLAS_NO_UPDATE_CHECK=%s skips the check", (value) => {
     expect(skipStartupCheck({ LEGLAS_NO_UPDATE_CHECK: value })).toBe(true);
   });
@@ -101,7 +116,11 @@ describe("startup update check without a listener", () => {
   test("a startup check finishing after stop prints nothing", async () => {
     const updates = fakeUpdates();
     let finish!: (value: UpdateStatus) => void;
-    updates.check.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    updates.check.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
     const log = vi.fn();
     const result = await run(options, { updates, log, open: async () => {} });
     await result.stop();
@@ -112,7 +131,15 @@ describe("startup update check without a listener", () => {
   test("prints the notice after the startup block and browser open, passing the service to the server", async () => {
     const output: string[] = [];
     const updates = fakeUpdates();
-    await run(options, { updates, log: (line) => { output.push(line); }, open: async () => { output.push("opened"); } });
+    await run(options, {
+      updates,
+      log: (line) => {
+        output.push(line);
+      },
+      open: async () => {
+        output.push("opened");
+      },
+    });
     await Promise.resolve();
     expect(output.at(-1)).toBe("An update is available.");
     expect(output.indexOf("opened")).toBe(output.length - 2);
@@ -123,7 +150,11 @@ describe("startup update check without a listener", () => {
   test("returns without waiting for npm", async () => {
     const updates = fakeUpdates();
     let finish!: (value: UpdateStatus) => void;
-    updates.check.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    updates.check.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
     const log = vi.fn();
     const result = await run(options, { updates, log, open: async () => {} });
     expect(result.exitCode).toBe(0);

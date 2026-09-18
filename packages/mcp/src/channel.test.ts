@@ -8,7 +8,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PendingRequest } from "leglas";
 import { afterEach, describe, expect, test } from "vitest";
 
-import { CHANNEL_CAPABILITY, channelEvent, startChannel, unpushed, type Channel } from "./channel.js";
+import {
+  CHANNEL_CAPABILITY,
+  channelEvent,
+  startChannel,
+  unpushed,
+  type Channel,
+} from "./channel.js";
 import { fixedProject } from "./project.js";
 
 const channels: Channel[] = [];

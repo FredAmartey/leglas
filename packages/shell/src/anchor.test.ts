@@ -69,11 +69,15 @@ describe("selectorFor", () => {
 
   test("stops at a stable id, which is shorter and stronger", () => {
     const root = tree({
-      children: [{ children: [{ children: [{ tag: "span" }], tag: "div" }], id: "hero", tag: "section" }],
+      children: [
+        { children: [{ children: [{ tag: "span" }], tag: "div" }], id: "hero", tag: "section" },
+      ],
       tag: "body",
     });
 
-    expect(selectorFor(find(root, "span"))).toBe("#hero > div:nth-of-type(1) > span:nth-of-type(1)");
+    expect(selectorFor(find(root, "span"))).toBe(
+      "#hero > div:nth-of-type(1) > span:nth-of-type(1)",
+    );
   });
 
   // React's useId mints ids like `:r7:`, and a framework may mint a fresh one
@@ -161,12 +165,10 @@ describe("anchorFor", () => {
   });
 
   test("falls back to the middle when an element has no width to divide by", () => {
-    const anchor = anchorFor(
-      find(element, "div"),
-      { height: 0, width: 0, x: 0, y: 0 },
-      1440,
-      { x: 10, y: 10 },
-    );
+    const anchor = anchorFor(find(element, "div"), { height: 0, width: 0, x: 0, y: 0 }, 1440, {
+      x: 10,
+      y: 10,
+    });
 
     expect(anchor.spot).toEqual({ x: 0.5, y: 0.5 });
   });

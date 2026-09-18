@@ -209,12 +209,7 @@ export function startTunnel(
 
   const args =
     options.provider === "cloudflared"
-      ? [
-          "tunnel",
-          "--url",
-          `http://127.0.0.1:${options.port}`,
-          "--no-autoupdate",
-        ]
+      ? ["tunnel", "--url", `http://127.0.0.1:${options.port}`, "--no-autoupdate"]
       : ["http", String(options.port), "--log", "stdout", "--log-format", "json"];
 
   let child: ReturnType<typeof spawnChild>;
@@ -261,19 +256,16 @@ export function startTunnel(
     };
     const poll = (): void => {
       if (terminal || stopping || url === null) return;
-      void probe(url).then(
-        (reachable) => {
-          if (terminal || stopping || url === null) return;
-          if (reachable) {
-            terminal = true;
-            clearTimers();
-            report({ status: "ready", provider: options.provider, url });
-            return;
-          }
-          again();
-        },
-        again,
-      );
+      void probe(url).then((reachable) => {
+        if (terminal || stopping || url === null) return;
+        if (reachable) {
+          terminal = true;
+          clearTimers();
+          report({ status: "ready", provider: options.provider, url });
+          return;
+        }
+        again();
+      }, again);
     };
     poll();
   };
@@ -293,9 +285,8 @@ export function startTunnel(
     if (stream !== "stdout") return;
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
-      const candidate = typeof event.url === "string" && event.url.startsWith("https://")
-        ? event.url
-        : null;
+      const candidate =
+        typeof event.url === "string" && event.url.startsWith("https://") ? event.url : null;
       if (candidate !== null) beginProbe(candidate);
     } catch {
       // ngrok's structured line may arrive in a later chunk.

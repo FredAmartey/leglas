@@ -41,7 +41,13 @@ export type ShowPlan =
       variants: ShowDirection[];
       /** Every other direction's title: what this one is up against. */
       comparedWith: string[];
-      requests: { id: string; intent: string; target: string | null; prompt: string; status: PendingRequest["status"] }[];
+      requests: {
+        id: string;
+        intent: string;
+        target: string | null;
+        prompt: string;
+        status: PendingRequest["status"];
+      }[];
     }
   | { ok: false; error: string };
 

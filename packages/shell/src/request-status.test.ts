@@ -297,9 +297,9 @@ describe("waitingLabel", () => {
     expect(waitingLabel({ attempt: 3, max: 10, status: 529, reason: "overloaded" })).toBe(
       "provider is overloaded · retry 3 of 10",
     );
-    expect(waitingLabel({ attempt: 2, max: 10, status: 401, reason: "authentication_failed" })).toBe(
-      "provider refused the login · retry 2 of 10",
-    );
+    expect(
+      waitingLabel({ attempt: 2, max: 10, status: 401, reason: "authentication_failed" }),
+    ).toBe("provider refused the login · retry 2 of 10");
     expect(waitingLabel({ attempt: 1, max: 10, status: 429, reason: null })).toBe(
       "provider is rate limiting · retry 1 of 10",
     );

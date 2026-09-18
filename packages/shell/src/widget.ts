@@ -55,9 +55,7 @@ export function dragAnchor(point: Point): Point {
 
 /** Whether the pointer has travelled far enough to mean a drag. */
 export function isDrag(start: Point, current: Point, threshold = DRAG_THRESHOLD): boolean {
-  return (
-    Math.abs(current.x - start.x) > threshold || Math.abs(current.y - start.y) > threshold
-  );
+  return Math.abs(current.x - start.x) > threshold || Math.abs(current.y - start.y) > threshold;
 }
 
 /**

@@ -126,9 +126,7 @@ export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
  * choice, never on the queue.
  */
 export type ComposerAgent =
-  | { kind: "chosen"; id: string; name: string }
-  | { kind: "choose" }
-  | { kind: "none" };
+  { kind: "chosen"; id: string; name: string } | { kind: "choose" } | { kind: "none" };
 
 export function composerAgent(
   choice: string | null,

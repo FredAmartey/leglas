@@ -244,7 +244,11 @@ function bounded(value: string, limit = 480): string {
 }
 
 function ignoredTooling(element: Element): boolean {
-  return UNPAINTED.has(element.tagName) || element.matches(IGNORED_TOOLING) || element.closest(IGNORED_TOOLING) !== null;
+  return (
+    UNPAINTED.has(element.tagName) ||
+    element.matches(IGNORED_TOOLING) ||
+    element.closest(IGNORED_TOOLING) !== null
+  );
 }
 
 function sampleIndices(elements: readonly Element[]): number[] {
@@ -252,18 +256,25 @@ function sampleIndices(elements: readonly Element[]): number[] {
 
   const selected = new Set<number>();
   const add = (index: number) => {
-    if (index >= 0 && index < elements.length && selected.size < MAX_VISUAL_ELEMENTS) selected.add(index);
+    if (index >= 0 && index < elements.length && selected.size < MAX_VISUAL_ELEMENTS)
+      selected.add(index);
   };
 
   for (let index = 0; index < EDGE_SAMPLE; index += 1) add(index);
-  for (let index = Math.max(0, elements.length - EDGE_SAMPLE); index < elements.length; index += 1) add(index);
+  for (let index = Math.max(0, elements.length - EDGE_SAMPLE); index < elements.length; index += 1)
+    add(index);
 
   // Interactive, media and vector elements carry disproportionate design
   // meaning. Include them and their immediate layout ancestors before filling
   // the remaining budget evenly across a large document.
   for (let index = 0; index < elements.length && selected.size < MAX_VISUAL_ELEMENTS; index += 1) {
     const element = elements[index]!;
-    if (!element.matches("a,button,input,select,textarea,summary,[role],svg,svg *,canvas,img,picture,video,audio,iframe")) continue;
+    if (
+      !element.matches(
+        "a,button,input,select,textarea,summary,[role],svg,svg *,canvas,img,picture,video,audio,iframe",
+      )
+    )
+      continue;
     add(index);
     let parent = element.parentElement;
     for (let depth = 0; parent !== null && depth < 3; depth += 1) {
@@ -357,15 +368,18 @@ export function visualSample(
   styleOf: (element: Element, pseudo?: string) => VisualStyle,
 ): string[] {
   if (!body) return [];
-  const elements = [body, ...body.querySelectorAll("*")].filter((element) => !ignoredTooling(element));
+  const elements = [body, ...body.querySelectorAll("*")].filter(
+    (element) => !ignoredTooling(element),
+  );
   return sampleIndices(elements).map((index) => {
     const element = elements[index]!;
     const style = styleOf(element);
     const animated = elementAnimations(element, style);
     const styles = VISUAL_PROPERTIES.map((property) => {
-      const value = animated && VOLATILE_ANIMATION_PROPERTIES.has(property)
-        ? "<animated>"
-        : bounded(style.getPropertyValue(property));
+      const value =
+        animated && VOLATILE_ANIMATION_PROPERTIES.has(property)
+          ? "<animated>"
+          : bounded(style.getPropertyValue(property));
       return `${property}:${value}`;
     }).join(";");
     const role = element.getAttribute("role");

@@ -25,7 +25,11 @@ export type ExplorePlan = {
   instructions: string;
 };
 
-export function planExplore(surface: string, count: number, basedOn: string | null = null): ExplorePlan {
+export function planExplore(
+  surface: string,
+  count: number,
+  basedOn: string | null = null,
+): ExplorePlan {
   const slug = surfaceSlug(surface);
 
   const goal =

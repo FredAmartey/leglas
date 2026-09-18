@@ -154,7 +154,9 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
   const errors: string[] = [];
   let hydration: HydrationEvidence | null = null;
   const remember = (value: unknown) => {
-    const message = String(value ?? "").trim().slice(0, 240);
+    const message = String(value ?? "")
+      .trim()
+      .slice(0, 240);
     hydration ??= hydrationEvidence([message]);
     if (errors.length >= 10) return;
     if (message === "" || /favicon/i.test(message)) return;
@@ -351,10 +353,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
 }
 
 /** Capture a frame and note crops from one fresh page. */
-export async function capturePage(
-  browser: Browser,
-  input: CaptureInput,
-): Promise<CaptureOutput> {
+export async function capturePage(browser: Browser, input: CaptureInput): Promise<CaptureOutput> {
   const abortInput = input as AbortableCaptureInput;
   return browser.withPage((page) => abortable(render(page, input), abortInput.signal));
 }

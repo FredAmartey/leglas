@@ -83,10 +83,7 @@ export function previewUrl(origin: string, preview: Preview): string {
 }
 
 function pngSize(bytes: Buffer): { width: number; height: number } | null {
-  if (
-    bytes.length >= 24 &&
-    bytes.subarray(0, 8).equals(PNG_SIGNATURE)
-  ) {
+  if (bytes.length >= 24 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
   }
   return null;
@@ -131,7 +128,8 @@ function webpSize(bytes: Buffer): { width: number; height: number } | null {
     bytes.length < 30 ||
     bytes.subarray(0, 4).toString("ascii") !== "RIFF" ||
     bytes.subarray(8, 12).toString("ascii") !== "WEBP"
-  ) return null;
+  )
+    return null;
   const kind = bytes.subarray(12, 16).toString("ascii");
   if (kind === "VP8X") {
     return {
@@ -165,10 +163,7 @@ export function sniffImage(bytes: Buffer): {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return { kind: "jpg", ...(jpegSize(bytes) ?? unknown) };
   }
-  if (
-    bytes.length >= 6 &&
-    ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))
-  ) {
+  if (bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) {
     return { kind: "gif", ...(gifSize(bytes) ?? unknown) };
   }
   if (
@@ -337,7 +332,8 @@ export async function attachRequest(
       }
     } catch (error) {
       if (!expired) {
-        captured.skipped = error instanceof Error ? error.message : `The page did not load: ${String(error)}`;
+        captured.skipped =
+          error instanceof Error ? error.message : `The page did not load: ${String(error)}`;
       }
     }
   })();
@@ -464,10 +460,12 @@ export async function pruneReferences(cwd: string): Promise<void> {
     const entries = await readdir(references, { withFileTypes: true });
     const old = Date.now() - 60 * 60 * 1000;
     await Promise.all(
-      entries.filter((entry) => entry.isFile()).map(async (entry) => {
-        const file = join(references, entry.name);
-        if ((await stat(file)).mtimeMs < old) await unlink(file).catch(() => {});
-      }),
+      entries
+        .filter((entry) => entry.isFile())
+        .map(async (entry) => {
+          const file = join(references, entry.name);
+          if ((await stat(file)).mtimeMs < old) await unlink(file).catch(() => {});
+        }),
     );
   } catch {
     // No uploaded references need pruning.

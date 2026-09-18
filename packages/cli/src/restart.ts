@@ -55,8 +55,13 @@ export function createHandoff() {
 
     const failed = (error: unknown): void => {
       if (exited) return;
-      const message = (error instanceof Error ? error.message : String(error)).replace(/[.!?]+$/, "");
-      process.stderr.write(`Could not start Leglas again: ${message}. Start it from your terminal.\n`);
+      const message = (error instanceof Error ? error.message : String(error)).replace(
+        /[.!?]+$/,
+        "",
+      );
+      process.stderr.write(
+        `Could not start Leglas again: ${message}. Start it from your terminal.\n`,
+      );
       exit(1);
     };
     try {
