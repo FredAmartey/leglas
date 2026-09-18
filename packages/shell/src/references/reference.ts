@@ -1,4 +1,4 @@
-import type { Preview } from "./types.js";
+import type { Preview } from "../types.js";
 
 /**
  * What the clipboard carries when a direction is copied.

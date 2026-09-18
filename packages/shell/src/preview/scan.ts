@@ -1,4 +1,4 @@
-import type { Preview } from "./types.js";
+import type { Preview } from "../types.js";
 
 export type PreviewScan =
   { url: string; status: "complete"; signature: string | null } | { url: string; status: "failed" };

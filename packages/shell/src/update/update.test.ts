@@ -9,7 +9,7 @@ import {
   startAgain,
   updateView,
 } from "./update.js";
-import type { UpdateStatus } from "./types.js";
+import type { UpdateStatus } from "../types.js";
 
 const NOW = Date.parse("2026-09-07T12:00:00Z");
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { PRIMARY_BUTTON, Spinner, Warning } from "./kit.js";
+import { PRIMARY_BUTTON, Spinner, Warning } from "../ui/kit.js";
 import { updateView } from "./update.js";
-import { useDismissal } from "./useDismissal.js";
+import { useDismissal } from "../ui/useDismissal.js";
 import type { UpdateHandle } from "./useUpdate.js";
 
 const QUIET_BUTTON =

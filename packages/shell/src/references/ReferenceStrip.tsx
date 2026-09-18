@@ -1,4 +1,4 @@
-import { Tip } from "./kit.js";
+import { Tip } from "../ui/kit.js";
 import { describeBytes, type ReferenceDraft } from "./references.js";
 
 /**

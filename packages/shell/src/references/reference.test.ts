@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { absoluteUrl, referenceText } from "./reference.js";
-import type { Preview } from "./types.js";
+import type { Preview } from "../types.js";
 
 const preview = (extra: Partial<Preview> = {}): Preview => ({
   title: "Warm",

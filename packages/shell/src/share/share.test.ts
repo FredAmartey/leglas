@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_PREFS, loadPrefs, type Prefs } from "./prefs.js";
+import { DEFAULT_PREFS, loadPrefs, type Prefs } from "../prefs.js";
 import {
   adoptLayout,
   directoryOf,
@@ -17,7 +17,7 @@ import {
   totalViewers,
   viewersLine,
 } from "./share.js";
-import type { Preview } from "./types.js";
+import type { Preview } from "../types.js";
 
 const previews: Preview[] = [
   { title: "Aurora", url: "/?v=aurora", tags: [] },

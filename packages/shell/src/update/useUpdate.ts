@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { liveConnection } from "./live.js";
-import { startPoll } from "./poll.js";
-import { TOAST_TTL, type Toast } from "./toasts.js";
-import type { UpdateStatus } from "./types.js";
+import { liveConnection } from "../net/live.js";
+import { startPoll } from "../net/poll.js";
+import { TOAST_TTL, type Toast } from "../ui/toasts.js";
+import type { UpdateStatus } from "../types.js";
 import { checkForUpdate, installUpdate, readUpdate, skipUpdate } from "./update-api.js";
 import { INSTALL_WAIT_MS, RESTART_WAIT_MS, UPDATED_KEY, type Wait } from "./update.js";
 

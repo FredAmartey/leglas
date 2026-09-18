@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
-import { copyText } from "./clipboard.js";
+import { copyText } from "../ui/clipboard.js";
 import {
   MCP_CONNECT_OPTIONS,
   connectionStatus,
@@ -8,7 +8,7 @@ import {
   type McpClient,
   type McpCopyState,
 } from "./mcp-connect.js";
-import { BrandMark, Mark, P, PIcon, Wordmark } from "./kit.js";
+import { BrandMark, Mark, P, PIcon, Wordmark } from "../ui/kit.js";
 
 function ClientMarks({ client }: { client: McpClient }) {
   return (

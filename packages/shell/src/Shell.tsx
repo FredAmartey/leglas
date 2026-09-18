@@ -17,18 +17,27 @@ import {
   Tip,
   Toasts,
   Wordmark,
-} from "./kit.js";
-import { copyText } from "./clipboard.js";
+} from "./ui/kit.js";
+import { copyText } from "./ui/clipboard.js";
 import { searchCap, shortcutList } from "./keymap.js";
-import { MOOD } from "./orb.js";
-import { FALLBACK_MS, liveConnection } from "./live.js";
-import { startPoll } from "./poll.js";
-import { previewFrameIsReady, previewIdentity, watchPreviewFrame } from "./preview-frame.js";
-import { previewFrameForSource, previewMessageSignal } from "./preview-message.js";
-import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
-import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
-import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
-import { paintSample, renderedSignature, twinsOf, visualSample } from "./rendered.js";
+import { MOOD } from "./ui/orb.js";
+import { FALLBACK_MS, liveConnection } from "./net/live.js";
+import { startPoll } from "./net/poll.js";
+import {
+  previewFrameIsReady,
+  previewIdentity,
+  watchPreviewFrame,
+} from "./preview/preview-frame.js";
+import { previewFrameForSource, previewMessageSignal } from "./preview/preview-message.js";
+import {
+  INITIAL_HEALTH,
+  needsDevServer,
+  nextHealthState,
+  type HealthState,
+} from "./preview/health.js";
+import { nextCompare, paneGeometry, paneTitles } from "./preview/compare.js";
+import { BADGE_CSS, NEXT_BADGE_CSS } from "./preview/overlays.js";
+import { paintSample, renderedSignature, twinsOf, visualSample } from "./preview/rendered.js";
 import {
   forgetScans,
   recordScan,
@@ -37,12 +46,12 @@ import {
   scanSignatures,
   type PreviewScan,
   type PreviewScanOutcome,
-} from "./scan.js";
-import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./widget.js";
+} from "./preview/scan.js";
+import { clampWidget, dragAnchor, isDrag, nearestCorner } from "./ui/widget.js";
 import { EASE } from "./prefs.js";
-import { Gutter, gutterWidth } from "./Gutter.js";
+import { Gutter, gutterWidth } from "./lineage/Gutter.js";
 import { flushSync } from "react-dom";
-import { Crumbs } from "./Crumbs.js";
+import { Crumbs } from "./lineage/Crumbs.js";
 import {
   segmentsOf,
   tracedSegments,
@@ -50,20 +59,20 @@ import {
   trailPath,
   type Mark as TrailMark,
   type Segment,
-} from "./lineage.js";
-import { PALETTE, Trail } from "./Trail.js";
-import { TOAST_TTL } from "./toasts.js";
+} from "./lineage/lineage.js";
+import { PALETTE, Trail } from "./lineage/Trail.js";
+import { TOAST_TTL } from "./ui/toasts.js";
 import { useShellState } from "./useShellState.js";
-import { provenanceLine, provenanceOf } from "./provenance.js";
-import { AnnotateLayer } from "./AnnotateLayer.js";
-import { SharePanel } from "./SharePanel.js";
-import { totalViewers, viewersLine } from "./share.js";
-import { UpdatePanel } from "./UpdatePanel.js";
-import { chipLabel, hasNews } from "./update.js";
-import { useUpdate } from "./useUpdate.js";
-import { useShare } from "./useShare.js";
-import { ReferenceStrip } from "./ReferenceStrip.js";
-import { uploadReference } from "./references-api.js";
+import { provenanceLine, provenanceOf } from "./lineage/provenance.js";
+import { AnnotateLayer } from "./annotate/AnnotateLayer.js";
+import { SharePanel } from "./share/SharePanel.js";
+import { totalViewers, viewersLine } from "./share/share.js";
+import { UpdatePanel } from "./update/UpdatePanel.js";
+import { chipLabel, hasNews } from "./update/update.js";
+import { useUpdate } from "./update/useUpdate.js";
+import { useShare } from "./share/useShare.js";
+import { ReferenceStrip } from "./references/ReferenceStrip.js";
+import { uploadReference } from "./references/references-api.js";
 import {
   REFERENCE_CAP,
   REFERENCE_TYPES,
@@ -74,8 +83,8 @@ import {
   refusalMessage,
   sendBlocker,
   type ReferenceDraft,
-} from "./references.js";
-import type { Anchor } from "./anchor.js";
+} from "./references/references.js";
+import type { Anchor } from "./annotate/anchor.js";
 import {
   addNote,
   deleteNotes,
@@ -83,7 +92,7 @@ import {
   updateNote,
   type Annotation,
   type NoteFetcher,
-} from "./annotations-api.js";
+} from "./annotate/annotations-api.js";
 import type { Preview, ViewerInfo } from "./types.js";
 import {
   changingRequestTitles,
@@ -96,7 +105,7 @@ import {
   type AgentEffort,
   type AgentStatus,
   type RequestStatus,
-} from "./request-status.js";
+} from "./agents/request-status.js";
 import {
   cancelAgentRun,
   chooseAgent,
@@ -106,8 +115,8 @@ import {
   retryFailedRequest,
   warmAgent,
   type AgentsPayload,
-} from "./agent-api.js";
-import { McpConnectDialog } from "./McpConnectDialog.js";
+} from "./agents/agent-api.js";
+import { McpConnectDialog } from "./agents/McpConnectDialog.js";
 
 /**
  * A tip that is only there when there is something to say.

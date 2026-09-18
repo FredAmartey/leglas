@@ -1,5 +1,5 @@
-import { postJson, refusal } from "./api.js";
-import type { UpdateStatus } from "./types.js";
+import { postJson, refusal } from "../net/api.js";
+import type { UpdateStatus } from "../types.js";
 
 /** The update endpoints, as the panel calls them. */
 export async function readUpdate(signal?: AbortSignal): Promise<UpdateStatus> {

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import { Tip } from "./kit.js";
+import { Tip } from "../ui/kit.js";
 import { collapseChain } from "./lineage.js";
 
 /** How long the ask takes to open or close. */

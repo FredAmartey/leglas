@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { copyText } from "./clipboard.js";
-import { ICON_BUTTON, LiveDot, P, PIcon, PRIMARY_BUTTON, Spinner, Tip, Warning } from "./kit.js";
-import { useDismissal } from "./useDismissal.js";
-import type { Prefs } from "./prefs.js";
+import { copyText } from "../ui/clipboard.js";
+import {
+  ICON_BUTTON,
+  LiveDot,
+  P,
+  PIcon,
+  PRIMARY_BUTTON,
+  Spinner,
+  Tip,
+  Warning,
+} from "../ui/kit.js";
+import { useDismissal } from "../ui/useDismissal.js";
+import type { Prefs } from "../prefs.js";
 import {
   directoryOf,
   expiryLine,
@@ -27,9 +36,9 @@ import {
   stopShare,
   updateShare,
 } from "./share-api.js";
-import { TOAST_TTL } from "./toasts.js";
-import type { Preview, ShareGrant, ShareReach, ShareStatus, TunnelProviderId } from "./types.js";
-import type { ShellState } from "./useShellState.js";
+import { TOAST_TTL } from "../ui/toasts.js";
+import type { Preview, ShareGrant, ShareReach, ShareStatus, TunnelProviderId } from "../types.js";
+import type { ShellState } from "../useShellState.js";
 
 const PROVIDER_NAMES: Record<TunnelProviderId, string> = {
   cloudflared: "cloudflared",

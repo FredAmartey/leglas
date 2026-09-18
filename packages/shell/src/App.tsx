@@ -1,8 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 
-import { Mark } from "./kit.js";
-import { FALLBACK_MS, liveConnection } from "./live.js";
-import { startPoll, wasAborted } from "./poll.js";
+import { Mark } from "./ui/kit.js";
+import { FALLBACK_MS, liveConnection } from "./net/live.js";
+import { startPoll, wasAborted } from "./net/poll.js";
 import { Shell } from "./Shell.js";
 import type { ConfigPayload } from "./types.js";
 
