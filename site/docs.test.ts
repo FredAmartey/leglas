@@ -1,0 +1,159 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, test } from "vitest";
+
+import { loadAssets } from "./chrome.ts";
+import { docsPath, loadDocs, parseBlocks, renderBlocks, renderDoc, resolveLink, slug, type DocPage } from "./docs.ts";
+
+const root = join(import.meta.dirname, "..");
+const pages = loadDocs(root);
+const page = (name: string): DocPage => {
+  const found = pages.find((candidate) => candidate.slug === name);
+  if (found === undefined) throw new Error(`no docs page ${name}`);
+  return found;
+};
+
+/**
+ * The manual is read on GitHub and on the site from the same files, so the
+ * page has to show every construct those files use and refuse one it would
+ * pass through as source. These run against the real docs/ folder, which is
+ * where a new construct would first appear.
+ */
+describe("docs/", () => {
+  test("the index leads and the pages follow the README's order", () => {
+    expect(pages[0]?.slug).toBe("");
+    expect(pages.slice(1).map((entry) => entry.slug)).toEqual(["guide", "sharing", "configuration", "agents", "cli"]);
+    expect(docsPath("")).toBe("docs/index.html");
+    expect(docsPath("guide")).toBe("docs/guide/index.html");
+  });
+
+  test("every page renders with nothing left as markdown", () => {
+    const assets = loadAssets(root);
+    for (const entry of pages) {
+      const html = renderDoc(entry, pages, assets);
+      expect(html).toContain(`<h1>${entry.title}</h1>`);
+      // Strip code, where markdown characters are content, then look for source.
+      const prose = html.replace(/<pre>[\s\S]*?<\/pre>/g, "").replace(/<code>[\s\S]*?<\/code>/g, "");
+      expect(prose, `${entry.file} leaks markdown`).not.toMatch(/\*\*|\]\(|^#{1,3} |^- |^\| /m);
+    }
+  });
+
+  test("every link to another page resolves, fragment included", () => {
+    const ids = new Map(
+      pages.map((entry) => [
+        entry.slug,
+        new Set(parseBlocks(entry.markdown, entry.file).flatMap((block) => (block.kind === "heading" ? [slug(block.text)] : []))),
+      ]),
+    );
+    for (const entry of pages) {
+      for (const match of entry.markdown.matchAll(/\]\(([^)\s]+)\)/g)) {
+        const href = match[1] ?? "";
+        if (/^https?:/.test(href)) continue;
+        const resolved = resolveLink(href, entry, pages);
+        const [path, fragment] = resolved.split("#");
+        if (path?.startsWith("https://")) continue;
+        const target = (path ?? "").replace(/^(\.\.\/|\.\/)+/, "").replace(/\/$/, "");
+        expect(target === "" || ids.has(target), `${entry.file} links ${href} which is not a page`).toBe(true);
+        if (fragment !== undefined) {
+          expect(ids.get(target)?.has(fragment), `${entry.file} links ${href} but the target has no such heading`).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe("links", () => {
+  const index = page("");
+  const guide = page("guide");
+
+  test("another page becomes its directory, from the index and from a page", () => {
+    expect(resolveLink("sharing.md", guide, pages)).toBe("../sharing/");
+    expect(resolveLink("agents.md#running-requests", guide, pages)).toBe("../agents/#running-requests");
+    expect(resolveLink("guide.md", index, pages)).toBe("./guide/");
+    expect(resolveLink("README.md", guide, pages)).toBe("../");
+  });
+
+  test("the repository README is the homepage and the rest of the tree is on GitHub", () => {
+    expect(resolveLink("../README.md", index, pages)).toBe("./../");
+    expect(resolveLink("../README.md", guide, pages)).toBe("../../");
+    expect(resolveLink("../CONTRIBUTING.md", index, pages)).toBe("https://github.com/FredAmartey/leglas/blob/main/CONTRIBUTING.md");
+    expect(resolveLink("../packages/cli/src/bin.ts#L1", guide, pages)).toBe(
+      "https://github.com/FredAmartey/leglas/blob/main/packages/cli/src/bin.ts#L1",
+    );
+  });
+
+  test("absolute links and fragments pass through", () => {
+    expect(resolveLink("https://leglas.vercel.app/changelog/", guide, pages)).toBe("https://leglas.vercel.app/changelog/");
+    expect(resolveLink("#keys", guide, pages)).toBe("#keys");
+  });
+});
+
+describe("the reader", () => {
+  const fake: DocPage = { file: "x.md", slug: "x", title: "X", markdown: "" };
+  const render = (markdown: string): string => renderBlocks(parseBlocks(markdown, "x.md"), fake, pages);
+
+  test("headings get GitHub's ids", () => {
+    expect(slug("The rail and the stage")).toBe("the-rail-and-the-stage");
+    expect(slug("Add beside, never rewrite")).toBe("add-beside-never-rewrite");
+    expect(slug("What an agent runs")).toBe("what-an-agent-runs");
+    expect(render("# T\n\n## MCP server\n")).toBe('<h2 id="mcp-server">MCP server</h2>');
+  });
+
+  test("paragraphs join their wrapped lines and carry inline markdown", () => {
+    expect(render("# T\n\nOne line\nand the next, with `code` and **bold**.\n")).toBe(
+      "<p>One line and the next, with <code>code</code> and <strong>bold</strong>.</p>",
+    );
+  });
+
+  test("lists keep their continuation lines", () => {
+    expect(render("# T\n\n- first item\n  continues here\n- second\n")).toBe("<ul><li>first item continues here</li><li>second</li></ul>");
+  });
+
+  test("code is escaped and keeps its language", () => {
+    expect(render("# T\n\n```ts\nconst a = 1 < 2;\n```\n")).toBe('<pre><code class="lang-ts">const a = 1 &lt; 2;</code></pre>');
+    expect(render("# T\n\n```\nplain\n```\n")).toBe("<pre><code>plain</code></pre>");
+  });
+
+  test("tables render a head and a body", () => {
+    const html = render("# T\n\n| Field | Purpose |\n| --- | --- |\n| `title` | Label in the rail |\n");
+    expect(html).toBe(
+      "<table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody><tr><td><code>title</code></td><td>Label in the rail</td></tr></tbody></table>",
+    );
+  });
+
+  test("a capture block passes through as written", () => {
+    const block = '<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A" />\n</p>';
+    expect(render(`# T\n\n${block}\n\n<p align="center"><i>Caption.</i></p>\n`)).toBe(`${block}\n<p align="center"><i>Caption.</i></p>`);
+  });
+
+  test("refuses markdown the page cannot show, naming the line", () => {
+    expect(() => render("# T\n\n1. a numbered list\n")).toThrow("x.md:3: markdown this page cannot show");
+    expect(() => render("# T\n\n> a quote\n")).toThrow("x.md:3");
+    expect(() => render("# T\n\n```\nnever closed\n")).toThrow("a code fence that never closes");
+    expect(() => render("# T\n\n| a | b |\n| c | d |\n")).toThrow("a table without a header rule");
+    expect(() => render("# T\n\n# Again\n")).toThrow("a second title heading");
+  });
+});
+
+describe("the page", () => {
+  test("carries the bar with Docs active, the page nav and the way back", () => {
+    const assets = loadAssets(root);
+    const guide = renderDoc(page("guide"), pages, assets);
+    expect(guide).toContain('<span class="active" aria-current="page">Docs</span>');
+    expect(guide).toContain('href="../../changelog/"');
+    expect(guide).toContain('<p class="eyebrow"><a href="../">Docs</a></p>');
+    expect(guide).toContain('<a href="../sharing/">Sharing</a>');
+    expect(guide).toContain('<span class="active" aria-current="page">Using Leglas</span>');
+    expect(guide).toContain("docs/guide.md</a>.");
+    const index = renderDoc(page(""), pages, assets);
+    expect(index).toContain('href="./../changelog/"');
+    expect(index).toContain('<a href="./guide/">Using Leglas</a>');
+  });
+
+  test("the homepage and the changelog link the docs", () => {
+    const home = readFileSync(join(root, "site", "home.ts"), "utf8");
+    expect(home).toContain('docs: "./docs/"');
+    expect(home).toContain('href="./docs/"');
+  });
+});
