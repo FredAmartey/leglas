@@ -1,4 +1,4 @@
-import type { PendingRequest } from "./requests.js";
+import type { PendingRequest } from "../requests/requests.js";
 
 /** Where the agent command is remembered, beside the other machine-local state. */
 export const WATCH_PATH = ".leglas/watch.json";

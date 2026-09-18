@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import type { Annotation } from "./annotations.js";
-import type { Preview } from "./config.js";
-import type { PendingRequest } from "./requests.js";
+import type { Annotation } from "./requests/annotations.js";
+import type { Preview } from "./config/config.js";
+import type { PendingRequest } from "./requests/requests.js";
 import { composeEntry } from "./log.js";
 
 const preview = (over: Partial<Preview> & { title: string }): Preview => ({

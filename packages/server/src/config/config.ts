@@ -1,4 +1,4 @@
-import { DEFAULT_LOG_DIR } from "./log.js";
+import { DEFAULT_LOG_DIR } from "../log.js";
 export const DEFAULT_DEV_SERVER = "http://localhost:3000";
 
 /** Enough to install a fresh checkout with the package manager most repos use. */

@@ -14,7 +14,7 @@ import net from "node:net";
 import { basename, dirname, extname, join, normalize, relative } from "node:path";
 import type { Duplex } from "node:stream";
 
-import { parseTemplate } from "./agent-command.js";
+import { parseTemplate } from "./agents/agent-command.js";
 import {
   CAPTURES_DIR,
   LOAD_SHARE,
@@ -27,22 +27,22 @@ import {
   rehomeText,
   removeCaptures,
   sniffImage,
-} from "./attachments.js";
+} from "./requests/attachments.js";
 import {
   NO_BROWSER,
   createBrowserPool,
   reapOrphanedBrowsers,
   type BrowserPool,
-} from "./browser.js";
-import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture.js";
+} from "./capture/browser.js";
+import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture/capture.js";
 import {
   createBranchRegistry,
   publicBranchState,
   type BranchPreviewState,
   type StartBranchWorktree,
-} from "./branches.js";
-import type { ClaudeTurnRunner } from "./claude-agent-session.js";
-import type { CodexTurnRunner } from "./codex-app-server.js";
+} from "./branches/branches.js";
+import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
+import type { CodexTurnRunner } from "./agents/codex-app-server.js";
 import {
   KNOWN_AGENTS,
   detectAgents,
@@ -51,10 +51,14 @@ import {
   saveAgentChoice,
   type DetectedAgent,
   type KnownAgentId,
-} from "./agents.js";
-import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./config.js";
-import { findConfigFile } from "./find-config.js";
-import { LOCAL_PREVIEWS_PATH, dropLocalPreviews, readLocalPreviews } from "./local-previews.js";
+} from "./agents/agents.js";
+import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./config/config.js";
+import { findConfigFile } from "./config/find-config.js";
+import {
+  LOCAL_PREVIEWS_PATH,
+  dropLocalPreviews,
+  readLocalPreviews,
+} from "./config/local-previews.js";
 import {
   ANNOTATIONS_PATH,
   addAnnotation,
@@ -63,10 +67,10 @@ import {
   readAnnotations,
   removeAnnotations,
   updateAnnotation,
-} from "./annotations.js";
+} from "./requests/annotations.js";
 import { createCoalescer, createLiveHub, type LiveChange, type LiveHub } from "./live.js";
 import { createProxyHandler } from "./proxy.js";
-import { writeRenames } from "./renames.js";
+import { writeRenames } from "./config/renames.js";
 import {
   REQUESTS_PATH,
   appendRequest,
@@ -77,11 +81,14 @@ import {
   removeRequest,
   type PendingRequest,
   type RequestMode,
-} from "./requests.js";
-import { startRunner, type RunningAgent } from "./runner.js";
+} from "./requests/requests.js";
+import { startRunner, type RunningAgent } from "./agents/runner.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
-import { createShareManager, type ShareResult } from "./share.js";
-import { detectTunnels as detectShareTunnels, startTunnel as startShareTunnel } from "./tunnel.js";
+import { createShareManager, type ShareResult } from "./share/share.js";
+import {
+  detectTunnels as detectShareTunnels,
+  startTunnel as startShareTunnel,
+} from "./share/tunnel.js";
 import type { UpdateService } from "./update.js";
 
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */

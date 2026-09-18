@@ -3,7 +3,7 @@ import { Resolver, lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 
-import { agentEnvironment, pathLookup } from "./agents.js";
+import { agentEnvironment, pathLookup } from "../agents/agents.js";
 
 export type TunnelProviderId = "cloudflared" | "ngrok";
 

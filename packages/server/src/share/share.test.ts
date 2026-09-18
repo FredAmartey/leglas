@@ -2,8 +2,8 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import type { Preview } from "./config.js";
-import { createLiveHub } from "./live.js";
+import type { Preview } from "../config/config.js";
+import { createLiveHub } from "../live.js";
 import {
   createShareManager,
   isDevControlRequest,

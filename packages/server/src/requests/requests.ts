@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 
 import { describeAnnotations, type Annotation } from "./annotations.js";
 import { capturedViewport, removeCaptures, type Attachment, type Captured } from "./attachments.js";
-import type { Preview } from "./config.js";
-import type { Failure, FailureCode } from "./failure.js";
+import type { Preview } from "../config/config.js";
+import type { Failure, FailureCode } from "../agents/failure.js";
 
 /**
  * What a change does to the direction it was sent at.

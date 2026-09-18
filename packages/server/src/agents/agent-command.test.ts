@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { PendingRequest } from "./requests.js";
+import type { PendingRequest } from "../requests/requests.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 
 function template(raw: string) {

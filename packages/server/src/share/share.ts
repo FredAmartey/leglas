@@ -3,9 +3,9 @@ import http from "node:http";
 import { posix } from "node:path";
 import type { Duplex } from "node:stream";
 
-import type { Preview } from "./config.js";
-import { LIVE_PATH, type LiveHub } from "./live.js";
-import { SHARE_COOKIE } from "./proxy.js";
+import type { Preview } from "../config/config.js";
+import { LIVE_PATH, type LiveHub } from "../live.js";
+import { SHARE_COOKIE } from "../proxy.js";
 import {
   detectTunnels,
   startTunnel,
