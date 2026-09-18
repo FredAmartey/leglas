@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 
-import { ROW_BUTTON, Mark, BrandMark, P, PIcon, Switch, Tip, Toasts } from "./ui/kit.js";
+import { Mark, P, PIcon, Tip, Toasts } from "./ui/kit.js";
 import { copyText } from "./ui/clipboard.js";
 import { searchCap } from "./keymap.js";
 import { FALLBACK_MS, liveConnection } from "./net/live.js";
@@ -51,7 +51,6 @@ import { ReferenceStrip } from "./references/ReferenceStrip.js";
 import { uploadReference } from "./references/references-api.js";
 import {
   REFERENCE_CAP,
-  REFERENCE_TYPES,
   admit,
   carriesFiles,
   displayName as referenceName,
@@ -91,7 +90,12 @@ import {
   type AgentsPayload,
 } from "./agents/agent-api.js";
 import { McpConnectDialog } from "./agents/McpConnectDialog.js";
+import { AgentPicker } from "./agents/AgentPicker.js";
 import { StatusCard } from "./agents/StatusCard.js";
+import { AnnotateButton } from "./composer/AnnotateButton.js";
+import { AttachButton } from "./composer/AttachButton.js";
+import { ModeChip } from "./composer/ModeChip.js";
+import { SendButton } from "./composer/SendButton.js";
 import { Pane } from "./stage/Pane.js";
 import { ToolsPopover } from "./stage/ToolsPopover.js";
 import { FONTS } from "./ui/fonts.js";
@@ -137,14 +141,6 @@ const EMPTY_AGENTS: AgentsPayload = {
   choice: null,
   customRun: null,
   effort: null,
-};
-
-const EFFORT_LABELS: Record<AgentEffort, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
 };
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
@@ -2429,389 +2425,48 @@ export function Shell({
                     value={intent}
                   />
                   <div className="flex items-center justify-end gap-1.5 p-1">
-                    {/* What the change does to the direction it is aimed at, in
-                    the one place the aiming happens. A chip rather than a
-                    setting: it is a per-change decision, and the answer has to
-                    be readable in the second before Enter. */}
-                    <Tip
-                      label={
-                        mode === "variant"
-                          ? "Builds a new direction beside this one and leaves this one alone."
-                          : "Changes this direction itself. Nothing is kept of what it was."
-                      }
-                    >
-                      <button
-                        aria-label={
-                          mode === "variant"
-                            ? "This change makes a new variant. Switch to changing the direction itself."
-                            : "This change edits the direction itself. Switch to making a new variant."
-                        }
-                        className="mr-auto flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                        onClick={() => setMode(mode === "variant" ? "replace" : "variant")}
-                        type="button"
-                      >
-                        {mode === "variant" ? (
-                          <svg
-                            aria-hidden
-                            fill="none"
-                            height="11"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                            viewBox="0 0 16 16"
-                            width="11"
-                          >
-                            <circle cx="4.5" cy="3.6" r="1.9" />
-                            <circle cx="11.5" cy="12.4" r="1.9" />
-                            <path
-                              d="M4.5 5.5v2.6a4.3 4.3 0 0 0 4.3 4.3h0.8"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            aria-hidden
-                            fill="none"
-                            height="11"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                            viewBox="0 0 16 16"
-                            width="11"
-                          >
-                            <path
-                              d="M10.8 2.9 13.1 5.2 5.6 12.7H3.3v-2.3z"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                        {mode === "variant" ? "as a variant" : "in place"}
-                      </button>
-                    </Tip>
-                    {/* Showing beats describing: a screenshot of the thing the
-                    words are about, or of the thing they should become. Paste
-                    and drop do the same job; this is the way in for anyone who
-                    does neither. */}
-                    <input
-                      accept={REFERENCE_TYPES.join(",")}
-                      className="sr-only"
-                      multiple
-                      onChange={(event) => {
-                        attachReferences(Array.from(event.currentTarget.files ?? []));
-                        // Cleared so the same file can be chosen again after a
-                        // remove; a file input only fires when its value changes.
-                        event.currentTarget.value = "";
-                      }}
-                      ref={referenceInputRef}
-                      tabIndex={-1}
-                      type="file"
+                    <ModeChip
+                      mode={mode}
+                      onToggle={() => setMode(mode === "variant" ? "replace" : "variant")}
                     />
-                    <Tip
-                      label={
-                        <>
-                          <span className="block">Attach a reference image</span>
-                          <span className="block text-[#9CA3AF]">Paste or drop one, too</span>
-                        </>
+                    <AttachButton
+                      count={references.length}
+                      disabled={!st.active || sending || references.length >= REFERENCE_CAP}
+                      inputRef={referenceInputRef}
+                      onFiles={attachReferences}
+                    />
+                    <AnnotateButton
+                      annotating={annotating}
+                      count={activeNotes.length}
+                      onToggle={() => (annotating ? stopAnnotating() : setAnnotating(true))}
+                    />
+                    <AgentPicker
+                      agents={agentState.agents}
+                      chip={chip}
+                      chosenSignedOut={chosenSignedOut}
+                      connectRef={mcpConnectTriggerRef}
+                      menuRef={agentMenuRef}
+                      onConnect={() => setMcpConnectOpen(true)}
+                      onPick={pickAgent}
+                      onPickEffort={pickEffort}
+                      onRefresh={refreshAgents}
+                      open={agentMenuOpen}
+                      pickingAgent={pickingAgent}
+                      savingEffort={savingEffort}
+                      selectedAgent={selectedAgent}
+                      selectedEffort={selectedEffort}
+                      setOpen={setAgentMenuOpen}
+                      triggerRef={agentTriggerRef}
+                    />
+                    <SendButton
+                      ready={
+                        (intent.trim() !== "" || activeNotes.length > 0) &&
+                        Boolean(st.active) &&
+                        !sending
                       }
-                    >
-                      <button
-                        aria-label={
-                          references.length > 0
-                            ? `Attach another image, ${references.length} attached`
-                            : "Attach a reference image"
-                        }
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#84848C] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-[#D1D5DB] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
-                        disabled={!st.active || sending || references.length >= REFERENCE_CAP}
-                        onClick={() => referenceInputRef.current?.click()}
-                        type="button"
-                      >
-                        <svg
-                          aria-hidden
-                          fill="none"
-                          height="11"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.7"
-                          viewBox="0 0 16 16"
-                          width="11"
-                        >
-                          <rect height="10.5" rx="1.8" width="12.5" x="1.75" y="2.75" />
-                          <circle cx="5.6" cy="6.3" r="1.1" />
-                          <path d="m14.25 10.4-3.1-3.1a1 1 0 0 0-1.4 0L4.5 12.5" />
-                        </svg>
-                      </button>
-                    </Tip>
-                    {/* The way in that is not a keystroke, and the count that says
-                    the pins are still there once the mode is left. */}
-                    <Tip
-                      label={
-                        <>
-                          <span className="block">
-                            {annotating
-                              ? "Stop annotating"
-                              : activeNotes.length > 0
-                                ? "Show what you marked up"
-                                : "Point at what is wrong, instead of describing where it is"}
-                          </span>
-                          <span className="block text-[#9CA3AF]">
-                            {annotating ? (
-                              "Click a detail · drag an area · Esc to stop"
-                            ) : (
-                              <kbd className="font-sans">A</kbd>
-                            )}
-                          </span>
-                        </>
-                      }
-                    >
-                      <button
-                        aria-keyshortcuts="a"
-                        aria-label={
-                          annotating
-                            ? "Stop annotating the design"
-                            : `Annotate the design${
-                                activeNotes.length > 0
-                                  ? `, ${activeNotes.length} annotation${
-                                      activeNotes.length === 1 ? "" : "s"
-                                    } so far`
-                                  : ""
-                              }`
-                        }
-                        aria-pressed={annotating}
-                        className={`flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium leading-none transition-colors ${
-                          annotating
-                            ? "bg-[#7C9CFF]/20 text-[#AFC2FF]"
-                            : "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
-                        }`}
-                        onClick={() => (annotating ? stopAnnotating() : setAnnotating(true))}
-                        type="button"
-                      >
-                        <svg
-                          aria-hidden
-                          fill="none"
-                          height="11"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          viewBox="0 0 16 16"
-                          width="11"
-                        >
-                          <path
-                            d="M8 1.8a4.2 4.2 0 0 1 4.2 4.2c0 3-4.2 8-4.2 8S3.8 9 3.8 6A4.2 4.2 0 0 1 8 1.8Z"
-                            strokeLinejoin="round"
-                          />
-                          <circle cx="8" cy="6" r="1.4" />
-                        </svg>
-                        Annotate
-                        {activeNotes.length > 0 ? (
-                          <span className="rounded-full bg-white/15 px-1 text-[9px] leading-[1.5] text-white">
-                            {activeNotes.length}
-                          </span>
-                        ) : null}
-                      </button>
-                    </Tip>
-                    {chip.kind === "none" ? (
-                      <button
-                        className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[10px] leading-none text-[#84848C] transition-colors duration-150 hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                        onClick={() => setMcpConnectOpen(true)}
-                        ref={mcpConnectTriggerRef}
-                        type="button"
-                      >
-                        <PIcon d={P.link} size={12} />
-                        <span className="truncate">Connect agent via MCP…</span>
-                      </button>
-                    ) : (
-                      /* An inline select beside the send it configures: the menu
-                     hangs off the chip itself, sized to its options, the way
-                     a model picker behaves in every composer people know. */
-                      <div className="relative flex min-w-0 items-center">
-                        <div
-                          aria-hidden={!agentMenuOpen}
-                          aria-label="Who runs your changes"
-                          className={`absolute bottom-full right-0 z-10 mb-1.5 w-max min-w-48 origin-bottom-right rounded-lg border border-[#232328] bg-[#1E1E22] p-1 text-[#D1D5DB] shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-                            agentMenuOpen
-                              ? "translate-y-0 scale-100 opacity-100"
-                              : "pointer-events-none translate-y-1 scale-95 opacity-0"
-                          }`}
-                          inert={!agentMenuOpen}
-                          ref={agentMenuRef}
-                          role="dialog"
-                          tabIndex={-1}
-                        >
-                          {agentState.agents
-                            .filter((agent) => agent.available)
-                            .map((agent) => {
-                              const active = chip.kind === "chosen" && agent.id === chip.id;
-                              return (
-                                <button
-                                  className={ROW_BUTTON}
-                                  disabled={pickingAgent !== null || savingEffort}
-                                  key={agent.id}
-                                  onClick={() =>
-                                    active ? setAgentMenuOpen(false) : pickAgent(agent.id)
-                                  }
-                                  type="button"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <BrandMark id={agent.id} />
-                                    <span className="truncate">{agent.name}</span>
-                                  </span>
-                                  {pickingAgent === agent.id ? (
-                                    <span
-                                      aria-label="selecting"
-                                      className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
-                                    />
-                                  ) : agent.auth === "signed-out" ? (
-                                    /* Caught before the run instead of after
-                                   it: the CLI itself says its login is
-                                   gone, and hiding the row would only
-                                   hide the fix. */
-                                    <span className="text-[10px] text-amber-400/80">
-                                      signed out
-                                    </span>
-                                  ) : (
-                                    active && <span aria-label="current choice">✓</span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          {chip.kind === "chosen" && chip.id === "custom" ? (
-                            <button
-                              className={ROW_BUTTON}
-                              onClick={() => setAgentMenuOpen(false)}
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <BrandMark id="custom" />
-                                <span className="truncate">{chip.name}</span>
-                              </span>
-                              <span aria-label="current choice">✓</span>
-                            </button>
-                          ) : null}
-                          {selectedAgent !== undefined && selectedAgent.efforts.length > 0 ? (
-                            <div className="mt-1 border-t border-[#232328] px-1 pb-0.5 pt-1.5">
-                              <label className="flex min-h-7 items-center justify-between gap-3">
-                                <span className="text-[10px] font-medium text-[#84848C]">
-                                  Effort
-                                </span>
-                                <select
-                                  aria-busy={savingEffort}
-                                  aria-label={`${selectedAgent.name} effort`}
-                                  className="min-h-7 rounded-md border border-[#303038] bg-[#17171B] px-2 text-[10px] text-[#D1D5DB] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
-                                  disabled={savingEffort || pickingAgent !== null}
-                                  onChange={(event) => {
-                                    const value = event.currentTarget.value;
-                                    pickEffort(value === "" ? null : (value as AgentEffort));
-                                  }}
-                                  value={selectedEffort ?? ""}
-                                >
-                                  <option value="">Agent default</option>
-                                  {selectedAgent.efforts.map((effort) => (
-                                    <option key={effort} value={effort}>
-                                      {EFFORT_LABELS[effort]}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                          ) : null}
-                          <div className="mt-1 border-t border-[#232328] pt-1">
-                            <button
-                              className={`${ROW_BUTTON} text-[#84848C]`}
-                              onClick={() => {
-                                setAgentMenuOpen(false);
-                                setMcpConnectOpen(true);
-                              }}
-                              ref={mcpConnectTriggerRef}
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <PIcon d={P.link} size={14} />
-                                <span className="truncate">Connect agent via MCP…</span>
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                        <button
-                          aria-expanded={agentMenuOpen}
-                          aria-haspopup="dialog"
-                          className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
-                          onClick={() => {
-                            // Opening re-asks the CLIs about their logins, so a
-                            // sign-in that happened after boot shows up here.
-                            if (!agentMenuOpen) refreshAgents();
-                            setAgentMenuOpen((open) => !open);
-                          }}
-                          ref={agentTriggerRef}
-                          type="button"
-                        >
-                          {chip.kind === "chosen" && <BrandMark id={chip.id} size={12} />}
-                          <span className="truncate">
-                            {chip.kind === "chosen"
-                              ? `${chip.name}${selectedEffort === null ? "" : ` · ${EFFORT_LABELS[selectedEffort]}`}`
-                              : "Choose an agent"}
-                          </span>
-                          {chosenSignedOut && (
-                            <span
-                              className="size-1.5 shrink-0 rounded-full bg-amber-400"
-                              title="This CLI is signed out. Sign in in your terminal."
-                            >
-                              <span className="sr-only">signed out</span>
-                            </span>
-                          )}
-                          <svg
-                            aria-hidden="true"
-                            className={`shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
-                              agentMenuOpen ? "rotate-180" : ""
-                            }`}
-                            fill="none"
-                            height="12"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.75"
-                            viewBox="0 0 16 16"
-                            width="12"
-                          >
-                            <path d="M4 6.5 8 10.5l4-4" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
-                    {/* A real send button, because Enter alone is an invisible
-                    contract. Dim and inert until there is something to send;
-                    the field's one moment of light once there is. */}
-                    <button
-                      aria-label={
-                        st.active
-                          ? `Send the change to ${st.displayName(st.active)}`
-                          : "Send the change"
-                      }
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:transition-none ${
-                        (intent.trim() !== "" || activeNotes.length > 0) && st.active && !sending
-                          ? "bg-[#E8E8EA] text-[#1C1C20] hover:bg-white"
-                          : "pointer-events-none text-[#84848C]/60"
-                      }`}
-                      disabled={
-                        (intent.trim() === "" && activeNotes.length === 0) || !st.active || sending
-                      }
-                      type="submit"
-                    >
-                      {sending ? (
-                        <span className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none" />
-                      ) : (
-                        <svg
-                          aria-hidden="true"
-                          fill="none"
-                          height="13"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.75"
-                          viewBox="0 0 16 16"
-                          width="13"
-                        >
-                          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
-                        </svg>
-                      )}
-                    </button>
+                      sending={sending}
+                      target={st.active ? st.displayName(st.active) : null}
+                    />
                   </div>
                 </div>
               </form>
