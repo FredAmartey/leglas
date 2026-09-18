@@ -10,7 +10,7 @@ evals/jobs
 evals/results
 # Prose is wrapped by hand, and CHANGELOG.md is read by a parser that expects its shape
 *.md
-# Local
-.claude
-.vercel
-.leglas
+# Dot directories, which a checkout accumulates from tools and git already
+# ignores; .github is the one that holds files worth checking
+.*/
+!.github/
