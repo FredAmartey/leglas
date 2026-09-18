@@ -1,7 +1,7 @@
-import type { Attachment } from "./attachments.js";
-import type { Preview } from "./config.js";
-import type { PendingRequest } from "./requests.js";
-import type { Annotation } from "./annotations.js";
+import type { Attachment } from "./requests/attachments.js";
+import type { Preview } from "./config/config.js";
+import type { PendingRequest } from "./requests/requests.js";
+import type { Annotation } from "./requests/annotations.js";
 
 /** Where entries go unless a project says otherwise. */
 export const DEFAULT_LOG_DIR = "design-log";

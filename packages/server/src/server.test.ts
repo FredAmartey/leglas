@@ -18,18 +18,18 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { saveAgentChoice } from "./agents.js";
-import { CAPTURES_DIR, REFERENCES_DIR } from "./attachments.js";
-import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./browser.js";
-import type { ClaudeTurnRunner } from "./claude-agent-session.js";
-import type { LeglasConfig } from "./config.js";
+import { saveAgentChoice } from "./agents/agents.js";
+import { CAPTURES_DIR, REFERENCES_DIR } from "./requests/attachments.js";
+import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./capture/browser.js";
+import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
+import type { LeglasConfig } from "./config/config.js";
 import type { LiveChange, LiveHub } from "./live.js";
-import { appendRequest, markFailed, readRequests } from "./requests.js";
+import { appendRequest, markFailed, readRequests } from "./requests/requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
-import { startTunnel as startTunnelProcess } from "./tunnel.js";
+import { startTunnel as startTunnelProcess } from "./share/tunnel.js";
 import type { UpdateService, UpdateStatus } from "./update.js";
-import type { RunningWorktree } from "./worktree.js";
+import type { RunningWorktree } from "./branches/worktree.js";
 
 const running: RunningServer[] = [];
 const origins: http.Server[] = [];

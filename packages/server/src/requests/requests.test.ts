@@ -17,7 +17,7 @@ import {
   variantSlot,
 } from "./requests.js";
 import type { Captured } from "./attachments.js";
-import type { Preview } from "./config.js";
+import type { Preview } from "../config/config.js";
 
 const preview = (title: string, url: string): Preview => ({
   title,

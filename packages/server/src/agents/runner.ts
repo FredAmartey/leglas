@@ -2,12 +2,12 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
-import { isOwnCapture } from "./attachments.js";
+import { isOwnCapture } from "../requests/attachments.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
-import { removeAnnotations } from "./annotations.js";
+import { removeAnnotations } from "../requests/annotations.js";
 import { createClaudeAgentSession, type ClaudeTurnRunner } from "./claude-agent-session.js";
 import { createCodexAppServer, type CodexTurnRunner } from "./codex-app-server.js";
-import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
+import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
 import {
   KNOWN_AGENTS,
   activityFrom,
@@ -28,7 +28,7 @@ import {
   registrationCommand,
   removeRequest,
   type PendingRequest,
-} from "./requests.js";
+} from "../requests/requests.js";
 
 const POLL_MS = 2000;
 const OUTPUT_LINES = 20;

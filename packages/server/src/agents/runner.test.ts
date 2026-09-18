@@ -9,8 +9,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { saveAgentChoice } from "./agents.js";
 import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
-import { LOCAL_PREVIEWS_PATH } from "./local-previews.js";
-import { appendRequest, readRequests } from "./requests.js";
+import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
+import { appendRequest, readRequests } from "../requests/requests.js";
 import { IDLE_RELEASE_MS, startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
 
 const input = (title: string) => ({

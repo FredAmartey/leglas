@@ -14,10 +14,10 @@ import {
 import { basename, extname, join, resolve, sep } from "node:path";
 
 import type { Annotation } from "./annotations.js";
-import { NO_BROWSER, type BrowserPool } from "./browser.js";
-import { MAX_WIDTH, MIN_WIDTH, capturePage, type CaptureInput } from "./capture.js";
-import type { Preview } from "./config.js";
-import type { HydrationEvidence } from "./hydration.js";
+import { NO_BROWSER, type BrowserPool } from "../capture/browser.js";
+import { MAX_WIDTH, MIN_WIDTH, capturePage, type CaptureInput } from "../capture/capture.js";
+import type { Preview } from "../config/config.js";
+import type { HydrationEvidence } from "../capture/hydration.js";
 
 /**
  * Images belonging to one change request.

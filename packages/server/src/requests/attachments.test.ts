@@ -28,10 +28,10 @@ import {
   removeCaptures,
   sniffImage,
 } from "./attachments.js";
-import type { Browser, BrowserPool, CdpPage } from "./browser.js";
-import { NO_BROWSER } from "./browser.js";
-import type { CaptureOutput } from "./capture.js";
-import type { Preview } from "./config.js";
+import type { Browser, BrowserPool, CdpPage } from "../capture/browser.js";
+import { NO_BROWSER } from "../capture/browser.js";
+import type { CaptureOutput } from "../capture/capture.js";
+import type { Preview } from "../config/config.js";
 
 function root(): string {
   return mkdtempSync(join(tmpdir(), "leglas-attachments-"));

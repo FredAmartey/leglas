@@ -1,4 +1,4 @@
-import { startProxyServer, type RunningProxy } from "./proxy.js";
+import { startProxyServer, type RunningProxy } from "../proxy.js";
 import { startWorktree, type RunningWorktree } from "./worktree.js";
 
 export const BRANCH_IDLE_MS = 10 * 60 * 1000;

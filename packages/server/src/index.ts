@@ -1,4 +1,4 @@
-export { DEFAULT_DEV_SERVER, DEFAULT_INSTALL_COMMAND, normalizeConfig } from "./config.js";
+export { DEFAULT_DEV_SERVER, DEFAULT_INSTALL_COMMAND, normalizeConfig } from "./config/config.js";
 export {
   PROMPT_TOKEN,
   WATCH_PATH,
@@ -6,8 +6,8 @@ export {
   nextRequest,
   parseTemplate,
   tokenize,
-} from "./agent-command.js";
-export type { TemplateResult, WatchTemplate } from "./agent-command.js";
+} from "./agents/agent-command.js";
+export type { TemplateResult, WatchTemplate } from "./agents/agent-command.js";
 export {
   AGENT_EFFORTS,
   KNOWN_AGENTS,
@@ -19,7 +19,7 @@ export {
   readAgentChoice,
   retryFrom,
   saveAgentChoice,
-} from "./agents.js";
+} from "./agents/agents.js";
 export type {
   AgentChoice,
   AgentChoiceInput,
@@ -27,17 +27,17 @@ export type {
   DetectedAgent,
   KnownAgentId,
   SavedAgentChoice,
-} from "./agents.js";
-export { classifyDirection } from "./classify.js";
-export type { DeclaredChange, Placement } from "./classify.js";
-export { CONFIG_BASENAMES, findConfigFile } from "./find-config.js";
-export { loadConfig } from "./load-config.js";
+} from "./agents/agents.js";
+export { classifyDirection } from "./branches/classify.js";
+export type { DeclaredChange, Placement } from "./branches/classify.js";
+export { CONFIG_BASENAMES, findConfigFile } from "./config/find-config.js";
+export { loadConfig } from "./config/load-config.js";
 export {
   LOCAL_PREVIEWS_PATH,
   addLocalPreview,
   dropLocalPreviews,
   readLocalPreviews,
-} from "./local-previews.js";
+} from "./config/local-previews.js";
 export { DEFAULT_LOG_DIR, composeEntry } from "./log.js";
 export type { LogEntry, LogInput } from "./log.js";
 export { createProxyHandler } from "./proxy.js";
@@ -47,7 +47,7 @@ export {
   findBrowser,
   launchBrowser,
   reapOrphanedBrowsers,
-} from "./browser.js";
+} from "./capture/browser.js";
 export type {
   Browser,
   BrowserPool,
@@ -55,7 +55,7 @@ export type {
   CdpPage,
   CdpSocket,
   LaunchOptions,
-} from "./browser.js";
+} from "./capture/browser.js";
 export {
   CROP_MIN,
   CROP_PAD,
@@ -64,10 +64,10 @@ export {
   MIN_WIDTH,
   capturePage,
   cropBox,
-} from "./capture.js";
-export type { Box, CaptureInput, CaptureOutput, Focus, Shot } from "./capture.js";
-export { hydrationEvidence } from "./hydration.js";
-export type { HydrationEvidence } from "./hydration.js";
+} from "./capture/capture.js";
+export type { Box, CaptureInput, CaptureOutput, Focus, Shot } from "./capture/capture.js";
+export { hydrationEvidence } from "./capture/hydration.js";
+export type { HydrationEvidence } from "./capture/hydration.js";
 export {
   CAPTURES_DIR,
   REFERENCES_DIR,
@@ -79,17 +79,17 @@ export {
   rehomeText,
   removeCaptures,
   sniffImage,
-} from "./attachments.js";
-export type { AttachInput, Attachment, AttachmentKind, Captured } from "./attachments.js";
+} from "./requests/attachments.js";
+export type { AttachInput, Attachment, AttachmentKind, Captured } from "./requests/attachments.js";
 export {
   WORKTREES_DIR,
   startAppProcess,
   startWorktree,
   substitutePort,
   worktreeSlug,
-} from "./worktree.js";
-export type { RunningApp, RunningWorktree } from "./worktree.js";
-export { createBranchRegistry, publicBranchState } from "./branches.js";
+} from "./branches/worktree.js";
+export type { RunningApp, RunningWorktree } from "./branches/worktree.js";
+export { createBranchRegistry, publicBranchState } from "./branches/branches.js";
 export type {
   BranchPhase,
   BranchPreview,
@@ -97,9 +97,9 @@ export type {
   BranchRegistry,
   BranchState,
   StartBranchWorktree,
-} from "./branches.js";
-export { classifyFailure, sessionShaped } from "./failure.js";
-export type { Failure, FailureCode, FailureInput, RetryNotice } from "./failure.js";
+} from "./branches/branches.js";
+export { classifyFailure, sessionShaped } from "./agents/failure.js";
+export type { Failure, FailureCode, FailureInput, RetryNotice } from "./agents/failure.js";
 export {
   ANNOTATIONS_PATH,
   addAnnotation,
@@ -112,7 +112,7 @@ export {
   updateAnnotation,
   type Annotation,
   type AnnotationAnchor,
-} from "./annotations.js";
+} from "./requests/annotations.js";
 export {
   REQUESTS_PATH,
   appendRequest,
@@ -126,29 +126,29 @@ export {
   readRequests,
   removeRequest,
   targetFor,
-} from "./requests.js";
-export { startRunner } from "./runner.js";
+} from "./requests/requests.js";
+export { startRunner } from "./agents/runner.js";
 export { createLiveHub } from "./live.js";
 export type { LiveChange, LiveHub } from "./live.js";
-export { createShareManager } from "./share.js";
-export type { ShareLayout, ShareScope, ShareStatus } from "./share.js";
-export { detectTunnels, startTunnel } from "./tunnel.js";
-export type { RunningTunnel, TunnelDeps, TunnelProviderId, TunnelState } from "./tunnel.js";
-export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./renames.js";
-export type { Renames, TitleResolution } from "./renames.js";
+export { createShareManager } from "./share/share.js";
+export type { ShareLayout, ShareScope, ShareStatus } from "./share/share.js";
+export { detectTunnels, startTunnel } from "./share/tunnel.js";
+export type { RunningTunnel, TunnelDeps, TunnelProviderId, TunnelState } from "./share/tunnel.js";
+export { RENAMES_PATH, readRenames, resolveTitle, writeRenames } from "./config/renames.js";
+export type { Renames, TitleResolution } from "./config/renames.js";
 export { DEFAULT_PORT, FILES_PREFIX, LEGLAS_PREFIX, probe, startServer } from "./server.js";
-export type { LeglasConfig, NormalizeResult, Preview } from "./config.js";
-export type { LoadResult } from "./load-config.js";
-export type { AddInput, LocalPreview } from "./local-previews.js";
+export type { LeglasConfig, NormalizeResult, Preview } from "./config/config.js";
+export type { LoadResult } from "./config/load-config.js";
+export type { AddInput, LocalPreview } from "./config/local-previews.js";
 export type { ProxyHandler, ProxyOptions } from "./proxy.js";
-export type { ComposedRequest, PendingRequest, RequestStatus } from "./requests.js";
+export type { ComposedRequest, PendingRequest, RequestStatus } from "./requests/requests.js";
 export type {
   RunnerChild,
   RunnerOptions,
   RunnerSpawn,
   RunnerState,
   RunningAgent,
-} from "./runner.js";
+} from "./agents/runner.js";
 export type { RunningServer, ServerOptions } from "./server.js";
 export {
   SERVER_INFO_PATH,

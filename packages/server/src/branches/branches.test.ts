@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { BRANCH_IDLE_MS, createBranchRegistry } from "./branches.js";
-import type { RunningProxy } from "./proxy.js";
+import type { RunningProxy } from "../proxy.js";
 import type { RunningWorktree } from "./worktree.js";
 
 function deferred<T>() {
