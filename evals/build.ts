@@ -17,8 +17,14 @@ import { dirname, join } from "node:path";
 const root = join(import.meta.dirname, "..");
 const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf8"));
 
-/** The runner's own configuration and the manifests: test.sh scores 0 if any differ from the base state. */
-const GUARDED = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"];
+/**
+ * The files that decide what build, typecheck and vitest mean: test.sh scores
+ * 0 if any differ from the base state. The root four, plus every package's
+ * manifest and compiler or bundler configuration, since \`pnpm build\` and
+ * \`pnpm -r typecheck\` delegate to those.
+ */
+const GUARDED_ROOT = ["vitest.config.ts", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"];
+const GUARDED_IN_PACKAGES = /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
 
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -40,12 +46,18 @@ for (const task of manifest.tasks) {
 
   // Baseline copies of the files the verifier refuses changes to. They sit
   // beside the hidden tests, which the agent cannot reach, rather than in the
-  // tree's own git, which it can rewrite.
-  for (const f of GUARDED) {
+  // tree's own git, which it can rewrite. baseline.txt lists them, so the
+  // verifier compares exactly what was captured for this task's base commit.
+  const guarded = [
+    ...GUARDED_ROOT,
+    ...git("ls-tree", "-r", "--name-only", parent, "packages").trim().split("\n").filter((f) => GUARDED_IN_PACKAGES.test(f)),
+  ];
+  for (const f of guarded) {
     const target = join(dir, "tests/baseline", f);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, git("show", `${parent}:${f}`));
   }
+  writeFileSync(join(dir, "tests/baseline.txt"), guarded.join("\n") + "\n");
   writeFileSync(join(dir, "tests/test.sh"), readFileSync(join(root, "evals/templates/test.sh"), "utf8"), { mode: 0o755 });
   writeFileSync(join(dir, "tests/collected.mjs"), readFileSync(join(root, "evals/templates/collected.mjs"), "utf8"));
 

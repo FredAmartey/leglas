@@ -13,20 +13,17 @@ done < /tests/files.txt
 
 export CI=1
 reward=0
-# The agent edits the same tree the tests run in, so the runner's own
-# configuration is off limits: a vitest.config.ts that excludes the hidden
-# files, or a plugin that rewrites them, would score an unfixed task. The
-# baseline copies sit beside the hidden tests, which the agent cannot reach;
-# the tree's own git is not the baseline, since the agent can commit to it.
-# None of the real fixes touched these files.
+# The agent edits the same tree the tests run in, so the files that decide
+# what build, typecheck and vitest mean are off limits: a vitest.config.ts
+# that excludes the hidden files, a package script turned into \`true\`, a
+# loosened tsconfig. The baseline copies sit beside the hidden tests, which
+# the agent cannot reach; the tree's own git is not the baseline, since the
+# agent can commit to it. None of the real fixes touched these files.
 refused=0
-for f in vitest.config.ts package.json pnpm-workspace.yaml pnpm-lock.yaml; do
-  if [ -f "/tests/baseline/$f" ]; then
-    cmp -s "/tests/baseline/$f" "/app/$f" || refused=1
-  elif [ -e "/app/$f" ]; then
-    refused=1
-  fi
-done
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  cmp -s "/tests/baseline/$f" "/app/$f" || refused=1
+done < /tests/baseline.txt
 if [ "$refused" = 1 ]; then
   echo "the test configuration or the manifests differ from the base state" > /logs/verifier/refused.txt
 elif pnpm build > /logs/verifier/build.log 2>&1; then

@@ -1,0 +1,45 @@
+{
+  "name": "leglas",
+  "version": "1.0.0",
+  "description": "Compare design directions inside your own running app.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FredAmartey/leglas.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/FredAmartey/leglas#readme",
+  "type": "module",
+  "keywords": [
+    "design",
+    "preview",
+    "compare",
+    "variants",
+    "dev-server"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "leglas": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.declarations.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "cp ../../README.md ./README.md"
+  },
+  "devDependencies": {
+    "@leglas/server": "workspace:*",
+    "@leglas/shell": "workspace:*",
+    "tsup": "^8.5.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.238"
+  }
+}
