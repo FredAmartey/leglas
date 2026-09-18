@@ -12,6 +12,17 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Fixed
+
+- **The links on the npm page work.** The README is the npm package page,
+  and npm resolves its relative links against the package's directory in
+  the repository, `packages/cli`, where nothing they point at exists. The
+  Contributing and License links had pointed at nothing since the first
+  release, and the links to the new docs pages would have too. The README's
+  links are absolute now. (`leglas`, `leglas-mcp`)
+
 ## 1.1.0 (2026-09-07): Leglas says when a newer version is out
 
 ### Added
