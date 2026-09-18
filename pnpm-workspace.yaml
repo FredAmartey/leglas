@@ -18,3 +18,11 @@ minimumReleaseAgeExclude:
 
 onlyBuiltDependencies:
   - esbuild
+
+# Transitive dependencies with published fixes that their dependents' ranges
+# had not picked up. Bounded to the same major so later updates flow.
+overrides:
+  hono: ">=4.13.5 <5"
+  qs: ">=6.16.0 <7"
+  "nanoid@<4": ">=3.3.18 <4"
+  esbuild: ">=0.28.1 <0.29"
