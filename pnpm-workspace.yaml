@@ -20,9 +20,10 @@ onlyBuiltDependencies:
   - esbuild
 
 # Transitive dependencies with published fixes that their dependents' ranges
-# had not picked up. Bounded to the same major so later updates flow.
+# had not picked up. Bounded to the same major so later updates flow. esbuild
+# is left alone: tsup declares ^0.27 and only uses the build API, and the one
+# open advisory on 0.27 is the development server on Windows.
 overrides:
   hono: ">=4.13.5 <5"
   qs: ">=6.16.0 <7"
   "nanoid@<4": ">=3.3.18 <4"
-  esbuild: ">=0.28.1 <0.29"
