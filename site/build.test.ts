@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import { parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
 import { CAPTURES, renderHome } from "./home.ts";
 import { buildSite } from "./build.ts";
+import { docsPath, loadDocs } from "./docs.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -80,11 +81,9 @@ describe("the site", () => {
   test("builds the pages, the docs and the captures beside them", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);
-    const docs = readdirSync(join(root, "docs"))
-      .filter((name) => name.endsWith(".md"))
-      .map((name) =>
-        name === "README.md" ? "docs/index.html" : `docs/${name.slice(0, -3)}/index.html`,
-      );
+    // From the manual's own index, like the build, so an uncommitted note in
+    // the same folder is not expected on the site.
+    const docs = loadDocs(root).map((entry) => docsPath(entry.slug));
     expect(written.map((path) => path.slice(out.length + 1)).sort()).toEqual(
       [
         "assets/compare-artboards.jpg",

@@ -31,7 +31,7 @@ const page = (name: string): DocPage => {
  * where a new construct would first appear.
  */
 describe("docs/", () => {
-  test("the index leads and the pages follow the README's order", () => {
+  test("the index leads and the pages follow the order it links them in", () => {
     expect(pages[0]?.slug).toBe("");
     expect(pages.slice(1).map((entry) => entry.slug)).toEqual([
       "guide",
@@ -43,6 +43,31 @@ describe("docs/", () => {
     ]);
     expect(docsPath("")).toBe("docs/index.html");
     expect(docsPath("guide")).toBe("docs/guide/index.html");
+  });
+
+  /**
+   * `docs/` is the public manual, but it is also where this repository's own
+   * conventions put notes that are never committed: `docs/lessons.md` and
+   * `docs/plans/`, both in `.git/info/exclude`. A reader that served every
+   * markdown file it found turned those into pages of the manual in any
+   * checkout that had them, which is every maintainer's.
+   */
+  test("a file the index does not link is not part of the manual", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs/README.md"), "# The manual\n\n- [Using it](guide.md): how.\n");
+    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
+    writeFileSync(join(dir, "docs/lessons.md"), "# Lessons\n\nNot for anybody else.\n");
+
+    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
+  });
+
+  test("an index that links a page nobody wrote fails the build, naming it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs/README.md"), "# The manual\n\n- [Gone](gone.md): nowhere.\n");
+
+    expect(() => loadDocs(dir)).toThrow("docs/README.md links docs/gone.md, which is not there");
   });
 
   test("every page renders with nothing left as markdown", () => {
@@ -96,7 +121,7 @@ describe("page names", () => {
   test("a file name that would not survive as a directory or an href is refused", () => {
     const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
     mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs", "README.md"), "# Index\n");
+    writeFileSync(join(dir, "docs", "README.md"), '# Index\n\n- [Bad](a"b.md): no.\n');
     writeFileSync(join(dir, "docs", 'a"b.md'), "# Bad\n");
     expect(() => loadDocs(dir)).toThrow('docs/a"b.md: a page name this site cannot serve.');
     rmSync(dir, { recursive: true, force: true });

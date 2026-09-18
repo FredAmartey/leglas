@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
 
 import { inline } from "./changelog.ts";
@@ -26,34 +26,51 @@ export type DocPage = {
   markdown: string;
 };
 
-/** Reading order for the pages the README table names; anything else follows alphabetically. */
-const ORDER = ["guide", "sharing", "configuration", "agents", "cli", "architecture"];
+/** The pages the index links, in the order it links them: its bullet list, and nothing else. */
+const LINKED = /^- \[[^\]]+\]\(([^)\s/]+\.md)\)/gm;
 
+/**
+ * The manual, as its own index names it.
+ *
+ * The pages come from the links in `docs/README.md` rather than from whatever
+ * markdown the folder happens to hold, for two reasons. A page nobody can
+ * navigate to is not part of a manual, and this repository's own conventions
+ * put uncommitted notes in the same folder: `docs/lessons.md` and
+ * `docs/plans/` are both in `.git/info/exclude`, so a reader that served
+ * every file it found published a maintainer's notes from their checkout and
+ * failed this suite there while passing in CI.
+ *
+ * The index is also the only reading order there is now. It used to be
+ * repeated here as a list of names, which is a second copy of something the
+ * page itself already says, in the file a contributor is least likely to
+ * open.
+ */
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
-  const files = readdirSync(dir).filter((name) => name.endsWith(".md"));
-  const pages = files.map((file) => {
-    const markdown = readFileSync(join(dir, file), "utf8");
+  const read = (file: string): DocPage => {
+    const path = join(dir, file);
+    if (!existsSync(path))
+      throw new Error(`docs/README.md links docs/${file}, which is not there.`);
+    const markdown = readFileSync(path, "utf8");
     const heading = markdown.split("\n").find((line) => line.startsWith("# "));
     if (heading === undefined) throw new Error(`docs/${file} has no title heading.`);
-    const slug = file === "README.md" ? "" : file.slice(0, -".md".length);
-    // The slug becomes a directory and an href on every page, so it is
-    // checked here rather than escaped there: lowercase letters, digits
-    // and hyphens, the way the existing pages are named.
-    if (slug !== "" && !/^[a-z0-9-]+$/.test(slug))
+    return {
+      file,
+      slug: file === "README.md" ? "" : file.slice(0, -".md".length),
+      title: heading.slice(2).trim(),
+      markdown,
+    };
+  };
+  const index = read("README.md");
+  const linked = [...index.markdown.matchAll(LINKED)].map((match) => match[1] ?? "");
+  for (const file of linked) {
+    // The name becomes a directory and an href on every page, so it is
+    // checked here rather than escaped there: lowercase letters, digits and
+    // hyphens, the way the existing pages are named.
+    if (!/^[a-z0-9-]+\.md$/.test(file))
       throw new Error(`docs/${file}: a page name this site cannot serve.`);
-    return { file, slug, title: heading.slice(2).trim(), markdown };
-  });
-  const rank = (page: DocPage): number => (page.slug === "" ? -1 : ORDER.indexOf(page.slug));
-  return pages.sort((a, b) => {
-    const [ra, rb] = [rank(a), rank(b)];
-    if (ra !== rb)
-      return (
-        (ra === -1 && a.slug !== "" ? ORDER.length : ra) -
-        (rb === -1 && b.slug !== "" ? ORDER.length : rb)
-      );
-    return a.slug.localeCompare(b.slug);
-  });
+  }
+  return [index, ...linked.map(read)];
 }
 
 /** Where a page is written under the site, so build.ts and the tests agree. */
