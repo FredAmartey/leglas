@@ -79,6 +79,31 @@ writes `server.json`, `update.ts` is the update check, `log.ts` composes the
 design log entries `leglas keep` writes, and `index.ts` is what the package
 exports.
 
+## Inside the interface
+
+`packages/shell/src` follows the same rule: the frame of the application at
+the top, one folder per feature under it. A feature's component, its logic,
+its calls to the API and its hook sit together, and the logic is the part
+with tests.
+
+| Folder | What is in it |
+| --- | --- |
+| `share/` | The share panel, what a share is on this side and the calls that start and change one |
+| `update/` | The update chip and its panel |
+| `annotate/` | Notes pinned to a spot on a preview: the layer, the anchor that finds the spot again and the notes API |
+| `references/` | Images attached to a request: the strip, what is admitted and the upload |
+| `lineage/` | Which direction came from which: the tree, the lines in the gutter, the crumbs and the trail |
+| `agents/` | Picking an agent, what state a request is in and why one failed, connecting an MCP host |
+| `preview/` | What the stage has to know about a frame: its identity and when it is ready, the duplicate scan, the dev server's health, the second pane of a comparison, framework overlays |
+| `ui/` | The shared components, tips, toasts, the orb, the clipboard and the floating widget's drag rules |
+| `net/` | The fetch wrapper, the WebSocket client and the poll that cannot outrun itself |
+
+At the top, `App.tsx` reads the config and decides between the interface, a
+notice and a share that has ended. `Shell.tsx` is the rail and the stage.
+`useShellState.ts` is the behaviour under them: selection, search, rename
+and remove, the keyboard, resizing and which panes are mounted. `types.ts`,
+`prefs.ts`, `keymap.ts` and `naming.ts` are shared by all of it.
+
 ## Where state lives
 
 Leglas has no database and no account. The committed `leglas.config.ts` is
