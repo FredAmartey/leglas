@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { MOOD } from "./orb.js";
@@ -283,6 +284,22 @@ export function Tip({
 }) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const bubbleRef = useRef<HTMLSpanElement | null>(null);
+  /**
+   * Where the label mounts, which is not beside its control.
+   *
+   * The label is `position: fixed`, and that is enough to escape an ancestor
+   * that scrolls or hides its overflow. It is not enough to escape one that
+   * masks, filters or transforms: those draw their whole subtree through
+   * themselves, fixed children included. The rail fades its edges with a mask
+   * on the scrolling list, so a row's card, which opens to the right over the
+   * stage, was in the page at full opacity and never painted.
+   *
+   * So the label goes to the shell's root, which is where the typeface and
+   * the smoothing it is drawn with are set and which clips nothing. A modal
+   * dialog is the one thing drawn above the shell, so a control inside one
+   * keeps its label inside it.
+   */
+  const layerRef = useRef<Element | null>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tip, setTip] = useState<{
@@ -337,6 +354,7 @@ export function Tip({
     if (!control) return;
     const rect = control.getBoundingClientRect();
     if (hideTimer.current) clearTimeout(hideTimer.current);
+    layerRef.current = control.closest("dialog, [data-leglas-shell]") ?? document.body;
     setTip(
       side === "top"
         ? { at: "top", out: false, shift: 0, x: rect.left + rect.width / 2, y: rect.top - 8 }
@@ -368,32 +386,34 @@ export function Tip({
       ref={anchorRef}
     >
       {children}
-      {tip && (
-        <span
-          aria-hidden
-          className="pointer-events-none fixed z-[60]"
-          style={{ left: tip.x + tip.shift, top: tip.y }}
-        >
+      {tip &&
+        createPortal(
           <span
-            className={`block ${
-              {
-                bottom: "-translate-x-1/2",
-                right: "-translate-y-1/2",
-                top: "-translate-x-1/2 -translate-y-full",
-              }[tip.at]
-            }`}
+            aria-hidden
+            className="pointer-events-none fixed z-[60]"
+            style={{ left: tip.x + tip.shift, top: tip.y }}
           >
             <span
-              className={`leglas-tip block rounded-lg border border-white/10 bg-[#171717] px-2 py-1 text-xs font-medium text-white shadow-lg ${
-                wide ? "w-64 whitespace-normal" : "whitespace-nowrap"
-              } ${tip.out ? `leglas-tip-out-${tip.at}` : `leglas-tip-in-${tip.at}`}`}
-              ref={bubbleRef}
+              className={`block ${
+                {
+                  bottom: "-translate-x-1/2",
+                  right: "-translate-y-1/2",
+                  top: "-translate-x-1/2 -translate-y-full",
+                }[tip.at]
+              }`}
             >
-              {label}
+              <span
+                className={`leglas-tip block rounded-lg border border-white/10 bg-[#171717] px-2 py-1 text-xs font-medium text-white shadow-lg ${
+                  wide ? "w-64 whitespace-normal" : "whitespace-nowrap"
+                } ${tip.out ? `leglas-tip-out-${tip.at}` : `leglas-tip-in-${tip.at}`}`}
+                ref={bubbleRef}
+              >
+                {label}
+              </span>
             </span>
-          </span>
-        </span>
-      )}
+          </span>,
+          layerRef.current ?? document.body,
+        )}
     </span>
   );
 }
