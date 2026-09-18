@@ -1,0 +1,19 @@
+{
+  "name": "leglas-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.20.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
+    "build": "pnpm -r build",
+    "api:update": "node api-surface.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "ajv": "^8.20.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

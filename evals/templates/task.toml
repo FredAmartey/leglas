@@ -1,0 +1,20 @@
+version = "1.0"
+
+[metadata]
+author_name = "Fred Amartey"
+difficulty = "medium"
+category = "software-engineering"
+tags = ["typescript", "leglas", "bug-fix", "{{AREA}}"]
+fix_commit = "{{FIX}}"
+base_commit = "{{PARENT}}"
+
+[verifier]
+timeout_sec = 900.0
+
+[agent]
+timeout_sec = 1500.0
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 2
+memory = "3G"

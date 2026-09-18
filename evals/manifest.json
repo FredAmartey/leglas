@@ -1,0 +1,14 @@
+{
+  "repo": "https://github.com/FredAmartey/leglas.git",
+  "pnpm": "11.20.0",
+  "tasks": [
+    { "name": "shell-branch-preview-blank",  "fix": "a974d1a00b1a13d5ccbda9bc0efbd81cce48ae60", "area": "packages/shell" },
+    { "name": "share-stop-mid-start",        "fix": "32f149d46b1facf1bef8a86c65b7fb707e09b9c2", "area": "packages/server" },
+    { "name": "share-backslash-paths",       "fix": "e02c9f561d4d934d76da12c5faa4c7712330e0bc", "area": "packages/server" },
+    { "name": "share-dotfile-viewers",       "fix": "c184171df1f2d98dfb39e77a10ba26749848669e", "area": "packages/server" },
+    { "name": "worktree-loopback-probe",     "fix": "02e58eff6fc758d01e19036a7694d74b3cad4f73", "area": "packages/server" },
+    { "name": "agents-edit-without-path",    "fix": "fc66679a97cdba9cb6a67795e233205044f9ef55", "area": "packages/server" },
+    { "name": "hydration-evidence",          "fix": "e9b6c42f2aba95a5f98bff138401f14b9865e0bc", "area": "packages/server" },
+    { "name": "changelog-parser-refusals",   "fix": "f57fe7e03e6d1c2a59866e43fe45f73645ddcb22", "area": "root" }
+  ]
+}
