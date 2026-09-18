@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { loadAssets } from "./chrome.ts";
 import {
+  PAGES,
   docsPath,
   loadDocs,
   parseBlocks,
@@ -17,6 +18,18 @@ import {
 } from "./docs.ts";
 
 const root = join(import.meta.dirname, "..");
+/** A checkout of the manual, with every page it names and nothing else. */
+function manual(): string {
+  const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+  mkdirSync(join(dir, "docs"));
+  writeFileSync(
+    join(dir, "docs/README.md"),
+    `# The manual\n\n${PAGES.map((page) => `- [${page}](${page}.md): a page.`).join("\n")}\n`,
+  );
+  for (const page of PAGES) writeFileSync(join(dir, `docs/${page}.md`), `# ${page}\n\nWords.\n`);
+  return dir;
+}
+
 const pages = loadDocs(root);
 const page = (name: string): DocPage => {
   const found = pages.find((candidate) => candidate.slug === name);
@@ -52,55 +65,22 @@ describe("docs/", () => {
    * markdown file it found turned those into pages of the manual in any
    * checkout that had them, which is every maintainer's.
    */
-  test("a file the index does not link is not part of the manual", () => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs/README.md"), "# The manual\n\n- [Using it](guide.md): how.\n");
-    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
+  test("a file the manual does not name is not one of its pages", () => {
+    const dir = manual();
     writeFileSync(join(dir, "docs/lessons.md"), "# Lessons\n\nNot for anybody else.\n");
+    mkdirSync(join(dir, "docs/plans"));
+    writeFileSync(join(dir, "docs/plans/thing.md"), "# A plan\n\nLater.\n");
 
-    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
+    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", ...PAGES]);
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  test("a link out of the manual, or out to the web, is not a page", () => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(
-      join(dir, "docs/README.md"),
-      [
-        "# The manual",
-        "",
-        "- [Using it](guide.md): how.",
-        "- [Contributing](../CONTRIBUTING.md): the repository.",
-        "- [The changelog](https://leglas.vercel.app/changelog/): what changed.",
-        "- [A file on the web](https://example.com/a.md): not ours.",
-        "- [This page](#anchor): here.",
-        "",
-      ].join("\n"),
-    );
-    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
+  test("a page the manual names and nobody wrote fails the build, naming it", () => {
+    const dir = manual();
+    rmSync(join(dir, "docs/sharing.md"));
 
-    expect(loadDocs(dir).map((entry) => entry.slug)).toEqual(["", "guide"]);
-  });
-
-  test("the same page linked twice fails the build rather than appearing twice", () => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(
-      join(dir, "docs/README.md"),
-      "# The manual\n\n- [Using it](guide.md): how.\n- [Again](guide.md): also how.\n",
-    );
-    writeFileSync(join(dir, "docs/guide.md"), "# Using it\n\nWords.\n");
-
-    expect(() => loadDocs(dir)).toThrow("docs/README.md links docs/guide.md twice");
-  });
-
-  test("an index that links a page nobody wrote fails the build, naming it", () => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs/README.md"), "# The manual\n\n- [Gone](gone.md): nowhere.\n");
-
-    expect(() => loadDocs(dir)).toThrow("docs/README.md links docs/gone.md, which is not there");
+    expect(() => loadDocs(dir)).toThrow("docs/sharing.md is named in the manual but not there");
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("every page renders with nothing left as markdown", () => {
@@ -147,31 +127,6 @@ describe("docs/", () => {
         }
       }
     }
-  });
-});
-
-describe("page names", () => {
-  /**
-   * The site serves this one folder, flat. A name it could not turn into a
-   * directory and an href has to stop the build rather than quietly leave a
-   * page out of the manual, which is what a pattern that simply failed to
-   * match such a link would do.
-   */
-  test.each([
-    ['- [Bad](a"b.md): no.', 'a"b.md'],
-    ["- [Nested](nested/guide.md): no.", "nested/guide.md"],
-    ["- [Spaced](<bad name.md>): no.", "bad name.md"],
-    ["- [Shouting](GUIDE.md): no.", "GUIDE.md"],
-    ["- [Bracketed](<bad).md>): no.", "bad).md"],
-    ["- **[Bold](a_b.md)**: no.", "a_b.md"],
-    ["- [Fragment](a_b.md#part): no.", "a_b.md"],
-    ["- [Rooted](/guide.md): no.", "/guide.md"],
-  ])("a page name this site cannot serve is refused: %s", (link, named) => {
-    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
-    mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "docs", "README.md"), `# Index\n\n${link}\n`);
-    expect(() => loadDocs(dir)).toThrow(`docs/${named}: a page name this site cannot serve.`);
-    rmSync(dir, { recursive: true, force: true });
   });
 });
 

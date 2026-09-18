@@ -70,6 +70,9 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
   describing the change.
 - A change to the interface comes with a screenshot of it, before and
   after where that helps.
+- A new page in the manual is linked from `docs/README.md` and named in
+  `PAGES` in `site/docs.ts`, which is the order the site shows them in. A
+  page that is committed and not named there fails the suite.
 - Links in `README.md` are absolute. The file is also the npm package
   page, and npm resolves relative links against `packages/cli`, where
   nothing they point at exists.

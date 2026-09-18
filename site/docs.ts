@@ -26,45 +26,36 @@ export type DocPage = {
   markdown: string;
 };
 
-/** A line that opens a list item, wherever the manual lists its pages. */
-const BULLET = /^\s*[-*+] /;
-
-/** Every markdown link on such a line, with what it points at. */
-const INDEX_LINK = /\[[^\]]*\]\((<[^>]*>|[^()]*)\)/g;
-
 /**
- * What a link points at, as markdown means it: a destination, optionally
- * wrapped in angle brackets so it may hold spaces or a closing parenthesis,
- * optionally followed by a title, optionally ending in a heading on the page
- * it names.
- */
-function destination(link: string): string {
-  const raw = link.trim();
-  const target =
-    raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : (raw.split(/\s+/)[0] ?? "");
-  const hash = target.indexOf("#");
-  return hash === -1 ? target : target.slice(0, hash);
-}
-
-/**
- * Whether a link is a page of this manual at all, before its name is judged.
+ * The manual, in the order the site shows it.
  *
- * Three kinds are not, and every one of them appears in the index today or
- * plausibly will: somewhere on the web, a heading on the page doing the
- * linking, and the repository's own files in the directory above.
+ * Named here rather than found by reading the folder, because `docs/` holds
+ * more than the manual: this repository's own conventions put uncommitted
+ * notes beside it, `docs/lessons.md` and `docs/plans/`, both in
+ * `.git/info/exclude`. A reader that served every markdown file it found
+ * built those as pages of the public manual in any checkout that had them,
+ * and failed this suite there while passing in CI, which has only what is
+ * committed.
+ *
+ * Naming them is also the only way this file can tell a page that is missing
+ * from one that was never meant to be here, so a name below with no file
+ * stops the build. The other half of the bargain, that no committed page is
+ * left out of this list, is `test/docs.test.ts`, which asks git.
  */
-function isPage(target: string): boolean {
-  if (target === "" || !target.endsWith(".md")) return false;
-  if (target.includes("://")) return false;
-  return !target.startsWith("../");
-}
+export const PAGES = [
+  "guide",
+  "sharing",
+  "configuration",
+  "agents",
+  "cli",
+  "architecture",
+] as const;
 
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
   const read = (file: string): DocPage => {
     const path = join(dir, file);
-    if (!existsSync(path))
-      throw new Error(`docs/README.md links docs/${file}, which is not there.`);
+    if (!existsSync(path)) throw new Error(`docs/${file} is named in the manual but not there.`);
     const markdown = readFileSync(path, "utf8");
     const heading = markdown.split("\n").find((line) => line.startsWith("# "));
     if (heading === undefined) throw new Error(`docs/${file} has no title heading.`);
@@ -75,28 +66,7 @@ export function loadDocs(root: string): DocPage[] {
       markdown,
     };
   };
-  const index = read("README.md");
-  const linked: string[] = [];
-  for (const line of index.markdown.split("\n")) {
-    if (!BULLET.test(line)) continue;
-    for (const match of line.matchAll(INDEX_LINK)) {
-      const target = destination(match[1] ?? "");
-      if (!isPage(target)) continue;
-      // Everything left is meant to be a page of this manual. The name
-      // becomes a directory and an href, so it is checked here rather than
-      // escaped there: lowercase letters, digits and hyphens, the way the
-      // existing pages are named. A link this site cannot serve stops the
-      // build instead of quietly leaving its page out of the manual, which
-      // is the whole reason the index is read rather than the folder.
-      if (!/^[a-z0-9-]+\.md$/.test(target))
-        throw new Error(`docs/${target}: a page name this site cannot serve.`);
-      // Twice is a mistake in the index, and a quiet one: the page would be
-      // written twice and sit twice in every page's nav, active in both.
-      if (linked.includes(target)) throw new Error(`docs/README.md links docs/${target} twice.`);
-      linked.push(target);
-    }
-  }
-  return [index, ...linked.map(read)];
+  return [read("README.md"), ...PAGES.map((page) => read(`${page}.md`))];
 }
 
 /** Where a page is written under the site, so build.ts and the tests agree. */
