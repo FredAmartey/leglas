@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
@@ -60,6 +61,17 @@ describe("docs/", () => {
         }
       }
     }
+  });
+});
+
+describe("page names", () => {
+  test("a file name that would not survive as a directory or an href is refused", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs", "README.md"), "# Index\n");
+    writeFileSync(join(dir, "docs", 'a"b.md'), "# Bad\n");
+    expect(() => loadDocs(dir)).toThrow('docs/a"b.md: a page name this site cannot serve.');
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -158,6 +170,10 @@ describe("the reader", () => {
     expect(render("# T\n\nfinishes in\n< 5 minutes.\n")).toBe("<p>finishes in &lt; 5 minutes.</p>");
     expect(() => render("# T\n\n<div>raw</div>\n")).toThrow("HTML this page cannot show");
     expect(() => render("# T\n\n<p align=\"center\">\n  <img src=\"x\">\n")).toThrow("a capture block that does not close");
+  });
+
+  test("a stray angle bracket in a capture block refuses", () => {
+    expect(() => render('# T\n\n<p align="center">\n  <img src="https://example.test/a.png" alt="A" /> >\n</p>\n')).toThrow("a tag this page cannot show in a capture block");
   });
 
   test("an absolute path resolves from the repository root", () => {

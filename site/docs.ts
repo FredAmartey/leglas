@@ -36,6 +36,10 @@ export function loadDocs(root: string): DocPage[] {
     const heading = markdown.split("\n").find((line) => line.startsWith("# "));
     if (heading === undefined) throw new Error(`docs/${file} has no title heading.`);
     const slug = file === "README.md" ? "" : file.slice(0, -".md".length);
+    // The slug becomes a directory and an href on every page, so it is
+    // checked here rather than escaped there: lowercase letters, digits
+    // and hyphens, the way the existing pages are named.
+    if (slug !== "" && !/^[a-z0-9-]+$/.test(slug)) throw new Error(`docs/${file}: a page name this site cannot serve.`);
     return { file, slug, title: heading.slice(2).trim(), markdown };
   });
   const rank = (page: DocPage): number => (page.slug === "" ? -1 : ORDER.indexOf(page.slug));
@@ -161,7 +165,7 @@ export function captureBlock(text: string, refuse: (why: string) => never): stri
   }
   const parts: string[] = [];
   const inner = match[1] ?? "";
-  const token = /<img\b([^<>]*?)\s*\/?>|<i>([^<>]*)<\/i>|([^<>]+)|(<)/g;
+  const token = /<img\b([^<>]*?)\s*\/?>|<i>([^<>]*)<\/i>|([^<>]+)|([<>])/g;
   for (const piece of inner.matchAll(token)) {
     const [, image, caption, prose, stray] = piece;
     if (image !== undefined) {
