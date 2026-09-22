@@ -96,9 +96,31 @@ describe("the MCP face", () => {
       "list",
       "requests",
       "scaffold",
+      "share",
       "show",
       "start",
     ]);
+  });
+
+  test("share reaches the running Leglas through the CLI, and says so when there is none", async () => {
+    const dir = scratch();
+    // A port that was free a moment ago: nothing answers it, so the project's
+    // own record points at nothing and no other Leglas on this machine is asked.
+    const closed = http.createServer();
+    await new Promise<void>((resolve) => closed.listen(0, "127.0.0.1", resolve));
+    // SAFETY: `listen` completed on a TCP host, so `address` is an IP address and port.
+    const port = (closed.address() as import("node:net").AddressInfo).port;
+    await new Promise<void>((resolve) => closed.close(() => resolve()));
+    await writeServerInfo(dir, { port, url: `http://localhost:${port}`, pid: process.pid });
+    const client = await connect(dir);
+
+    const { envelope, isError } = await call(client, "share", { titles: ["Aurora"] });
+
+    expect(isError).toBe(true);
+    expect(envelope).toEqual({
+      ok: false,
+      error: "Leglas is not running here. Start it with npx leglas, then try again.",
+    });
   });
 
   test("add registers a local preview and returns the CLI's envelope", async () => {

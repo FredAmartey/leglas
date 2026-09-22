@@ -27,6 +27,13 @@ export type ClassifyChange = {
   kind: "change" | "rewrite";
 };
 
+/** How far a viewer may reach into the dev server behind a share. */
+export type ShareReach = "open" | "listed";
+
+export type ShareTunnel = "cloudflared" | "ngrok" | "none";
+
+const SHARE_TUNNELS: readonly ShareTunnel[] = ["cloudflared", "ngrok", "none"];
+
 export type ParseResult =
   | { kind: "run"; options: RunOptions }
   | { kind: "new"; surface: string; print: boolean; json: boolean; from: string | undefined }
@@ -41,6 +48,17 @@ export type ParseResult =
       screenshot: boolean;
       width: number | null;
       port: number | null;
+    }
+  | {
+      kind: "share";
+      /** None shares the rail; one shares that direction alone; two compare them. */
+      titles: string[];
+      reach: ShareReach;
+      /** Null lets the running Leglas pick the first tunnel program it finds. */
+      tunnel: ShareTunnel | null;
+      stop: boolean;
+      port: number | null;
+      json: boolean;
     }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "watch"; run: string | undefined; port: number | undefined }
@@ -321,6 +339,104 @@ function parseWatch(rest: string[]): ParseResult {
   return { kind: "watch", run, port };
 }
 
+/**
+ * `leglas share`: no titles shares the rail, one shares a direction alone and
+ * two compare them, the second on the right. `--stop` ends whatever is being
+ * shared and takes nothing that would start a share.
+ */
+function parseShare(rest: string[]): ParseResult {
+  const titles: string[] = [];
+  let reach: ShareReach = "open";
+  let reachGiven = false;
+  let tunnel: ShareTunnel | null = null;
+  let stop = false;
+  let port: number | null = null;
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+
+    if (argument === "--stop") {
+      stop = true;
+      continue;
+    }
+
+    const equals = argument.indexOf("=");
+    const flag = equals === -1 ? argument : argument.slice(0, equals);
+
+    if (flag === "--reach" || flag === "--tunnel" || flag === "--port") {
+      const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
+      if (raw === undefined || raw === "") {
+        return { kind: "error", message: `${flag} needs a value.` };
+      }
+
+      if (flag === "--port") {
+        const parsed = parsePort(flag, raw);
+
+        if ("error" in parsed) return { kind: "error", message: parsed.error };
+        port = parsed.port;
+        continue;
+      }
+
+      if (flag === "--reach") {
+        if (raw !== "open" && raw !== "listed") {
+          return {
+            kind: "error",
+            message: `--reach is open or listed, received ${JSON.stringify(raw)}.`,
+          };
+        }
+
+        reach = raw;
+        reachGiven = true;
+        continue;
+      }
+
+      const chosen = SHARE_TUNNELS.find((candidate) => candidate === raw);
+
+      if (chosen === undefined) {
+        return {
+          kind: "error",
+          message: `--tunnel is cloudflared, ngrok or none, received ${JSON.stringify(raw)}.`,
+        };
+      }
+
+      tunnel = chosen;
+      continue;
+    }
+
+    if (argument.startsWith("-")) {
+      return { kind: "error", message: `leglas share does not take ${argument}.` };
+    }
+
+    titles.push(argument);
+  }
+
+  if (stop && (titles.length > 0 || reachGiven || tunnel !== null)) {
+    return {
+      kind: "error",
+      message: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    };
+  }
+
+  if (titles.length > 2) {
+    return {
+      kind: "error",
+      message:
+        "leglas share takes one direction to share alone, or two to compare. Name none to share the rail.",
+    };
+  }
+
+  return { kind: "share", titles, reach, tunnel, stop, port, json };
+}
+
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
 
@@ -593,6 +709,8 @@ export function parseArgs(argv: string[]): ParseResult {
 
     return { kind: "show", title, json, screenshot, width, port };
   }
+
+  if (argv[0] === "share") return parseShare(argv.slice(1));
 
   const options: RunOptions = {
     port: undefined,

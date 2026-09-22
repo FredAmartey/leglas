@@ -67,7 +67,7 @@ and a run ended this way is not retried on its own.
 
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
 same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
-`classify`, `explore`, `scaffold`, `keep`, `requests` and `init`. Each
+`classify`, `explore`, `scaffold`, `keep`, `requests`, `share` and `init`. Each
 tool calls exactly what the CLI calls and returns the same envelope. The
 `start` tool boots the viewer and returns its URL, and anything it started
 stops when the session ends.

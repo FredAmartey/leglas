@@ -138,7 +138,6 @@ export function Gutter({
   family = false,
   folded = false,
   fresh,
-  lifted = false,
   lit,
   row,
   tint = "#FB7185",
@@ -158,8 +157,6 @@ export function Gutter({
   delay?: number;
   /** Segments that were not there a moment ago and should draw themselves in. */
   fresh?: ReadonlySet<Segment> | undefined;
-  /** The row is being dragged: it carries its mark and leaves its lines behind. */
-  lifted?: boolean;
   /** Segments on the line being traced back to its root. */
   lit?: ReadonlySet<Segment> | undefined;
   row: LineageRow;

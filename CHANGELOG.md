@@ -14,6 +14,17 @@ it was about.
 
 ## Unreleased
 
+### Added
+
+- **Share from a terminal, or let an agent do it.** `npx leglas share`
+  shares the whole rail, `npx leglas share "Aurora"` one direction, and two
+  names put them side by side. It waits for the tunnel, prints the link and
+  when it stops working, and `--stop` ends the share. The MCP server has the
+  same as a `share` tool, for an agent host that cannot run a shell. From a
+  terminal the rail is the project's: every direction in config order,
+  under the names you gave them in the interface.
+  (`leglas`, `leglas-mcp`)
+
 ### Changed
 
 - **An agent that goes quiet says so, and cannot hold up the queue.** A run

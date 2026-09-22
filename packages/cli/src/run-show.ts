@@ -1,15 +1,7 @@
-import { realpath } from "node:fs/promises";
-
-import {
-  DEFAULT_PORT,
-  loadConfig,
-  readLocalPreviews,
-  readRenames,
-  readRequests,
-  readServerInfo,
-} from "@leglas/server";
+import { loadConfig, readLocalPreviews, readRenames, readRequests } from "@leglas/server";
 
 import { resolveOrExplain } from "./resolve-title.js";
+import { findLeglas, NOT_RUNNING } from "./running.js";
 import { planShow } from "./show.js";
 
 export type ShowDeps = {
@@ -37,12 +29,6 @@ type CaptureResponse = Pick<Screenshot, "file" | "width" | "height" | "viewport"
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
-}
-
-function hasDirectory(value: unknown): value is { cwd: string } {
-  return (
-    typeof value === "object" && value !== null && "cwd" in value && typeof value.cwd === "string"
-  );
 }
 
 function hasCaptureError(value: unknown): value is { error: string } {
@@ -81,23 +67,11 @@ function isHydration(value: unknown): value is NonNullable<Screenshot["hydration
   );
 }
 
-const NOT_RUNNING = "Leglas is not running here. Start it with npx leglas, then try again.";
-
 /**
  * Longer than the server's own deadline plus a cold browser launch, so a
  * stalled capture is reported rather than sat on for good.
  */
 const CAPTURE_WAIT_MS = 30_000;
-
-/** Two paths that name one directory, whatever symlinks sit in the way. */
-async function sameDirectory(left: string, right: string): Promise<boolean> {
-  const [a, b] = await Promise.all([
-    realpath(left).catch(() => left),
-    realpath(right).catch(() => right),
-  ]);
-
-  return a === b;
-}
 
 /**
  * Answer for one direction, for whoever was handed its reference block.
@@ -168,13 +142,6 @@ export async function runShow(
   };
 
   if (options.screenshot) {
-    // An explicit port wins; then the record the running server wrote; then
-    // the default, since a record can be missing while a server is up (two
-    // servers on one project, the newer one gone first). The health probe
-    // below is what decides, whichever way the port was found.
-    const server = options.port === null ? await readServerInfo(options.cwd) : null;
-    const port = options.port ?? server?.port ?? DEFAULT_PORT;
-
     const fail = (error: string) => {
       if (options.json) deps.log(JSON.stringify({ ok: false, error }));
       else deps.error(error);
@@ -183,28 +150,10 @@ export async function runShow(
     };
 
     const request = deps.fetch ?? fetch;
+    const found = await findLeglas(options.cwd, options.port, request);
 
-    try {
-      const health = await request(`http://127.0.0.1:${port}/leglas/api/health`, {
-        signal: AbortSignal.timeout(2_000),
-      });
-
-      if (health.status !== 200) return fail(NOT_RUNNING);
-      // A stale record, or a port named by hand, can reach a Leglas that
-      // serves another project. It would capture a direction of the same
-      // name there and report a file that does not exist here.
-      const answered: unknown = await health.json().catch(() => ({}));
-
-      if (answered === null) return fail(NOT_RUNNING);
-
-      if (hasDirectory(answered) && !(await sameDirectory(answered.cwd, options.cwd))) {
-        return fail(
-          `The Leglas on port ${port} serves another project. Start one here with npx leglas, or name the right one with --port.`,
-        );
-      }
-    } catch {
-      return fail(NOT_RUNNING);
-    }
+    if (!found.ok) return fail(found.error);
+    const port = found.port;
 
     let response: Response;
 

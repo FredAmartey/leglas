@@ -52,6 +52,26 @@ are answering and how many sessions are on each. When your rail has moved
 since you shared, it offers to push what you see now; stop the share from
 the same place, and it stops with Leglas either way.
 
+## From a terminal or an agent
+
+`npx leglas share` does from a terminal what the panel does: it shares the
+whole rail, or one direction when you name it, or two side by side when you
+name two, the second on the right. It waits for the tunnel and prints the
+link and when it stops working. Run it again to see the links of the share
+that is running, and `npx leglas share --stop` ends it. `--reach listed`
+and `--tunnel` choose what the panel's options choose.
+
+A terminal cannot see your browser, so the rail it shares is the
+project's: every direction in config order, under the names you gave them
+in the interface, with nothing hidden or folded. For the same reason,
+"only what you shared" starts with an empty list from there. Nothing the
+pages load is predicted, so a viewer is refused their files until you let
+them through in the panel, which is why sharing the whole app is the
+default.
+
+For an agent host that cannot run a shell, the MCP server has the same
+operation as its `share` tool.
+
 ## The tunnel
 
 The tunnel is borrowed, not shipped. Leglas looks for `cloudflared` or

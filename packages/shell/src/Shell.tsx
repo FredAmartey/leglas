@@ -203,7 +203,6 @@ export function Shell({
   const st = useShellState({
     previews,
     project,
-    searchRef,
     onToggleSplit,
     onToggleHelp,
     onToggleTools,
