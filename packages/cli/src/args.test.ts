@@ -434,6 +434,60 @@ describe("the show command", () => {
   });
 });
 
+describe("the share command", () => {
+  test("no directions shares the rail; one shares it alone; two compare them", () => {
+    expect(parseArgs(["share"])).toEqual({
+      kind: "share",
+      titles: [],
+      reach: "open",
+      tunnel: null,
+      stop: false,
+      port: null,
+      json: false,
+    });
+    expect(parseArgs(["share", "Aurora"])).toMatchObject({ titles: ["Aurora"] });
+    expect(parseArgs(["share", "Aurora", "Dusk", "--json"])).toMatchObject({
+      titles: ["Aurora", "Dusk"],
+      json: true,
+    });
+  });
+
+  test("takes a reach, a tunnel and the port of a Leglas elsewhere", () => {
+    expect(
+      parseArgs(["share", "Aurora", "--reach", "listed", "--tunnel=ngrok", "--port", "4200"]),
+    ).toMatchObject({ reach: "listed", tunnel: "ngrok", port: 4200 });
+    expect(parseArgs(["share", "--tunnel", "none"])).toMatchObject({ tunnel: "none" });
+  });
+
+  test("stop ends the share and takes nothing that would start one", () => {
+    expect(parseArgs(["share", "--stop", "--json"])).toMatchObject({ stop: true, json: true });
+    expect(parseArgs(["share", "Aurora", "--stop"])).toEqual({
+      kind: "error",
+      message: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    });
+  });
+
+  test("refuses what it cannot share", () => {
+    expect(parseArgs(["share", "A", "B", "C"])).toEqual({
+      kind: "error",
+      message:
+        "leglas share takes one direction to share alone, or two to compare. Name none to share the rail.",
+    });
+    expect(parseArgs(["share", "--reach", "everything"])).toEqual({
+      kind: "error",
+      message: '--reach is open or listed, received "everything".',
+    });
+    expect(parseArgs(["share", "--tunnel", "ssh"])).toEqual({
+      kind: "error",
+      message: '--tunnel is cloudflared, ngrok or none, received "ssh".',
+    });
+    expect(parseArgs(["share", "--fast"])).toEqual({
+      kind: "error",
+      message: "leglas share does not take --fast.",
+    });
+  });
+});
+
 describe("watch", () => {
   test("takes the agent command as one argument", () => {
     const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);

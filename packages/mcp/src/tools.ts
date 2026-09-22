@@ -15,6 +15,7 @@ import {
   runList,
   runNew,
   runRequests,
+  runShare,
   runShow,
   type RunResult,
 } from "leglas";
@@ -385,6 +386,51 @@ export function registerLeglasTools(
     },
     async ({ title, to }) =>
       inProject(project, (cwd, deps) => runKeep({ title, to, json: true, cwd }, deps)),
+  );
+
+  server.registerTool(
+    "share",
+    {
+      title: "Share directions",
+      description:
+        "Share directions with someone who has no copy of the project: the whole rail, one " +
+        "direction, or two side by side, through a tunnel, and return the link. Use it only when " +
+        "the user asks to share: whoever holds the link reaches the running app. A share that is " +
+        "already running is returned, not replaced. Pass stop to end it and every link to it.",
+      inputSchema: {
+        titles: z
+          .array(z.string().min(1))
+          .max(2)
+          .optional()
+          .describe(
+            "None shares the rail; one shares it alone; two are compared, the second on the right.",
+          ),
+        reach: z
+          .enum(["open", "listed"])
+          .optional()
+          .describe(
+            "open lets viewers reach the whole app. listed serves only the paths the share lists, " +
+              "which starts empty from here, so a page's own files are refused until the user allows them.",
+          ),
+        stop: z.boolean().optional(),
+      },
+      annotations: { openWorldHint: true },
+    },
+    async ({ titles, reach, stop }) =>
+      inProject(project, (cwd, deps) =>
+        runShare(
+          {
+            titles: titles ?? [],
+            reach: reach ?? "open",
+            tunnel: null,
+            stop: stop ?? false,
+            port: null,
+            json: true,
+            cwd,
+          },
+          deps,
+        ),
+      ),
   );
 
   server.registerTool(

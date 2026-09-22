@@ -11,6 +11,7 @@ import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
 import { runLog } from "./run-log.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
+import { runShare } from "./run-share.js";
 import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
 import { startViewer } from "./bin-start.js";
@@ -27,6 +28,7 @@ Usage
   leglas list                Show every preview, shared and local
   leglas log [entry]         What past explorations decided
   leglas show <title>        Everything Leglas knows about one direction
+  leglas share [title] [title]  Share the rail, one direction or a pair
   leglas requests            Show change requests made from the interface
   leglas watch --run "<cmd>" Hand each request to your agent as it arrives
   leglas keep <title> --to <path>  Keep a winner and end the exploration
@@ -69,6 +71,12 @@ Options for show
   --screenshot         Render the direction and write a PNG
   --width <n>          Capture width from 320 to 3840 (needs --screenshot)
   --port <port>        Running Leglas port (needs --screenshot)
+
+Options for share
+  --reach <open|listed>  How far viewers reach into the app (default open)
+  --tunnel <name>      cloudflared, ngrok or none (default: the first found)
+  --stop               End the share, and every link to it
+  --port <port>        Running Leglas port
 `;
 
 function version(): string {
@@ -208,6 +216,23 @@ if (parsed.kind === "log") {
 
 if (parsed.kind === "list") {
   const outcome = await runList({ json: parsed.json, cwd: process.cwd() }, previewDeps);
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "share") {
+  const outcome = await runShare(
+    {
+      titles: parsed.titles,
+      reach: parsed.reach,
+      tunnel: parsed.tunnel,
+      stop: parsed.stop,
+      port: parsed.port,
+      json: parsed.json,
+      cwd: process.cwd(),
+    },
+    previewDeps,
+  );
+
   process.exit(outcome.exitCode);
 }
 

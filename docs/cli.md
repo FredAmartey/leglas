@@ -10,6 +10,7 @@ leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local
 leglas log [entry]         What past explorations decided
 leglas show <title>        Everything Leglas knows about one direction
+leglas share [title] [title]  Share the rail, one direction or a pair
 leglas requests            Show change requests made from the interface
 leglas watch --run "<cmd>" Hand each request to your agent as it arrives
 leglas keep <title> --to <path>  Keep a winner and end the exploration

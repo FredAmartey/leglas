@@ -101,6 +101,16 @@ export type ParseResult = {
     width: number | null;
     port: number | null;
 } | {
+    kind: "share";
+    /** None shares the rail; one shares that direction alone; two compare them. */
+    titles: string[];
+    reach: ShareReach;
+    /** Null lets the running Leglas pick the first tunnel program it finds. */
+    tunnel: ShareTunnel | null;
+    stop: boolean;
+    port: number | null;
+    json: boolean;
+} | {
     kind: "requests";
     json: boolean;
     clear: boolean;
@@ -368,6 +378,9 @@ export declare function runRequests(options: {
     clear: boolean;
     cwd: string;
 }, deps: PreviewDeps): Promise<PreviewResult>;
+export declare function runShare(options: ShareOptions, deps: ShareDeps): Promise<{
+    exitCode: number;
+}>;
 export declare function runShow(options: {
     title: string;
     json: boolean;
