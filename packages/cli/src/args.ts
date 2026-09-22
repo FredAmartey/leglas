@@ -59,7 +59,7 @@ const MIN_SHOW_WIDTH = 320;
 
 const MAX_SHOW_WIDTH = 3840;
 
-function parsePort(flag: string, raw: string): number | { error: string } {
+function parsePort(flag: string, raw: string): { port: number } | { error: string } {
   if (!/^\d+$/.test(raw)) {
     return { error: `${flag} needs a number, received ${JSON.stringify(raw)}.` };
   }
@@ -70,7 +70,7 @@ function parsePort(flag: string, raw: string): number | { error: string } {
     return { error: `${flag} must be between 1 and 65535, received ${port}.` };
   }
 
-  return port;
+  return { port };
 }
 
 /**
@@ -85,7 +85,7 @@ function parseNew(rest: string[]): ParseResult {
   let from: string | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
 
     if (argument === "--from" || argument.startsWith("--from=")) {
       from = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
@@ -145,7 +145,7 @@ function parseAdd(rest: string[]): ParseResult {
   let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
 
     if (argument === "--json") {
       json = true;
@@ -236,7 +236,7 @@ function parseClassify(rest: string[]): ParseResult {
   let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
 
     if (argument === "--json") {
       json = true;
@@ -284,7 +284,7 @@ function parseWatch(rest: string[]): ParseResult {
   let port: number | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
 
     if (argument === "--help" || argument === "-h") return { kind: "help" };
 
@@ -314,8 +314,8 @@ function parseWatch(rest: string[]): ParseResult {
 
     const parsed = parsePort(flag, value);
 
-    if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
-    port = parsed;
+    if ("error" in parsed) return { kind: "error", message: parsed.error };
+    port = parsed.port;
   }
 
   return { kind: "watch", run, port };
@@ -348,7 +348,7 @@ export function parseArgs(argv: string[]): ParseResult {
     let json = false;
 
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
 
       if (argument === "--json") {
         json = true;
@@ -405,7 +405,7 @@ export function parseArgs(argv: string[]): ParseResult {
     let json = false;
 
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
 
       if (argument === "--json") {
         json = true;
@@ -511,7 +511,7 @@ export function parseArgs(argv: string[]): ParseResult {
     let port: number | null = null;
 
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
 
       if (argument === "--json") {
         json = true;
@@ -540,8 +540,8 @@ export function parseArgs(argv: string[]): ParseResult {
         if (flag === "--port") {
           const parsed = parsePort(flag, raw);
 
-          if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
-          port = parsed;
+          if ("error" in parsed) return { kind: "error", message: parsed.error };
+          port = parsed.port;
           continue;
         }
 
@@ -603,7 +603,7 @@ export function parseArgs(argv: string[]): ParseResult {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index] as string;
+    const argument = argv[index]!;
 
     if (argument === "--help" || argument === "-h") return { kind: "help" };
 
@@ -648,10 +648,10 @@ export function parseArgs(argv: string[]): ParseResult {
 
     const port = parsePort(flag, value);
 
-    if (typeof port !== "number") return { kind: "error", message: port.error };
+    if ("error" in port) return { kind: "error", message: port.error };
 
-    if (flag === "--port") options.port = port;
-    else options.userPort = port;
+    if (flag === "--port") options.port = port.port;
+    else options.userPort = port.port;
   }
 
   return { kind: "run", options };

@@ -29,6 +29,10 @@ export const TARGETS = {
 
 export type Target = (typeof TARGETS)[keyof typeof TARGETS]["key"];
 
+function isAudience(name: string): name is keyof typeof TARGETS {
+  return Object.hasOwn(TARGETS, name);
+}
+
 /** One bullet: an optional bold lead, its text, further paragraphs, and who it reaches. */
 export type Item = {
   kind: "item";
@@ -105,10 +109,9 @@ export function parseChangelog(markdown: string): Changelog {
 
     if (tagged?.[1] !== undefined) {
       for (const name of tagged[1].split(", ")) {
-        const target = (TARGETS as Record<string, { key: Target } | undefined>)[name];
-
-        if (!target) throw new Error(`Unknown audience ${name} in "${paragraphs[last]}".`);
-        reaches.push(target.key);
+        if (!isAudience(name))
+          throw new Error(`Unknown audience ${name} in "${paragraphs[last]}".`);
+        reaches.push(TARGETS[name].key);
       }
 
       paragraphs[last] = paragraphs[last]!.slice(0, -tagged[0].length).trim();

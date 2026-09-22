@@ -1,20 +1,15 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { UpdateService, UpdateStatus } from "@leglas/server";
 
-import { run, type RunDeps } from "./run.js";
+import { run, runWithServices, type RunDeps } from "./run.js";
 
-const inspectDevServer = vi.hoisted(() => vi.fn());
+import type { inspectLocalDevServer } from "./dev-server-owner.js";
 
-vi.mock("./dev-server-owner.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./dev-server-owner.js")>();
-
-  return { ...actual, inspectLocalDevServer: inspectDevServer };
-});
+const inspectDevServer = vi.fn<typeof inspectLocalDevServer>();
 
 const stopping: Array<() => Promise<void>> = [];
 
@@ -38,6 +33,12 @@ beforeEach(() => {
   inspectDevServer.mockResolvedValue([]);
 });
 
+function isAddress(
+  value: string | import("node:net").AddressInfo,
+): value is import("node:net").AddressInfo {
+  return typeof value !== "string";
+}
+
 function startOrigin(): Promise<number> {
   const server = http.createServer((_req, res) => {
     res.writeHead(200);
@@ -47,7 +48,12 @@ function startOrigin(): Promise<number> {
   origins.push(server);
 
   return new Promise((resolve) =>
-    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)),
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+
+      if (address === null || !isAddress(address)) throw new Error("No TCP listener.");
+      resolve(address.port);
+    }),
   );
 }
 
@@ -63,6 +69,16 @@ function harness() {
   return { deps, opened, output: () => out.join("\n") };
 }
 
+type ViewerConfig = {
+  warnings: string[];
+  previews: { title: string; url?: string; state?: { status: string } }[];
+};
+
+async function configAt(base: string): Promise<ViewerConfig> {
+  // SAFETY: Every caller uses its test-started server, whose config route owns these fields.
+  return (await (await fetch(`${base}/leglas/api/config`)).json()) as ViewerConfig;
+}
+
 function projectWith(config: string): string {
   const dir = mkdtempSync(join(tmpdir(), "leglas-cli-"));
   writeFileSync(join(dir, "leglas.config.ts"), config);
@@ -73,7 +89,7 @@ function projectWith(config: string): string {
 async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {}) {
   const { deps, opened, output } = harness();
 
-  const result = await run(
+  const result = await runWithServices(
     {
       port: 0,
       userPort: undefined,
@@ -84,6 +100,7 @@ async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {
       ...options,
     },
     deps,
+    { inspectLocalDevServer: inspectDevServer },
   );
 
   stopping.push(result.stop);
@@ -173,7 +190,7 @@ describe("run", () => {
     );
 
     const { output } = await boot(dir, { json: true, open: false });
-    const envelope = JSON.parse(output) as { ok: boolean; url: string };
+    const envelope: { ok: boolean; url: string } = JSON.parse(output);
 
     expect(envelope.ok).toBe(true);
     expect(envelope.url).toContain("/leglas");
@@ -201,9 +218,7 @@ describe("run", () => {
     inspectDevServer.mockResolvedValueOnce([{ pid: 42, cwd: "/work/other-app" }]);
     const { output, result } = await boot(dir, { open: false });
 
-    const config = (await (
-      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
-    ).json()) as { warnings: string[] };
+    const config = await configAt(result.url.replace(/\/leglas$/, ""));
 
     expect(output).toContain(`Port ${port} appears to be served from other-app`);
     expect(config.warnings).toEqual([expect.stringContaining("outside this project")]);
@@ -314,9 +329,7 @@ describe("branch previews without a devCommand", () => {
     expect(output).not.toContain("devCommand");
     const base = result.url.replace(/\/leglas$/, "");
 
-    const config = (await (await fetch(`${base}/leglas/api/config`)).json()) as {
-      previews: Array<Record<string, unknown>>;
-    };
+    const config = await configAt(base);
 
     expect(config.previews[1]).toMatchObject({ title: "PR", state: { status: "idle" } });
     expect(Object.hasOwn(config.previews[1] ?? {}, "url")).toBe(false);
@@ -350,9 +363,7 @@ describe("branch previews without a devCommand", () => {
     expect(result.previewCount).toBe(1);
     expect(output).not.toContain("Could not check out");
 
-    const config = (await (
-      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
-    ).json()) as { previews: Array<Record<string, unknown>> };
+    const config = await configAt(result.url.replace(/\/leglas$/, ""));
 
     expect(config.previews[0]).toMatchObject({ title: "PR", state: { status: "idle" } });
     expect(Object.hasOwn(config.previews[0] ?? {}, "url")).toBe(false);
@@ -371,9 +382,7 @@ describe("greenfield", () => {
 
     const { result } = await boot(dir, { open: false });
 
-    const config = (await (
-      await fetch(`${result.url.replace(/\/leglas$/, "")}/leglas/api/config`)
-    ).json()) as { previews: { title: string; url: string }[] };
+    const config = await configAt(result.url.replace(/\/leglas$/, ""));
 
     const preview = config.previews[0];
     expect(preview?.url).toContain("/leglas/files/");
@@ -382,7 +391,7 @@ describe("greenfield", () => {
     const page = await fetch(`${base}${preview?.url}`);
     expect(await page.text()).toContain("aurora page");
 
-    const asset = await fetch(`${base}${preview?.url.replace("aurora.html", "style.css")}`);
+    const asset = await fetch(`${base}${preview?.url?.replace("aurora.html", "style.css")}`);
     expect(await asset.text()).toContain("teal");
   });
 

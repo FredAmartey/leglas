@@ -1,54 +1,79 @@
 import { fileURLToPath } from "node:url";
 
+import type { createUpdateService, UpdateService } from "@leglas/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-const mocked = vi.hoisted(() => ({
-  realpath: vi.fn(),
-  create: vi.fn(),
-  run: vi.fn(),
-  shutdown: vi.fn(),
-}));
+import { startViewer } from "./bin-start.js";
+import type { run } from "./run.js";
+import type { installShutdown } from "./shutdown.js";
 
-vi.mock("node:fs", async (original) => ({
-  ...(await original<typeof import("node:fs")>()),
-  realpathSync: mocked.realpath,
-}));
+const service = {
+  status: vi.fn<UpdateService["status"]>(),
+  check: vi.fn<UpdateService["check"]>(),
+  skip: vi.fn<UpdateService["skip"]>(),
+  update: vi.fn<UpdateService["update"]>(),
+  notice: vi.fn<UpdateService["notice"]>(),
+  onRestart: vi.fn<UpdateService["onRestart"]>(),
+  onBusy: vi.fn<UpdateService["onBusy"]>(),
+  onChange: vi.fn<UpdateService["onChange"]>(),
+  setPort: vi.fn<UpdateService["setPort"]>(),
+  close: vi.fn(async () => {}),
+} satisfies UpdateService;
 
-vi.mock("@leglas/server", async (original) => ({
-  ...(await original<typeof import("@leglas/server")>()),
-  createUpdateService: mocked.create,
-}));
-
-vi.mock("./run.js", () => ({ run: mocked.run }));
-
-vi.mock("./shutdown.js", async (original) => ({
-  ...(await original<typeof import("./shutdown.js")>()),
-  installShutdown: mocked.shutdown,
-}));
+const mocked = {
+  realpath: vi.fn<(path: string) => string>(),
+  create: vi.fn<typeof createUpdateService>(),
+  run: vi.fn<typeof run>(),
+  shutdown: vi.fn<typeof installShutdown>(),
+};
 
 const argv = process.argv;
 
-const warningListeners = process.listeners("warning");
-
 beforeEach(() => {
-  vi.resetModules();
   mocked.realpath.mockReturnValue("/resolved/leglas/bin.js");
-  mocked.create.mockReturnValue({ onRestart: vi.fn() });
+  mocked.create.mockReturnValue(service);
   mocked.run.mockImplementation(async (_options, deps) => {
     deps.log('{"ok":true}');
 
-    return { stop: vi.fn(async () => {}) };
+    return {
+      exitCode: 0,
+      url: "http://localhost:4105/leglas",
+      devServer: "http://localhost:3000",
+      previewCount: 0,
+      stop: vi.fn(async () => {}),
+    };
   });
 });
 
 afterEach(() => {
   process.argv = argv;
-  process.removeAllListeners("warning");
-
-  for (const listener of warningListeners) process.on("warning", listener);
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
+
+const entry = fileURLToPath(new URL("./bin.ts", import.meta.url));
+
+function start(json: boolean) {
+  return startViewer(
+    {
+      cwd: process.cwd(),
+      json,
+      open: false,
+      port: undefined,
+      userPort: undefined,
+      configPath: undefined,
+    },
+    {
+      entry,
+      version: "1.0.0",
+      open: async () => {},
+      realpath: mocked.realpath,
+      createUpdateService: mocked.create,
+      run: mocked.run,
+      installShutdown: mocked.shutdown,
+    },
+  );
+}
 
 describe("CLI update wiring", () => {
   test.each([true, false])(
@@ -62,10 +87,10 @@ describe("CLI update wiring", () => {
       ];
       const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
       const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      await import("./bin.js");
+      await start(json);
       const input = mocked.create.mock.calls[0]![0];
-      input.deps.log("Updating Leglas.");
-      input.deps.log("Restarting Leglas.");
+      input.deps?.log?.("Updating Leglas.");
+      input.deps?.log?.("Restarting Leglas.");
       expect(input.entry).toBe("/resolved/leglas/bin.js");
       expect(stdout.mock.calls.map(([line]) => line)).toEqual(
         json ? ['{"ok":true}\n'] : ['{"ok":true}\n', "Updating Leglas.\n", "Restarting Leglas.\n"],
@@ -74,6 +99,11 @@ describe("CLI update wiring", () => {
         json ? ["Updating Leglas.\n", "Restarting Leglas.\n"] : [],
       );
       expect(mocked.shutdown).toHaveBeenCalledOnce();
+      expect(service.onRestart).toHaveBeenCalledOnce();
+      expect(mocked.run).toHaveBeenCalledWith(
+        expect.objectContaining({ json, open: false }),
+        expect.objectContaining({ updates: service }),
+      );
     },
   );
 
@@ -83,10 +113,8 @@ describe("CLI update wiring", () => {
       throw new Error("The cache entry is gone.");
     });
     vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    await import("./bin.js");
-    expect(mocked.create.mock.calls[0]![0].entry).toBe(
-      fileURLToPath(new URL("./bin.ts", import.meta.url)),
-    );
+    await start(false);
+    expect(mocked.create.mock.calls[0]![0].entry).toBe(entry);
     expect(mocked.run).toHaveBeenCalledOnce();
   });
 });

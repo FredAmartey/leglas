@@ -13,7 +13,7 @@ export type ExploreDeps = { log(line: string): void };
 export function runExplore(
   options: { surface: string; count: number; basedOn: string | null; json: boolean },
   deps: ExploreDeps,
-): { exitCode: number } {
+) {
   if (!Number.isFinite(options.count) || options.count <= 0) {
     deps.log(
       options.json

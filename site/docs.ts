@@ -450,12 +450,15 @@ export function renderDoc(page: DocPage, pages: DocPage[], assets: Assets): stri
   };
 
   const nav = pages
-    .filter((candidate) => candidate.slug !== "")
-    .map((candidate) =>
-      candidate.slug === page.slug
-        ? `<span class="active" aria-current="page">${escape(candidate.title)}</span>`
-        : `<a href="${up}${candidate.slug}/">${escape(candidate.title)}</a>`,
-    )
+    .flatMap((candidate) => {
+      if (candidate.slug === "") return [];
+
+      return [
+        candidate.slug === page.slug
+          ? `<span class="active" aria-current="page">${escape(candidate.title)}</span>`
+          : `<a href="${up}${candidate.slug}/">${escape(candidate.title)}</a>`,
+      ];
+    })
     .join("");
 
   const body = `<div class="dots" aria-hidden="true"></div>

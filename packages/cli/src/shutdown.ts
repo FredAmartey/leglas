@@ -21,7 +21,7 @@ export const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 export type ShutdownSignal = (typeof SHUTDOWN_SIGNALS)[number];
 
 export type SignalTarget = {
-  on(signal: ShutdownSignal, listener: () => void): unknown;
+  on(signal: ShutdownSignal, listener: () => void): void;
 };
 
 /**

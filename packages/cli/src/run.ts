@@ -105,8 +105,22 @@ export async function run(
   options: RunOptions & { cwd: string },
   deps: RunDeps,
 ): Promise<RunResult> {
-  const loaded = await loadConfig(options.cwd);
-  const local = await readLocalPreviews(options.cwd);
+  return runWithServices(options, deps);
+}
+
+/** Boot using the host's config, server and process inspection services. */
+export async function runWithServices(
+  options: RunOptions & { cwd: string },
+  deps: RunDeps,
+  services: {
+    loadConfig?: typeof loadConfig;
+    readLocalPreviews?: typeof readLocalPreviews;
+    startServer?: typeof startServer;
+    inspectLocalDevServer?: typeof inspectLocalDevServer;
+  } = {},
+): Promise<RunResult> {
+  const loaded = await (services.loadConfig ?? loadConfig)(options.cwd);
+  const local = await (services.readLocalPreviews ?? readLocalPreviews)(options.cwd);
 
   let devServer =
     options.userPort === undefined
@@ -198,12 +212,12 @@ export async function run(
 
   const ownerWarning =
     needsApp && app === null
-      ? inspectLocalDevServer(devServer)
+      ? (services.inspectLocalDevServer ?? inspectLocalDevServer)(devServer)
           .then((owners) => devServerOwnerWarning(devServer, projectRoot, owners))
           .catch(() => null)
       : Promise.resolve(null);
 
-  const serverPromise = startServer({
+  const serverOptions: Parameters<typeof startServer>[0] = {
     config,
     configErrors: [...loaded.errors, ...local.errors, ...previewErrors],
     configWarnings,
@@ -214,9 +228,12 @@ export async function run(
     project: loaded.path ?? options.cwd,
     cwd: options.cwd,
     leglasCommand: embeddedLeglasCommand(),
-    ...(deps.updates === undefined ? {} : { updates: deps.updates }),
-    ...(options.port === undefined ? {} : { port: options.port }),
-  });
+  };
+
+  if (deps.updates !== undefined) serverOptions.updates = deps.updates;
+
+  if (options.port !== undefined) serverOptions.port = options.port;
+  const serverPromise = (services.startServer ?? startServer)(serverOptions);
 
   const [server, warning] = await Promise.all([serverPromise, ownerWarning]);
 
@@ -226,6 +243,7 @@ export async function run(
   const previewCount = config?.previews.length ?? 0;
 
   // Probing through the server keeps one implementation of "is it up".
+  // SAFETY: This health route belongs to the server just started above and returns `reachable`.
   const health = (await (await fetch(`${server.url}${LEGLAS_PREFIX}/api/health`)).json()) as {
     reachable: boolean;
   };

@@ -19,7 +19,7 @@ function script(name: string): string {
     .join("\n");
 }
 
-function runStep(name: string, version: string): { args: string[]; notes: string | null } {
+function runStep(name: string, version: string) {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-publish-"));
 
   try {

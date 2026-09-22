@@ -3,13 +3,13 @@ import { describe, expect, test } from "vitest";
 import { planKeep } from "./keep.js";
 import type { Preview } from "@leglas/server";
 
-const preview = (title: string, url: string, local = true): Preview & { local?: boolean } => ({
-  title,
-  url,
-  note: undefined,
-  tags: [],
-  ...(local ? { local: true } : {}),
-});
+const preview = (title: string, url: string, local = true): Preview & { local?: boolean } => {
+  const entry: Preview & { local?: boolean } = { title, url, note: undefined, tags: [] };
+
+  if (local) entry.local = true;
+
+  return entry;
+};
 
 const previews = [
   preview("Current", "/?v-hero=current"),

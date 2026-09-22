@@ -30,9 +30,13 @@ const ENTRIES = [
 ] as const;
 
 /** Workspace packages are re-exported by name, and resolve to a sibling. */
-const WORKSPACE: Record<string, string> = {
+const WORKSPACE = {
   "@leglas/server": "packages/server",
-};
+} as const;
+
+function isWorkspace(specifier: string): specifier is keyof typeof WORKSPACE {
+  return Object.hasOwn(WORKSPACE, specifier);
+}
 
 export const SNAPSHOT = "api-surface.txt";
 
@@ -209,7 +213,7 @@ function moduleFile(root: string, from: string, specifier: string): string | nul
     return join(from, `${specifier.replace(/^\.\//, "").replace(/\.js$/, "")}.d.ts`);
   }
 
-  const workspace = WORKSPACE[specifier];
+  const workspace = isWorkspace(specifier) ? WORKSPACE[specifier] : undefined;
 
   return workspace === undefined ? null : join(root, workspace, "dist", "index.d.ts");
 }

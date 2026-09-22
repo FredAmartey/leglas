@@ -1,20 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { UpdateService, UpdateStatus } from "@leglas/server";
-import { run, skipStartupCheck } from "./run.js";
+import type { UpdateService, UpdateStatus, startServer } from "@leglas/server";
+import { runWithServices, skipStartupCheck } from "./run.js";
 
-const server = vi.hoisted(() => ({ start: vi.fn(), close: vi.fn(async () => {}) }));
+const server = { start: vi.fn<typeof startServer>(), close: vi.fn(async () => {}) };
 
-vi.mock("@leglas/server", async (original) => {
-  const actual = await original<typeof import("@leglas/server")>();
-
-  return {
-    ...actual,
+const run = (
+  options: Parameters<typeof runWithServices>[0],
+  deps: Parameters<typeof runWithServices>[1],
+) =>
+  runWithServices(options, deps, {
     loadConfig: async () => ({ config: null, errors: [], path: null }),
     readLocalPreviews: async () => ({ previews: [], errors: [] }),
     startServer: server.start,
-  };
-});
+  });
 
 const status: UpdateStatus = {
   version: "1.0.0",
@@ -91,6 +90,26 @@ describe("skipStartupCheck", () => {
 });
 
 describe("startup update check without a listener", () => {
+  test("omits absent server options and forwards explicit values", async () => {
+    const absent = await run(options, { log: vi.fn(), open: async () => {} });
+    const first = server.start.mock.calls[0]![0];
+    expect(Object.hasOwn(first, "port")).toBe(false);
+    expect(Object.hasOwn(first, "updates")).toBe(false);
+    await absent.stop();
+
+    const updates = fakeUpdates();
+
+    const present = await run(
+      { ...options, port: 0 },
+      { updates, log: vi.fn(), open: async () => {} },
+    );
+
+    const second = server.start.mock.calls[1]![0];
+    expect(second.port).toBe(0);
+    expect(second.updates).toBe(updates);
+    await present.stop();
+  });
+
   test("checks hourly without printing another notice and clears the unref'd timer on stop", async () => {
     const interval = vi.spyOn(globalThis, "setInterval");
     const updates = fakeUpdates();
@@ -100,8 +119,11 @@ describe("startup update check without a listener", () => {
     expect(updates.check).toHaveBeenCalledOnce();
     expect(updates.notice).toHaveBeenCalledOnce();
     expect(interval).toHaveBeenCalledWith(expect.any(Function), 60 * 60_000);
-    const timer = interval.mock.results[0]!.value as ReturnType<typeof setInterval>;
-    expect(timer.hasRef()).toBe(false);
+    const timer = interval.mock.results[0]!;
+    expect(timer.type).toBe("return");
+
+    if (timer.type !== "return") throw new Error("The interval did not start.");
+    expect(timer.value.hasRef()).toBe(false);
     await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
     expect(updates.check).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1);

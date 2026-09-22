@@ -1,6 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createEngagement } from "./engagement.js";
+
+beforeEach(() => vi.useFakeTimers());
+
+afterEach(() => vi.useRealTimers());
 
 function harness(start = 1_000_000) {
   const posts: boolean[] = [];
@@ -15,9 +19,10 @@ function harness(start = 1_000_000) {
     setInterval: (callback) => {
       tick = callback;
 
-      return "timer";
+      return setInterval(() => {}, 2000);
     },
-    clearInterval: () => {
+    clearInterval: (handle) => {
+      clearInterval(handle);
       cleared += 1;
       tick = null;
     },
@@ -49,7 +54,7 @@ describe("createEngagement", () => {
   });
 
   test("the first touch of a cycle settles only after the server heard it", async () => {
-    let release: (() => void) | null = null;
+    let release!: () => void;
     const posts: boolean[] = [];
 
     const engagement = createEngagement({
@@ -58,7 +63,7 @@ describe("createEngagement", () => {
           posts.push(watching);
           release = resolve;
         }),
-      setInterval: () => "timer",
+      setInterval: () => setInterval(() => {}, 2000),
       clearInterval: () => {},
     });
 
@@ -73,7 +78,7 @@ describe("createEngagement", () => {
     await Promise.resolve();
     expect(posts).toEqual([true]);
     expect(settled).toBe(false);
-    release?.();
+    release();
     await first;
     expect(settled).toBe(true);
 
@@ -90,7 +95,7 @@ describe("createEngagement", () => {
   test("a rejecting post never fails the touch that carried it", async () => {
     const engagement = createEngagement({
       post: () => Promise.reject(new Error("server gone")),
-      setInterval: () => "timer",
+      setInterval: () => setInterval(() => {}, 2000),
       clearInterval: () => {},
     });
 

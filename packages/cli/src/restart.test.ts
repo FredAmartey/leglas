@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 
 import type { RestartCommand } from "@leglas/server";
@@ -15,11 +15,10 @@ const command: RestartCommand = {
 
 function harness() {
   const target = new EventEmitter();
-  const child = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) });
+  const child = new ChildProcess();
+  vi.spyOn(child, "kill").mockReturnValue(true);
 
-  const spawn = vi.fn(
-    () => child as unknown as ChildProcess,
-  ) as unknown as typeof import("node:child_process").spawn;
+  const spawn = vi.fn(() => child);
 
   const exit = vi.fn();
 
