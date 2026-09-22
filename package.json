@@ -10,6 +10,7 @@
     "test": "pnpm build && vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "pnpm build && pnpm -r typecheck && tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "pnpm -r build",
@@ -17,8 +18,10 @@
     "site": "node site/build.ts"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.85.0",
     "@types/node": "^26.1.1",
     "ajv": "^8.20.0",
+    "oxlint": "1.85.0",
     "prettier": "^3.9.8",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"

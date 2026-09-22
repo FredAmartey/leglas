@@ -8,6 +8,7 @@ pnpm build       # build every package
 pnpm test        # the suite, build included
 pnpm typecheck   # every package
 pnpm format      # prettier, over everything but prose and vendored files
+pnpm lint        # oxlint with the anti-slop rules in tools/oxlint
 pnpm site        # the homepage and changelog, into dist/site
 ```
 
