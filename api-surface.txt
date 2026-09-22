@@ -297,6 +297,7 @@ export declare function commandFor(template: WatchTemplate, prompt: string): {
 };
 export declare function detectFramework(packageJson: string | null): Framework;
 export declare function findBrowser(search?: BrowserSearch): string | null;
+export declare function installShutdown(stop: () => Promise<void>, target?: SignalTarget): () => Promise<void>;
 export declare function isOwnCapture(cwd: string, file: string): Promise<boolean>;
 export declare function nextRequest(requests: readonly PendingRequest[], failed: ReadonlySet<string>): PendingRequest | null;
 export declare function parseArgs(argv: string[]): ParseResult;

@@ -26,6 +26,8 @@ export { runShow } from "./run-show.js";
 
 export { runShare } from "./run-share.js";
 
+export { installShutdown } from "./shutdown.js";
+
 export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate } from "./watch.js";
 
 export { runWatch } from "./run-watch.js";

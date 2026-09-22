@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +121,18 @@ const tickUntil = async (
 
 afterEach(() => vi.restoreAllMocks());
 
+/** Whether a process exists, without signalling it. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    // EPERM means it exists and belongs to someone else.
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
 describe("startRunner", () => {
   test("reports state changes through the optional onChange hook", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-change-"));
@@ -172,6 +184,8 @@ describe("startRunner", () => {
       cwd,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
+      // Its own process group, so a stop reaches what the agent started.
+      detached: process.platform !== "win32",
     });
     clock.tick();
     expect(spawned.calls).toHaveLength(1);
@@ -848,6 +862,56 @@ describe("startRunner", () => {
     spawned.children[1]?.close(0);
     await runner.stop();
   });
+
+  test.skipIf(process.platform === "win32")(
+    "a stop reaches what the agent started, not only the agent",
+    async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-tree-"));
+      const pidFile = join(cwd, "started.pid");
+      const agent = join(cwd, "agent.mjs");
+      // An agent that starts a long-lived process of its own, the way one
+      // starts a dev server or a watcher, and then waits.
+      writeFileSync(
+        agent,
+        [
+          'import { spawn } from "node:child_process";',
+          'import { writeFileSync } from "node:fs";',
+          'const started = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+          `writeFileSync(${JSON.stringify(pidFile)}, String(started.pid));`,
+          "setInterval(() => {}, 1000);",
+        ].join("\n"),
+      );
+      await saveAgentChoice(cwd, {
+        agent: "custom",
+        run: `"${process.execPath}" "${agent}" {prompt}`,
+      });
+      await appendRequest(cwd, input("Poster"));
+
+      const runner = startRunner({
+        cwd,
+        externallyAttached: () => false,
+        codexAppServer: null,
+        claudeAgentSession: null,
+      });
+
+      let started: number | null = null;
+
+      try {
+        await until(() => existsSync(pidFile) && readFileSync(pidFile, "utf8") !== "");
+        const pid = Number(readFileSync(pidFile, "utf8"));
+        started = pid;
+        expect(alive(pid)).toBe(true);
+
+        expect(runner.cancel()).toBe(true);
+        await until(() => !runner.snapshot().running);
+        await until(() => !alive(pid));
+      } finally {
+        if (started !== null && alive(started)) process.kill(started, "SIGKILL");
+        await runner.stop();
+      }
+    },
+  );
 
   test("a run that goes quiet is described, then ended with a reason of its own", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
