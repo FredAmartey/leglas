@@ -10,7 +10,9 @@ export type AgentsPayload = {
 };
 
 const browserFetch: AgentFetcher = (input, init) => fetch(input, init);
+
 const AGENT_READ_TIMEOUT_MS = 5_000;
+
 const AGENT_ACTION_TIMEOUT_MS = 10_000;
 
 async function request(
@@ -21,6 +23,7 @@ async function request(
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     return await fetcher(path, { ...init, signal: controller.signal });
   } finally {
@@ -38,7 +41,9 @@ export async function readAgents(
     AGENT_READ_TIMEOUT_MS,
     fetcher,
   );
+
   if (!response.ok) throw new Error("Leglas refused the agent request.");
+
   return response.json() as Promise<AgentsPayload>;
 }
 
@@ -61,8 +66,10 @@ async function post(
     AGENT_ACTION_TIMEOUT_MS,
     fetcher,
   );
+
   if (!response.ok) throw new Error("Leglas refused the agent request.");
   const result = (await response.json()) as { ok?: unknown };
+
   if (result.ok !== true) throw new Error("Leglas refused the agent request.");
 }
 

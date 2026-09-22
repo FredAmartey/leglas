@@ -13,8 +13,10 @@ const browserFetch: NoteFetcher = (input, init) => fetch(input, init);
 
 export async function readNotes(fetcher: NoteFetcher = browserFetch): Promise<Annotation[]> {
   const response = await fetcher("/leglas/api/annotations");
+
   if (!response.ok) throw new Error("Leglas refused the notes.");
   const payload = (await response.json()) as { annotations?: Annotation[] };
+
   return payload.annotations ?? [];
 }
 
@@ -24,9 +26,12 @@ async function post<T>(path: string, body: unknown, fetcher: NoteFetcher): Promi
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw new Error("Leglas refused the note.");
   const result = (await response.json()) as { ok?: unknown } & T;
+
   if (result.ok !== true) throw new Error("Leglas refused the note.");
+
   return result;
 }
 

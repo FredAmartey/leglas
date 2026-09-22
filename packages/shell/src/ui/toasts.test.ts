@@ -32,6 +32,7 @@ describe("pushToast", () => {
     const stack = Array.from({ length: TOAST_LIMIT }, (_, index) =>
       toast(index + 1, `remove:${index}`),
     );
+
     const result = pushToast(stack, toast(99, "remove:new"));
     expect(result).toHaveLength(TOAST_LIMIT);
     expect(result.at(0)?.id).toBe(2);

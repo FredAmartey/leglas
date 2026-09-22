@@ -18,6 +18,7 @@ export function resolveOrExplain(
   renames: Renames,
 ): Resolved {
   const resolution = resolveTitle(input, titles, renames);
+
   if (resolution.ok) return { ok: true, title: resolution.title };
 
   if (resolution.reason === "ambiguous") {

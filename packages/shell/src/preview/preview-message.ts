@@ -7,8 +7,11 @@ export type PreviewMessageSignal = "error" | "ready";
 export function previewMessageSignal(data: unknown): PreviewMessageSignal | null {
   if (typeof data !== "object" || data === null) return null;
   const type = Reflect.get(data, "type");
+
   if (type === "leglas:preview-ready") return "ready";
+
   if (type === "leglas:preview-error") return "error";
+
   return null;
 }
 
@@ -18,8 +21,10 @@ export function previewFrameForSource(
   source: MessageEventSource | null,
 ): HTMLIFrameElement | null {
   if (source === null) return null;
+
   for (const frame of frames) {
     if (frame.contentWindow === source) return frame;
   }
+
   return null;
 }

@@ -206,6 +206,7 @@ describe("sub-pixel stage widths", () => {
       stageWidth: 1358.6,
       viewport: null,
     });
+
     expect(geometry.designWidth).toBe(1358.6);
   });
 });

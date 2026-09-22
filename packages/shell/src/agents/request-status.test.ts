@@ -284,6 +284,7 @@ describe("requestCard", () => {
       },
       true,
     );
+
     expect(card).toMatchObject({
       kind: "running",
       waiting: { attempt: 4, max: 10 },

@@ -37,10 +37,14 @@ export function installShutdown(
   target: SignalTarget = process,
 ): () => Promise<void> {
   let stopping: Promise<void> | null = null;
+
   const shutdown = (): Promise<void> => {
     stopping ??= stop();
+
     return stopping;
   };
+
   for (const signal of SHUTDOWN_SIGNALS) target.on(signal, () => void shutdown());
+
   return shutdown;
 }

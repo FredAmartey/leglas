@@ -51,6 +51,7 @@ const median = (xs: number[]) => {
   if (xs.length === 0) return null;
   const s = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
+
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 };
 
@@ -60,9 +61,11 @@ function readJob(dir: string): Summary {
   const trials: Trial[] = [];
   let agent = "?";
   let model = "?";
+
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const file = join(dir, entry.name, "result.json");
+
     if (!existsSync(file)) continue;
     const r = JSON.parse(readFileSync(file, "utf8"));
     agent = r.agent_info?.name ?? agent;
@@ -79,17 +82,20 @@ function readJob(dir: string): Summary {
       exception: r.exception_info?.exception_type ?? null,
     });
   }
+
   trials.sort((a, b) => a.task.localeCompare(b.task));
   const passed = trials.filter((t) => t.reward >= 1).length;
   const minutes = trials.flatMap((t) => (t.agentSeconds === null ? [] : [t.agentSeconds / 60]));
   const costs = trials.flatMap((t) => (t.costUsd === null ? [] : [t.costUsd]));
   const perTask: Record<string, TaskRun[]> = {};
+
   for (const t of trials)
     (perTask[t.task] ??= []).push({
       reward: t.reward,
       minutes: t.agentSeconds === null ? null : t.agentSeconds / 60,
       tokens: t.inputTokens + t.outputTokens,
     });
+
   return {
     job: basename(dir),
     agent,
@@ -110,27 +116,35 @@ function readJob(dir: string): Summary {
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+
 const min = (x: number | null) => (x === null ? "n/a" : `${x.toFixed(1)} min`);
+
 const k = (x: number) => (x >= 1000 ? `${(x / 1000).toFixed(x >= 10000 ? 0 : 1)}k` : String(x));
 
 // Jobs for the same agent and model merge into one row, so a run split
 // across batches (see run.sh) reports as one.
 const merged = new Map<string, Summary[]>();
+
 for (const j of process.argv.slice(2).map(readJob)) {
   const key = `${j.agent} ${j.model}`;
   merged.set(key, [...(merged.get(key) ?? []), j]);
 }
+
 const jobs = [...merged.values()].map((parts) => {
   if (parts.length === 1) return parts[0];
   const trials = parts.reduce((n, p) => n + p.trials, 0);
   const passed = parts.reduce((n, p) => n + p.passed, 0);
+
   const wsum = (f: (p: Summary) => number) =>
     parts.reduce((n, p) => n + f(p) * p.trials, 0) / trials;
+
   const perTask: Record<string, TaskRun[]> = {};
+
   for (const p of parts)
     for (const [t, rs] of Object.entries(p.perTask)) (perTask[t] ??= []).push(...rs);
   const minutes = parts.flatMap((p) => p.agentMinutes);
   const costs = parts.flatMap((p) => (p.totalCostUsd === null ? [] : [p.totalCostUsd]));
+
   return {
     ...parts[0],
     job: parts.map((p) => p.job).join("+"),
@@ -148,6 +162,7 @@ const jobs = [...merged.values()].map((parts) => {
     agentMinutes: minutes,
   };
 });
+
 if (jobs.length === 0) {
   console.error("usage: node evals/report.ts <job-dir> [...]");
   process.exit(2);
@@ -158,24 +173,34 @@ const tasks = [...new Set(jobs.flatMap((j) => Object.keys(j.perTask)))].sort();
 console.log(
   "| Agent | Model | Trials | Pass rate | Exceptions | Median agent time | Mean tokens / trial (in + out) | Cost |",
 );
+
 console.log("| --- | --- | --- | --- | --- | --- | --- | --- |");
+
 for (const j of jobs) {
   console.log(
     `| ${j.agent} | ${j.model} | ${j.trials} | ${pct(j.passRate)} (${j.passed}/${j.trials}) | ${j.exceptions} | ${min(j.medianAgentMinutes)} | ${k(j.meanTotalTokens)} (${k(j.meanInputTokens)} + ${k(j.meanOutputTokens)}) | ${j.totalCostUsd === null ? "n/a" : `$${j.totalCostUsd.toFixed(2)}`} |`,
   );
 }
+
 console.log();
+
 const run = (r: TaskRun) =>
   `${r.reward >= 1 ? "pass" : "fail"}, ${r.minutes === null ? "n/a" : `${r.minutes.toFixed(1)} min`}, ${k(r.tokens)} tok`;
+
 console.log(`| Task | ${jobs.map((j) => `${j.agent} (${j.model})`).join(" | ")} |`);
+
 console.log(`| --- |${jobs.map(() => " --- ").join("|")}|`);
+
 for (const t of tasks) {
   console.log(
     `| ${t} | ${jobs.map((j) => (j.perTask[t] ?? []).map(run).join("; ") || "n/a").join(" | ")} |`,
   );
 }
+
 console.log();
+
 console.log("```json");
+
 console.log(
   JSON.stringify(
     jobs.map(({ perTask: _perTask, agentMinutes: _minutes, ...rest }) => rest),
@@ -183,4 +208,5 @@ console.log(
     2,
   ),
 );
+
 console.log("```");

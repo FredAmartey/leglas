@@ -10,10 +10,12 @@ import type { RunningWorktree } from "./worktree.js";
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
+
   const promise = new Promise<T>((onResolve, onReject) => {
     resolve = onResolve;
     reject = onReject;
   });
+
   return { promise, reject, resolve };
 }
 
@@ -40,6 +42,7 @@ function proxy(
 ): (input: { target: string; onActivity?: () => void }) => Promise<RunningProxy> {
   return async (input) => {
     options.onActivity?.();
+
     return {
       active: options.active ?? (() => false),
       close: async () => options.onClose?.(),
@@ -52,6 +55,7 @@ describe("branch preview registry", () => {
   test("joins a start already in flight, so one title gets one checkout", async () => {
     const checkout = deferred<RunningWorktree>();
     let starts = 0;
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],
@@ -60,6 +64,7 @@ describe("branch preview registry", () => {
       startProxy: proxy(),
       startWorktree: async () => {
         starts += 1;
+
         return checkout.promise;
       },
     });
@@ -84,6 +89,7 @@ describe("branch preview registry", () => {
   test("records a failure and lets the next start retry it", async () => {
     let attempts = 0;
     const worktree = running();
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],
@@ -92,7 +98,9 @@ describe("branch preview registry", () => {
       startProxy: proxy(),
       startWorktree: async () => {
         attempts += 1;
+
         if (attempts === 1) throw new Error("checkout failed");
+
         return worktree;
       },
     });
@@ -111,6 +119,7 @@ describe("branch preview registry", () => {
   test("tracks checkout, install and app startup as coarse phases", async () => {
     const checkout = deferred<RunningWorktree>();
     const states: string[] = [];
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],
@@ -123,6 +132,7 @@ describe("branch preview registry", () => {
       startWorktree: async (options) => {
         options.onLog?.("installing feature/wave");
         options.onLog?.("vite ready");
+
         return checkout.promise;
       },
     });
@@ -142,6 +152,7 @@ describe("branch preview registry", () => {
 
   test("stops every worktree it owns", async () => {
     let stops = 0;
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch, { title: "Ember", branch: "feature/ember" }],
@@ -172,6 +183,7 @@ describe("branch preview registry", () => {
     const checkout = join(mkdtempSync(join(tmpdir(), "leglas-idle-")), "wave");
     mkdirSync(checkout);
     const transitions: string[] = [];
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],
@@ -181,6 +193,7 @@ describe("branch preview registry", () => {
       startProxy: proxy({ onClose: () => (proxyStops += 1) }),
       startWorktree: async () => {
         starts += 1;
+
         return {
           ...running(),
           path: checkout,
@@ -212,6 +225,7 @@ describe("branch preview registry", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     let active = true;
     let stops = 0;
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],
@@ -243,6 +257,7 @@ describe("branch preview registry", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const checkout = deferred<RunningWorktree>();
+
     const registry = createBranchRegistry({
       cwd: "/repo",
       previews: [branch],

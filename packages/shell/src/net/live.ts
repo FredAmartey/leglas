@@ -71,10 +71,13 @@ export function isLiveChange(value: unknown): value is LiveChange {
 /** The kind a frame names, or null for anything this does not recognise. */
 export function changeFrom(data: unknown): LiveChange | null {
   if (typeof data !== "string") return null;
+
   try {
     const parsed: unknown = JSON.parse(data);
+
     if (typeof parsed !== "object" || parsed === null) return null;
     const changed = Reflect.get(parsed, "changed");
+
     return isLiveChange(changed) ? changed : null;
   } catch {
     // A frame we cannot read is a frame we ignore. The fallback covers it.
@@ -97,10 +100,12 @@ export function changeFrom(data: unknown): LiveChange | null {
  * predictable delay is easier to test and to reason about.
  */
 export const FIRST_RETRY_MS = 250;
+
 export const MAX_RETRY_MS = 30_000;
 
 export function retryDelay(attempt: number): number {
   if (attempt <= 0) return FIRST_RETRY_MS;
+
   return Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempt);
 }
 
@@ -138,6 +143,7 @@ export type Live = {
 
 function defaultUrl(): string {
   const { host, protocol } = window.location;
+
   return `${protocol === "https:" ? "wss" : "ws"}://${host}/leglas/api/live`;
 }
 
@@ -157,6 +163,7 @@ let shared: Live | null = null;
 
 export function liveConnection(): Live {
   shared ??= startLive();
+
   return shared;
 }
 
@@ -183,6 +190,7 @@ export function startLive(options: LiveOptions = {}): Live {
   const dial = () => {
     if (stopped) return;
     let opened: LiveSocket;
+
     try {
       opened = connect(options.url ?? defaultUrl());
     } catch {
@@ -191,6 +199,7 @@ export function startLive(options: LiveOptions = {}): Live {
       // again on the backoff like any other failure.
       return schedule();
     }
+
     socket = opened;
 
     opened.addEventListener("open", () => {
@@ -204,7 +213,9 @@ export function startLive(options: LiveOptions = {}): Live {
 
     opened.addEventListener("message", (event) => {
       const change = changeFrom(event.data);
+
       if (change === null) return;
+
       for (const listener of listeners.get(change) ?? []) listener();
     });
 
@@ -214,6 +225,7 @@ export function startLive(options: LiveOptions = {}): Live {
       socket = null;
       schedule();
     };
+
     opened.addEventListener("close", gone);
     opened.addEventListener("error", gone);
   };
@@ -235,8 +247,10 @@ export function startLive(options: LiveOptions = {}): Live {
       const group = listeners.get(change) ?? new Set<() => void>();
       group.add(listener);
       listeners.set(change, group);
+
       return () => {
         group.delete(listener);
+
         if (group.size === 0) listeners.delete(change);
       };
     },
@@ -246,11 +260,13 @@ export function startLive(options: LiveOptions = {}): Live {
     stop() {
       stopped = true;
       connected = false;
+
       if (retry !== null) clearLater(retry);
       retry = null;
       listeners.clear();
       const open = socket;
       socket = null;
+
       try {
         open?.close();
       } catch {

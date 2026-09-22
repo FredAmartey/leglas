@@ -20,13 +20,16 @@ export type Focus = {
 };
 
 export type Box = { x: number; y: number; width: number; height: number };
+
 export type Shot = { png: Buffer; width: number; height: number };
+
 export type CaptureInput = {
   url: string;
   width: number;
   focuses?: readonly Focus[];
   timeoutMs?: number;
 };
+
 export type CaptureOutput = {
   frame: Shot;
   /** One per focus, in order. How each was found, or null when the crop fell back to the frame. */
@@ -37,9 +40,13 @@ export type CaptureOutput = {
 };
 
 export const FRAME_MAX_HEIGHT = 4000;
+
 export const MIN_WIDTH = 320;
+
 export const MAX_WIDTH = 3840;
+
 export const CROP_PAD = 24;
+
 export const CROP_MIN = { width: 320, height: 200 };
 
 type AbortableCaptureInput = CaptureInput & { signal?: AbortSignal };
@@ -80,6 +87,7 @@ export function cropBox(
           width: found.width * region.width,
           height: found.height * region.height,
         };
+
   const centreX = selected.x + selected.width / 2;
   const centreY = selected.y + selected.height / 2;
   const width = Math.min(bounds.width, Math.max(CROP_MIN.width, selected.width + CROP_PAD * 2));
@@ -88,6 +96,7 @@ export function cropBox(
   const y = clamp(centreY - height / 2, 0, Math.max(0, bounds.height - height));
   const roundedX = Math.round(x);
   const roundedY = Math.round(y);
+
   return {
     x: roundedX,
     y: roundedY,
@@ -115,7 +124,9 @@ function bounded<T>(work: Promise<T>, milliseconds: number, fallback: T): Promis
 
 function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return work;
+
   if (signal.aborted) return Promise.reject(new Error("The page capture was abandoned."));
+
   return new Promise<T>((resolve, reject) => {
     const abort = () => reject(new Error("The page capture was abandoned."));
     signal.addEventListener("abort", abort, { once: true });
@@ -134,12 +145,14 @@ function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
 
 function resultValue<T>(response: unknown): T | null {
   const result = (response as { result?: { value?: unknown } } | null)?.result;
+
   return result !== undefined && "value" in result ? (result.value as T) : null;
 }
 
 function validBox(value: unknown): value is Box {
   if (typeof value !== "object" || value === null) return false;
   const box = value as Partial<Box>;
+
   return [box.x, box.y, box.width, box.height].every(
     (entry) => typeof entry === "number" && Number.isFinite(entry),
   );
@@ -153,23 +166,30 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
   const width = clamp(Math.round(input.width), MIN_WIDTH, MAX_WIDTH);
   const errors: string[] = [];
   let hydration: HydrationEvidence | null = null;
+
   const remember = (value: unknown) => {
     const message = String(value ?? "")
       .trim()
       .slice(0, 240);
+
     hydration ??= hydrationEvidence([message]);
+
     if (errors.length >= 10) return;
+
     if (message === "" || /favicon/i.test(message)) return;
     errors.push(message);
   };
+
   // The main document's own answer. The proxy turns a dev server that is
   // down into a 502 text page, and a screenshot of that page labelled as the
   // direction would be worse than no screenshot at all.
   let documentStatus: number | null = null;
+
   const unlisten = [
     page.on("Network.responseReceived", (params) => {
       if (documentStatus !== null || params?.type !== "Document") return;
       const status = params?.response?.status;
+
       if (typeof status === "number") documentStatus = status;
     }),
     page.on("Runtime.exceptionThrown", (params) =>
@@ -201,20 +221,26 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     });
 
     let loaded!: () => void;
+
     const load = new Promise<void>((resolve) => {
       loaded = resolve;
     });
+
     const stopLoad = page.on("Page.loadEventFired", () => loaded());
     unlisten.push(stopLoad);
     const navigation = await page.send<{ errorText?: string }>("Page.navigate", { url: input.url });
+
     if (typeof navigation.errorText === "string" && navigation.errorText !== "") {
       throw new Error(`The page did not load: ${navigation.errorText}`);
     }
+
     await bounded(load, input.timeoutMs ?? 15_000, undefined);
     stopLoad();
+
     if (documentStatus !== null && documentStatus >= 500) {
       throw new Error(`The page did not load: the app answered HTTP ${documentStatus}.`);
     }
+
     await bounded(
       page.send("Runtime.evaluate", {
         expression: "document.fonts ? document.fonts.ready.then(() => true) : true",
@@ -289,6 +315,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       cssContentSize?: { width: number; height: number };
       contentSize?: { width: number; height: number };
     }>("Page.getLayoutMetrics");
+
     const size = metrics.cssContentSize ?? metrics.contentSize ?? { width, height: 900 };
     const pageWidth = Math.max(width, Math.ceil(size.width));
     // The overview frame stops at the cap; a note can point below it, and
@@ -296,11 +323,13 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     const contentHeight = Math.max(1, Math.ceil(size.height));
     const pageHeight = Math.min(FRAME_MAX_HEIGHT, contentHeight);
     const cut = size.height > FRAME_MAX_HEIGHT;
+
     const frameResponse = await page.send<{ data: string }>("Page.captureScreenshot", {
       format: "png",
       captureBeyondViewport: true,
       clip: { x: 0, y: 0, width, height: pageHeight, scale: 1 },
     });
+
     const frame: Shot = {
       png: Buffer.from(frameResponse.data, "base64"),
       width,
@@ -308,14 +337,17 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     };
 
     const crops: CaptureOutput["crops"] = [];
+
     for (const focus of input.focuses ?? []) {
       const located = await page.send("Runtime.evaluate", {
         expression: locatorExpression(focus),
         returnByValue: true,
       });
+
       const found = resultValue<unknown>(located);
       let source: Box;
       let resolved: "element" | "recorded-rect";
+
       if (validBox(found)) {
         source = found;
         resolved = "element";
@@ -325,17 +357,21 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
         // stays a fallback after the selector and the element's words fail.
         source = focus.rect;
         resolved = "recorded-rect";
+
         if (source.width < 2 || source.height < 2) {
           crops.push(null);
           continue;
         }
       }
+
       const box = cropBox(source, focus.region, { width: pageWidth, height: contentHeight });
+
       const response = await page.send<{ data: string }>("Page.captureScreenshot", {
         format: "png",
         captureBeyondViewport: true,
         clip: { ...box, scale: 2 },
       });
+
       crops.push({
         shot: {
           png: Buffer.from(response.data, "base64"),
@@ -355,5 +391,6 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
 /** Capture a frame and note crops from one fresh page. */
 export async function capturePage(browser: Browser, input: CaptureInput): Promise<CaptureOutput> {
   const abortInput = input as AbortableCaptureInput;
+
   return browser.withPage((page) => abortable(render(page, input), abortInput.signal));
 }

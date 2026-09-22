@@ -94,6 +94,7 @@ const PNG = (() => {
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
   bytes.writeUInt32BE(2, 16);
   bytes.writeUInt32BE(3, 20);
+
   return bytes;
 })();
 
@@ -123,10 +124,12 @@ describe("sniffImage", () => {
         const size = Buffer.alloc(4);
         size.writeUInt16BE(40, 0);
         size.writeUInt16BE(60, 2);
+
         return size;
       })(),
       Buffer.alloc(20),
     ]);
+
     expect(sniffImage(jpeg)).toMatchObject({ kind: "jpg", width: 60, height: 40 });
 
     const webp = Buffer.alloc(40);
@@ -234,6 +237,7 @@ describe("attachRequest", () => {
     for (const attachment of result.attachments) {
       expect(existsSync(join(cwd, attachment.file))).toBe(true);
     }
+
     expect(readFileSync(join(cwd, CAPTURES_DIR, "req1", "note-1.png"), "utf8")).toBe("note-one");
     // The upload moved rather than copied, so nothing is left to prune.
     expect(existsSync(join(cwd, REFERENCES_DIR, "paste1.png"))).toBe(false);
@@ -247,6 +251,7 @@ describe("attachRequest", () => {
 
   test("a note whose crop could not be taken is left out rather than misnumbered", async () => {
     const cwd = root();
+
     const captured = vi
       .fn()
       .mockResolvedValue(capture({ crops: [null, { shot: shot("second"), resolved: "element" }] }));
@@ -303,6 +308,7 @@ describe("attachRequest", () => {
     const cwd = root();
     const capture = vi.fn(() => new Promise<CaptureOutput>(() => {}));
     const started = Date.now();
+
     const result = await attachRequest(
       cwd,
       "slow",
@@ -330,6 +336,7 @@ describe("attachRequest", () => {
 
   test("a page that will not load is reported rather than thrown", async () => {
     const cwd = root();
+
     const capture = vi.fn(async () => {
       throw new Error("The page did not load: net::ERR_CONNECTION_REFUSED");
     });
@@ -375,6 +382,7 @@ describe("rehomeText", () => {
   test("points every capture path at the new directory and nothing else", () => {
     const text =
       "see .leglas/captures/abc/frame.png and .leglas/captures/abc/note-1.png, not .leglas/captures/abcd/x.png";
+
     expect(rehomeText(text, "abc", "xyz")).toBe(
       "see .leglas/captures/xyz/frame.png and .leglas/captures/xyz/note-1.png, not .leglas/captures/abcd/x.png",
     );
@@ -384,6 +392,7 @@ describe("rehomeText", () => {
 describe("capture cleanup", () => {
   test("removes one request and prunes everything not kept except show", async () => {
     const cwd = root();
+
     for (const name of ["keep", "drop", "show"]) {
       mkdirSync(join(cwd, CAPTURES_DIR, name), { recursive: true });
       writeFileSync(join(cwd, CAPTURES_DIR, name, "frame.png"), "frame");

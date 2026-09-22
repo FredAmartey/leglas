@@ -24,10 +24,12 @@ export function ReferenceStrip({
   onRetry: (key: string) => void;
 }) {
   if (drafts.length === 0) return null;
+
   return (
     <ul aria-label="Images attached to this change" className="flex flex-wrap gap-1.5 px-2 pt-2">
       {drafts.map((draft) => {
         const failed = draft.status === "failed";
+
         return (
           <li className="leglas-reference group/reference relative" key={draft.key}>
             <Tip

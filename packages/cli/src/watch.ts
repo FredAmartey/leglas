@@ -6,4 +6,5 @@ export {
   parseTemplate,
   tokenize,
 } from "@leglas/server";
+
 export type { TemplateResult, WatchTemplate } from "@leglas/server";

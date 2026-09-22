@@ -40,6 +40,7 @@ const MANIFESTS = new Set([
 
 function basename(path: string): string {
   const segments = path.split("/");
+
   return segments[segments.length - 1] ?? path;
 }
 
@@ -54,11 +55,17 @@ function isManifest(path: string): boolean {
  */
 function isBuildConfig(path: string): boolean {
   const name = basename(path);
+
   if (name.startsWith("leglas.config.")) return false;
+
   if (/^tsconfig[^/]*\.json$/.test(name)) return true;
+
   if (name === ".env" || name.startsWith(".env.")) return true;
+
   if (name === ".babelrc" || name.startsWith(".babelrc.")) return true;
+
   if (name === "turbo.json") return true;
+
   return /\.config\.[a-z]+$/i.test(name);
 }
 
@@ -86,6 +93,7 @@ export function classifyDirection(input: { changes: readonly DeclaredChange[] })
   });
 
   const manifest = input.changes.find((change) => isManifest(change.path));
+
   if (manifest !== undefined) {
     return checkout(
       `${manifest.path} changes the dependency set, and one running server cannot hold two.`,
@@ -93,6 +101,7 @@ export function classifyDirection(input: { changes: readonly DeclaredChange[] })
   }
 
   const config = input.changes.find((change) => isBuildConfig(change.path));
+
   if (config !== undefined) {
     return checkout(
       `${config.path} is build configuration, which applies to every direction in the one server.`,
@@ -104,6 +113,7 @@ export function classifyDirection(input: { changes: readonly DeclaredChange[] })
   const rewrite = input.changes.find(
     (change) => change.kind === "rewrite" && change.exists && !isExplorationFile(change.path),
   );
+
   if (rewrite !== undefined) {
     return checkout(
       `${rewrite.path} already renders for the other directions; rewriting it makes them contend for one file.`,

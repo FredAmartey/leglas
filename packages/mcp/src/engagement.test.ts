@@ -7,12 +7,14 @@ function harness(start = 1_000_000) {
   let now = start;
   let tick: (() => void) | null = null;
   let cleared = 0;
+
   const engagement = createEngagement({
     post: async (watching) => {
       posts.push(watching);
     },
     setInterval: (callback) => {
       tick = callback;
+
       return "timer";
     },
     clearInterval: () => {
@@ -21,6 +23,7 @@ function harness(start = 1_000_000) {
     },
     now: () => now,
   });
+
   return {
     engagement,
     posts,
@@ -48,6 +51,7 @@ describe("createEngagement", () => {
   test("the first touch of a cycle settles only after the server heard it", async () => {
     let release: (() => void) | null = null;
     const posts: boolean[] = [];
+
     const engagement = createEngagement({
       post: (watching) =>
         new Promise<void>((resolve) => {
@@ -61,9 +65,11 @@ describe("createEngagement", () => {
     // The caller reads the queue after this await: the runner's back-off
     // must already be registered, so the promise cannot settle early.
     let settled = false;
+
     const first = engagement.touch().then(() => {
       settled = true;
     });
+
     await Promise.resolve();
     expect(posts).toEqual([true]);
     expect(settled).toBe(false);

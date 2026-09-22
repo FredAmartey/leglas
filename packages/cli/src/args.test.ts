@@ -4,7 +4,9 @@ import { parseArgs } from "./args.js";
 
 function ok(argv: string[]) {
   const result = parseArgs(argv);
+
   if (result.kind !== "run") throw new Error(`expected run, got ${result.kind}`);
+
   return result.options;
 }
 
@@ -58,6 +60,7 @@ describe("parseArgs", () => {
     const result = parseArgs(["--prot", "4200"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--prot");
   });
@@ -66,6 +69,7 @@ describe("parseArgs", () => {
     const result = parseArgs(["--port", "abc"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--port");
   });
@@ -74,6 +78,7 @@ describe("parseArgs", () => {
     const result = parseArgs(["--port"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--port");
   });
@@ -87,6 +92,7 @@ describe("parseArgs", () => {
     const result = parseArgs(["start"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("start");
   });
@@ -97,6 +103,7 @@ describe("the new command", () => {
     const result = parseArgs(["new", "hero"]);
 
     expect(result.kind).toBe("new");
+
     if (result.kind !== "new") return;
     expect(result.surface).toBe("hero");
   });
@@ -105,6 +112,7 @@ describe("the new command", () => {
     const result = parseArgs(["new"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message.toLowerCase()).toContain("surface");
   });
@@ -113,6 +121,7 @@ describe("the new command", () => {
     const result = parseArgs(["new", "hero", "--print"]);
 
     expect(result.kind).toBe("new");
+
     if (result.kind !== "new") return;
     expect(result.print).toBe(true);
   });
@@ -121,6 +130,7 @@ describe("the new command", () => {
     const result = parseArgs(["new", "hero"]);
 
     expect(result.kind).toBe("new");
+
     if (result.kind !== "new") return;
     expect(result.print).toBe(false);
   });
@@ -135,6 +145,7 @@ describe("the add command", () => {
     const result = parseArgs(["add", "--title", "Aurora", "--url", "/?v-hero=aurora"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.title).toBe("Aurora");
     expect(result.preview.url).toBe("/?v-hero=aurora");
@@ -156,6 +167,7 @@ describe("the add command", () => {
     ]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.note).toBe("Warm gradient.");
     expect(result.preview.tags).toEqual(["Hero", "Warm"]);
@@ -165,6 +177,7 @@ describe("the add command", () => {
     const result = parseArgs(["add", "--url", "/?a"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--title");
   });
@@ -173,6 +186,7 @@ describe("the add command", () => {
     const result = parseArgs(["add", "--title", "Aurora"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--url");
   });
@@ -181,6 +195,7 @@ describe("the add command", () => {
     const result = parseArgs(["add", "--title", "A", "--url", "/?a", "--json"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.json).toBe(true);
   });
@@ -195,6 +210,7 @@ describe("the list command", () => {
     const result = parseArgs(["list", "--json"]);
 
     expect(result.kind).toBe("list");
+
     if (result.kind !== "list") return;
     expect(result.json).toBe(true);
   });
@@ -212,6 +228,7 @@ describe("the classify command", () => {
     ]);
 
     expect(result.kind).toBe("classify");
+
     if (result.kind !== "classify") return;
     expect(result.changes).toEqual([
       { path: "package.json", kind: "change" },
@@ -224,6 +241,7 @@ describe("the classify command", () => {
     const result = parseArgs(["classify", "--rewrite=src/hero.tsx"]);
 
     expect(result.kind).toBe("classify");
+
     if (result.kind !== "classify") return;
     expect(result.changes[0]?.path).toBe("src/hero.tsx");
   });
@@ -232,6 +250,7 @@ describe("the classify command", () => {
     const result = parseArgs(["classify"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("classify");
   });
@@ -246,6 +265,7 @@ describe("adding a branch preview", () => {
     const result = parseArgs(["add", "--title", "PR", "--url", "/", "--branch", "feature/hero"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.branch).toBe("feature/hero");
   });
@@ -254,6 +274,7 @@ describe("adding a branch preview", () => {
     const result = parseArgs(["add", "--title", "A", "--url", "/?a"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.branch).toBeUndefined();
   });
@@ -264,6 +285,7 @@ describe("adding a file preview", () => {
     const result = parseArgs(["add", "--title", "Aurora", "--file", ".leglas/pages/aurora.html"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.file).toBe(".leglas/pages/aurora.html");
     expect(result.preview.url).toBeUndefined();
@@ -273,6 +295,7 @@ describe("adding a file preview", () => {
     const result = parseArgs(["add", "--title", "Aurora"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--file");
   });
@@ -283,6 +306,7 @@ describe("the explore command", () => {
     const result = parseArgs(["explore", "hero"]);
 
     expect(result.kind).toBe("explore");
+
     if (result.kind !== "explore") return;
     expect(result.count).toBe(3);
     expect(result.basedOn).toBeNull();
@@ -292,6 +316,7 @@ describe("the explore command", () => {
     const result = parseArgs(["explore", "hero", "--based-on", "Aurora", "--count", "4"]);
 
     expect(result.kind).toBe("explore");
+
     if (result.kind !== "explore") return;
     expect(result.basedOn).toBe("Aurora");
     expect(result.count).toBe(4);
@@ -301,6 +326,7 @@ describe("the explore command", () => {
     const result = parseArgs(["explore", "hero", "--based-on"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--based-on");
   });
@@ -319,6 +345,7 @@ describe("add --based-on", () => {
     ]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.basedOn).toBe("Meridian");
   });
@@ -327,6 +354,7 @@ describe("add --based-on", () => {
     const result = parseArgs(["add", "--title", "Ledger", "--url", "/?v-hero=ledger"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.basedOn).toBeUndefined();
   });
@@ -345,6 +373,7 @@ describe("add --asked-for", () => {
     ]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.askedFor).toBe("the pouch looks fake when it turns");
   });
@@ -353,6 +382,7 @@ describe("add --asked-for", () => {
     const result = parseArgs(["add", "--title", "Ledger", "--url", "/?v-hero=ledger"]);
 
     expect(result.kind).toBe("add");
+
     if (result.kind !== "add") return;
     expect(result.preview.askedFor).toBeUndefined();
   });
@@ -409,6 +439,7 @@ describe("watch", () => {
     const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);
 
     expect(result.kind).toBe("watch");
+
     if (result.kind !== "watch") return;
     expect(result.run).toBe("claude -p {prompt}");
     expect(result.port).toBeUndefined();
@@ -418,6 +449,7 @@ describe("watch", () => {
     const result = parseArgs(["watch"]);
 
     expect(result.kind).toBe("watch");
+
     if (result.kind !== "watch") return;
     expect(result.run).toBeUndefined();
   });
@@ -426,6 +458,7 @@ describe("watch", () => {
     const result = parseArgs(["watch", "--run=codex exec {prompt}", "--port", "4200"]);
 
     expect(result.kind).toBe("watch");
+
     if (result.kind !== "watch") return;
     expect(result.run).toBe("codex exec {prompt}");
     expect(result.port).toBe(4200);
@@ -435,6 +468,7 @@ describe("watch", () => {
     const result = parseArgs(["watch", "--run"]);
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") return;
     expect(result.message).toContain("--run");
   });

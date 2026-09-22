@@ -85,6 +85,7 @@ describe("referenceText", () => {
       previewUrl: "http://localhost:4173/",
       title: "Gone",
     });
+
     expect(text).toContain('Leglas direction "Gone"');
     expect(text).toContain("Preview: http://localhost:4173/");
   });

@@ -31,10 +31,15 @@ import {
 import { DEFAULT_PORT } from "./server.js";
 
 const directories: string[] = [];
+
 const NOW = Date.parse("2026-09-07T10:00:00.000Z");
+
 const DAY = 24 * 60 * 60 * 1000;
+
 const REGISTRY = "https://registry.npmjs.org/leglas/latest";
+
 const SITE = "https://leglas.vercel.app/releases.json";
+
 const release = (version = "1.1.0", title: string | null = "A release") => ({
   version,
   title,
@@ -44,6 +49,7 @@ const release = (version = "1.1.0", title: string | null = "A release") => ({
 function temporary(): string {
   const path = realpathSync(mkdtempSync(join(tmpdir(), "leglas-update-")));
   directories.push(path);
+
   return path;
 }
 
@@ -65,6 +71,7 @@ function service(
   } = {},
 ) {
   const statePath = options.deps?.statePath ?? join(temporary(), "update.json");
+
   if (options.cached && statePath !== null)
     writeFileSync(
       statePath,
@@ -74,6 +81,7 @@ function service(
         skipped: null,
       }),
     );
+
   return createUpdateService({
     version: options.version ?? "1.0.0",
     entry: options.entry ?? "/opt/lib/node_modules/leglas/dist/bin.js",
@@ -103,9 +111,11 @@ function service(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
+
   const promise = new Promise<T>((done) => {
     resolve = done;
   });
+
   return { promise, resolve };
 }
 
@@ -120,15 +130,18 @@ class FakeChild extends EventEmitter {
 
 function spawned() {
   const child = new FakeChild();
+
   const spawn = vi.fn(
     () => child as unknown as ChildProcess,
   ) as unknown as typeof import("node:child_process").spawn;
+
   return { spawn, child };
 }
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -265,12 +278,15 @@ describe("detectInstall", () => {
       expected.kind === "project"
         ? expected.root
         : entry.replaceAll("\\", "/").split("/node_modules/")[0]!;
+
     const exists = (path: string): boolean => files.some((file) => path === `${root}/${file}`);
     const path = entry.replaceAll("\\", "/");
+
     const realpath = (value: string): string | null =>
       value === `${root}/node_modules/leglas`
         ? path.slice(0, path.lastIndexOf("/node_modules/leglas/") + "/node_modules/leglas".length)
         : null;
+
     expect(detectInstall(entry, cwd, exists, realpath, {})).toEqual(expected);
   });
 
@@ -328,11 +344,13 @@ describe("runner and workspace installs", () => {
     "uses the %s user agent only for anonymous runner caches",
     (manager) => {
       const env = { npm_config_user_agent: `${manager}/1.0 npm/?` };
+
       const commands = {
         pnpm: "pnpm dlx leglas@latest",
         bun: "bunx leglas@latest",
         yarn: "yarn dlx leglas@latest",
       };
+
       for (const root of [
         "/cache/runner/hash",
         "/private/var/folders/aa/hash/T/runner",
@@ -348,6 +366,7 @@ describe("runner and workspace installs", () => {
           ),
         ).toEqual({ kind: "npx", manager, command: commands[manager] });
       }
+
       expect(
         detectInstall(
           "/tools/lib/node_modules/leglas/dist/bin.js",
@@ -405,6 +424,7 @@ describe("runner and workspace installs", () => {
       "/work/repo/yarn.lock",
       "/work/repo/.yarnrc.yml",
     ]);
+
     expect(
       detectInstall(
         entry,
@@ -440,10 +460,12 @@ describe("runner and workspace installs", () => {
     "runs in the workspace member with the lockfile %s above it",
     (files, manager, command) => {
       const packagePath = "/work/repo/node_modules/.pnpm/leglas@1.0.0/node_modules/leglas";
+
       const links = new Map([
         ["/work/repo/packages/web/node_modules/leglas", packagePath],
         ["/work/repo/node_modules/leglas", packagePath],
       ]);
+
       expect(
         detectInstall(
           `${packagePath}/dist/bin.js`,
@@ -543,6 +565,7 @@ describe("checking and remembering", () => {
       phase: { status: "idle" },
       checkError: null,
     });
+
     for (const url of [REGISTRY, SITE])
       expect(fetch).toHaveBeenCalledWith(url, {
         headers: { accept: "application/json" },
@@ -576,6 +599,7 @@ describe("checking and remembering", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url) === REGISTRY ? answer() : Response.json([]),
     );
+
     const updates = service({ cached: true, deps: { fetch } });
     const status = await updates.check({ force: true });
     expect(status).toMatchObject({
@@ -599,10 +623,14 @@ describe("checking and remembering", () => {
     async (failure) => {
       const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
         if (String(url) === REGISTRY) return Response.json({ version: "1.1.0" });
+
         if (failure === "offline") throw new Error("offline");
+
         if (failure === "bad JSON") return new Response("{");
+
         return Response.json([], { status: failure === "500" ? 500 : 200 });
       });
+
       const status = await service({ deps: { fetch } }).check();
       expect(status).toMatchObject({
         latest: release("1.1.0", null),
@@ -615,9 +643,11 @@ describe("checking and remembering", () => {
   test("joins concurrent checks while asking the registry and the site in parallel", async () => {
     const npm = deferred<Response>();
     const site = deferred<Response>();
+
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url) === REGISTRY ? npm.promise : site.promise,
     );
+
     const updates = service({ deps: { fetch } });
     const first = updates.check();
     const second = updates.check({ force: true });
@@ -737,6 +767,7 @@ describe("skips and terminal notices", () => {
         fetch: async (url) => Response.json(String(url) === REGISTRY ? { version: "1.1.0" } : []),
       },
     });
+
     await updates.check();
     expect(updates.notice()?.split("\n")[0]).toBe("update   1.1.0 is out, you have 1.0.0");
   });
@@ -759,6 +790,7 @@ describe("restartCommand", () => {
     "--port=4106",
     "--no-open",
   ];
+
   const options = { execPath: "/runtime/node", platform: "linux" as const, exists: () => true };
   const rest = ["--user-port", "3001", "--port", "4123", "--no-open"];
 
@@ -789,6 +821,7 @@ describe("restartCommand", () => {
       command: "pnpm up leglas@latest",
       root: "/work/app",
     };
+
     expect(restartCommand(install, argv, "1.1.0", 4123, options)).toEqual({
       file: "/work/app/node_modules/.bin/leglas",
       args: rest,
@@ -824,11 +857,13 @@ describe("installing and restarting", () => {
   test("npx answers installing before handing off the pinned version on the bound port", async () => {
     const { spawn } = spawned();
     const log = vi.fn();
+
     const updates = service({
       cached: true,
       entry: "/cache/_npx/hash/node_modules/leglas/dist/bin.js",
       deps: { spawn, log },
     });
+
     const restart = vi.fn(async () => {});
     updates.onRestart(restart);
     updates.setPort(4123);
@@ -915,6 +950,7 @@ describe("installing and restarting", () => {
   ] as const)("pins the install for %s with %s", async (entry, files, manager, args, cwd) => {
     const { spawn, child } = spawned();
     const log = vi.fn();
+
     const updates = service({
       cached: true,
       entry,
@@ -925,6 +961,7 @@ describe("installing and restarting", () => {
         exists: (path) => files.some((file) => path === `/work/app/${file}`),
       },
     });
+
     const restart = vi.fn(async () => {});
     updates.onRestart(restart);
     await updates.update();
@@ -999,6 +1036,7 @@ describe("installing and restarting", () => {
 
   test.each(["event", "throw"])("a spawn %s reports its message", async (kind) => {
     const { spawn, child } = spawned();
+
     if (kind === "throw")
       vi.mocked(spawn).mockImplementation(() => {
         throw new Error("The manager could not start.");
@@ -1007,7 +1045,9 @@ describe("installing and restarting", () => {
     updates.onRestart(async () => {});
     await updates.update();
     await nextTurn();
+
     if (kind === "event") child.pid = undefined;
+
     if (kind === "event") child.emit("error", new Error("The manager could not start."));
     await nextTurn();
     expect(updates.status().phase).toEqual({
@@ -1022,6 +1062,7 @@ describe("installing and restarting", () => {
       cached: true,
       entry: "/cache/_npx/hash/node_modules/leglas/dist/bin.js",
     });
+
     updates.onRestart(async () => {
       throw new Error("The server could not stop.");
     });
@@ -1059,6 +1100,7 @@ describe("installing and restarting", () => {
 
 describe("Windows command lines and replacement bins", () => {
   const options = { platform: "linux" as const, execPath: "/runtime/node", exists: () => false };
+
   const argv = [
     "node",
     "/removed/pnpm/random/node_modules/leglas/dist/bin.js",
@@ -1136,6 +1178,7 @@ describe("Windows command lines and replacement bins", () => {
       4123,
       { ...options, platform: "win32", exists: () => true },
     );
+
     expect(command).toEqual({
       file: '"C:\\my app\\node_modules\\.bin\\leglas.cmd" --config "C:/my app/leglas.config.ts" --port 4123 --no-open',
       args: [],
@@ -1159,6 +1202,7 @@ describe("Windows command lines and replacement bins", () => {
         4123,
         { ...options, platform: "win32" },
       );
+
       expect(command.shell).toBe(true);
       expect(command.args).toEqual([]);
       expect(command.file).toContain('--config "/work/my app/leglas.config.ts"');
@@ -1270,9 +1314,11 @@ describe("shared update state", () => {
     const statePath = join(temporary(), "update.json");
     const older = service({ deps: { statePath, fetch: fetcher("1.2.0-rc.9") } });
     await older.check();
+
     const newer = service({
       deps: { statePath, now: () => NOW + 1, fetch: fetcher("1.2.0-rc.10") },
     });
+
     await newer.check({ force: true });
     await newer.skip("1.2.0-rc.10");
     expect((await older.skip("1.2.0-rc.9")).skipped).toBe("1.2.0-rc.10");
@@ -1282,6 +1328,7 @@ describe("shared update state", () => {
     const home = vi.fn(() => {
       throw new Error("No home directory.");
     });
+
     const updates = createUpdateService({
       version: "1.0.0",
       entry: "/source/bin.js",
@@ -1289,6 +1336,7 @@ describe("shared update state", () => {
       cwd: "/work/app",
       deps: { homedir: home, fetch: fetcher(), now: () => NOW, realpath: () => null, env: {} },
     });
+
     expect(home).toHaveBeenCalledOnce();
     expect((await updates.check()).latest).toEqual(release());
     expect((await updates.skip("1.1.0")).skipped).toBe("1.1.0");
@@ -1299,9 +1347,11 @@ describe("shared update state", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url) === SITE ? Response.json([]) : Response.json({ version: "1.2.0" }),
     );
+
     const updates = service({
       deps: { fetch, env: { npm_config_registry: "https://registry.example/npm/" } },
     });
+
     expect((await updates.check()).latest?.version).toBe("1.2.0");
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       "https://registry.example/npm/leglas/latest",
@@ -1396,6 +1446,7 @@ describe("installer ownership and change events", () => {
       expect(updates.close()).toBe(closing);
       await Promise.resolve();
       expect(closed).toBe(false);
+
       if (platform === "linux") expect(kill).toHaveBeenCalledExactlyOnceWith(-12345, "SIGKILL");
       else
         expect(spawn).toHaveBeenLastCalledWith("taskkill", ["/pid", "12345", "/T", "/F"], {
@@ -1424,9 +1475,11 @@ describe("installer ownership and change events", () => {
     expect(updates.status().phase.status).toBe("failed");
     await expect(updates.update()).rejects.toThrow("An update is already running.");
     let closed = false;
+
     const closing = updates.close().then(() => {
       closed = true;
     });
+
     await Promise.resolve();
     expect(closed).toBe(false);
     child.emit("close", null);
@@ -1448,10 +1501,12 @@ describe("installer ownership and change events", () => {
 
   test("close cancels the waiting timer without handing off", async () => {
     vi.useFakeTimers();
+
     const updates = service({
       cached: true,
       entry: "/cache/_npx/hash/node_modules/leglas/dist/bin.js",
     });
+
     const restart = vi.fn(async () => {});
     updates.onRestart(restart);
     await updates.update();
@@ -1469,9 +1524,11 @@ describe("installer ownership and change events", () => {
       cached: true,
       entry: "/cache/_npx/hash/node_modules/leglas/dist/bin.js",
     });
+
     const restart = vi.fn(async () => {
       await updates.close();
     });
+
     updates.onRestart(restart);
     await updates.update();
     await nextTurn();
@@ -1504,6 +1561,7 @@ describe("installer ownership and change events", () => {
       cached: true,
       entry: "/cache/_npx/hash/node_modules/leglas/dist/bin.js",
     });
+
     const restart = vi.fn(async () => {});
     updates.onRestart(restart);
     await updates.update();

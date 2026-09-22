@@ -46,6 +46,7 @@ describe("hydrationEvidence", () => {
   test("keeps the first line of an exception and drops its stack", () => {
     const description =
       "Error: Minified React error #418; visit https://react.dev/errors/418\n    at hydrate (http://localhost:3000/_next/static/chunks/main.js:1:2)";
+
     expect(hydrationEvidence([description])).toEqual({
       framework: "React",
       message: "Error: Minified React error #418; visit https://react.dev/errors/418",

@@ -43,6 +43,7 @@ async function sameDirectory(left: string, right: string): Promise<boolean> {
     realpath(left).catch(() => left),
     realpath(right).catch(() => right),
   ]);
+
   return a === b;
 }
 
@@ -80,9 +81,11 @@ export async function runShow(
     previews.map((preview) => preview.title),
     await readRenames(options.cwd),
   );
+
   if (!resolved.ok) {
     if (options.json) deps.log(JSON.stringify({ ok: false, error: resolved.error }));
     else deps.error(resolved.error);
+
     return { exitCode: 1 };
   }
 
@@ -91,6 +94,7 @@ export async function runShow(
   if (!plan.ok) {
     if (options.json) deps.log(JSON.stringify({ ok: false, error: plan.error }));
     else deps.error(plan.error);
+
     return { exitCode: 1 };
   }
 
@@ -116,22 +120,27 @@ export async function runShow(
     // below is what decides, whichever way the port was found.
     const server = options.port === null ? await readServerInfo(options.cwd) : null;
     const port = options.port ?? server?.port ?? DEFAULT_PORT;
+
     const fail = (error: string) => {
       if (options.json) deps.log(JSON.stringify({ ok: false, error }));
       else deps.error(error);
+
       return { exitCode: 1 };
     };
 
     const request = deps.fetch ?? fetch;
+
     try {
       const health = await request(`http://127.0.0.1:${port}/leglas/api/health`, {
         signal: AbortSignal.timeout(2_000),
       });
+
       if (health.status !== 200) return fail(NOT_RUNNING);
       // A stale record, or a port named by hand, can reach a Leglas that
       // serves another project. It would capture a direction of the same
       // name there and report a file that does not exist here.
       const answered = (await health.json().catch(() => ({}))) as { cwd?: unknown };
+
       if (typeof answered.cwd === "string" && !(await sameDirectory(answered.cwd, options.cwd))) {
         return fail(
           `The Leglas on port ${port} serves another project. Start one here with npx leglas, or name the right one with --port.`,
@@ -142,6 +151,7 @@ export async function runShow(
     }
 
     let response: Response;
+
     try {
       response = await request(`http://127.0.0.1:${port}/leglas/api/capture`, {
         method: "POST",
@@ -156,9 +166,11 @@ export async function runShow(
           : NOT_RUNNING,
       );
     }
+
     const captured = (await response.json().catch(() => ({}))) as Partial<Screenshot> & {
       error?: unknown;
     };
+
     if (!response.ok) {
       return fail(
         typeof captured.error === "string"
@@ -166,6 +178,7 @@ export async function runShow(
           : "The direction could not be captured.",
       );
     }
+
     if (
       typeof captured.file !== "string" ||
       typeof captured.width !== "number" ||
@@ -197,38 +210,51 @@ export async function runShow(
 
   if (options.json) {
     deps.log(JSON.stringify(envelope));
+
     return { exitCode: 0 };
   }
 
   const { direction } = plan;
   deps.log(`  ${direction.title}${direction.local ? "  (local)" : ""}`);
+
   if (direction.note !== null) deps.log(`  ${direction.note}`);
   deps.log("");
+
   if (direction.target !== null) deps.log(`  file        ${direction.target}`);
+
   if (direction.branch !== null) deps.log(`  branch      ${direction.branch}`);
   deps.log(`  url         ${direction.url}`);
+
   if (direction.tags.length > 0) deps.log(`  tags        ${direction.tags.join(", ")}`);
+
   if (direction.basedOn !== null) deps.log(`  variant of  ${direction.basedOn}`);
+
   if (plan.variants.length > 0) {
     deps.log(`  variants    ${plan.variants.map((variant) => variant.title).join(", ")}`);
   }
+
   if (plan.comparedWith.length > 0) {
     deps.log(`  against     ${plan.comparedWith.join(", ")}`);
   }
+
   if (envelope.screenshot !== undefined) {
     deps.log(`  screenshot  ${envelope.screenshot.file}`);
+
     if (envelope.screenshot.cut) {
       deps.log("              the top of the page only; it is taller than one capture");
     }
+
     if (envelope.screenshot.hydration !== null) {
       deps.log(
         `  hydration   ${envelope.screenshot.hydration.framework} rebuilt the page in the browser after load; the served markup is not what is on screen`,
       );
       deps.log(`              ${envelope.screenshot.hydration.message}`);
     }
+
     if (envelope.screenshot.errors.length > 0) {
       const count = envelope.screenshot.errors.length;
       deps.log(`  console     ${count} ${count === 1 ? "error" : "errors"} on load`);
+
       for (const error of envelope.screenshot.errors) deps.log(`    ${error}`);
     }
   }
@@ -236,9 +262,11 @@ export async function runShow(
   if (plan.requests.length > 0) {
     deps.log("");
     deps.log(`  Pending, not yet done (${plan.requests.length}):`);
+
     for (const request of plan.requests) deps.log(`    ${request.status}  ${request.intent}`);
     deps.log("");
     deps.log("  Run npx leglas requests --json for the full prompts.");
   }
+
   return { exitCode: 0 };
 }

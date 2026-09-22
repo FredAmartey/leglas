@@ -7,6 +7,7 @@ const server = vi.hoisted(() => ({ start: vi.fn(), close: vi.fn(async () => {}) 
 
 vi.mock("@leglas/server", async (original) => {
   const actual = await original<typeof import("@leglas/server")>();
+
   return {
     ...actual,
     loadConfig: async () => ({ config: null, errors: [], path: null }),

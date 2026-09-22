@@ -29,35 +29,43 @@ function fakeChild() {
     emitter.stdout.emit("end");
     emitter.stderr.emit("end");
     queueMicrotask(() => emitter.emit("close", null, "SIGTERM"));
+
     return true;
   });
+
   const close = (code: number) => {
     emitter.stdout.emit("end");
     emitter.stderr.emit("end");
     emitter.emit("close", code, null);
   };
+
   return { child: emitter, close };
 }
 
 function spawner() {
   const calls: Parameters<RunnerSpawn>[] = [];
   const children: ReturnType<typeof fakeChild>[] = [];
+
   const spawn: RunnerSpawn = (...args) => {
     calls.push(args);
     const child = fakeChild();
     children.push(child);
+
     return child.child;
   };
+
   return { spawn, calls, children };
 }
 
 function manualClock() {
   let callback: (() => void) | null = null;
   const clearInterval = vi.fn();
+
   return {
     setInterval: (next: () => void, milliseconds: number): unknown => {
       expect(milliseconds).toBe(2000);
       callback = next;
+
       return "timer";
     },
     clearInterval,
@@ -81,6 +89,7 @@ const EVENTUALLY_MS = 15_000;
  */
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
+
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -104,6 +113,7 @@ const tickUntil = async (
 ): Promise<void> =>
   until(async () => {
     clock.tick();
+
     return await condition();
   });
 
@@ -117,6 +127,7 @@ describe("startRunner", () => {
     const clock = manualClock();
     const spawned = spawner();
     const onChange = vi.fn();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -142,6 +153,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Second"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -180,6 +192,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Broken"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -212,6 +225,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Fallback"));
     const clock = manualClock();
     const spawned = spawner();
+
     const appServer: CodexTurnRunner = {
       warm: async () => {
         throw new Error("unsupported");
@@ -221,6 +235,7 @@ describe("startRunner", () => {
       },
       close: async () => {},
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -252,22 +267,28 @@ describe("startRunner", () => {
     let finishCleanup: (() => void) | null = null;
     const calls: ClaudeTurnInput[] = [];
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const appServer: CodexTurnRunner = {
       warm: async () => {},
       run: (turn, signal) => {
         calls.push(turn);
+
         if (calls.length > 1) {
           const child = fakeChild();
           children.push(child);
+
           return Promise.resolve(child.child);
         }
+
         startSignal = signal ?? null;
+
         return new Promise((_resolve, reject) => {
           finishCleanup = () => reject(new Error("cancelled after cleanup"));
         });
       },
       close: async () => {},
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -322,16 +343,19 @@ describe("startRunner", () => {
     const spawned = spawner();
     const calls: ClaudeTurnInput[] = [];
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const sdk: ClaudeTurnRunner = {
       warm: vi.fn(async () => {}),
       run: async (turn) => {
         calls.push(turn);
         const child = fakeChild();
         children.push(child);
+
         return child.child;
       },
       close: vi.fn(async () => {}),
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -364,6 +388,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Fallback"));
     const clock = manualClock();
     const spawned = spawner();
+
     const sdk: ClaudeTurnRunner = {
       warm: async () => {
         throw new Error("SDK unavailable");
@@ -373,6 +398,7 @@ describe("startRunner", () => {
       },
       close: async () => {},
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -399,6 +425,7 @@ describe("startRunner", () => {
     let attached = true;
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => attached,
@@ -423,6 +450,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Second"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -471,9 +499,11 @@ describe("startRunner", () => {
   test("the ninth request starts cold: eight turns is one session's whole life", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cap-"));
     await saveAgentChoice(cwd, { agent: "codex" });
+
     for (let turn = 1; turn <= 10; turn += 1) await appendRequest(cwd, input(`Turn ${turn}`));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -497,6 +527,7 @@ describe("startRunner", () => {
       spawned.children[turn - 1]?.close(0);
       await until(async () => (await readRequests(cwd)).length === 10 - turn);
     }
+
     await runner.stop();
   });
 
@@ -508,6 +539,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Fragile"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -558,6 +590,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("After"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -597,6 +630,7 @@ describe("startRunner", () => {
     await saveAgentChoice(cwd, { agent: "claude" });
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -650,6 +684,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Cancelled"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -688,6 +723,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Poster"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -738,6 +774,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Poster"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -767,6 +804,7 @@ describe("startRunner", () => {
     const clock = manualClock();
     const spawned = spawner();
     let grace: (() => void) | null = null;
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -784,6 +822,7 @@ describe("startRunner", () => {
     // traps SIGTERM, or a wrapper whose own child outlives it holding the
     // pipe. Nothing will ever emit "close".
     const stubborn = spawned.children[0];
+
     if (stubborn !== undefined) stubborn.child.kill = vi.fn(() => true);
 
     expect(runner.cancel()).toBe(true);
@@ -815,6 +854,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Tweak"));
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -858,6 +898,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, { ...input("Second fork"), mode: "variant" });
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -894,6 +935,7 @@ describe("startRunner", () => {
     await appendRequest(cwd, { ...input("Fork"), mode: "variant" });
     const clock = manualClock();
     const spawned = spawner();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -942,6 +984,7 @@ test("a Cursor resume that died without editing is tried once more, cold", async
   await appendRequest(cwd, input("First"));
   const clock = manualClock();
   const spawned = spawner();
+
   const runner = startRunner({
     cwd,
     externallyAttached: () => false,
@@ -980,6 +1023,7 @@ test("a Cursor resume that edited and then died is not rerun", async () => {
   await appendRequest(cwd, input("First"));
   const clock = manualClock();
   const spawned = spawner();
+
   const runner = startRunner({
     cwd,
     externallyAttached: () => false,
@@ -1019,6 +1063,7 @@ test("a Cursor resume that edited and then died is not rerun", async () => {
 
 describe("warm transports", () => {
   type Stub<T> = T & { warm: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+
   const claudeStub = (): Stub<ClaudeTurnRunner> => ({
     warm: vi.fn(async () => {}),
     run: async () => {
@@ -1027,6 +1072,7 @@ describe("warm transports", () => {
     release: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
   });
+
   const codexStub = (): Stub<CodexTurnRunner> => ({
     warm: vi.fn(async () => {}),
     run: async () => {
@@ -1035,9 +1081,11 @@ describe("warm transports", () => {
     release: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
   });
+
   /** Records every deferred callback so a test can fire the idle release by hand. */
   const deferrals = () => {
     const scheduled: { callback: () => void; ms: number }[] = [];
+
     return {
       setTimeout: (callback: () => void, ms: number) => {
         scheduled.push({ callback, ms });
@@ -1047,11 +1095,14 @@ describe("warm transports", () => {
       fireIdle: () => {
         const due = scheduled.filter((entry) => entry.ms === IDLE_RELEASE_MS);
         scheduled.length = 0;
+
         for (const entry of due) entry.callback();
+
         return due.length;
       },
     };
   };
+
   const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
   test("leaves every transport cold until something asks for it", async () => {
@@ -1063,6 +1114,7 @@ describe("warm transports", () => {
     const clock = manualClock();
     const sdk = claudeStub();
     const appServer = codexStub();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1084,6 +1136,7 @@ describe("warm transports", () => {
     const clock = manualClock();
     const sdk = claudeStub();
     const appServer = codexStub();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1110,6 +1163,7 @@ describe("warm transports", () => {
     const clock = manualClock();
     const later = deferrals();
     const sdk = claudeStub();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1143,6 +1197,7 @@ describe("warm transports", () => {
     const later = deferrals();
     const sdk = claudeStub();
     const idle: (() => void)[] = [];
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1178,17 +1233,21 @@ describe("warm transports", () => {
     await appendRequest(cwd, input("Long"));
     const clock = manualClock();
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const sdk: Stub<ClaudeTurnRunner> = {
       warm: vi.fn(async () => {}),
       run: async () => {
         const child = fakeChild();
         children.push(child);
+
         return child.child;
       },
       release: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
+
     const appServer = codexStub();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1216,17 +1275,21 @@ describe("warm transports", () => {
     await appendRequest(cwd, input("Only"));
     const clock = manualClock();
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const sdk: Stub<ClaudeTurnRunner> = {
       warm: vi.fn(async () => {}),
       run: async () => {
         const child = fakeChild();
         children.push(child);
+
         return child.child;
       },
       release: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
+
     const appServer = codexStub();
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1253,16 +1316,19 @@ describe("warm transports", () => {
     await appendRequest(cwd, input("First"));
     const clock = manualClock();
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const sdk: Stub<ClaudeTurnRunner> = {
       warm: vi.fn(async () => {}),
       run: async () => {
         const child = fakeChild();
         children.push(child);
+
         return child.child;
       },
       release: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -1292,16 +1358,19 @@ describe("warm transports", () => {
     const clock = manualClock();
     const later = deferrals();
     const children: ReturnType<typeof fakeChild>[] = [];
+
     const sdk: ClaudeTurnRunner = {
       warm: vi.fn(async () => {}),
       run: async () => {
         const child = fakeChild();
         children.push(child);
+
         return child.child;
       },
       release: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
+
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,

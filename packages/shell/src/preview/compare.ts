@@ -17,12 +17,16 @@ export function nextCompare(state: {
   rows?: readonly string[];
 }): string | null {
   const rows = state.rows;
+
   const exists = (title: string | null | undefined): title is string =>
     title != null && title !== state.active && (rows === undefined || rows.includes(title));
 
   if (exists(state.pinned)) return state.pinned;
+
   if (exists(state.parent)) return state.parent;
+
   if (exists(state.previous)) return state.previous;
+
   return rows?.find((title) => title !== state.active) ?? null;
 }
 
@@ -35,6 +39,7 @@ export function paneTitles(state: {
   if (!state.split || state.compare === null || state.compare === state.active) {
     return [state.active];
   }
+
   return [state.active, state.compare];
 }
 
@@ -53,6 +58,7 @@ export type PaneGeometry = {
 
 /** Below this a scale is not worth the transform, and rounding lies about it. */
 const UNSCALED = 0.999;
+
 /** A pane can be dragged narrow enough to divide by almost nothing. */
 const FLOOR = 0.05;
 

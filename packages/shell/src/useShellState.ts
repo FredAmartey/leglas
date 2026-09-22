@@ -76,6 +76,7 @@ export function useShellState({
   viewer,
 }: ShellStateProps) {
   const key = storageKey(project);
+
   const initial = () =>
     loadPrefs(
       viewer !== undefined
@@ -91,6 +92,7 @@ export function useShellState({
 
   const firstVisible = () => {
     const saved = initial();
+
     return saved.order.find((title) => !saved.hidden.includes(title)) ?? saved.order[0] ?? "";
   };
 
@@ -106,11 +108,13 @@ export function useShellState({
    * about the rail.
    */
   const [searchFolded, setSearchFolded] = useState<readonly string[]>([]);
+
   const setQuery = (value: string) => {
     // A new query is a new search; folds made against the old one are stale.
     setSearchFolded((current) => (current.length ? [] : current));
     setQueryRaw(value);
   };
+
   const [showHidden, setShowHidden] = useState(false);
   /**
    * Rows folded for the length of a drag. A lineage rail folds the families
@@ -126,6 +130,7 @@ export function useShellState({
   const [resizing, setResizing] = useState(false);
   const [loaded, setLoaded] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
+
   /**
    * A field the keyboard has asked for, which the shell focuses once the rail
    * it lives in has rendered. The nonce is what makes pressing the same key
@@ -134,6 +139,7 @@ export function useShellState({
   const [focusing, setFocusing] = useState<{ target: "request" | "search"; nonce: number } | null>(
     null,
   );
+
   const focusNonce = useRef(1);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastToast = useRef(0);
@@ -142,6 +148,7 @@ export function useShellState({
     lastToast.current += 1;
     setToasts((current) => pushToast(current, { ...toast, id: lastToast.current }));
   };
+
   const dismiss = (id: number) => setToasts((current) => dismissToast(current, id));
 
   const setActive = (title: string) => {
@@ -162,8 +169,10 @@ export function useShellState({
    */
   const viewerLayout = viewer === undefined ? null : viewerPrefsRaw(viewer.layout);
   const [seededFrom, setSeededFrom] = useState(viewerLayout);
+
   if (viewerLayout !== seededFrom) {
     setSeededFrom(viewerLayout);
+
     if (viewer !== undefined) setPrefs((current) => adoptLayout(current, viewer.layout, previews));
   }
 
@@ -183,6 +192,7 @@ export function useShellState({
    */
   const branchState = (title: string): BranchPreviewState | null => {
     const preview = byTitle.get(title);
+
     return preview?.branch === undefined ? null : (preview.state ?? { status: "idle" });
   };
 
@@ -206,6 +216,7 @@ export function useShellState({
     if (!query.trim()) return true;
     const needle = query.toLowerCase();
     const preview = byTitle.get(title);
+
     return (
       displayName(title).toLowerCase().includes(needle) ||
       title.toLowerCase().includes(needle) ||
@@ -217,6 +228,7 @@ export function useShellState({
   const titles = previews
     .map((preview) => preview.title)
     .filter((title) => !prefs.deleted.includes(title));
+
   // Derived every render rather than reconciled once at load, so previews an
   // agent registers mid-session get rows the moment they arrive.
   const ordered = railOrder(prefs.order, titles);
@@ -229,12 +241,15 @@ export function useShellState({
   // promotes its variants to roots instead of stranding them.
   const searching = query.trim() !== "";
   const foldedNow = searching ? searchFolded : prefs.collapsedFamilies;
+
   const basedOnMap = new Map(
     previews.flatMap((preview) =>
       preview.basedOn === undefined ? [] : [[preview.title, preview.basedOn] as const],
     ),
   );
+
   const showing = ordered.filter((title) => !prefs.hidden.includes(title) && matches(title));
+
   const {
     rows,
     meta: rowMeta,
@@ -242,10 +257,12 @@ export function useShellState({
     children: railChildren,
     roots: railRoots,
   } = lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
+
   // Where the cards start is measured on the rail with every family open, so
   // a fold, or the folding a drag does on its way, never moves a card
   // sideways: the columns are what the whole tree needs, not what shows.
   const insets = railInsets(lineageRail(showing, basedOnMap, new Set()).meta);
+
   /** Move a direction among its siblings; see reorderAmongSiblings. */
   const reorderAmong = (title: string, before: string | null, siblings: readonly string[]) =>
     setPrefs((current) => ({
@@ -258,12 +275,15 @@ export function useShellState({
         siblings,
       ),
     }));
+
   /** Where a direction came from, root first, for a rail that shows the chain. */
   const ancestryOf = (title: string) => ancestry(title, basedOnMap);
   /** The widest gutter lane any row touches, or -1 when no row draws one. */
   const lanes = widestLane(rowMeta);
+
   const toggleIn = (list: readonly string[], title: string) =>
     list.includes(title) ? list.filter((entry) => entry !== title) : [...list, title];
+
   const toggleFamily = (title: string) =>
     searching
       ? setSearchFolded((current) => toggleIn(current, title))
@@ -271,6 +291,7 @@ export function useShellState({
           ...current,
           collapsedFamilies: toggleIn(current.collapsedFamilies, title),
         }));
+
   /** The direction a variant is based on, for its default comparison. */
   const parentOf = (title: string) => byTitle.get(title)?.basedOn ?? null;
 
@@ -288,6 +309,7 @@ export function useShellState({
       ...current,
       hidden: current.hidden.filter((entry) => entry !== title),
     }));
+
     if (select) setActive(title);
   };
 
@@ -295,10 +317,13 @@ export function useShellState({
     const name = displayName(title);
     const wasActive = active === title;
     setPrefs((current) => ({ ...current, hidden: [...current.hidden, title] }));
+
     if (wasActive) {
       const next = ordered.find((entry) => entry !== title && !prefs.hidden.includes(entry));
+
       if (next) setActive(next);
     }
+
     notify({
       action: { label: "Undo", run: () => restore(title, wasActive) },
       kind: `remove:${title}`,
@@ -323,6 +348,7 @@ export function useShellState({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ titles: local }),
       });
+
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(payload?.error ?? "The directions could not be deleted from Leglas.");
@@ -332,10 +358,12 @@ export function useShellState({
     const removed = new Set(unique);
     setPrefs((current) => deleteDirections(current, unique));
     setMounted((current) => current.filter((title) => !removed.has(title)));
+
     if (unique.includes(active)) {
       const next = ordered.find((title) => !removed.has(title) && !prefs.hidden.includes(title));
       setActiveRaw(next ?? "");
     }
+
     if (prefs.hidden.every((title) => removed.has(title))) setShowHidden(false);
   };
 
@@ -349,8 +377,10 @@ export function useShellState({
   const setRenameValue = (title: string, value: string | undefined) =>
     setPrefs((current) => {
       const renames = { ...current.renames };
+
       if (value === undefined) delete renames[title];
       else renames[title] = value;
+
       if (viewer !== undefined) return { ...current, renames };
       void fetch("/leglas/api/renames", {
         method: "POST",
@@ -360,6 +390,7 @@ export function useShellState({
         // Nothing to tell the user: the rail is renamed, and every command
         // still answers to the config title.
       });
+
       return { ...current, renames };
     });
 
@@ -381,8 +412,10 @@ export function useShellState({
     if (check.kind === "taken") {
       if (via === "submit") {
         setRenameError(`${check.by} already goes by that name.`);
+
         return;
       }
+
       startRename(null);
       notify({
         kind: `rename:${title}`,
@@ -390,10 +423,12 @@ export function useShellState({
         tone: "info",
         ttl: TOAST_TTL.plain,
       });
+
       return;
     }
 
     startRename(null);
+
     if (check.kind === "same") return;
 
     const before = prefs.renames[title];
@@ -411,6 +446,7 @@ export function useShellState({
   // Which key does what lives in keymap.ts; this only carries the actions out.
   useEffect(() => {
     const cycle = rows;
+
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       // Read the tag rather than instanceof: a target inside a preview comes
@@ -418,6 +454,7 @@ export function useShellState({
       // matches, and every keystroke typed into the app would look like a
       // shortcut.
       const tag = target?.tagName?.toLowerCase();
+
       const action = resolveKey({
         key: event.key,
         altKey: event.altKey,
@@ -430,8 +467,11 @@ export function useShellState({
           tag === "select" ||
           (target?.isContentEditable ?? false),
       });
+
       if (!action) return;
+
       if (suspended && action.kind !== "help") return;
+
       // A viewer has no composer and nothing to annotate; the keys that ask
       // for work do nothing rather than open a rail for a field that is
       // not there.
@@ -464,6 +504,7 @@ export function useShellState({
         // Past the end is a miss rather than the last direction: the digit
         // names a slot, and a slot that is not there has no sensible stand-in.
         const next = cycle[action.index];
+
         if (next) {
           event.preventDefault();
           setActive(next);
@@ -471,13 +512,16 @@ export function useShellState({
       } else if (action.kind === "move") {
         event.preventDefault();
         const index = cycle.indexOf(active);
+
         const next =
           action.delta === 1
             ? cycle[Math.min(cycle.length - 1, index + 1)]
             : cycle[Math.max(0, index - 1)];
+
         if (next) setActive(next);
       }
     };
+
     /**
      * Clicking a design moves focus into its frame, and a keydown there never
      * reaches this window, so the shortcuts went dead until something pulled
@@ -486,15 +530,19 @@ export function useShellState({
      * preview cannot be reached and keeps its own keyboard.
      */
     const targets: (Document | Window)[] = [window];
+
     for (const frame of Array.from(document.querySelectorAll("iframe"))) {
       try {
         const doc = frame.contentDocument;
+
         if (doc) targets.push(doc);
       } catch {
         // Cross-origin: not ours to listen on.
       }
     }
+
     for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+
     return () => {
       for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
     };
@@ -532,6 +580,7 @@ export function useShellState({
    */
   const copy = (title: string, kind: CopyKind) => {
     const url = absoluteUrl(urlFor(title), window.location.origin);
+
     const text =
       kind === "link"
         ? url
@@ -541,6 +590,7 @@ export function useShellState({
             previewUrl: url,
             title,
           });
+
     void copyText(text).then((outcome) => {
       if (outcome === "blocked") {
         setCopied(null);
@@ -551,9 +601,12 @@ export function useShellState({
           tone: "danger",
           ttl: null,
         });
+
         return;
       }
+
       setCopied({ kind, title });
+
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(null), 1200);
       notify({
@@ -580,10 +633,12 @@ export function useShellState({
     const startX = event.clientX;
     const startWidth = prefs.width;
     setResizing(true);
+
     const onMove = (moveEvent: PointerEvent) => {
       const width = Math.min(MAX_W, Math.max(MIN_W, startWidth + moveEvent.clientX - startX));
       setPrefs((current) => (current.width === width ? current : { ...current, width }));
     };
+
     const stop = (upEvent: PointerEvent) => {
       handle.releasePointerCapture(upEvent.pointerId);
       handle.removeEventListener("pointermove", onMove);
@@ -591,6 +646,7 @@ export function useShellState({
       handle.removeEventListener("pointercancel", stop);
       setResizing(false);
     };
+
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);

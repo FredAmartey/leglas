@@ -30,9 +30,12 @@ import { devServerOwnerWarning, inspectLocalDevServer } from "./dev-server-owner
  */
 function findShellDir(): string | null {
   const bundled = join(dirname(fileURLToPath(import.meta.url)), "shell");
+
   if (existsSync(join(bundled, "index.html"))) return bundled;
+
   try {
     const require = createRequire(import.meta.url);
+
     return dirname(require.resolve("@leglas/shell/dist/index.html"));
   } catch {
     return null;
@@ -42,7 +45,9 @@ function findShellDir(): string | null {
 /** A command word safe to paste into the user's platform shell. */
 function shellWord(value: string): string {
   if (/^[A-Za-z0-9_./:=+\\-]+$/.test(value)) return value;
+
   if (process.platform === "win32") return `"${value.replaceAll('"', '""')}"`;
+
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
@@ -54,7 +59,9 @@ function shellWord(value: string): string {
  */
 function embeddedLeglasCommand(): string {
   const entry = join(dirname(fileURLToPath(import.meta.url)), "bin.js");
+
   if (!existsSync(entry)) return "npx -y leglas";
+
   return [process.execPath, entry].map(shellWord).join(" ");
 }
 
@@ -69,6 +76,7 @@ export type RunDeps = {
 export function skipStartupCheck(env: NodeJS.ProcessEnv): boolean {
   const off = (value: string | undefined): boolean =>
     value === undefined || value === "" || value === "0" || value === "false";
+
   // CI follows ci-info: only the literal false opts out of a nonempty CI value.
   return (
     (env.CI !== undefined && env.CI !== "" && env.CI !== "false") ||
@@ -120,10 +128,12 @@ export async function run(
   // checkout. Skipped when --user-port named a server explicitly: starting a
   // different one behind that flag would lie about what is being previewed.
   let app: RunningApp | null = null;
+
   const needsApp = (merged?.previews ?? []).some(
     (preview) =>
       preview.file === undefined && preview.branch === undefined && preview.url.startsWith("/"),
   );
+
   if (
     needsApp &&
     merged?.devCommand !== undefined &&
@@ -131,6 +141,7 @@ export async function run(
     !(await probe(devServer))
   ) {
     if (!options.json) deps.log(`  starting your app (${merged.devCommand})…`);
+
     try {
       app = await startAppProcess({
         cwd: options.cwd,
@@ -153,16 +164,20 @@ export async function run(
   for (const preview of merged?.previews ?? []) {
     if (preview.file !== undefined) {
       const absolute = join(options.cwd, preview.file);
+
       if (!existsSync(absolute)) {
         previewErrors.push(
           `"${preview.title}" names file ${preview.file}, which does not exist. The preview is skipped.`,
         );
         continue;
       }
+
       let slug = worktreeSlug(preview.title) || "file";
+
       for (let suffix = 2; fileMounts.has(slug); suffix += 1) {
         slug = `${worktreeSlug(preview.title) || "file"}-${suffix}`;
       }
+
       fileMounts.set(slug, dirname(absolute));
       previews.push({
         ...preview,
@@ -170,14 +185,17 @@ export async function run(
       });
       continue;
     }
+
     previews.push(preview);
   }
 
   const config = merged === null ? null : { ...merged, previews };
   const configWarnings: string[] = [];
+
   const projectRoot = await realpath(
     loaded.path === null ? options.cwd : dirname(loaded.path),
   ).catch(() => resolve(loaded.path === null ? options.cwd : dirname(loaded.path)));
+
   const ownerWarning =
     needsApp && app === null
       ? inspectLocalDevServer(devServer)
@@ -199,7 +217,9 @@ export async function run(
     ...(deps.updates === undefined ? {} : { updates: deps.updates }),
     ...(options.port === undefined ? {} : { port: options.port }),
   });
+
   const [server, warning] = await Promise.all([serverPromise, ownerWarning]);
+
   if (warning !== null) configWarnings.push(warning);
 
   const url = `${server.url}${LEGLAS_PREFIX}`;
@@ -240,12 +260,14 @@ export async function run(
 
     if (loaded.errors.length + previewErrors.length > 0) {
       deps.log("");
+
       for (const error of [...loaded.errors, ...previewErrors]) deps.log(`  ! ${error}`);
       deps.log("  Fix the config and reload; Leglas will pick it up on restart.");
     }
 
     if (configWarnings.length > 0) {
       deps.log("");
+
       for (const warning of configWarnings) deps.log(`  ! ${warning}`);
     }
 
@@ -253,6 +275,7 @@ export async function run(
       deps.log("");
       deps.log(`  ! ${devServer} is not reachable. Start your dev server, or`);
       deps.log("    point Leglas elsewhere with --user-port.");
+
       if (merged?.devCommand === undefined) {
         deps.log("    Set devCommand in the config and Leglas will start it for you.");
       }
@@ -263,10 +286,12 @@ export async function run(
 
   let stopped = false;
   let updateTimer: ReturnType<typeof setInterval> | null = null;
+
   if (!options.json && deps.updates !== undefined && !skipStartupCheck(process.env)) {
     void deps.updates.check().then(() => {
       if (stopped) return;
       const line = deps.updates?.notice();
+
       if (line !== null && line !== undefined) deps.log(line);
     });
     const updates = deps.updates;
@@ -281,6 +306,7 @@ export async function run(
     previewCount,
     stop: async () => {
       stopped = true;
+
       if (updateTimer !== null) clearInterval(updateTimer);
       // The server owns branch worktrees; the CLI still owns the project app
       // it may have started for the greenfield case.

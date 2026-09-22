@@ -4,9 +4,11 @@ import { SHUTDOWN_SIGNALS, installShutdown, type ShutdownSignal } from "./shutdo
 
 function target() {
   const listeners = new Map<ShutdownSignal, (() => void)[]>();
+
   return {
     on(signal: ShutdownSignal, listener: () => void) {
       listeners.set(signal, [...(listeners.get(signal) ?? []), listener]);
+
       return this;
     },
     signals: () => [...listeners.keys()],

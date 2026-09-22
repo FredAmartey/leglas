@@ -64,6 +64,7 @@ function AgentMenu({
         .filter((agent) => agent.available)
         .map((agent) => {
           const active = chip.kind === "chosen" && agent.id === chip.id;
+
           return (
             <button
               className={ROW_BUTTON}

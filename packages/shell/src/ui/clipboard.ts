@@ -28,6 +28,7 @@ export function execCopy(text: string): boolean {
   field.style.cssText = "position:fixed;top:-1000px;opacity:0";
   document.body.append(field);
   field.select();
+
   try {
     return document.execCommand("copy");
   } finally {
@@ -46,16 +47,19 @@ export async function copyText(text: string, deps: CopyDeps = browserCopy()): Pr
   if (deps.clipboard) {
     try {
       await deps.clipboard.writeText(text);
+
       return "copied";
     } catch {
       // Denied, or an unfocused document. The legacy path is sometimes still
       // allowed, so fall through rather than give up here.
     }
   }
+
   try {
     if (deps.legacy?.(text)) return "copied";
   } catch {
     // A browser that has removed the command entirely.
   }
+
   return "blocked";
 }

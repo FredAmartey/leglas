@@ -35,10 +35,12 @@ export async function runInit(
   });
 
   const touched: string[] = [];
+
   for (const write of plan.writes) {
     await writeFile(join(options.cwd, write.path), write.contents, "utf8");
     touched.push(write.path);
   }
+
   if (plan.gitignore !== null) {
     await writeFile(join(options.cwd, ".gitignore"), plan.gitignore, "utf8");
     touched.push(".gitignore");
@@ -46,11 +48,13 @@ export async function runInit(
 
   if (options.json) {
     deps.log(JSON.stringify({ ok: true, written: touched }));
+
     return { exitCode: 0 };
   }
 
   if (touched.length === 0) {
     deps.log("Already set up. Nothing to change.");
+
     return { exitCode: 0 };
   }
 
@@ -58,5 +62,6 @@ export async function runInit(
   deps.log("");
   deps.log("Your agents now know how to add design directions to this project.");
   deps.log("Ask one for a few variations of a surface, then run leglas.");
+
   return { exitCode: 0 };
 }

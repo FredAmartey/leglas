@@ -77,10 +77,12 @@ async function answeringHost(port: number): Promise<string | null> {
       (host) =>
         new Promise<string | null>((resolve) => {
           const socket = net.connect({ port, host });
+
           const settle = (value: string | null) => {
             socket.destroy();
             resolve(value);
           };
+
           socket.setTimeout(400);
           socket.once("connect", () => settle(host));
           socket.once("timeout", () => settle(null));
@@ -88,6 +90,7 @@ async function answeringHost(port: number): Promise<string | null> {
         }),
     ),
   );
+
   return reached.find((host) => host !== null) ?? null;
 }
 
@@ -156,6 +159,7 @@ export async function startWorktree(options: {
       readyTimeoutMs,
       onLog: log,
     });
+
     return {
       branch: options.branch,
       path,
@@ -192,6 +196,7 @@ export async function startAppProcess(options: {
 
   const port = await freePort();
   let child: ChildProcess;
+
   try {
     child = spawn(substitutePort(options.devCommand, port), {
       cwd: options.cwd,
@@ -223,16 +228,20 @@ export async function startAppProcess(options: {
   };
 
   const deadline = Date.now() + readyTimeoutMs;
+
   while (Date.now() < deadline) {
     if (exited !== null) {
       throw new Error(
         `${options.label} did not start: its dev command exited with code ${exited}.`,
       );
     }
+
     const host = await answeringHost(port);
+
     if (host !== null) {
       return { port, url: `http://${forUrl(host)}:${port}`, stop };
     }
+
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 

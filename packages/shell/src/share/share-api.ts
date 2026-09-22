@@ -16,7 +16,9 @@ export type SharePayload = {
 
 export async function readShare(signal?: AbortSignal): Promise<SharePayload> {
   const response = await fetch("/leglas/api/share", signal === undefined ? {} : { signal });
+
   if (!response.ok) throw new Error(`the server answered ${response.status}`);
+
   return response.json() as Promise<SharePayload>;
 }
 
@@ -28,8 +30,10 @@ export async function startShare(
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw await refusal(response, "Leglas could not start sharing.");
   const payload = (await response.json()) as { share: ShareStatus };
+
   return payload.share;
 }
 
@@ -39,8 +43,10 @@ export async function updateShare(body: ShareRequest): Promise<ShareStatus> {
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw await refusal(response, "Leglas could not update the share.");
   const payload = (await response.json()) as { share: ShareStatus };
+
   return payload.share;
 }
 
@@ -50,8 +56,10 @@ async function shareWrite(path: string, body: unknown, fallback: string): Promis
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw await refusal(response, fallback);
   const payload = (await response.json()) as { share: ShareStatus };
+
   return payload.share;
 }
 
@@ -89,5 +97,6 @@ export async function stopShare(): Promise<void> {
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw await refusal(response, "Leglas could not stop sharing.");
 }

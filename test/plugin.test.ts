@@ -20,6 +20,7 @@ import { describe, expect, test } from "vitest";
 const root = join(import.meta.dirname, "..");
 
 const read = (path: string): string => readFileSync(join(root, path), "utf8");
+
 const readJson = (path: string): Record<string, unknown> =>
   JSON.parse(read(path)) as Record<string, unknown>;
 
@@ -35,7 +36,9 @@ const validator = new Ajv2020({ strict: false, allErrors: true });
 
 function violations(manifest: Record<string, unknown>, against: string): string[] {
   const validate = validator.compile(schema(against));
+
   if (validate(manifest)) return [];
+
   return (validate.errors ?? []).map(
     (error) => `${error.instancePath || "/"} ${error.message ?? "is invalid"}`,
   );
@@ -75,14 +78,17 @@ describe("the plugin manifests", () => {
  */
 function frontmatterField(source: string, field: string): string | null {
   const block = /^---\r?\n(.*?)\r?\n---/s.exec(source);
+
   if (block === null) return null;
   const line = new RegExp(String.raw`^${field}:[ \t]*(.*)$`, "m").exec(block[1] ?? "");
+
   if (line === null) return null;
 
   const value = (line[1] ?? "").trim();
   // Inside quotes a # is part of the value; outside them it opens a comment,
   // and YAML wants whitespace before it.
   const quoted = /^(["'])(.*)\1$/.exec(value);
+
   return quoted !== null ? (quoted[2] ?? "") : value.replace(/\s+#.*$/, "").trim();
 }
 
@@ -99,6 +105,7 @@ describe("the plugin's components", () => {
       .map((entry) => entry.name);
 
     expect(directories).not.toHaveLength(0);
+
     for (const directory of directories) {
       const source = read(`skills/${directory}/SKILL.md`);
       const where = `skills/${directory}/SKILL.md`;
@@ -125,6 +132,7 @@ describe("the plugin's components", () => {
    */
   test("mcp.json launches the package this repository publishes", () => {
     type Server = { type: string; command?: string; args?: string[] };
+
     const servers = readJson("mcp.json")["mcpServers"] as Record<string, Server>;
     const published = readJson("packages/mcp/package.json")["name"];
 

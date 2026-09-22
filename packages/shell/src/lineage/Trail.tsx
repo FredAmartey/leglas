@@ -29,17 +29,25 @@ import type { Mark } from "./lineage.js";
 
 /** One full sweep of the current's colours, in pixels. */
 const CYCLE = 320;
+
 /** How fast the current drifts down the line, in pixels a second. */
 const DRIFT = 22;
+
 /** The surge's height, and how long it takes to pass, in pixels a second before easing. */
 const SURGE = 240;
+
 const PACE = 150;
+
 const SURGE_MIN_MS = 2600;
+
 const SURGE_MAX_MS = 5200;
+
 /** The quiet between surges, during which only the current moves. */
 const BETWEEN_MS = 2200;
+
 /** How long a mark takes to settle after the surge has passed it. */
 const BLOOM_MS = 900;
+
 /** Fading in on arrival and out on leaving, so a change of lineage is a crossfade. */
 const FADE_MS = 420;
 
@@ -61,13 +69,17 @@ const T0 = typeof performance !== "undefined" ? performance.now() : 0;
 function pace(t: number): number {
   const bezier = (a: number, b: number, u: number) =>
     3 * a * u * (1 - u) ** 2 + 3 * b * u ** 2 * (1 - u) + u ** 3;
+
   let lo = 0;
   let hi = 1;
+
   for (let i = 0; i < 24; i += 1) {
     const mid = (lo + hi) / 2;
+
     if (bezier(0.5, 0.2, mid) < t) lo = mid;
     else hi = mid;
   }
+
   return bezier(0, 1, (lo + hi) / 2);
 }
 
@@ -105,6 +117,7 @@ export function Trail({
     const flow = current.current;
     const band = surge.current;
     const layer = surgeLayer.current;
+
     if (!flow || !band || !layer) return;
     const marks = shape.current;
     const top = Math.min(...marks.map((mark) => mark.y));
@@ -118,6 +131,7 @@ export function Trail({
     const period = run + BETWEEN_MS;
     const passed: number[] = marks.map(() => -Infinity);
     let frame = 0;
+
     const draw = (now: number) => {
       const t = Math.max(0, now - T0);
       // The current: one repeating sweep, drifting down.
@@ -138,7 +152,9 @@ export function Trail({
       const cycleStart = t - at;
       marks.forEach((mark, index) => {
         const bloom = blooms.current[index];
+
         if (!bloom) return;
+
         if (inRun && centre >= mark.y && (passed[index] ?? -Infinity) < cycleStart)
           passed[index] = t;
         const since = t - (passed[index] ?? -Infinity);
@@ -149,7 +165,9 @@ export function Trail({
       });
       frame = requestAnimationFrame(draw);
     };
+
     frame = requestAnimationFrame(draw);
+
     return () => cancelAnimationFrame(frame);
   }, [d, still]);
 

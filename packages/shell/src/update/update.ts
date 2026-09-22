@@ -70,6 +70,7 @@ export function hasNews(status: UpdateStatus | null): boolean {
 /** The chip's tooltip: the version, or the news. */
 export function chipLabel(status: UpdateStatus | null): string {
   if (status === null) return "Leglas";
+
   return hasNews(status) && status.latest !== null
     ? `${status.latest.version} is out`
     : `Leglas ${status.version}`;
@@ -78,12 +79,16 @@ export function chipLabel(status: UpdateStatus | null): string {
 /** "just now", "4 minutes ago", "3 hours ago", "yesterday", "5 days ago". */
 export function ago(iso: string, now: number): string {
   const elapsed = now - Date.parse(iso);
+
   if (!Number.isFinite(elapsed) || elapsed < 60_000) return "just now";
   const minutes = Math.floor(elapsed / 60_000);
+
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
   const hours = Math.floor(minutes / 60);
+
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
+
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
@@ -109,6 +114,7 @@ export function runnerName(manager: UpdateStatus["install"]["manager"]): string 
 /** How to start Leglas again by hand, for when the restart did not come back. */
 export function startAgain(status: UpdateStatus | null): string {
   if (status === null) return "npx leglas";
+
   switch (status.install.kind) {
     case "npx":
       return `${runnerName(status.install.manager)} leglas`;
@@ -131,13 +137,18 @@ function restarting(version: string): Partial<UpdateView> {
 /** What pressing Update will do, in one line, or why it cannot be pressed. */
 function updateNote(status: UpdateStatus, version: string): string | null {
   const { install } = status;
+
   if (install.kind === "source") return "You run Leglas from a checkout, so pull to update.";
+
   if (status.busy) return "Wait for the running change to finish, then update.";
+
   if (install.kind === "npx") {
     return `Restarts Leglas with ${version} through ${runnerName(install.manager)}. Your rail stays as it is.`;
   }
+
   if (install.command === null) return null;
   const where = install.kind === "project" ? " in this project" : "";
+
   return `Runs ${pinnedCommand(install.command, version)}${where}, then restarts Leglas. Your rail stays as it is.`;
 }
 
@@ -161,6 +172,7 @@ export function updateView(
   };
 
   if (wait.status === "waiting") return { ...quiet, ...restarting(wait.version) };
+
   if (wait.status === "wrong") {
     return {
       ...quiet,
@@ -170,6 +182,7 @@ export function updateView(
       warning: true,
     };
   }
+
   if (wait.status === "lost") {
     return {
       ...quiet,
@@ -183,6 +196,7 @@ export function updateView(
   if (status === null) return { ...quiet, detail: "Reading…", spinner: true };
 
   const { phase } = status;
+
   if (phase.status === "installing") {
     return {
       ...quiet,
@@ -191,6 +205,7 @@ export function updateView(
       spinner: true,
     };
   }
+
   if (phase.status === "waiting") {
     return {
       ...quiet,
@@ -199,7 +214,9 @@ export function updateView(
       spinner: true,
     };
   }
+
   if (phase.status === "restarting") return { ...quiet, ...restarting(phase.version) };
+
   if (phase.status === "failed") {
     return {
       ...quiet,
@@ -220,6 +237,7 @@ export function updateView(
     const { latest } = status;
     const skipped = latest.version === status.skipped;
     const canInstall = status.install.kind !== "source";
+
     return {
       ...quiet,
       heading: `${latest.version} is out`,
@@ -237,6 +255,7 @@ export function updateView(
 
   const when = status.checkedAt === null ? null : ago(status.checkedAt, now);
   const checked = when === null ? null : `Checked ${when}`;
+
   if (busy) {
     return {
       ...quiet,
@@ -248,6 +267,7 @@ export function updateView(
       primary: { label: "Check again", action: "check", disabled: true },
     };
   }
+
   if (status.checkError !== null) {
     return {
       ...quiet,
@@ -259,6 +279,7 @@ export function updateView(
       primary: { label: "Try again", action: "check", disabled: false },
     };
   }
+
   if (status.latest === null) {
     return {
       ...quiet,
@@ -268,6 +289,7 @@ export function updateView(
       primary: { label: "Check for updates", action: "check", disabled: false },
     };
   }
+
   return {
     ...quiet,
     heading: status.version,

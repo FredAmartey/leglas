@@ -26,11 +26,14 @@ const root = join(import.meta.dirname, "..");
 
 function sources(directory: string): string[] {
   const found: string[] = [];
+
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
+
     if (entry.isDirectory()) found.push(...sources(path));
     else if (path.endsWith(".ts") && !path.endsWith(".test.ts")) found.push(path);
   }
+
   return found;
 }
 

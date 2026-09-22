@@ -51,6 +51,7 @@ export function pushToast(
   limit: number = TOAST_LIMIT,
 ): Toast[] {
   const kept = toasts.filter((entry) => entry.kind !== toast.kind);
+
   return [...kept, toast].slice(-limit);
 }
 

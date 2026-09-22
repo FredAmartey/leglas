@@ -52,14 +52,17 @@ async function connect(
     { name: "leglas-test", version: "0.0.0" },
     { capabilities: { experimental: CHANNEL_CAPABILITY } },
   );
+
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const events: unknown[] = [];
   client.fallbackNotificationHandler = async (notification) => {
     if (notification.method === "notifications/claude/channel") events.push(notification.params);
   };
+
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   channels.push(startChannel(server, { project: fixedProject(cwd), pollMs, read }));
+
   return { events };
 }
 
@@ -79,6 +82,7 @@ const EVENTUALLY_MS = 15_000;
  */
 const until = async (condition: () => boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
+
   while (!condition()) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((tick) => setTimeout(tick, 10));
@@ -137,8 +141,10 @@ describe("startChannel", () => {
     writeQueue(cwd, backlog);
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => (release = resolve));
+
     const read = async () => {
       await gate;
+
       return backlog;
     };
 
@@ -155,15 +161,18 @@ describe("startChannel", () => {
   test("stays quiet when there is no project to poll", async () => {
     // Nothing to read and nothing coming, so the queue is never touched.
     let reads = 0;
+
     const server = new McpServer(
       { name: "leglas-test", version: "0.0.0" },
       { capabilities: { experimental: CHANNEL_CAPABILITY } },
     );
+
     const client = new Client({ name: "test-host", version: "0.0.0" });
     const events: unknown[] = [];
     client.fallbackNotificationHandler = async (notification) => {
       if (notification.method === "notifications/claude/channel") events.push(notification.params);
     };
+
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     channels.push(
@@ -172,6 +181,7 @@ describe("startChannel", () => {
         pollMs: 10,
         read: async () => {
           reads += 1;
+
           return [];
         },
       }),

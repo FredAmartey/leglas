@@ -37,6 +37,7 @@ describe("classifyFailure", () => {
         "Not inside a trusted directory and --skip-git-repo-check was not specified.",
       ],
     });
+
     expect(failure.code).toBe("needs-trust");
     expect(failure.message).toContain("not a git repository");
   });
@@ -49,6 +50,7 @@ describe("classifyFailure", () => {
       exitCode: 1,
       retry: { attempt: 10, max: 10, status, reason },
     });
+
     expect(verdict(retry(529, "overloaded"))).toBe("provider-overloaded");
     expect(verdict(retry(401, "authentication_failed"))).toBe("not-signed-in");
     expect(verdict(retry(429, "rate_limit"))).toBe("provider-limit");
@@ -104,6 +106,7 @@ describe("classifyFailure", () => {
 
   test("only a session-shaped failure earns a second run", () => {
     expect(sessionShaped("agent-error")).toBe(true);
+
     for (const code of [
       "cancelled",
       "stopped",

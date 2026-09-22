@@ -12,17 +12,20 @@ import {
 
 function recorder(body: unknown = { ok: true }, status = 200) {
   const calls: { input: string; init?: RequestInit }[] = [];
+
   const fetcher: AgentFetcher = async (input, init) => {
     if (init === undefined) calls.push({ input });
     else {
       const { signal: _signal, ...recorded } = init;
       calls.push(Object.keys(recorded).length === 0 ? { input } : { input, init: recorded });
     }
+
     return new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
     });
   };
+
   return { calls, fetcher };
 }
 
@@ -37,6 +40,7 @@ describe("embedded agent API", () => {
       customRun: null,
       effort: null,
     };
+
     const recorded = recorder(payload);
 
     await expect(readAgents(false, recorded.fetcher)).resolves.toEqual(payload);
@@ -93,6 +97,7 @@ describe("embedded agent API", () => {
 
   test("stops waiting when a local agent action never answers", async () => {
     vi.useFakeTimers();
+
     try {
       const fetcher: AgentFetcher = (_input, init) =>
         new Promise((_resolve, reject) => {
@@ -100,6 +105,7 @@ describe("embedded agent API", () => {
             once: true,
           });
         });
+
       const assertion = expect(chooseAgent("claude", undefined, fetcher)).rejects.toThrow(
         "aborted",
       );
@@ -114,6 +120,7 @@ describe("embedded agent API", () => {
 
   test("stops waiting when agent detection never answers", async () => {
     vi.useFakeTimers();
+
     try {
       const fetcher: AgentFetcher = (_input, init) =>
         new Promise((_resolve, reject) => {
@@ -121,6 +128,7 @@ describe("embedded agent API", () => {
             once: true,
           });
         });
+
       const assertion = expect(readAgents(true, fetcher)).rejects.toThrow("aborted");
 
       await vi.advanceTimersByTimeAsync(5_000);

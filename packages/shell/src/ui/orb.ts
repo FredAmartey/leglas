@@ -24,6 +24,7 @@ export const ORB_MOODS = [
  */
 export function orbMood(roll: number): OrbState {
   const index = Math.floor(roll * ORB_MOODS.length);
+
   return ORB_MOODS[Math.min(ORB_MOODS.length - 1, Math.max(0, index))] as OrbState;
 }
 

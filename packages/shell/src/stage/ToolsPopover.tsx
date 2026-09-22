@@ -139,6 +139,7 @@ export function ToolsPopover({
         onClick={() => {
           const show = !prefs.showDevOverlays;
           setPrefs((current) => ({ ...current, showDevOverlays: show }));
+
           // Applied to every open pane at once, so the change is visible
           // without reloading anything.
           for (const frame of document.querySelectorAll("iframe")) {
@@ -157,6 +158,7 @@ export function ToolsPopover({
         onClick={() => {
           const show = !prefs.showWidget;
           setPrefs((current) => ({ ...current, showWidget: show }));
+
           // This switch lives inside the thing it hides, so the way back
           // is named the moment the door is closed, and for longer than
           // a plain confirmation: this one is teaching a key. The rail's

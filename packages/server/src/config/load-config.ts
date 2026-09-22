@@ -29,23 +29,28 @@ export async function loadConfig(cwd: string): Promise<LoadResult> {
   const label = relative(cwd, path) || path;
 
   let exported: unknown;
+
   try {
     if (path.endsWith(".json")) {
       exported = JSON.parse(await readFile(path, "utf8"));
     } else {
       // Node imports TypeScript natively, so a .ts config needs no transform.
       const module: { default?: unknown } = await import(pathToFileURL(path).href);
+
       if (!("default" in module)) {
         return { config: null, errors: [`${label} has no default export.`], path };
       }
+
       exported = module.default;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+
     return { config: null, errors: [`${label} could not be loaded: ${message}`], path };
   }
 
   const result = normalizeConfig(exported);
+
   return {
     config: result.config,
     errors: result.errors.map((error) => `${label}: ${error}`),

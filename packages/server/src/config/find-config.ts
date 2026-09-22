@@ -25,11 +25,13 @@ export function findConfigFile(startDir: string): string | null {
   for (;;) {
     for (const basename of CONFIG_BASENAMES) {
       const candidate = join(dir, basename);
+
       if (existsSync(candidate)) return candidate;
     }
 
     if (dir === root) return null;
     const parent = dirname(dir);
+
     if (parent === dir) return null;
     dir = parent;
   }

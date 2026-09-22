@@ -46,6 +46,7 @@ function raw(port: number, path: string, cookie: string) {
     path,
     headers: { cookie, connection: "keep-alive" },
   });
+
   const status = new Promise<number | null>((resolve) => {
     request.on("response", (response) => {
       response.resume();
@@ -53,8 +54,10 @@ function raw(port: number, path: string, cookie: string) {
     });
     request.on("error", () => resolve(null));
   });
+
   const sent = new Promise<void>((resolve) => request.once("finish", () => resolve()));
   request.end();
+
   return { status, sent, stop: () => request.destroy() };
 }
 
@@ -77,10 +80,12 @@ function managerFor(
 ) {
   const live = createLiveHub();
   const nudge = vi.spyOn(live, "nudge");
+
   const manager = createShareManager({
     live,
     previews: async () => {
       await beforePreviews();
+
       return current;
     },
     previewsForConfig: (entries) => entries.map((entry) => ({ ...entry })),
@@ -92,6 +97,7 @@ function managerFor(
     request: (req, res) => request(res, req),
     upgrade: (_req, socket) => {
       socket.destroy();
+
       return false;
     },
     detectTunnels: async () => [],
@@ -99,7 +105,9 @@ function managerFor(
     ...(clocks.nowMono === undefined ? {} : { nowMono: clocks.nowMono }),
     ...(clocks.deadlineMs === undefined ? {} : { viewerDeadlineMs: clocks.deadlineMs }),
   });
+
   managers.push(manager);
+
   return { live, manager, nudge };
 }
 
@@ -114,6 +122,7 @@ describe("createShareManager", () => {
     });
 
     expect(result.ok).toBe(true);
+
     if (!result.ok) return;
     expect(result.share.sharePort).toBeGreaterThan(0);
     expect(result.share.grants[0].localUrl).toMatch(
@@ -128,17 +137,20 @@ describe("createShareManager", () => {
 
   test("sets the cookie at entry and refuses wrong or missing credentials", async () => {
     const { manager } = managerFor();
+
     const created = await manager.create({
       scope: "direction",
       titles: ["Current"],
       layout,
     });
+
     if (!created.ok) throw new Error(created.error);
 
     const entry = await fetch(created.share.grants[0].localUrl, {
       redirect: "manual",
       headers: { "x-forwarded-proto": "https" },
     });
+
     expect(entry.status).toBe(302);
     expect(entry.headers.get("location")).toBe("/leglas/");
     expect(entry.headers.get("set-cookie")).toMatch(
@@ -149,6 +161,7 @@ describe("createShareManager", () => {
     const allowed = await fetch(`http://127.0.0.1:${created.share.sharePort}/pricing`, {
       headers: { cookie },
     });
+
     expect(allowed.status).toBe(200);
     expect(await allowed.text()).toBe("passed gate");
 
@@ -159,12 +172,14 @@ describe("createShareManager", () => {
     const wrong = await fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/s/wrong`, {
       redirect: "manual",
     });
+
     expect(wrong.status).toBe(403);
     expect(await wrong.json()).toEqual({ ok: false, error: "This link isn't active." });
 
     const html = await fetch(`http://127.0.0.1:${created.share.sharePort}/pricing`, {
       headers: { accept: "text/html" },
     });
+
     expect(html.status).toBe(403);
     expect(await html.text()).toContain("This Leglas link isn't active");
   });
@@ -172,11 +187,13 @@ describe("createShareManager", () => {
   test("refuses every viewer mutation before the shared handler sees it", async () => {
     const request = vi.fn((res: ServerResponse) => res.end("should not run"));
     const { manager } = managerFor(previews, request);
+
     const created = await manager.create({
       scope: "direction",
       titles: ["Current"],
       layout,
     });
+
     if (!created.ok) throw new Error(created.error);
     const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
@@ -196,12 +213,14 @@ describe("createShareManager", () => {
 
   test("gives a viewer config to a live link and nothing to a stranger", async () => {
     const { manager } = managerFor();
+
     const created = await manager.create({
       scope: "rail",
       titles: ["Aurora"],
       layout,
       tunnel: "none",
     });
+
     if (!created.ok) throw new Error(created.error);
     const id = created.share.grants[0].id;
     expect(await manager.viewerConfig(id)).not.toBeNull();
@@ -215,11 +234,13 @@ describe("createShareManager", () => {
   test("builds viewer config from shared titles in config order", async () => {
     const { manager } = managerFor();
     const compareLayout = { ...layout, compare: "Current" };
+
     const created = await manager.create({
       scope: "compare",
       titles: ["Aurora", "Current"],
       layout: compareLayout,
     });
+
     if (!created.ok) throw new Error(created.error);
 
     const config = (await manager.viewerConfig(created.share.grants[0].id)) as {
@@ -243,6 +264,7 @@ describe("createShareManager", () => {
       tags: [],
       branch: "feature/branch",
     };
+
     const { manager } = managerFor([...previews, branch]);
 
     const branchResult = await manager.create({
@@ -250,6 +272,7 @@ describe("createShareManager", () => {
       titles: ["Branch"],
       layout,
     });
+
     expect(branchResult).toEqual({
       ok: false,
       status: 400,
@@ -261,6 +284,7 @@ describe("createShareManager", () => {
       titles: ["Missing"],
       layout,
     });
+
     expect(unknown).toEqual({
       ok: false,
       status: 400,
@@ -277,9 +301,11 @@ describe("stopping while a share is still starting", () => {
     // nothing active, report success and leave the share to come up behind
     // it. Held here at the first await so the race is the test, not luck.
     let release = (): void => {};
+
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const { manager } = managerFor(previews, undefined, () => held);
 
     const creating = manager.create({
@@ -288,6 +314,7 @@ describe("stopping while a share is still starting", () => {
       layout,
       tunnel: "none",
     });
+
     await manager.stop();
     release();
     const result = await creating;
@@ -301,15 +328,19 @@ describe("stopping while a share is still starting", () => {
 describe("many links to one share", () => {
   const start = async (clocks?: { now?: () => number; nowMono?: () => bigint }) => {
     const { manager, live } = managerFor(previews, undefined, undefined, clocks ?? {});
+
     const created = await manager.create({
       scope: "rail",
       titles: ["Current", "Aurora"],
       layout,
       tunnel: "none",
     });
+
     if (!created.ok) throw new Error(created.error);
+
     return { manager, live, share: created.share };
   };
+
   const enter = async (url: string): Promise<Response> => fetch(url, { redirect: "manual" });
 
   test("a share opens with one link, and every later one is its own", async () => {
@@ -318,6 +349,7 @@ describe("many links to one share", () => {
     expect(share.grants[0].name).toBe("");
 
     const second = manager.createGrant({ name: "  Ana  " });
+
     if (!second.ok) throw new Error(second.error);
     expect(second.share.grants).toHaveLength(2);
     expect(second.share.grants[1].name).toBe("Ana");
@@ -330,11 +362,14 @@ describe("many links to one share", () => {
 
   test("refuses a seventeenth link rather than growing without end", async () => {
     const { manager } = await start();
+
     for (let made = 1; made < 16; made += 1) {
       expect(manager.createGrant({}).ok).toBe(true);
     }
+
     const past = manager.createGrant({});
     expect(past.ok).toBe(false);
+
     if (past.ok) return;
     expect(past.status).toBe(409);
     expect(past.error).toMatch(/Revoke one/);
@@ -343,11 +378,13 @@ describe("many links to one share", () => {
   test("revoking one link leaves the others, and says which happened", async () => {
     const { manager, share } = await start();
     const second = manager.createGrant({ name: "Ana" });
+
     if (!second.ok) throw new Error(second.error);
     const [kept, cut] = second.share.grants;
 
     const revoked = manager.revokeGrant({ id: cut.id });
     expect(revoked.ok).toBe(true);
+
     if (!revoked.ok) return;
     expect(revoked.share.grants).toHaveLength(1);
     expect(revoked.share.grants[0].id).toBe(kept.id);
@@ -358,18 +395,22 @@ describe("many links to one share", () => {
     const gone = await enter(cut.localUrl);
     expect(gone.status).toBe(410);
     expect(await gone.text()).toMatch(/turned off/);
+
     const stranger = await enter(
       kept.localUrl.replace(/\/s\/.+$/, "/s/notatokenatallnotatokenatall12"),
     );
+
     expect(stranger.status).toBe(403);
   });
 
   test("a link past its deadline is expired, not merely unknown", async () => {
     let at = 1_000_000;
+
     const { manager, share } = await start({
       now: () => at,
       nowMono: () => BigInt(at) * 1_000_000n,
     });
+
     const link = share.grants[0];
     expect((await enter(link.localUrl)).status).toBe(302);
 
@@ -397,15 +438,18 @@ describe("many links to one share", () => {
 
   test("extend moves a live link's deadline and will not raise a dead one", async () => {
     let at = 2_000_000;
+
     const { manager, share } = await start({
       now: () => at,
       nowMono: () => BigInt(at) * 1_000_000n,
     });
+
     const link = share.grants[0];
     const first = link.expiresAt;
 
     at += 60 * 60 * 1000;
     const extended = manager.extendGrant({ id: link.id });
+
     if (!extended.ok) throw new Error(extended.error);
     expect(extended.share.grants[0].expiresAt).toBeGreaterThan(first);
     // A new absolute time, not an addition, so clicking twice cannot walk it
@@ -415,6 +459,7 @@ describe("many links to one share", () => {
     manager.revokeGrant({ id: link.id });
     const raising = manager.extendGrant({ id: link.id });
     expect(raising.ok).toBe(false);
+
     if (raising.ok) return;
     expect(raising.status).toBe(404);
     expect(raising.error).toMatch(/Make a new one/);
@@ -425,17 +470,20 @@ describe("many links to one share", () => {
     // responses are allowed to finish" would have left running: cut off in
     // name and still receiving in fact.
     let hold: ServerResponse | null = null;
+
     const { manager } = managerFor(previews, (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(": open\n\n");
       hold = res;
     });
+
     const created = await manager.create({
       scope: "rail",
       titles: ["Current"],
       layout,
       tunnel: "none",
     });
+
     if (!created.ok) throw new Error(created.error);
     const link = created.share.grants[0];
     const entry = await fetch(link.localUrl, { redirect: "manual" });
@@ -457,13 +505,16 @@ describe("many links to one share", () => {
     expect(before).toHaveLength(2);
 
     const rotated = await manager.rotate();
+
     if (!rotated.ok) throw new Error(rotated.error);
     expect(rotated.share.grants).toHaveLength(1);
+
     for (const url of before) {
       expect(rotated.share.grants[0].localUrl).not.toBe(url);
       const gone = await enter(url);
       expect(gone.status).toBe(410);
     }
+
     expect((await enter(rotated.share.grants[0].localUrl)).status).toBe(302);
   });
 });
@@ -474,6 +525,7 @@ describe("how far a viewer reaches", () => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("the app");
     });
+
     const created = await manager.create({
       scope: "rail",
       titles: ["Current"],
@@ -481,11 +533,13 @@ describe("how far a viewer reaches", () => {
       tunnel: "none",
       ...extra,
     });
+
     if (!created.ok) throw new Error(created.error);
     const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
     const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     const origin = created.share.grants[0].localUrl.replace(/\/leglas\/s\/.+$/, "");
     const get = (path: string) => fetch(`${origin}${path}`, { headers: { cookie } });
+
     return { manager, get, share: created.share, cookie, port: created.share.sharePort };
   };
 
@@ -500,6 +554,7 @@ describe("how far a viewer reaches", () => {
       reach: "listed",
       routes: ["/src/main.tsx", "/node_modules/.vite/deps/"],
     });
+
     // The shared direction is always in: a share whose own page is refused
     // is not a share.
     expect((await get("/")).status).toBe(200);
@@ -523,9 +578,11 @@ describe("how far a viewer reaches", () => {
     // the refusal stays. Recording the settled path means the allow works,
     // and forty spellings of one path cannot push forty real refusals out.
     const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
+
     for (const path of ["/assets/../secrets/x", "/%73ecrets/x", "//secrets//x", "/secrets/x"]) {
       expect(await raw(port, path, cookie).status).toBe(403);
     }
+
     expect(manager.status()?.refused).toEqual(["/secrets/x"]);
 
     const allowed = manager.allowRoute({ path: "/secrets/x" });
@@ -582,12 +639,15 @@ describe("how far a viewer reaches", () => {
     // does not recognise them, and proxies them to the dev server: exempt
     // from the list and the ceiling by one layer, app traffic to the other.
     const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
+
     for (const path of ["//leglas/x", "/./leglas/x", "/foo/../leglas/x", "/%2Fleglas/x"]) {
       expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
     }
+
     // The backslash spelling never reaches any of this: Node refuses a
     // request target that does not begin with a slash.
     expect(await raw(port, "\\leglas\\x", cookie).status).toBe(400);
+
     // A path the server would recognise as its own by the same raw reading
     // keeps the exemption, which is the whole point of having one. Asking
     // every spelling is the strict direction, so the risk it carries is
@@ -612,6 +672,7 @@ describe("how far a viewer reaches", () => {
     // viewer needs the interface to be a viewer. A path that only looks
     // like it lives there must not inherit that.
     const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
+
     for (const path of [
       "/leglas/../secrets/config.json",
       "/leglas/../../etc/hosts",
@@ -619,6 +680,7 @@ describe("how far a viewer reaches", () => {
     ]) {
       expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
     }
+
     // And the interface itself still answers.
     expect((await get("/leglas/api/health")).status).toBe(200);
   });
@@ -787,23 +849,27 @@ describe("the ceiling on viewer traffic", () => {
   ) {
     const { manager } = managerFor(previews, request, undefined, clocks);
     const created = await manager.create({ scope: "rail", titles: ["Current"], layout });
+
     if (!created.ok) throw new Error(created.error);
     const first = created.share.grants[0];
+
     if (first === undefined) throw new Error("no link");
     const entry = await fetch(first.localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
     const port = created.share.sharePort;
+
     return {
       manager,
       share: created.share,
       get: (path: string, init: RequestInit = {}) =>
         fetch(`http://127.0.0.1:${port}${path}`, {
           ...init,
-          headers: { cookie, ...(init.headers ?? {}) },
+          headers: { cookie, ...init.headers },
         }),
       cookie,
       cookieFor: async (localUrl: string) => {
         const other = await fetch(localUrl, { redirect: "manual" });
+
         return other.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
       },
       port,
@@ -814,8 +880,10 @@ describe("the ceiling on viewer traffic", () => {
   async function drain(holding: Array<() => void>, expected: number): Promise<void> {
     let answered = 0;
     const until = Date.now() + 10_000;
+
     while (answered < expected && Date.now() < until) {
       const next = holding.shift();
+
       if (next === undefined) await new Promise((resolve) => setTimeout(resolve, 2));
       else {
         next();
@@ -832,6 +900,7 @@ describe("the ceiling on viewer traffic", () => {
     let peak = 0;
     let answered = 0;
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res) => {
       inside += 1;
       peak = Math.max(peak, inside);
@@ -851,9 +920,11 @@ describe("the ceiling on viewer traffic", () => {
 
     while (answered < 40) {
       const next = holding.shift();
+
       if (next === undefined) await new Promise((resolve) => setTimeout(resolve, 2));
       else next();
     }
+
     const responses = await Promise.all(all);
 
     expect(peak).toBe(VIEWER_CONCURRENCY);
@@ -864,12 +935,15 @@ describe("the ceiling on viewer traffic", () => {
     // A viewer needs the shell, its config and its socket in order to be a
     // viewer at all, and none of that is the dev server.
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res, req) => {
       if ((req.url ?? "").startsWith("/leglas/")) {
         res.writeHead(200, { "content-type": "text/plain" });
         res.end("interface");
+
         return;
       }
+
       holding.push(() => {
         res.writeHead(200, { "content-type": "text/plain" });
         res.end("app");
@@ -892,6 +966,7 @@ describe("the ceiling on viewer traffic", () => {
     // slot until the response finished would let twelve of them take every
     // slot permanently and deadlock the share.
     const open: ServerResponse[] = [];
+
     const share = await shareWith((res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(": open\n\n");
@@ -906,6 +981,7 @@ describe("the ceiling on viewer traffic", () => {
     // And an ordinary request still gets through behind all of them.
     const after = await share.get("/still-served");
     expect(after.status).toBe(200);
+
     for (const response of open) response.end();
     await Promise.all(streams.map((response) => response.body?.cancel()));
   });
@@ -913,6 +989,7 @@ describe("the ceiling on viewer traffic", () => {
   test("gives a quiet link its turn rather than draining a loud one first", async () => {
     const served: string[] = [];
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res, req) => {
       served.push(req.url ?? "/");
       holding.push(() => {
@@ -920,9 +997,12 @@ describe("the ceiling on viewer traffic", () => {
         res.end("ok");
       });
     });
+
     const second = share.manager.createGrant({ name: "Second" });
+
     if (!second.ok) throw new Error(second.error);
     const other = second.share.grants.at(-1);
+
     if (other === undefined) throw new Error("no second link");
     const otherCookie = await share.cookieFor(other.localUrl);
 
@@ -939,20 +1019,24 @@ describe("the ceiling on viewer traffic", () => {
     // in order it waits behind all eighteen, so anywhere near the front is
     // only reachable by giving its link a turn of its own.
     const admitted = served.length;
+
     for (let i = 0; i < 6 && !served.includes("/quiet"); i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));
       holding.shift()?.();
       await vi.waitFor(() => expect(served.length).toBeGreaterThan(admitted + i));
     }
+
     expect(served).toContain("/quiet");
     expect(served.indexOf("/quiet")).toBeLessThan(VIEWER_CONCURRENCY + 6);
 
     for (const request of [...loud, quiet]) request.stop();
+
     while (holding.length > 0) holding.shift()?.();
   });
 
   test("turns away a link that queues more than it may", async () => {
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res) => {
       holding.push(() => {
         res.writeHead(200, { "content-type": "text/plain" });
@@ -961,9 +1045,11 @@ describe("the ceiling on viewer traffic", () => {
     });
 
     const full = VIEWER_CONCURRENCY + VIEWER_QUEUE;
+
     const filling = Array.from({ length: full }, (_, i) =>
       raw(share.port, `/fill-${i}`, share.cookie),
     );
+
     await Promise.all(filling.map((request) => request.sent));
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
@@ -971,19 +1057,23 @@ describe("the ceiling on viewer traffic", () => {
     expect(await over.status).toBe(503);
 
     for (const request of filling) request.stop();
+
     while (holding.length > 0) holding.shift()?.();
   });
 
   test("answers what a revoked link left waiting", async () => {
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res) => {
       holding.push(() => {
         res.writeHead(200, { "content-type": "text/plain" });
         res.end("ok");
       });
     });
+
     const live = share.manager.status();
     const grantId = live?.grants[0]?.id;
+
     if (grantId === undefined) throw new Error("no link");
 
     const pending = Array.from({ length: 20 }, (_, i) => share.get(`/waiting-${i}`));
@@ -1000,6 +1090,7 @@ describe("the ceiling on viewer traffic", () => {
       ok: false,
       error: "This link was turned off.",
     });
+
     for (const release of holding.splice(0)) release();
   });
 
@@ -1023,6 +1114,7 @@ describe("the ceiling on viewer traffic", () => {
     // batch has reached the dev server. The deadlines themselves are real
     // timers and still fire in arrival order.
     let arrived = 0;
+
     const share = await shareWith(
       (res) => {
         arrived += 1;
@@ -1037,12 +1129,14 @@ describe("the ceiling on viewer traffic", () => {
     const frozen = Date.now();
     const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
     let all: Promise<Response>[];
+
     try {
       all = Array.from({ length: 40 }, (_, i) => share.get(`/steady-${i}`));
       await vi.waitFor(() => expect(arrived).toBe(VIEWER_CONCURRENCY * 2), { timeout: 10_000 });
     } finally {
       clock.mockRestore();
     }
+
     const answers = await Promise.all(all.map((pending) => pending.catch(() => null)));
     const shed = answers.filter((response) => response?.status === 503);
 
@@ -1052,11 +1146,13 @@ describe("the ceiling on viewer traffic", () => {
       ok: false,
       error: "The dev server is busy. Try again.",
     });
+
     // Everything that was answered was answered properly, and the share is
     // still usable rather than wedged.
     for (const response of answers) {
       if (response !== null) expect([200, 503]).toContain(response.status);
     }
+
     expect((await share.get("/after-the-rush")).status).toBe(200);
   });
 
@@ -1064,6 +1160,7 @@ describe("the ceiling on viewer traffic", () => {
     // Nothing releases a slot on its own if the upstream hangs, so the
     // budget covers the waiting and the running as one.
     let started = 0;
+
     const share = await shareWith(
       () => {
         started += 1;
@@ -1085,6 +1182,7 @@ describe("the ceiling on viewer traffic", () => {
   test("a viewer who gives up while waiting frees the place they held", async () => {
     let started = 0;
     const holding: Array<() => void> = [];
+
     const share = await shareWith((res) => {
       started += 1;
       holding.push(() => {

@@ -56,18 +56,27 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
   }
 
   if (stroke.typing) return null;
+
   if (stroke.metaKey || stroke.ctrlKey || stroke.altKey) return null;
 
   const { key } = stroke;
+
   if (key === "?") return { kind: "help" };
+
   if (key === "ArrowDown") return { kind: "move", delta: 1 };
+
   if (key === "ArrowUp") return { kind: "move", delta: -1 };
 
   const letter = key.length === 1 ? key.toLowerCase() : "";
+
   if (letter === "a") return { kind: "note" };
+
   if (letter === "c") return { kind: "split" };
+
   if (letter === "b") return { kind: "rail" };
+
   if (letter === "r") return { kind: "request" };
+
   // The way back to the tools when the widget is switched off from inside
   // them, as well as a shortcut in its own right.
   if (letter === "t") return { kind: "tools" };
@@ -75,6 +84,7 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
   if (key.length === 1 && key >= "1" && key <= String(MAX_JUMP)) {
     return { kind: "jump", index: Number(key) - 1 };
   }
+
   return null;
 }
 
@@ -114,12 +124,15 @@ export function shortcutList(mac: boolean, viewer = false): readonly Shortcut[] 
     { keys: ["?"], label: "This list" },
     { keys: ["Esc"], label: "Clear the search, or close what is open" },
   ];
+
   // A viewer of a share can look and compare, never change what runs, so the
   // keys that ask for work are not listed: a documented key that does nothing
   // is the drift this list exists to prevent.
   const listed: Shortcut[] = [];
+
   for (const { changes, ...shortcut } of all) {
     if (!(viewer && changes)) listed.push(shortcut);
   }
+
   return listed;
 }

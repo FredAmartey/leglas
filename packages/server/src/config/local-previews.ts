@@ -34,6 +34,7 @@ export async function readLocalPreviews(
   const path = join(cwd, LOCAL_PREVIEWS_PATH);
 
   let raw: string;
+
   try {
     raw = await readFile(path, "utf8");
   } catch (error) {
@@ -41,10 +42,12 @@ export async function readLocalPreviews(
       error instanceof Error && "code" in error && typeof error.code === "string"
         ? error.code
         : null;
+
     if (code === "ENOENT") {
       // Never added anything here. Not a problem, and not worth reporting.
       return { previews: [], errors: [] };
     }
+
     return {
       previews: [],
       errors: [
@@ -54,6 +57,7 @@ export async function readLocalPreviews(
   }
 
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
@@ -72,6 +76,7 @@ export async function readLocalPreviews(
   // branch-devCommand coupling is relaxed: devCommand lives in the shared
   // config, and whether it is set there is checked where the two merge.
   const result = normalizeConfig(parsed, { requireDevCommand: false });
+
   if (result.config === null) {
     return {
       previews: [],
@@ -91,11 +96,13 @@ export async function addLocalPreview(
   shared: readonly Preview[],
 ): Promise<{ ok: boolean; error?: string }> {
   const existing = await readLocalPreviews(cwd);
+
   if (existing.errors.length > 0) {
     return { ok: false, error: existing.errors.join(" ") };
   }
 
   const taken = [...shared, ...existing.previews].some((preview) => preview.title === input.title);
+
   if (taken) {
     return {
       ok: false,
@@ -115,6 +122,7 @@ export async function addLocalPreview(
   };
 
   const check = normalizeConfig({ previews: [candidate] }, { requireDevCommand: false });
+
   if (check.config === null) {
     return { ok: false, error: check.errors.join(" ") };
   }
@@ -139,6 +147,7 @@ export async function addLocalPreview(
  */
 function toStored(preview: LocalPreview): Record<string, unknown> {
   const { local: _local, url, ...rest } = preview;
+
   return preview.file !== undefined && url === "" ? rest : { url, ...rest };
 }
 
@@ -151,10 +160,12 @@ function toStored(preview: LocalPreview): Record<string, unknown> {
 export async function dropLocalPreviews(cwd: string, titles: readonly string[]): Promise<number> {
   const existing = await readLocalPreviews(cwd);
   const keep = existing.previews.filter((preview) => !titles.includes(preview.title));
+
   if (keep.length === existing.previews.length) return 0;
 
   const path = join(cwd, LOCAL_PREVIEWS_PATH);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ previews: keep.map(toStored) }, null, 2)}\n`, "utf8");
+
   return existing.previews.length - keep.length;
 }

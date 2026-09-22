@@ -17,7 +17,9 @@ import { INSTALL_WAIT_MS, RESTART_WAIT_MS, UPDATED_KEY, type Wait } from "./upda
  * Leglas, and that one asks every second.
  */
 export const IDLE_UPDATE_MS = 15 * 60_000;
+
 export const OPEN_UPDATE_MS = 15_000;
+
 export const WAITING_UPDATE_MS = 1000;
 
 export type UpdateHandle = {
@@ -43,10 +45,13 @@ export type UpdateHandle = {
 function leaving(status: UpdateStatus | null): { version: string; allowance: number } | null {
   if (status === null) return null;
   const { phase } = status;
+
   if (phase.status === "installing" || phase.status === "waiting") {
     return { version: phase.version, allowance: INSTALL_WAIT_MS };
   }
+
   if (phase.status === "restarting") return { version: phase.version, allowance: RESTART_WAIT_MS };
+
   return null;
 }
 
@@ -57,6 +62,7 @@ function arrive(version: string): void {
   } catch {
     // Nothing to carry over; the version is still visible in the chip.
   }
+
   window.location.reload();
 }
 
@@ -89,12 +95,14 @@ export function useUpdate(
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+
     const stop = startPoll(
       (signal) =>
         readUpdate(signal)
           .then((next) => {
             if (cancelled) return;
             const seen = latest.current;
+
             if (seen.status !== null && next.version !== seen.status.version) {
               // A different Leglas answers on this origin, so the bundle that
               // is running belongs to the one that went. The version this
@@ -105,10 +113,13 @@ export function useUpdate(
                 seen.wait.status !== "none"
                   ? seen.wait.version
                   : (leaving(seen.status)?.version ?? null);
+
               if (expected === null || next.version === expected) {
                 arrive(next.version);
+
                 return;
               }
+
               if (seen.wait.status !== "wrong" || seen.wait.got !== next.version) {
                 setWait({ status: "wrong", version: expected, got: next.version });
               }
@@ -116,6 +127,7 @@ export function useUpdate(
               // The old server, still here: a hiccup, or an install that failed.
               setWait({ status: "none" });
             }
+
             setStatus((current) =>
               JSON.stringify(current) === JSON.stringify(next) ? current : next,
             );
@@ -123,6 +135,7 @@ export function useUpdate(
           .catch(() => {
             if (cancelled || latest.current.wait.status !== "none") return;
             const going = leaving(latest.current.status);
+
             if (going === null) return;
             const now = Date.now();
             setWait({
@@ -138,6 +151,7 @@ export function useUpdate(
         subscribe: (run) => liveConnection().on("update", run),
       },
     );
+
     return () => {
       cancelled = true;
       stop();
@@ -150,6 +164,7 @@ export function useUpdate(
   useEffect(() => {
     if (wait.status !== "waiting") return;
     const { version, until } = wait;
+
     const timer = window.setTimeout(
       () =>
         setWait((current) =>
@@ -157,6 +172,7 @@ export function useUpdate(
         ),
       Math.max(0, until - Date.now()),
     );
+
     return () => window.clearTimeout(timer);
   }, [wait]);
 
@@ -165,12 +181,15 @@ export function useUpdate(
   useEffect(() => {
     if (!ready) return;
     let updated: string | null = null;
+
     try {
       updated = window.sessionStorage.getItem(UPDATED_KEY);
+
       if (updated !== null) window.sessionStorage.removeItem(UPDATED_KEY);
     } catch {
       return;
     }
+
     if (updated === null) return;
     latest.current.notify({
       kind: "update",
@@ -199,6 +218,7 @@ export function useUpdate(
 
   const skip = () => {
     const version = latest.current.status?.latest?.version;
+
     if (version === undefined) return;
     void skipUpdate(version)
       .then((next) => {

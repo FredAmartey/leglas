@@ -45,6 +45,7 @@ function listen(
   const socket = new RecordingSocket();
   expect(hub.upgrade(request(), socket, Buffer.alloc(0), options)).toBe(true);
   socket.writes.length = 0;
+
   return socket;
 }
 
@@ -55,9 +56,11 @@ function clientFrame(opcode: number, payload: Buffer | string = Buffer.alloc(0))
   frame[0] = 0x80 | opcode;
   frame[1] = 0x80 | body.length;
   mask.copy(frame, 2);
+
   for (let index = 0; index < body.length; index += 1) {
     frame[6 + index] = (body[index] ?? 0) ^ (mask[index % 4] ?? 0);
   }
+
   return frame;
 }
 
@@ -101,7 +104,9 @@ describe("createLiveHub", () => {
     expect(frame[0]).toBe(0x81);
     expect(frame[1]).toBe(marker);
     expect(frame).toHaveLength(header + length);
+
     if (length === 126) expect(frame.readUInt16BE(2)).toBe(126);
+
     if (length === 65_536) expect(frame.readBigUInt64BE(2)).toBe(65_536n);
   });
 
@@ -168,15 +173,18 @@ describe("createCoalescer", () => {
     const pending = new Map<number, { at: number; run: () => void }>();
     let now = 0;
     let next = 1;
+
     return {
       setTimeout: (run: () => void, ms: number) => {
         const handle = next++;
         pending.set(handle, { at: now + ms, run });
+
         return handle;
       },
       clearTimeout: (handle: unknown) => void pending.delete(handle as number),
       advance(ms: number) {
         now += ms;
+
         for (const [handle, entry] of [...pending]) {
           if (entry.at <= now) {
             pending.delete(handle);
@@ -193,6 +201,7 @@ describe("createCoalescer", () => {
   test("two changes inside the window are one nudge; outside it, two", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
@@ -216,6 +225,7 @@ describe("createCoalescer", () => {
   test("each kind waits on its own timer", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
@@ -234,6 +244,7 @@ describe("createCoalescer", () => {
   test("closing drops what is pending and refuses anything after", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,

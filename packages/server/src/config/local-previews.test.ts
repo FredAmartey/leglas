@@ -31,6 +31,7 @@ describe("a variant's origin", () => {
       },
       shared,
     );
+
     expect(outcome.ok).toBe(true);
 
     const result = await readLocalPreviews(dir);
@@ -48,6 +49,7 @@ describe("a variant's origin", () => {
     const stored = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8")) as {
       previews: Record<string, unknown>[];
     };
+
     expect(stored.previews[0]).not.toHaveProperty("askedFor");
     expect(stored.previews[0]).not.toHaveProperty("basedOn");
   });

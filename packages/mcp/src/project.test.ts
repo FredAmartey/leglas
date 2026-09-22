@@ -17,6 +17,7 @@ function host(roots: string[] | null, options: { fails?: boolean } = {}): RootsH
     getClientCapabilities: () => (roots === null ? {} : { roots: {} }),
     listRoots: async () => {
       if (options.fails === true) throw new Error("refused");
+
       return { roots: (roots ?? []).map((root) => ({ uri: pathToFileURL(root).href })) };
     },
   };
@@ -133,6 +134,7 @@ describe("hostProject", () => {
 
   test("skips roots that name no directory on this machine", async () => {
     const project = scratch("project");
+
     const mixed: RootsHost = {
       getClientCapabilities: () => ({ roots: {} }),
       listRoots: async () => ({
@@ -148,10 +150,12 @@ describe("hostProject", () => {
   test("waits for the host to initialize before asking for roots", async () => {
     const project = scratch("project");
     let initialized = false;
+
     const late: RootsHost = {
       getClientCapabilities: () => (initialized ? { roots: {} } : undefined),
       listRoots: async () => ({ roots: [{ uri: pathToFileURL(project).href }] }),
     };
+
     const resolving = hostProject(late, { cwd: scratch("plugin") }).locate();
 
     // Asking now would be a protocol error, so nothing has been asked yet.
@@ -164,13 +168,16 @@ describe("hostProject", () => {
   test("resolves once and holds the answer", async () => {
     const project = scratch("project");
     let asked = 0;
+
     const counting: RootsHost = {
       getClientCapabilities: () => ({ roots: {} }),
       listRoots: async () => {
         asked += 1;
+
         return { roots: [{ uri: pathToFileURL(project).href }] };
       },
     };
+
     const resolver = hostProject(counting, { cwd: scratch("plugin") });
 
     await Promise.all([resolver.locate(), resolver.locate()]);

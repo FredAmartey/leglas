@@ -25,17 +25,22 @@ export function createHandoff() {
     let child: ReturnType<typeof spawnChild> | null = null;
     let cancelled = false;
     let exited = false;
+
     const listeners = SHUTDOWN_SIGNALS.map((signal) => {
       const listener = (): void => {
         if (child === null) cancelled = true;
         else child.kill(signal);
       };
+
       deps.target.on(signal, listener);
+
       return { signal, listener };
     });
+
     const cleanup = (): void => {
       for (const { signal, listener } of listeners) deps.target.off(signal, listener);
     };
+
     const exit = (code: number): void => {
       if (exited) return;
       exited = true;
@@ -51,19 +56,23 @@ export function createHandoff() {
       transferred = false;
       throw error;
     }
+
     if (cancelled) return exit(0);
 
     const failed = (error: unknown): void => {
       if (exited) return;
+
       const message = (error instanceof Error ? error.message : String(error)).replace(
         /[.!?]+$/,
         "",
       );
+
       process.stderr.write(
         `Could not start Leglas again: ${message}. Start it from your terminal.\n`,
       );
       exit(1);
     };
+
     try {
       child = deps.spawn(command.file, command.args, { stdio: "inherit", shell: command.shell });
       child.once("error", failed);

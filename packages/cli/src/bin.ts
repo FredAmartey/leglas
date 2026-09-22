@@ -79,6 +79,7 @@ Options for show
 function version(): string {
   const require = createRequire(import.meta.url);
   const pkg = require("../package.json") as { version: string };
+
   return pkg.version;
 }
 
@@ -86,6 +87,7 @@ function version(): string {
 async function openBrowser(url: string): Promise<void> {
   const command =
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+
   try {
     spawn(command, [url], { detached: true, stdio: "ignore" }).unref();
   } catch {
@@ -105,6 +107,7 @@ function quietModuleTypeWarning(): void {
   process.removeAllListeners("warning");
   process.on("warning", (warning) => {
     if ((warning as NodeJS.ErrnoException).code === "MODULE_TYPELESS_PACKAGE_JSON") return;
+
     for (const listener of listeners) listener(warning);
   });
 }
@@ -138,6 +141,7 @@ if (parsed.kind === "init") {
     { cwd: process.cwd(), force: parsed.force, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -146,6 +150,7 @@ if (parsed.kind === "classify") {
     { changes: parsed.changes, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -154,6 +159,7 @@ if (parsed.kind === "add") {
     { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -162,6 +168,7 @@ if (parsed.kind === "keep") {
     { title: parsed.title, to: parsed.to, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -170,6 +177,7 @@ if (parsed.kind === "explore") {
     { surface: parsed.surface, count: parsed.count, basedOn: parsed.basedOn, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -178,6 +186,7 @@ if (parsed.kind === "requests") {
     { json: parsed.json, clear: parsed.clear, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -188,6 +197,7 @@ if (parsed.kind === "watch") {
     { run: parsed.run, port: parsed.port, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -196,6 +206,7 @@ if (parsed.kind === "log") {
     { entry: parsed.entry, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -216,6 +227,7 @@ if (parsed.kind === "show") {
     },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -230,15 +242,18 @@ if (parsed.kind === "new") {
     },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
 let entry = fileURLToPath(import.meta.url);
+
 try {
   entry = realpathSync(entry);
 } catch {
   // A removed cache entry must not prevent startup from the unresolved path.
 }
+
 const updates = createUpdateService({
   version: version(),
   entry,
@@ -255,6 +270,7 @@ const result = await run(
 );
 
 const { handOff, handedOff } = createHandoff();
+
 updates.onRestart((command) =>
   handOff(command, result.stop, {
     spawn,

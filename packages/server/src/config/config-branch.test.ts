@@ -4,7 +4,9 @@ import { normalizeConfig } from "./config.js";
 
 const ok = (raw: unknown) => {
   const result = normalizeConfig(raw);
+
   if (result.config === null) throw new Error(`expected valid, got: ${result.errors.join(", ")}`);
+
   return result.config;
 };
 

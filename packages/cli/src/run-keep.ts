@@ -29,7 +29,9 @@ export type KeepDeps = { log(line: string): void; error(line: string): void };
  */
 function renameExport(source: string, to: string): string {
   const match = /export function ([A-Za-z0-9_]+)\s*\(/.exec(source);
+
   if (!match || match[1] === undefined) return source;
+
   return source.replace(new RegExp(`\\b${match[1]}\\b`, "g"), to);
 }
 
@@ -70,6 +72,7 @@ async function writeLogEntry(options: {
   if (entry.pictures.length > 0) {
     const pictureDir = join(dir, entry.slug);
     await mkdir(pictureDir, { recursive: true });
+
     for (const picture of entry.pictures) {
       // A capture that has already been pruned is skipped rather than fatal.
       await copyFile(join(options.cwd, picture.from), join(pictureDir, picture.to)).catch(() => {});
@@ -90,6 +93,7 @@ export async function runKeep(
   const fail = (error: string) => {
     if (options.json) deps.log(JSON.stringify({ ok: false, error }));
     else deps.error(error);
+
     return { exitCode: 1 };
   };
 
@@ -101,6 +105,7 @@ export async function runKeep(
     previews.map((preview) => preview.title),
     await readRenames(options.cwd),
   );
+
   if (!resolved.ok) return fail(resolved.error);
 
   const plan = planKeep({ title: resolved.title, previews, to: options.to });
@@ -113,6 +118,7 @@ export async function runKeep(
   if (!existsSync(from)) {
     return fail(`${plan.move.from} does not exist. Nothing to keep.`);
   }
+
   if (existsSync(to)) {
     return fail(`${plan.move.to} already exists. Choose another destination or move it aside.`);
   }
@@ -126,6 +132,7 @@ export async function runKeep(
   const surface = plan.removeDir.slice(plan.removeDir.lastIndexOf("/") + 1);
   let logged: string | null = null;
   let logError: string | null = null;
+
   try {
     logged = await writeLogEntry({
       cwd: options.cwd,
@@ -156,24 +163,32 @@ export async function runKeep(
         instructions: plan.instructions,
       }),
     );
+
     return { exitCode: 0 };
   }
 
   deps.log(`  kept     ${plan.move.to}`);
   deps.log(`  removed  ${plan.removeDir}`);
+
   if (logged !== null) deps.log(`  logged   ${logged}`);
+
   if (logError !== null) deps.error(`  The decision log could not be written: ${logError}`);
+
   if (dropped > 0) {
     deps.log(`  dropped  ${dropped} direction${dropped === 1 ? "" : "s"} from the rail`);
   }
+
   const stillShared = plan.dropTitles.filter(
     (title) => !local.previews.some((preview) => preview.title === title),
   );
+
   if (stillShared.length > 0) {
     deps.log("");
     deps.log(`  Remove these from leglas.config.ts by hand: ${stillShared.join(", ")}`);
   }
+
   deps.log("");
   deps.log(plan.instructions);
+
   return { exitCode: 0 };
 }

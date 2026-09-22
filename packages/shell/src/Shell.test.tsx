@@ -50,6 +50,7 @@ type Sent = { path: string; body: unknown };
 /** Answer the interface's reads from a table and remember what it wrote. */
 function serve(requests: RequestStatus[] = []): Sent[] {
   const sent: Sent[] = [];
+
   const reads: Record<string, unknown> = {
     agents: AGENTS,
     annotations: { annotations: [] },
@@ -68,16 +69,21 @@ function serve(requests: RequestStatus[] = []): Sent[] {
       busy: false,
     },
   };
+
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
       .replace(/^https?:\/\/[^/]+/, "")
       .split("?")[0] as string;
+
     const name = path.replace("/leglas/api/", "");
+
     if ((init?.method ?? "GET") !== "GET") {
       sent.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
       const answer = name === "request" ? { ok: true, prompt: "the prompt" } : { ok: true };
+
       return new Response(JSON.stringify(answer), { status: 200 });
     }
+
     return new Response(JSON.stringify(reads[name] ?? {}), {
       status: name in reads ? 200 : 404,
     });
@@ -89,6 +95,7 @@ function serve(requests: RequestStatus[] = []): Sent[] {
       close(): void {}
     },
   );
+
   return sent;
 }
 
@@ -104,6 +111,7 @@ async function mount(props: { requests?: RequestStatus[]; viewer?: ViewerInfo })
     );
     await vi.advanceTimersByTimeAsync(1500);
   });
+
   return sent;
 }
 
@@ -116,17 +124,24 @@ async function after(action: () => void, wait = 450): Promise<void> {
 
 const key = (k: string) =>
   window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: k }));
+
 const click = (el: Element) => el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
 const find = <T extends Element>(selector: string): T => {
   const found = document.querySelector<T>(selector);
+
   if (found === null) throw new Error(`nothing matches ${selector}`);
+
   return found;
 };
+
 const row = (title: string) => find<HTMLElement>(`li[data-title="${title}"] [role="button"]`);
+
 const type = (el: HTMLTextAreaElement, value: string) => {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
   el.dispatchEvent(new Event("input", { bubbles: true }));
 };
+
 const tools = () => find<HTMLElement>('[role="dialog"][aria-label="Leglas tools"]');
 
 beforeEach(() => {
@@ -134,6 +149,7 @@ beforeEach(() => {
   vi.useFakeTimers({ now: 1_790_000_000_000 });
   // The previews are frames onto a dev server that is not running here.
   const happy = (window as { happyDOM?: { settings: Record<string, unknown> } }).happyDOM;
+
   if (happy) happy.settings.disableIframePageLoading = true;
   const memory = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -166,9 +182,11 @@ describe("the rail and the stage", () => {
 
     expect(row("Menu").getAttribute("aria-pressed")).toBe("true");
     expect(row("Table").getAttribute("aria-pressed")).toBe("false");
+
     const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
       (frame) => frame.closest(".hidden") === null,
     );
+
     expect(shown.map((frame) => frame.dataset.preview)).toEqual(["Menu"]);
   });
 
@@ -180,6 +198,7 @@ describe("the rail and the stage", () => {
     const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
       (frame) => frame.closest(".hidden") === null,
     );
+
     expect(shown.map((frame) => frame.dataset.preview).sort()).toEqual(["Menu", "Table"]);
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
@@ -274,6 +293,7 @@ describe("asking for a change", () => {
     const codex = [...menu.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("Codex"),
     );
+
     await after(() => click(codex as Element), 900);
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
   });

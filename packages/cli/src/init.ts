@@ -2,6 +2,7 @@ import { ignoreEntry } from "./ignore.js";
 import type { Write } from "./new.js";
 
 export const AGENTS_MARKER_START = "<!-- leglas:start -->";
+
 export const AGENTS_MARKER_END = "<!-- leglas:end -->";
 
 export type InitPlan = { writes: Write[]; gitignore: string | null };

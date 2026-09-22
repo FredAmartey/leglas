@@ -68,6 +68,7 @@ describe("isDrag", () => {
    */
   test("treats pointer travel during a tap as a click, not a drag", () => {
     const start = { x: 100, y: 100 };
+
     // A real trackpad press slides several pixels; 5 and 6 were what actually
     // broke the widget before this threshold existed.
     for (const point of [

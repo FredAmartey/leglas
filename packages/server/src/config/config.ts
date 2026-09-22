@@ -1,4 +1,5 @@
 import { DEFAULT_LOG_DIR } from "../log.js";
+
 export const DEFAULT_DEV_SERVER = "http://localhost:3000";
 
 /** Enough to install a fresh checkout with the package manager most repos use. */
@@ -78,6 +79,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isValidOrigin(value: string): boolean {
   try {
     const url = new URL(value);
+
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
@@ -90,7 +92,9 @@ function isValidOrigin(value: string): boolean {
  */
 function isSafeBranch(value: string): boolean {
   if (value === "" || value.startsWith("-")) return false;
+
   if (value.split("/").some((segment) => segment === "." || segment === "..")) return false;
+
   return /^[A-Za-z0-9._/-]+$/.test(value);
 }
 
@@ -109,7 +113,9 @@ function isValidPreviewUrl(value: string): boolean {
  */
 function isSafePreviewFile(value: string): boolean {
   if (value === "" || value.startsWith("/") || value.startsWith("\\")) return false;
+
   if (/^[A-Za-z]:/.test(value)) return false;
+
   return !value.split(/[/\\]/).some((segment) => segment === "..");
 }
 
@@ -128,13 +134,16 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
   }
 
   const devServer = source["devServer"] ?? DEFAULT_DEV_SERVER;
+
   if (typeof devServer !== "string" || !isValidOrigin(devServer)) {
     errors.push(`devServer must be an http(s) URL, received ${JSON.stringify(devServer)}.`);
   }
 
   const rawPreviews = source["previews"] ?? [IMPLICIT_PREVIEW];
+
   if (!Array.isArray(rawPreviews)) {
     errors.push(`previews must be an array, received ${JSON.stringify(rawPreviews)}.`);
+
     return { config: null, errors };
   }
 
@@ -146,6 +155,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
 
     if (!isRecord(entry)) {
       errors.push(`${at} must be an object.`);
+
       return;
     }
 
@@ -169,6 +179,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
           `${at} has an unusable file ${JSON.stringify(file)}; use a path inside the project, like "directions/hero.html".`,
         );
       }
+
       if (url !== undefined) {
         errors.push(`${at} names a file and a url; a file preview's url is assigned by Leglas.`);
       }
@@ -181,6 +192,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     }
 
     const branch = entry["branch"];
+
     if (branch !== undefined) {
       if (typeof branch !== "string" || !isSafeBranch(branch)) {
         errors.push(
@@ -191,6 +203,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
           `${at} names a branch and an absolute url; a branch preview is served by Leglas, so its url must be a path.`,
         );
       }
+
       if (file !== undefined) {
         errors.push(
           `${at} names a branch and a file; a file preview is served by Leglas itself and has no checkout.`,
@@ -199,11 +212,13 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     }
 
     const basedOn = entry["basedOn"];
+
     if (basedOn !== undefined && (typeof basedOn !== "string" || basedOn.trim() === "")) {
       errors.push(`${at} has a basedOn that is not a direction title.`);
     }
 
     const askedFor = entry["askedFor"];
+
     if (askedFor !== undefined && (typeof askedFor !== "string" || askedFor.trim() === "")) {
       errors.push(`${at} has an askedFor that is not a change request.`);
     }
@@ -222,6 +237,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
   });
 
   const devCommand = source["devCommand"];
+
   if (devCommand !== undefined && typeof devCommand !== "string") {
     errors.push("devCommand must be a string.");
   } else if (typeof devCommand === "string" && !devCommand.includes("{port}")) {
@@ -242,15 +258,19 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
   }
 
   const logDir = source["logDir"] ?? DEFAULT_LOG_DIR;
+
   if (typeof logDir !== "string" || logDir.trim() === "") {
     errors.push("logDir must be a non-empty string.");
   }
+
   const installCommand = source["installCommand"] ?? DEFAULT_INSTALL_COMMAND;
+
   if (typeof installCommand !== "string" || installCommand.trim() === "") {
     errors.push("installCommand must be a non-empty string.");
   }
 
   const scanPreviews = source["scanPreviews"] ?? true;
+
   if (typeof scanPreviews !== "boolean") {
     errors.push("scanPreviews must be a boolean.");
   }

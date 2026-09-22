@@ -63,13 +63,16 @@ function firstOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
   for (const directory of (env.PATH ?? "").split(delimiter)) {
     if (directory === "") continue;
     const candidate = join(directory, name);
+
     try {
       accessSync(candidate, constants.X_OK);
+
       return candidate;
     } catch {
       // A later PATH entry may contain it.
     }
   }
+
   return null;
 }
 
@@ -110,6 +113,7 @@ const HEADLESS_SHELL = [
 /** A cache directory's build number, so the newest install is tried first. */
 function buildNumber(entry: string): number {
   const digits = /(\d+)\s*$/.exec(entry)?.[1];
+
   return digits === undefined ? 0 : Number(digits);
 }
 
@@ -127,13 +131,16 @@ function cacheRoots(
     platform === "darwin"
       ? join(home, "Library", "Caches", "ms-playwright")
       : join(home, ".cache", "ms-playwright");
+
   const puppeteer = join(home, ".cache", "puppeteer");
+
   const newestFirst = (dir: string, keep: (entry: string) => boolean = () => true) => ({
     root: dir,
     entries: readdir(dir)
       .filter(keep)
       .sort((left, right) => buildNumber(right) - buildNumber(left)),
   });
+
   return [
     newestFirst(
       playwright,
@@ -160,6 +167,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
   const exists = search.exists ?? existsSync;
   const onPath = search.onPath ?? ((name: string) => firstOnPath(name, env));
   const readdir = search.readdir ?? readableDirectories;
+
   const firstExisting = (paths: readonly string[]): string | null =>
     paths.find((path) => exists(path)) ?? null;
 
@@ -182,6 +190,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
       entries.flatMap((entry) => HEADLESS_SHELL.map((rest) => join(root, entry, ...rest))),
     ),
   );
+
   if (shell !== null) return shell;
 
   if (platform === "darwin") {
@@ -190,18 +199,22 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
         DARWIN_APPS.map((app) => join(root, app)),
       ),
     );
+
     if (installed !== null) return installed;
   }
 
   if (platform === "linux") {
     for (const name of LINUX_NAMES) {
       const found = onPath(name);
+
       if (found !== null) return found;
     }
+
     const installed = firstExisting([
       ...LINUX_NAMES.flatMap((name) => [join("/usr/bin", name), join("/snap/bin", name)]),
       "/opt/google/chrome/chrome",
     ]);
+
     if (installed !== null) return installed;
   }
 
@@ -209,9 +222,11 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
     const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(
       (entry): entry is string => typeof entry === "string" && entry !== "",
     );
+
     const installed = firstExisting(
       roots.flatMap((root) => WINDOWS_BROWSERS.map((browser) => join(root, browser))),
     );
+
     if (installed !== null) return installed;
   }
 
@@ -220,6 +235,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
       platform === "darwin"
         ? join(home, "Library", "Caches", "ms-playwright")
         : join(home, ".cache", "ms-playwright");
+
     // Playwright ships Chrome for Testing under `chromium-<build>`, and a
     // smaller shell under `chromium_headless_shell-<build>`. Both drive CDP,
     // and on a machine with no desktop browser one of them is often the only
@@ -231,6 +247,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
       .sort((left, right) => buildNumber(right) - buildNumber(left))
       .flatMap((entry) => {
         const root = join(playwrightRoot, entry);
+
         return [
           ...FOR_TESTING.map((rest) => join(root, ...rest)),
           ...HEADLESS_SHELL.map((rest) => join(root, ...rest)),
@@ -240,21 +257,27 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
           join(root, "chrome-linux", "chrome"),
         ];
       });
+
     const playwrightBrowser = firstExisting(playwright);
+
     if (playwrightBrowser !== null) return playwrightBrowser;
 
     // Puppeteer keeps the same two kinds a directory apart.
     const puppeteerCache = join(home, ".cache", "puppeteer");
+
     for (const kind of ["chrome", "chrome-headless-shell"]) {
       const kindRoot = join(puppeteerCache, kind);
+
       const found = firstExisting(
         readdir(kindRoot)
           .sort((left, right) => buildNumber(right) - buildNumber(left))
           .flatMap((entry) => {
             const root = join(kindRoot, entry);
+
             return [...FOR_TESTING, ...HEADLESS_SHELL].map((rest) => join(root, ...rest));
           }),
       );
+
       if (found !== null) return found;
     }
   }
@@ -316,6 +339,7 @@ function lines(stream: NodeJS.ReadableStream, listener: (line: string) => void):
     buffered += chunk.toString();
     const complete = buffered.split("\n");
     buffered = complete.pop() ?? "";
+
     for (const line of complete) listener(line.replace(/\r$/, ""));
   });
   stream.on("end", () => {
@@ -330,13 +354,16 @@ async function connectWebSocket(url: string): Promise<CdpSocket> {
       socket.removeEventListener("error", failed);
       resolve();
     };
+
     const failed = () => {
       socket.removeEventListener("open", opened);
       reject(new Error("The browser went away."));
     };
+
     socket.addEventListener("open", opened, { once: true });
     socket.addEventListener("error", failed, { once: true });
   });
+
   return {
     send: (text) => socket.send(text),
     onMessage: (listener) =>
@@ -358,26 +385,34 @@ function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const said: string[] = [];
+
     const because = () => {
       const tail = said
         .filter((line) => line.trim() !== "")
         .slice(-3)
         .join(" / ");
+
       return tail === "" ? "" : ` It said: ${tail}`;
     };
+
     const finish = (value: string | Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+
       if (typeof value === "string") resolve(value);
       else reject(value);
     };
+
     const inspect = (line: string) => {
       if (said.length < 40) said.push(line);
       const match = /DevTools listening on (ws:\/\/\S+)/.exec(line);
+
       if (match?.[1] !== undefined) finish(match[1]);
     };
+
     if (process.stdout !== null) lines(process.stdout, inspect);
+
     if (process.stderr !== null) lines(process.stderr, inspect);
     process.once("error", (error) =>
       finish(new Error(`The browser did not start: ${error.message}.${because()}`)),
@@ -385,6 +420,7 @@ function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
     process.once("close", (code) =>
       finish(new Error(`The browser did not start (exit code ${code ?? "unknown"}).${because()}`)),
     );
+
     const timer = setTimeout(() => {
       process.kill("SIGKILL");
       finish(
@@ -393,6 +429,7 @@ function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
         ),
       );
     }, timeoutMs);
+
     timer.unref?.();
   });
 }
@@ -435,6 +472,7 @@ function livePid(pid: number): boolean {
   try {
     // Signal 0 asks whether the process exists without touching it.
     nodeProcess.kill(pid, 0);
+
     return true;
   } catch (error) {
     // EPERM means it exists and belongs to someone else, which still counts.
@@ -459,6 +497,7 @@ async function closeOrphan(
   connect: (url: string) => Promise<CdpSocket>,
 ): Promise<boolean> {
   let socket: CdpSocket;
+
   try {
     socket = await connect(url);
   } catch {
@@ -466,6 +505,7 @@ async function closeOrphan(
     // gone, or was never ours to close.
     return false;
   }
+
   try {
     socket.send(JSON.stringify({ id: 1, method: "Browser.close", params: {} }));
     await new Promise<void>((resolve) => {
@@ -476,6 +516,7 @@ async function closeOrphan(
         resolve();
       });
     });
+
     return true;
   } finally {
     try {
@@ -503,22 +544,28 @@ async function closeOrphan(
 export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number> {
   const root = deps.tmpdir ?? osTmpdir();
   const clock = deps.now ?? (() => Date.now());
+
   const list =
     deps.list ??
     (async (path: string) =>
       (await readdir(path, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name));
+
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
   const alive = deps.alive ?? livePid;
+
   const profileOf =
     deps.profile ??
     (async (path: string) => {
       const entry = await stat(path);
+
       return { createdAt: entry.birthtimeMs, uid: entry.uid };
     });
+
   const currentUid = deps.uid ?? (() => nodeProcess.getuid?.() ?? null);
   const connect = deps.connect ?? connectWebSocket;
+
   const remove =
     deps.remove ??
     (async (path: string) => {
@@ -526,6 +573,7 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
     });
 
   let names: string[];
+
   try {
     names = await list(root);
   } catch {
@@ -536,6 +584,7 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
 
   let reaped = 0;
   const mine = currentUid();
+
   for (const name of names) {
     if (!name.startsWith(PROFILE_PREFIX)) continue;
     const directory = join(root, name);
@@ -544,11 +593,15 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
     // Another user's profile is not ours to close, and the record inside it
     // is not ours to read, so it is skipped before anything opens it.
     const details = await profileOf(directory).catch(() => null);
+
     if (details === null) continue;
+
     if (mine !== null && details.uid !== null && details.uid !== mine) continue;
 
     type OwnerRecord = { owner?: unknown; ws?: unknown };
+
     let record: OwnerRecord | null = null;
+
     try {
       const raw = await read(join(directory, OWNER_FILE));
       record = raw === null ? null : (JSON.parse(raw) as OwnerRecord);
@@ -557,13 +610,17 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
     }
 
     const owner = typeof record?.owner === "number" ? record.owner : null;
+
     if (owner !== null && alive(owner)) continue;
+
     if (owner === null && clock() - details.createdAt < RECORD_GRACE_MS) continue;
 
     const endpoint = typeof record?.ws === "string" && record.ws !== "" ? record.ws : null;
+
     if (endpoint !== null && (await closeOrphan(endpoint, connect))) reaped += 1;
     await remove(directory).catch(() => {});
   }
+
   return reaped;
 }
 
@@ -575,6 +632,7 @@ export async function launchBrowser(
   const spawn = options.spawn ?? nodeSpawn;
   const connect = options.connect ?? connectWebSocket;
   const commandTimeoutMs = options.commandTimeoutMs ?? 30_000;
+
   const userDataDir = join(
     options.tmpdir ?? osTmpdir(),
     `leglas-browser-${randomBytes(8).toString("hex")}`,
@@ -607,6 +665,7 @@ export async function launchBrowser(
       // Nothing here is worth failing a launch over.
     }
   };
+
   owned({});
 
   const process = spawn(
@@ -647,6 +706,7 @@ export async function launchBrowser(
   );
 
   let websocketUrl: string;
+
   try {
     websocketUrl = await endpoint(process, options.startTimeoutMs ?? START_TIMEOUT_MS);
   } catch (error) {
@@ -660,6 +720,7 @@ export async function launchBrowser(
   owned({ browser: process.pid ?? null, ws: websocketUrl });
 
   let socket: CdpSocket;
+
   try {
     socket = await connect(websocketUrl);
   } catch (error) {
@@ -675,6 +736,7 @@ export async function launchBrowser(
   const pending = new Map<number, PendingCommand>();
   const listeners = new Map<string, Set<(params: any) => void>>();
   let processEnded!: () => void;
+
   const ended = new Promise<void>((resolve) => {
     processEnded = resolve;
   });
@@ -684,6 +746,7 @@ export async function launchBrowser(
       clearTimeout(command.timer);
       command.reject(new Error("The browser went away."));
     }
+
     pending.clear();
   };
 
@@ -698,6 +761,7 @@ export async function launchBrowser(
   });
   socket.onMessage((text) => {
     let message: Record<string, unknown>;
+
     try {
       message = JSON.parse(text) as Record<string, unknown>;
     } catch {
@@ -706,10 +770,12 @@ export async function launchBrowser(
 
     if (typeof message.id === "number") {
       const command = pending.get(message.id);
+
       if (command === undefined) return;
       pending.delete(message.id);
       clearTimeout(command.timer);
       const error = message.error as { message?: unknown } | undefined;
+
       if (error !== undefined) {
         command.reject(
           new Error(typeof error.message === "string" ? error.message : "CDP command failed."),
@@ -717,12 +783,14 @@ export async function launchBrowser(
       } else {
         command.resolve(message.result);
       }
+
       return;
     }
 
     if (typeof message.method !== "string") return;
     const sessionId = typeof message.sessionId === "string" ? message.sessionId : "";
     const key = `${sessionId}\0${message.method}`;
+
     for (const listener of listeners.get(key) ?? []) listener(message.params ?? {});
   });
 
@@ -734,6 +802,7 @@ export async function launchBrowser(
     if (processClosed || socketClosed) return Promise.reject(new Error("The browser went away."));
     const id = nextId;
     nextId += 1;
+
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
@@ -744,19 +813,23 @@ export async function launchBrowser(
         // makes the next acquire retire it and launch a replacement.
         socketClosed = true;
         rejectPending();
+
         try {
           socket.close();
         } catch {
           // Already gone; the close listener has done this anyway.
         }
+
         reject(new Error(`The browser did not answer ${method}.`));
       }, commandTimeoutMs);
+
       timer.unref?.();
       pending.set(id, {
         resolve: (value) => resolve(value as T),
         reject,
         timer,
       });
+
       try {
         socket.send(
           JSON.stringify({
@@ -779,13 +852,17 @@ export async function launchBrowser(
       const created = await send<{ targetId: string }>("Target.createTarget", {
         url: "about:blank",
       });
+
       const targetId = created.targetId;
+
       try {
         const attached = await send<{ sessionId: string }>("Target.attachToTarget", {
           targetId,
           flatten: true,
         });
+
         const sessionId = attached.sessionId;
+
         const page: CdpPage = {
           send: <R>(method: string, params: Record<string, unknown> = {}) =>
             send<R>(method, params, sessionId),
@@ -794,29 +871,36 @@ export async function launchBrowser(
             const group = listeners.get(key) ?? new Set();
             group.add(listener);
             listeners.set(key, group);
+
             return () => {
               group.delete(listener);
+
               if (group.size === 0) listeners.delete(key);
             };
           },
         };
+
         return await work(page);
       } finally {
         await send("Target.closeTarget", { targetId }).catch(() => {});
       }
     });
+
     queue = run.then(
       () => undefined,
       () => undefined,
     );
+
     return run;
   };
 
   let closing: Promise<void> | null = null;
+
   const close = (): Promise<void> => {
     if (closing !== null) return closing;
     closing = (async () => {
       if (!processClosed && !socketClosed) await send("Browser.close").catch(() => {});
+
       if (!processClosed) {
         await Promise.race([
           ended,
@@ -825,13 +909,16 @@ export async function launchBrowser(
               if (!processClosed) process.kill("SIGKILL");
               resolve();
             }, 1_000);
+
             timer.unref?.();
           }),
         ]);
       }
+
       socket.close();
       await rm(userDataDir, { recursive: true, force: true }).catch(() => {});
     })();
+
     return closing;
   };
 
@@ -867,13 +954,16 @@ export function createBrowserPool(
   const find = options.find ?? findBrowser;
   const launch = options.launch ?? launchBrowser;
   const idleMs = options.idleMs ?? 60_000;
+
   const setLater =
     options.setTimeout ??
     ((callback: () => void, milliseconds: number): unknown => {
       const timer = setTimeout(callback, milliseconds);
       timer.unref?.();
+
       return timer;
     });
+
   const clearLater =
     options.clearTimeout ??
     ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
@@ -897,8 +987,10 @@ export function createBrowserPool(
     clearLater(timer);
     timer = null;
   };
+
   const scheduleIdle = () => {
     clearIdle();
+
     if (browser === null || closed || working > 0) return;
     timer = setLater(() => {
       timer = null;
@@ -908,14 +1000,17 @@ export function createBrowserPool(
       void retiring?.close().catch(() => {});
     }, idleMs);
   };
+
   const wrap = (launched: Browser): Browser => ({
     withPage: async <T>(work: (page: CdpPage) => Promise<T>) => {
       working += 1;
       clearIdle();
+
       try {
         return await launched.withPage(work);
       } finally {
         working -= 1;
+
         if (working === 0 && browser === launched) scheduleIdle();
       }
     },
@@ -928,7 +1023,9 @@ export function createBrowserPool(
   const acquire = async (): Promise<Browser | null> => {
     if (closed) return null;
     clearIdle();
+
     if (browser !== null && !browser.closed) return exposed;
+
     // A browser whose socket went while its process lived is retired here,
     // not merely forgotten: the process and its profile directory would
     // otherwise outlive every replacement.
@@ -938,11 +1035,14 @@ export function createBrowserPool(
       exposed = null;
       void dead.close().catch(() => {});
     }
+
     if (launching !== null) return launching;
 
     const executable = find();
+
     if (executable === null) {
       lastReason = NO_BROWSER;
+
       return null;
     }
 
@@ -950,22 +1050,28 @@ export function createBrowserPool(
       .then((launched) => {
         if (closed) {
           void launched.close().catch(() => {});
+
           return null;
         }
+
         browser = launched;
         exposed = wrap(launched);
         lastReason = null;
         scheduleIdle();
+
         return exposed;
       })
       .catch((error: unknown) => {
         lastReason = error instanceof Error ? error.message : String(error);
+
         return null;
       })
       .finally(() => {
         if (launching === attempt) launching = null;
       });
+
     launching = attempt;
+
     return attempt;
   };
 

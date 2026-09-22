@@ -20,6 +20,7 @@ export function runExplore(
         ? JSON.stringify({ ok: false, error: "Ask for at least one direction." })
         : "Ask for at least one direction, for example --count 4.",
     );
+
     return { exitCode: 1 };
   }
 
@@ -27,9 +28,11 @@ export function runExplore(
 
   if (options.json) {
     deps.log(JSON.stringify({ ok: true, ...plan }));
+
     return { exitCode: 0 };
   }
 
   deps.log(plan.instructions);
+
   return { exitCode: 0 };
 }

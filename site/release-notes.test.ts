@@ -70,6 +70,7 @@ describe("releaseNotes", () => {
       readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
       "1.0.0",
     );
+
     expect(notes?.title).toBe("Share the rail with someone who has no repo");
     expect(notes?.body).toContain("### Added");
     expect(notes?.body).toContain("**Share what is on your rail with someone who has no repo.**");
@@ -90,6 +91,7 @@ describe("releasesIndex", () => {
 
 describe("release-notes.ts command", () => {
   const script = join(import.meta.dirname, "release-notes.ts");
+
   const notes = releaseNotes(
     readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
     "1.0.0",
@@ -103,6 +105,7 @@ describe("release-notes.ts command", () => {
       encoding: "utf8",
       cwd: tmpdir(),
     });
+
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(`${notes[key]}\n`);

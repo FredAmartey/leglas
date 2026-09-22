@@ -4,7 +4,9 @@ export const EASE = "ease-[cubic-bezier(0.32,0.72,0,1)]";
 
 /** Rail width bounds. */
 export const MIN_W = 274;
+
 export const MAX_W = 395;
+
 export const DEFAULT_W = 368;
 
 export const VIEWPORTS = [
@@ -83,18 +85,24 @@ export function storageKey(project: string): string {
  */
 export function loadPrefs(raw: string | null, previews: readonly Preview[]): Prefs {
   const titles = previews.map((preview) => preview.title);
+
   try {
     if (!raw) return { ...DEFAULT_PREFS, order: titles };
     const saved = JSON.parse(raw) as Partial<Prefs>;
     const parsed = { ...DEFAULT_PREFS, ...saved };
+
     const deleted = (Array.isArray(parsed.deleted) ? parsed.deleted : []).filter((title) =>
       titles.includes(title),
     );
+
     const available = titles.filter((title) => !deleted.includes(title));
+
     const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
       available.includes(title),
     );
+
     const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
+
     return {
       collapsed: Boolean(parsed.collapsed),
       collapsedFamilies: (Array.isArray(parsed.collapsedFamilies)
@@ -144,6 +152,7 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
  */
 export function deleteDirections(prefs: Prefs, titles: readonly string[]): Prefs {
   const removed = new Set(titles);
+
   const renames = Object.fromEntries(
     Object.entries(prefs.renames).filter(([title]) => !removed.has(title)),
   );
@@ -172,6 +181,7 @@ export function railOrder(order: readonly string[], titles: readonly string[]): 
   const known = new Set(titles);
   const kept = order.filter((title) => known.has(title));
   const listed = new Set(kept);
+
   return [...kept, ...titles.filter((title) => !listed.has(title))];
 }
 
@@ -188,5 +198,6 @@ export function reorder(
   const before = visible[toIndex];
   const insertAt = before === undefined ? order.length : order.indexOf(before);
   order.splice(insertAt, 0, title);
+
   return order;
 }

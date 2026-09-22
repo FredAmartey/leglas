@@ -18,6 +18,7 @@ import {
 } from "./docs.ts";
 
 const root = join(import.meta.dirname, "..");
+
 /** A checkout of the manual, with every page it names and nothing else. */
 function manual(): string {
   const dir = mkdtempSync(join(tmpdir(), "leglas-docs-"));
@@ -26,14 +27,19 @@ function manual(): string {
     join(dir, "docs/README.md"),
     `# The manual\n\n${PAGES.map((page) => `- [${page}](${page}.md): a page.`).join("\n")}\n`,
   );
+
   for (const page of PAGES) writeFileSync(join(dir, `docs/${page}.md`), `# ${page}\n\nWords.\n`);
+
   return dir;
 }
 
 const pages = loadDocs(root);
+
 const page = (name: string): DocPage => {
   const found = pages.find((candidate) => candidate.slug === name);
+
   if (found === undefined) throw new Error(`no docs page ${name}`);
+
   return found;
 };
 
@@ -85,13 +91,16 @@ describe("docs/", () => {
 
   test("every page renders with nothing left as markdown", () => {
     const assets = loadAssets(root);
+
     for (const entry of pages) {
       const html = renderDoc(entry, pages, assets);
       expect(html).toContain(`<h1>${entry.title}</h1>`);
+
       // Strip code, where markdown characters are content, then look for source.
       const prose = html
         .replace(/<pre>[\s\S]*?<\/pre>/g, "")
         .replace(/<code>[\s\S]*?<\/code>/g, "");
+
       expect(prose, `${entry.file} leaks markdown`).not.toMatch(/\*\*|\]\(|^#{1,3} |^- |^\| /m);
     }
   });
@@ -107,18 +116,22 @@ describe("docs/", () => {
         ),
       ]),
     );
+
     for (const entry of pages) {
       for (const match of entry.markdown.matchAll(/\]\(([^)\s]+)\)/g)) {
         const href = match[1] ?? "";
+
         if (/^https?:/.test(href)) continue;
         const resolved = resolveLink(href, entry, pages);
         const [path, fragment] = resolved.split("#");
+
         if (path?.startsWith("https://")) continue;
         const target = (path ?? "").replace(/^(\.\.\/|\.\/)+/, "").replace(/\/$/, "");
         expect(
           target === "" || ids.has(target),
           `${entry.file} links ${href} which is not a page`,
         ).toBe(true);
+
         if (fragment !== undefined) {
           expect(
             ids.get(target)?.has(fragment),
@@ -164,6 +177,7 @@ describe("links", () => {
 
 describe("the reader", () => {
   const fake: DocPage = { file: "x.md", slug: "x", title: "X", markdown: "" };
+
   const render = (markdown: string): string =>
     renderBlocks(parseBlocks(markdown, "x.md"), fake, pages);
 
@@ -214,6 +228,7 @@ describe("the reader", () => {
     const html = render(
       "# T\n\n| Field | Purpose |\n| --- | --- |\n| `title` | Label in the rail |\n",
     );
+
     expect(html).toBe(
       "<table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody><tr><td><code>title</code></td><td>Label in the rail</td></tr></tbody></table>",
     );
@@ -222,6 +237,7 @@ describe("the reader", () => {
   test("a capture block is rebuilt from its images and caption", () => {
     const block =
       '<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A &amp; B" />\n</p>';
+
     expect(
       render(
         `# T\n\n<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A & B" />\n</p>\n\n<p align="center"><i>Caption.</i></p>\n`,

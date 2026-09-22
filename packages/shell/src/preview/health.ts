@@ -40,5 +40,6 @@ export function nextHealthState(current: HealthState, reachable: boolean): Healt
   if (!reachable) {
     return !current.reachable && current.wasDown ? current : { reachable: false, wasDown: true };
   }
+
   return current.reachable ? current : { reachable: true, wasDown: current.wasDown };
 }

@@ -37,9 +37,13 @@ export type Item = {
   more: string[];
   reaches: Target[];
 };
+
 export type Paragraph = { kind: "paragraph"; text: string };
+
 export type Media = { kind: "media"; src: string; alt: string; caption: string | null };
+
 export type Group = { kind: "group"; heading: string; blocks: (Item | Paragraph | Media)[] };
+
 export type Block = Item | Paragraph | Media | Group;
 
 /**
@@ -54,11 +58,15 @@ export type Entry = {
   title: string | null;
   blocks: Block[];
 };
+
 export type Changelog = { preamble: Block[]; entries: Entry[] };
 
 const RELEASE = /^## (.+?)(?: \((\d{4}-\d{2}-\d{2})\))?(?:: (.+))?$/;
+
 const IMAGE = /^!\[([^\]]*)\]\(([^)\s]+)(?: "([^"]*)")?\)$/;
+
 const TAG = /\s*\(((?:`[^`]+`|plugin)(?:, (?:`[^`]+`|plugin))*)\)$/;
+
 /**
  * A real tag anywhere else: one that punctuation or a sentence has pushed off
  * the end. Only the three names count, since a parenthetical of commands,
@@ -67,6 +75,7 @@ const TAG = /\s*\(((?:`[^`]+`|plugin)(?:, (?:`[^`]+`|plugin))*)\)$/;
 const AUDIENCE = Object.keys(TARGETS)
   .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .join("|");
+
 const STRAY_TAG = new RegExp(`\\((?:${AUDIENCE})(?:, (?:${AUDIENCE}))*\\)`);
 
 const tidy = (lines: string[]): string => lines.join(" ").replace(/\s+/g, " ").trim();
@@ -93,31 +102,40 @@ export function parseChangelog(markdown: string): Changelog {
     const last = paragraphs.length - 1;
     const reaches: Target[] = [];
     const tagged = paragraphs[last]?.match(TAG);
+
     if (tagged?.[1] !== undefined) {
       for (const name of tagged[1].split(", ")) {
         const target = (TARGETS as Record<string, { key: Target } | undefined>)[name];
+
         if (!target) throw new Error(`Unknown audience ${name} in "${paragraphs[last]}".`);
         reaches.push(target.key);
       }
+
       paragraphs[last] = paragraphs[last]!.slice(0, -tagged[0].length).trim();
     }
+
     // A tag followed by a full stop, or one in the middle of a sentence,
     // would otherwise stay in the prose and the chip would quietly not
     // appear. The bullet ends with the tag, or it has no tag.
     const stray = paragraphs.find((text) => STRAY_TAG.test(text));
+
     if (stray !== undefined) {
       throw new Error(`An audience tag ends its bullet, with nothing after it: "${stray}".`);
     }
+
     const [first = "", ...more] = paragraphs;
     let lead: string | null = null;
     let text = first;
+
     if (first.startsWith("**")) {
       const end = first.indexOf("**", 2);
+
       if (end > 2) {
         lead = first.slice(2, end);
         text = first.slice(end + 2).trim();
       }
     }
+
     container().push({ kind: "item", lead, text, more, reaches });
   };
 
@@ -127,15 +145,18 @@ export function parseChangelog(markdown: string): Changelog {
         // A nested list would be absorbed as prose, marker and all.
         if (/^ {2,}- /.test(line))
           throw new Error(`A bullet inside a bullet is not supported: "${line.trim()}".`);
+
         if (item.gap) item.paragraphs.push([]);
         item.paragraphs[item.paragraphs.length - 1]!.push(line.trim());
         item.gap = false;
         continue;
       }
+
       if (line.trim() === "") {
         item.gap = true;
         continue;
       }
+
       closeItem();
     }
 
@@ -146,6 +167,7 @@ export function parseChangelog(markdown: string): Changelog {
     } else if (line.startsWith("## ")) {
       closeParagraph();
       const heading = RELEASE.exec(line);
+
       if (!heading) throw new Error(`Unreadable release heading: "${line}".`);
       entry = {
         versions: heading[1]!.split(/\s+and\s+/),
@@ -157,6 +179,7 @@ export function parseChangelog(markdown: string): Changelog {
       entries.push(entry);
     } else if (line.startsWith("### ")) {
       closeParagraph();
+
       if (!entry) throw new Error(`A group heading before any release: "${line}".`);
       group = { kind: "group", heading: line.slice(4).trim(), blocks: [] };
       entry.blocks.push(group);
@@ -177,9 +200,11 @@ export function parseChangelog(markdown: string): Changelog {
             "Indent it by two spaces to keep it in its bullet, or put it above the group.",
         );
       }
+
       (paragraph ??= []).push(line.trim());
     }
   }
+
   closeItem();
   closeParagraph();
 
@@ -191,21 +216,25 @@ export function inline(markdown: string): string {
   const pattern = /`([^`]+)`|\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
   let html = "";
   let last = 0;
+
   for (const match of markdown.matchAll(pattern)) {
     html += escape(markdown.slice(last, match.index));
     const [whole, code, bold, label, href] = match;
+
     if (code !== undefined) html += `<code>${escape(code)}</code>`;
     else if (bold !== undefined) html += `<strong>${inline(bold)}</strong>`;
     else if (label !== undefined && href !== undefined)
       html += `<a href="${escape(href)}">${inline(label)}</a>`;
     last = match.index + whole.length;
   }
+
   return html + escape(markdown.slice(last));
 }
 
 /** 2026-08-28 as "Aug 28, 2026", the way a reader says it. */
 export function longDate(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
+
   return new Date(Date.UTC(year!, month! - 1, day!)).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -221,18 +250,23 @@ function renderItem(item: Item): string {
   // A lead running straight into punctuation ("**`leglas`**, the command
   // line tool") keeps no space; one followed by a sentence gets one.
   const joiner = item.text === "" || /^[,.;:!?)]/.test(item.text) ? "" : " ";
+
   const lead =
     item.lead === null ? "" : `<strong class="lead">${inline(item.lead)}</strong>${joiner}`;
+
   const more = item.more.map((text) => `<p class="more">${inline(text)}</p>`).join("");
+
   const reaches =
     item.reaches.length === 0
       ? ""
       : `<span class="reaches"><span class="reaches-label">reaches</span>${item.reaches
           .map((key) => {
             const label = Object.values(TARGETS).find((target) => target.key === key)!.label;
+
             return `<span class="chip chip-${key}">${label}</span>`;
           })
           .join("")}</span>`;
+
   return `<li><span class="text">${lead}${inline(item.text)}</span>${more}${reaches}</li>`;
 }
 
@@ -240,16 +274,20 @@ function renderItem(item: Item): string {
 function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: string): string {
   const out: string[] = [];
   let items: Item[] = [];
+
   const flush = (): void => {
     if (items.length > 0) out.push(`<ul class="items">${items.map(renderItem).join("")}</ul>`);
     items = [];
   };
+
   for (const block of blocks) {
     if (block.kind === "item") {
       items.push(block);
       continue;
     }
+
     flush();
+
     if (block.kind === "paragraph") {
       out.push(`<p class="${paragraphClass}">${inline(block.text)}</p>`);
     } else {
@@ -260,37 +298,46 @@ function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: stri
       // CHANGELOG.md reads the same everywhere.
       const [src, hint] = block.src.split("#w=");
       const width = hint !== undefined && /^\d+$/.test(hint) ? ` style="max-width:${hint}px"` : "";
+
       const caption =
         block.caption === null ? "" : `<figcaption>${inline(block.caption)}</figcaption>`;
+
       out.push(
         `<figure class="media"${width}><img src="${escape(src ?? "")}" alt="${escape(block.alt)}" loading="lazy" decoding="async">${caption}</figure>`,
       );
     }
   }
+
   flush();
+
   return out.join("");
 }
 
 function renderEntry(entry: Entry): string {
   const id = anchor(entry);
+
   const aliases = entry.versions
     .slice(1)
     .map((version) => `<span id="v${escape(version)}"></span>`)
     .join("");
+
   const pills = entry.versions
     .map(
       (version) =>
         `<a class="pill" href="#${id}">${/^\d/.test(version) ? `v${version}` : escape(version)}</a>`,
     )
     .join("");
+
   const date =
     entry.date === null
       ? `<span class="date">Not yet released</span>`
       : `<time class="date" datetime="${entry.date}">${longDate(entry.date)}</time>`;
+
   const title =
     entry.title === null
       ? ""
       : `<h2 class="title"><a href="#${id}">${inline(entry.title)}</a></h2>`;
+
   const body = entry.blocks
     .map((block) =>
       block.kind === "group"
@@ -298,6 +345,7 @@ function renderEntry(entry: Entry): string {
         : renderBlocks([block], "intro"),
     )
     .join("");
+
   return `<article class="entry" id="${id}"><div class="aside">${pills}${date}</div><div class="body">${aliases}${title}${body}</div></article>`;
 }
 
@@ -352,7 +400,9 @@ export function renderPage(changelog: Changelog, assets: Assets): string {
     changelog.preamble.filter((block): block is Item | Paragraph | Media => block.kind !== "group"),
     "",
   );
+
   const entries = changelog.entries.map(renderEntry).join("");
+
   const body = `<div class="dots" aria-hidden="true"></div>
 ${bar(assets, { home: "../", docs: "../docs/", changelog: "./", active: "changelog" })}
 <main class="page">
@@ -364,6 +414,7 @@ ${bar(assets, { home: "../", docs: "../docs/", changelog: "./", active: "changel
 <div class="list rise">${entries}</div>
 </main>
 ${foot(`Made from <a href="${REPO}/blob/main/CHANGELOG.md">CHANGELOG.md</a>.`)}`;
+
   return document({
     title: "Leglas Changelog",
     description:

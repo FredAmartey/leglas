@@ -11,6 +11,7 @@ import { App } from "./App.js";
 import "./index.css";
 
 const root = document.getElementById("root");
+
 if (!root) throw new Error("Leglas: #root is missing from the document.");
 
 createRoot(root).render(

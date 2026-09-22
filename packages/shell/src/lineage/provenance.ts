@@ -27,6 +27,7 @@ export type Provenance = {
 
 function clean(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? "";
+
   return trimmed === "" ? null : trimmed;
 }
 
@@ -41,7 +42,9 @@ function clean(value: string | undefined): string | null {
 export function provenanceOf(preview: ProvenanceSource | null | undefined): Provenance | null {
   const basedOn = clean(preview?.basedOn);
   const askedFor = clean(preview?.askedFor);
+
   if (basedOn === null && askedFor === null) return null;
+
   return { basedOn, askedFor };
 }
 
@@ -55,6 +58,8 @@ export function provenanceOf(preview: ProvenanceSource | null | undefined): Prov
 export function provenanceLine(parent: string | null, askedFor: string | null): string | null {
   const origin = parent === null ? null : `Variant of ${parent}`;
   const ask = askedFor === null ? null : `asked for “${askedFor}”`;
+
   if (origin === null) return ask === null ? null : `You ${ask}`;
+
   return ask === null ? origin : `${origin} · you ${ask}`;
 }

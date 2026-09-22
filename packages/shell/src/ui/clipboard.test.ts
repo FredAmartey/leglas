@@ -17,10 +17,12 @@ describe("copyText", () => {
 
   test("falls back when permission is refused rather than reporting failure", async () => {
     const legacy = vi.fn(() => true);
+
     const outcome = await copyText("url", {
       clipboard: clipboard(Promise.reject(new Error("denied"))),
       legacy,
     });
+
     expect(outcome).toBe("copied");
     expect(legacy).toHaveBeenCalledWith("url");
   });
@@ -36,6 +38,7 @@ describe("copyText", () => {
       clipboard: clipboard(Promise.reject(new Error("denied"))),
       legacy: () => false,
     });
+
     expect(outcome).toBe("blocked");
   });
 
@@ -45,6 +48,7 @@ describe("copyText", () => {
         throw new Error("execCommand removed");
       },
     });
+
     expect(outcome).toBe("blocked");
   });
 

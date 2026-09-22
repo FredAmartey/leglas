@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { detectFramework, planNew, surfaceSlug } from "./new.js";
 
 const nextPkg = JSON.stringify({ dependencies: { next: "16.2.0", react: "19.0.0" } });
+
 const vitePkg = JSON.stringify({
   devDependencies: { vite: "7.0.0" },
   dependencies: { react: "19.0.0" },

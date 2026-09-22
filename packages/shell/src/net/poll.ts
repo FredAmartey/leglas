@@ -119,13 +119,16 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     if (stopped || active !== null) return;
 
     const controller = new AbortController();
+
     const deadline = timers.setTimeout(() => {
       controller.abort();
+
       // Clearing the slot as well as aborting matters for a task that does
       // not honour its signal: the abort alone would free the socket and
       // still leave this loop shut for the life of the page.
       if (active?.controller === controller) active = null;
     }, timeoutMs);
+
     const current: Run = { controller, deadline };
     active = current;
 
@@ -136,6 +139,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
       timers.clearTimeout(deadline);
       active = null;
     };
+
     void task(controller.signal).then(settle, settle);
   };
 
@@ -149,6 +153,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     stopped = true;
     unsubscribe?.();
     timers.clearInterval(timer);
+
     if (active === null) return;
     timers.clearTimeout(active.deadline);
     active.controller.abort();

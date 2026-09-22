@@ -2,7 +2,9 @@ export type Baseline = { contents: string };
 
 /** Components are capitalised; anything else in the file is not the surface. */
 const NAMED_EXPORT = /export\s+(?:async\s+)?(?:function|const|class)\s+([A-Z][A-Za-z0-9_]*)/;
+
 const DEFAULT_EXPORT = /export\s+default\s+(?:async\s+)?(?:function|class)\s+([A-Z][A-Za-z0-9_]*)/;
+
 const BARE_DEFAULT = /export\s+default\s/;
 
 /**

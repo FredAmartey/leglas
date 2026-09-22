@@ -14,6 +14,7 @@ class FakeChild extends EventEmitter {
   readonly stderr = new PassThrough();
   readonly kill = vi.fn((signal?: NodeJS.Signals | number) => {
     if (this.closeOnSignal) queueMicrotask(() => this.emit("exit", null, signal ?? null));
+
     return true;
   });
 
@@ -24,11 +25,14 @@ class FakeChild extends EventEmitter {
 
 function spawnHarness(closeOnSignal = true) {
   const children: FakeChild[] = [];
+
   const spawn = vi.fn(() => {
     const child = new FakeChild(closeOnSignal);
     children.push(child);
+
     return child as unknown as ChildProcess;
   }) as unknown as typeof import("node:child_process").spawn;
+
   return { children, spawn };
 }
 
@@ -41,6 +45,7 @@ describe("startTunnel", () => {
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
     const probe = vi.fn(async () => true);
+
     const tunnel = startTunnel(
       {
         provider: "cloudflared",
@@ -83,6 +88,7 @@ describe("startTunnel", () => {
   test("reads ngrok's JSON line and accepts its https fallback", async () => {
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
+
     const tunnel = startTunnel(
       {
         provider: "ngrok",
@@ -120,6 +126,7 @@ describe("startTunnel", () => {
     vi.useFakeTimers();
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
+
     const tunnel = startTunnel(
       {
         provider: "cloudflared",
@@ -129,6 +136,7 @@ describe("startTunnel", () => {
       },
       { spawn: spawned.spawn, probe: async () => false, urlDeadlineMs: 10 },
     );
+
     spawned.children[0]?.stderr.write("waiting for an edge\n");
 
     await vi.advanceTimersByTimeAsync(10);
@@ -143,6 +151,7 @@ describe("startTunnel", () => {
   test("fails when the process exits before reporting a URL", async () => {
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
+
     const tunnel = startTunnel(
       {
         provider: "ngrok",
@@ -152,6 +161,7 @@ describe("startTunnel", () => {
       },
       { spawn: spawned.spawn, probe: async () => false },
     );
+
     spawned.children[0]?.stdout.write("authentication failed\n");
     spawned.children[0]?.emit("exit", 1, null);
 
@@ -169,6 +179,7 @@ describe("startTunnel", () => {
     const states: TunnelState[] = [];
     let answering = false;
     const probe = vi.fn(async () => answering);
+
     const tunnel = startTunnel(
       {
         provider: "cloudflared",
@@ -178,6 +189,7 @@ describe("startTunnel", () => {
       },
       { spawn: spawned.spawn, probe, probeDeadlineMs: 10 },
     );
+
     spawned.children[0]?.stderr.write("https://example-share.trycloudflare.com\n");
 
     await vi.advanceTimersByTimeAsync(10);
@@ -208,6 +220,7 @@ describe("startTunnel", () => {
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
     const probe = vi.fn(async () => false);
+
     const tunnel = startTunnel(
       {
         provider: "cloudflared",
@@ -217,6 +230,7 @@ describe("startTunnel", () => {
       },
       { spawn: spawned.spawn, probe },
     );
+
     // Nothing to settle before a URL exists.
     tunnel.settle();
     expect(states.at(-1)?.status).toBe("starting");
@@ -237,6 +251,7 @@ describe("startTunnel", () => {
   test("never takes cloudflared's API host for the link", async () => {
     const spawned = spawnHarness();
     const states: TunnelState[] = [];
+
     const tunnel = startTunnel(
       {
         provider: "cloudflared",
@@ -246,6 +261,7 @@ describe("startTunnel", () => {
       },
       { spawn: spawned.spawn, probe: async () => true },
     );
+
     spawned.children[0]?.stderr.write(
       'ERR Post "https://api.trycloudflare.com/tunnel": dial tcp: lookup failed\n',
     );
@@ -257,6 +273,7 @@ describe("startTunnel", () => {
   test("stop sends SIGTERM, escalates and resolves on its own deadline", async () => {
     vi.useFakeTimers();
     const spawned = spawnHarness(false);
+
     const tunnel = startTunnel(
       {
         provider: "ngrok",

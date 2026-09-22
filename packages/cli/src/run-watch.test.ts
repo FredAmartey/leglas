@@ -33,6 +33,7 @@ const input = {
 
 function deps() {
   const lines: string[] = [];
+
   return {
     lines,
     log: (line: string) => lines.push(line),
@@ -61,6 +62,7 @@ const EVENTUALLY_MS = 15_000;
  */
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
+
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((tick) => setTimeout(tick, 20));
@@ -71,9 +73,11 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
   const controller = new AbortController();
   const d = deps();
   let outcome: Awaited<ReturnType<typeof runWatch>> | null = null;
+
   const running = runWatch({ run, port: DEAD_PORT, cwd: root, signal: controller.signal }, d).then(
     (result) => {
       outcome = result;
+
       return result;
     },
   );
@@ -82,6 +86,7 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
   expect(outcome).toBeNull();
   controller.abort();
   expect((await running).exitCode).toBe(0);
+
   return d.lines;
 }
 
@@ -114,10 +119,12 @@ describe("runWatch", () => {
         await new Promise((settle) => setTimeout(settle, 60));
         statusDuringFirstBeat = (await readRequests(root))[0]?.status ?? "gone";
       }
+
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
     const controller = new AbortController();
+
     const running = runWatch(
       {
         run: 'node -e "process.exit(0)" {prompt}',
@@ -127,6 +134,7 @@ describe("runWatch", () => {
       },
       deps(),
     );
+
     await until(async () => (await readRequests(root)).length === 0);
     controller.abort();
     await running;
@@ -226,6 +234,7 @@ describe("runWatch", () => {
     // An agent slow enough that the stop lands while it is still running, and
     // successful, so the request must end up removed, not stranded.
     const controller = new AbortController();
+
     const running = runWatch(
       {
         run: `node -e "setTimeout(() => process.exit(0), 400)" {prompt}`,
@@ -252,6 +261,7 @@ describe("runWatch", () => {
 
     const controller = new AbortController();
     const d = deps();
+
     const running = runWatch(
       {
         run: "leglas-watch-test-no-such-program {prompt}",
@@ -279,6 +289,7 @@ describe("runWatch", () => {
   test("remembers the template for the next flagless run", async () => {
     const root = cwd();
     const controller = new AbortController();
+
     const running = runWatch(
       { run: "node {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
       deps(),

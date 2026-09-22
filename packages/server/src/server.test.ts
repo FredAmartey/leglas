@@ -32,7 +32,9 @@ import type { UpdateService, UpdateStatus } from "./update.js";
 import type { RunningWorktree } from "./branches/worktree.js";
 
 const running: RunningServer[] = [];
+
 const origins: http.Server[] = [];
+
 const TWO_BY_THREE_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAC0lEQVR4nGNgwAkAABsAAco8Sg0AAAAASUVORK5CYII=",
   "base64",
@@ -58,7 +60,9 @@ function startOrigin(): Promise<number> {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<h1>app:${req.url}</h1>`);
   });
+
   origins.push(server);
+
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
   });
@@ -77,6 +81,7 @@ type FakeLiveHub = LiveHub & {
 function fakeLiveHub(initialListening = 0): FakeLiveHub {
   let listening = initialListening;
   const changes: LiveChange[] = [];
+
   return {
     changes,
     nudge: (change) => changes.push(change),
@@ -111,6 +116,7 @@ const EVENTUALLY_MS = 15_000;
  */
 const eventually = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
+
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error("condition never held");
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -146,16 +152,19 @@ async function expectConditionalRead(
   const changedUnchanged = await fetch(url, {
     headers: { "if-none-match": changedEtag ?? "" },
   });
+
   expect(changedUnchanged.status).toBe(304);
 }
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
+
   const promise = new Promise<T>((onResolve, onReject) => {
     resolve = onResolve;
     reject = onReject;
   });
+
   return { promise, reject, resolve };
 }
 
@@ -168,7 +177,9 @@ async function start(options: Parameters<typeof startServer>[0]): Promise<Runnin
     pool: quietPool(),
     ...options,
   });
+
   running.push(server);
+
   return server;
 }
 
@@ -182,11 +193,13 @@ function quietPool(reason = NO_BROWSER): BrowserPool {
 
 function capturePool(loads = true): BrowserPool {
   const listeners = new Map<string, Set<(params: any) => void>>();
+
   const page: CdpPage = {
     on: (method, listener) => {
       const group = listeners.get(method) ?? new Set();
       group.add(listener);
       listeners.set(method, group);
+
       return () => group.delete(listener);
     },
     send: async <T>(method: string, params: Record<string, unknown> = {}) => {
@@ -197,24 +210,31 @@ function capturePool(loads = true): BrowserPool {
           });
         }
       }
+
       if (method === "Page.getLayoutMetrics") {
         const width = Number((params as { width?: number }).width) || 390;
+
         return { cssContentSize: { width, height: 600 } } as T;
       }
+
       if (method === "Page.captureScreenshot") {
         return { data: Buffer.from("fake png").toString("base64") } as T;
       }
+
       if (method === "Runtime.evaluate") {
         return { result: { value: null } } as T;
       }
+
       return {} as T;
     },
   };
+
   const browser: Browser = {
     closed: false,
     close: async () => {},
     withPage: async (work) => work(page),
   };
+
   return { acquire: async () => browser, reason: () => null, close: async () => {} };
 }
 
@@ -224,6 +244,7 @@ function postWatchAs(
   origin = `http://${host}`,
 ): Promise<number> {
   const payload = JSON.stringify({ watching: true });
+
   return new Promise((resolve, reject) => {
     const request = http.request(
       {
@@ -243,6 +264,7 @@ function postWatchAs(
         response.once("end", () => resolve(response.statusCode ?? 0));
       },
     );
+
     request.once("error", reject);
     request.end(payload);
   });
@@ -250,6 +272,7 @@ function postWatchAs(
 
 function referenceFiles(cwd: string): string[] {
   const directory = join(cwd, REFERENCES_DIR);
+
   return existsSync(directory) ? readdirSync(directory).sort() : [];
 }
 
@@ -260,6 +283,7 @@ function postRawReference(
 ): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     let settled = false;
+
     const request = http.request(
       {
         hostname: "127.0.0.1",
@@ -273,19 +297,24 @@ function postRawReference(
         response.on("data", (chunk: Buffer) => parts.push(chunk));
         response.once("end", () => {
           settled = true;
+
           if (!request.writableEnded) request.destroy();
           const text = Buffer.concat(parts).toString("utf8");
           resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) as unknown });
         });
       },
     );
+
     request.once("error", (error) => {
       if (!settled) reject(error);
     });
+
     if (chunks === null) {
       request.flushHeaders();
+
       return;
     }
+
     for (const chunk of chunks) request.write(chunk);
     request.end();
   });
@@ -315,6 +344,7 @@ async function enterShare(localUrl: string): Promise<string> {
   const response = await fetch(localUrl, { redirect: "manual" });
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/leglas/");
+
   return response.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
 }
 
@@ -322,20 +352,26 @@ function openViewerSocket(port: number, cookie: string, extraHeaders = ""): Prom
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, "127.0.0.1");
     let answer = "";
+
     const deadline = setTimeout(() => {
       socket.destroy();
       reject(new Error("share websocket did not upgrade"));
     }, 2000);
+
     socket.once("error", reject);
     socket.on("data", (chunk: Buffer) => {
       answer += chunk.toString("latin1");
+
       if (!answer.includes("\r\n\r\n")) return;
       clearTimeout(deadline);
+
       if (!answer.startsWith("HTTP/1.1 101")) {
         socket.destroy();
         reject(new Error(`share websocket answered ${answer.split("\r\n", 1)[0] ?? "nothing"}`));
+
         return;
       }
+
       resolve(socket);
     });
     socket.once("connect", () => {
@@ -356,6 +392,7 @@ class ShareTunnelChild extends EventEmitter {
   kill = (signal?: NodeJS.Signals | number): boolean => {
     this.signals.push(signal ?? "SIGTERM");
     queueMicrotask(() => this.emit("exit", null, signal ?? null));
+
     return true;
   };
 }
@@ -396,29 +433,36 @@ describe("startServer", () => {
 
   test("POST then GET exposes queued request state without collecting it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]),
       port: 0,
       cwd,
     });
+
     const posted = await fetch(`${server.url}/leglas/api/request`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Aurora", intent: "warmer" }),
     });
+
     expect(posted.status).toBe(200);
+
     const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { id: string; status: string; intent: string; mode: string }[];
     };
+
     // The mode travels with the status: a fork leaves its parent's document
     // alone, and the interface needs to know that to leave the parent's
     // duplicate verdict alone too.
     expect(first.requests).toMatchObject([
       { id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" },
     ]);
+
     const second = (await (
       await fetch(`${server.url}/leglas/api/requests`)
     ).json()) as typeof first;
+
     expect(second).toEqual(first);
   });
 
@@ -431,6 +475,7 @@ describe("startServer", () => {
       headers: { "content-type": "text/plain" },
       body: TWO_BY_THREE_PNG,
     });
+
     const body = (await response.json()) as {
       ok: boolean;
       reference: {
@@ -507,15 +552,18 @@ describe("startServer", () => {
 
   test("moves an uploaded reference into the request capture directory", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-request-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
       cwd,
     });
+
     const uploaded = await fetch(`${server.url}/leglas/api/references`, {
       method: "POST",
       body: TWO_BY_THREE_PNG,
     });
+
     const uploadedBody = (await uploaded.json()) as {
       reference: { id: string; file: string };
     };
@@ -529,6 +577,7 @@ describe("startServer", () => {
         references: [uploadedBody.reference.id],
       }),
     });
+
     const [queued] = await readRequests(cwd);
 
     expect(response.status).toBe(200);
@@ -556,6 +605,7 @@ describe("startServer", () => {
       headers: { "x-leglas-filename": longName },
       body: TWO_BY_THREE_PNG,
     });
+
     const body = (await response.json()) as { reference: { name: string } };
 
     expect(response.status).toBe(200);
@@ -586,6 +636,7 @@ describe("startServer", () => {
       headers: { "x-leglas-filename": "\u00e9/\\" },
       body: TWO_BY_THREE_PNG,
     });
+
     const body = (await response.json()) as { reference: { name: string } };
 
     expect(response.status).toBe(200);
@@ -600,6 +651,7 @@ describe("startServer", () => {
     png.writeUInt32BE(320, 16);
     png.writeUInt32BE(200, 20);
     writeFileSync(join(cwd, REFERENCES_DIR, "paste_1.png"), png);
+
     const server = await start({
       config: configFor(await startOrigin(), [
         { title: "Poster", url: "/" },
@@ -620,6 +672,7 @@ describe("startServer", () => {
         references: ["paste_1"],
       }),
     });
+
     const body = (await response.json()) as {
       attachments: { kind: string; file: string }[];
       prompt: string;
@@ -639,6 +692,7 @@ describe("startServer", () => {
 
   test("rejects malformed reference ids before moving or queueing anything", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-reference-id-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
@@ -657,6 +711,7 @@ describe("startServer", () => {
 
   test("captures a direction through the shared browser pool", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-api-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster Print!", url: "/" }]),
       pool: capturePool(),
@@ -669,6 +724,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Poster Print!", width: 390 }),
     });
+
     const body = (await response.json()) as {
       file: string;
       width: number;
@@ -692,12 +748,14 @@ describe("startServer", () => {
 
   test("captures one note crop and names it in the show file", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-note-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(),
       port: 0,
       cwd,
     });
+
     const noteResponse = await fetch(`${server.url}/leglas/api/annotations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -714,6 +772,7 @@ describe("startServer", () => {
         },
       }),
     });
+
     const note = (await noteResponse.json()) as { annotation: { id: string } };
 
     const response = await fetch(`${server.url}/leglas/api/capture`, {
@@ -721,6 +780,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Poster", width: 390, note: note.annotation.id }),
     });
+
     const body = (await response.json()) as { file: string; width: number; height: number };
 
     expect(response.status).toBe(200);
@@ -744,6 +804,7 @@ describe("startServer", () => {
         milliseconds === 15_000 ? 5 : milliseconds,
         ...args,
       )) as typeof setTimeout);
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
@@ -779,6 +840,7 @@ describe("startServer", () => {
         milliseconds === 9_000 ? 5 : milliseconds,
         ...args,
       )) as typeof setTimeout);
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
@@ -810,6 +872,7 @@ describe("startServer", () => {
       method: "POST",
       body: TWO_BY_THREE_PNG,
     });
+
     expect(response.status).toBe(200);
     // The prune runs off the response; give it a beat.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -819,11 +882,13 @@ describe("startServer", () => {
 
   test("capture reports unknown directions and unavailable browsers", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-errors-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
       cwd,
     });
+
     const send = (title: string) =>
       fetch(`${server.url}/leglas/api/capture`, {
         method: "POST",
@@ -839,11 +904,13 @@ describe("startServer", () => {
 
   test("keeps a note, hands it back, and forgets it on request", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-api-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
       port: 0,
     });
+
     const anchor = {
       classes: ["pouch"],
       rect: { height: 220, width: 340, x: 512, y: 180 },
@@ -858,12 +925,14 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     expect(kept.status).toBe(200);
     const { annotation } = (await kept.json()) as { annotation: { id: string } };
 
     const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
       annotations: { note: string }[];
     };
+
     expect(listed.annotations).toMatchObject([{ note: "looks fake", title: "Poster" }]);
 
     const forgotten = await fetch(`${server.url}/leglas/api/annotations/delete`, {
@@ -871,11 +940,13 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
   });
 
   test("rewords a note that is already there", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-reword-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
@@ -898,6 +969,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     const { annotation } = (await kept.json()) as { annotation: { id: string } };
 
     const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
@@ -905,10 +977,13 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     expect(revised.status).toBe(200);
+
     const { annotation: reworded } = (await revised.json()) as {
       annotation: { id: string; note: string };
     };
+
     expect(reworded.note).toBe("looks printed");
     // Reissued, so a change already holding the old id cannot sweep this.
     expect(reworded.id).not.toBe(annotation.id);
@@ -916,6 +991,7 @@ describe("startServer", () => {
     const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
       annotations: { note: string }[];
     };
+
     expect(listed.annotations).toMatchObject([{ note: "looks printed", title: "Poster" }]);
 
     const gone = await fetch(`${server.url}/leglas/api/annotations/update`, {
@@ -923,6 +999,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     expect(gone.status).toBe(404);
 
     // JSON that is not an object at all. Reading a field off null throws
@@ -933,8 +1010,10 @@ describe("startServer", () => {
         headers: { "content-type": "application/json" },
         method: "POST",
       });
+
       expect(refused.status).toBe(400);
     }
+
     // Still answering, which is the point.
     expect((await fetch(`${server.url}/leglas/api/annotations`)).status).toBe(200);
 
@@ -944,11 +1023,13 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     expect(wordless.status).toBe(400);
 
     const survived = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
       annotations: { note: string }[];
     };
+
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
   });
 
@@ -956,6 +1037,7 @@ describe("startServer", () => {
   // the queue is the only record of which is which.
   test("the queue says which notes each change answers", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-sent-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
@@ -978,6 +1060,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     const { annotation } = (await kept.json()) as { annotation: { id: string } };
 
     await fetch(`${server.url}/leglas/api/request`, {
@@ -989,6 +1072,7 @@ describe("startServer", () => {
     const queue = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { notes: string[] }[];
     };
+
     expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
 
     // Rewording a note the queue is holding hands it a new identity, so the
@@ -999,15 +1083,18 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     const { annotation: after } = (await revised.json()) as {
       annotation: { id: string; note: string };
     };
+
     expect(after.note).toBe("looks printed");
     expect(after.id).not.toBe(annotation.id);
   });
 
   test("refuses a note with nothing to point at", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-anchor-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
@@ -1027,11 +1114,13 @@ describe("startServer", () => {
   // allowed to be empty. This is the whole point of leaving them.
   test("a change with notes and no words is still a request", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-request-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
       port: 0,
     });
+
     await fetch(`${server.url}/leglas/api/annotations`, {
       body: JSON.stringify({
         anchor: {
@@ -1067,11 +1156,13 @@ describe("startServer", () => {
   // piece of work.
   test("refuses the same notes sent twice while the first is still waiting", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-dup-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
       port: 0,
     });
+
     await fetch(`${server.url}/leglas/api/annotations`, {
       body: JSON.stringify({
         anchor: {
@@ -1089,6 +1180,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
+
     const send = () =>
       fetch(`${server.url}/leglas/api/request`, {
         body: JSON.stringify({ title: "Poster", intent: "" }),
@@ -1102,6 +1194,7 @@ describe("startServer", () => {
 
   test("nothing typed and nothing pinned is not a request", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-empty-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
@@ -1119,6 +1212,7 @@ describe("startServer", () => {
 
   test("refuses a second copy of a change that is still waiting", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [
         { title: "Poster", url: "/" },
@@ -1127,6 +1221,7 @@ describe("startServer", () => {
       port: 0,
       cwd,
     });
+
     const send = (title: string, intent: string) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
@@ -1152,9 +1247,11 @@ describe("startServer", () => {
     // same change to another one.
     expect((await send("Poster", "make it colder")).status).toBe(200);
     expect((await send("Hero", "make it warmer")).status).toBe(200);
+
     const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { title: string; intent: string }[];
     };
+
     expect(body.requests.map((request) => `${request.title}: ${request.intent}`)).toEqual([
       "Poster: make it warmer",
       "Poster: make it colder",
@@ -1164,11 +1261,13 @@ describe("startServer", () => {
 
   test("a change forks the direction unless the caller asks to replace it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-mode-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
       port: 0,
       cwd,
     });
+
     const send = (body: Record<string, unknown>) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
@@ -1182,12 +1281,14 @@ describe("startServer", () => {
       prompt: string;
       mode: string;
     };
+
     expect(implied.mode).toBe("variant");
     expect(implied.prompt).toContain("add a new design direction based on");
 
     const asked = (await (
       await send({ title: "Poster", intent: "colder", mode: "replace" })
     ).json()) as { prompt: string; mode: string };
+
     expect(asked.mode).toBe("replace");
     expect(asked.prompt).toContain('change only the "Poster" design direction');
 
@@ -1196,11 +1297,13 @@ describe("startServer", () => {
     const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { intent: string }[];
     };
+
     expect(body.requests).toHaveLength(2);
   });
 
   test("refuses a mode it does not recognise rather than guessing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-badmode-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
@@ -1212,22 +1315,26 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Poster", intent: "warmer", mode: "overwrite" }),
     });
+
     expect(refused.status).toBe(400);
 
     // Nothing was queued on the way to being refused.
     const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: unknown[];
     };
+
     expect(body.requests).toEqual([]);
   });
 
   test("the same words in the other mode are not a duplicate", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-modedupe-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
       port: 0,
       cwd,
     });
+
     const send = (mode: string) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
@@ -1269,6 +1376,7 @@ describe("startServer", () => {
         ],
       }),
     );
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
@@ -1278,6 +1386,7 @@ describe("startServer", () => {
     const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
       requests: { id: string; status: string; failure: { code: string } | null }[];
     };
+
     expect(body.requests[0]).toMatchObject({
       status: "failed",
       failure: { code: "provider-overloaded" },
@@ -1288,6 +1397,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: "old-1" }),
     });
+
     expect(await dismissed.json()).toEqual({ ok: true });
     const after = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof body;
     expect(after.requests).toEqual([]);
@@ -1322,12 +1432,14 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-api-"));
     // Injected so the test never spawns real vendor CLIs to ask about logins.
     let probes = 0;
+
     const server = await start({
       config: configFor(await startOrigin()),
       port: 0,
       cwd,
       detect: async () => {
         probes += 1;
+
         return [
           {
             id: "claude",
@@ -1354,6 +1466,7 @@ describe("startServer", () => {
       customRun: string | null;
       effort: string | null;
     };
+
     expect(initial.agents).toEqual([
       {
         id: "claude",
@@ -1376,16 +1489,19 @@ describe("startServer", () => {
     expect(initial.effort).toBeNull();
 
     const customRun = "my-agent -p {prompt}";
+
     const saved = await fetch(`${server.url}/leglas/api/agent`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "custom", run: customRun }),
     });
+
     expect(saved.status).toBe(200);
 
     const custom = (await (
       await fetch(`${server.url}/leglas/api/agents`)
     ).json()) as typeof initial;
+
     expect(custom).toMatchObject({ choice: "custom", customRun });
 
     await fetch(`${server.url}/leglas/api/agent`, {
@@ -1405,6 +1521,7 @@ describe("startServer", () => {
   test("warms Claude as soon as it is selected", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-"));
     const warm = vi.fn(async () => {});
+
     const claudeAgentSession: ClaudeTurnRunner = {
       warm,
       run: async () => {
@@ -1412,6 +1529,7 @@ describe("startServer", () => {
       },
       close: async () => {},
     };
+
     const server = await start({
       config: configFor(await startOrigin()),
       port: 0,
@@ -1424,6 +1542,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "claude", effort: "high" }),
     });
+
     expect(response.status).toBe(200);
     expect(warm).toHaveBeenCalledOnce();
   });
@@ -1434,6 +1553,7 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-intent-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const warm = vi.fn(async () => {});
+
     const claudeAgentSession: ClaudeTurnRunner = {
       warm,
       run: async () => {
@@ -1442,6 +1562,7 @@ describe("startServer", () => {
       release: async () => {},
       close: async () => {},
     };
+
     const server = await start({
       config: configFor(await startOrigin()),
       port: 0,
@@ -1469,6 +1590,7 @@ describe("startServer", () => {
   test("serves stale agent state while routine authentication refreshes in the background", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-stale-"));
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
     const initial = [
       {
         id: "claude" as const,
@@ -1492,18 +1614,23 @@ describe("startServer", () => {
         efforts: [],
       },
     ];
+
     const refreshed = initial.map((agent) =>
       agent.id === "codex" ? { ...agent, auth: "ok" as const } : agent,
     );
+
     let probes = 0;
     let finishRefresh: (() => void) | null = null;
+
     const server = await start({
       config: configFor(await startOrigin()),
       port: 0,
       cwd,
       detect: () => {
         probes += 1;
+
         if (probes === 1) return Promise.resolve(initial);
+
         return new Promise((resolve) => {
           finishRefresh = () => resolve(refreshed);
         });
@@ -1513,12 +1640,15 @@ describe("startServer", () => {
     const first = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
       agents: typeof initial;
     };
+
     expect(first.agents).toEqual(initial);
 
     now.mockReturnValue(31_001);
+
     const stale = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
       agents: typeof initial;
     };
+
     // The second detector is deliberately unresolved: receiving this answer
     // proves the routine request did not wait behind it.
     expect(stale.agents).toEqual(initial);
@@ -1527,9 +1657,11 @@ describe("startServer", () => {
     expect(finishRefresh).not.toBeNull();
     finishRefresh?.();
     await new Promise((resolve) => setImmediate(resolve));
+
     const fresh = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
       agents: typeof initial;
     };
+
     expect(fresh.agents).toEqual(refreshed);
     expect(probes).toBe(2);
   });
@@ -1601,6 +1733,7 @@ describe("startServer", () => {
       prompt: "make it warmer",
     });
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
     type RequestsBody = {
       requests: { id: string; status: string; failure: { code: string; message: string } | null }[];
       agent: { attached: boolean; running: boolean; name: string | null; activity: string | null };
@@ -1608,9 +1741,11 @@ describe("startServer", () => {
 
     let body: RequestsBody | null = null;
     const deadline = Date.now() + EVENTUALLY_MS;
+
     while (body?.agent.running !== true) {
       if (Date.now() > deadline) throw new Error("embedded runner did not start");
       body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+
       if (!body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
@@ -1631,6 +1766,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: "not-this-one" }),
     });
+
     expect(await mismatched.json()).toEqual({ ok: true, cancelled: false });
 
     const cancelled = await fetch(`${server.url}/leglas/api/requests/cancel`, {
@@ -1638,13 +1774,16 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: body.requests[0]?.id }),
     });
+
     expect(await cancelled.json()).toEqual({ ok: true, cancelled: true });
 
     while (body.agent.running) {
       if (Date.now() > deadline) throw new Error("embedded runner did not cancel");
       body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
+
     // A stop is its own state and says who did it, so nothing in the
     // interface can dress it up as a provider failure worth rerunning.
     expect(body.requests[0]?.status).toBe("cancelled");
@@ -1675,12 +1814,16 @@ describe("startServer", () => {
 
     let failed: { id: string; status: string } | undefined;
     const deadline = Date.now() + EVENTUALLY_MS;
+
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
+
       const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
         requests: { id: string; status: string }[];
       };
+
       failed = payload.requests[0];
+
       if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
@@ -1801,12 +1944,16 @@ describe("startServer", () => {
 
     let failed: { id: string; status: string } | undefined;
     const deadline = Date.now() + EVENTUALLY_MS;
+
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
+
       const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
         requests: { id: string; status: string }[];
       };
+
       failed = payload.requests[0];
+
       if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
@@ -1849,9 +1996,11 @@ describe("startServer", () => {
     // faking their timers would stall the request this test depends on.
     const origin = await startOrigin();
     vi.useFakeTimers({ toFake: ["Date"] });
+
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
       const server = await start({ config: configFor(origin), port: 0 });
+
       const attached = async () =>
         (
           (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
@@ -1864,6 +2013,7 @@ describe("startServer", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ watching: true }),
       });
+
       expect(beat.status).toBe(200);
       expect(await attached()).toBe(true);
 
@@ -1880,12 +2030,14 @@ describe("startServer", () => {
 
   test("a watcher shutting down detaches immediately rather than aging out", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
+
     const beat = (watching: boolean) =>
       fetch(`${server.url}/leglas/api/watch`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ watching }),
       });
+
     const attached = async () =>
       (
         (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
@@ -1914,6 +2066,7 @@ describe("startServer", () => {
   test("reports the port and url it actually bound", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-server-record-"));
     const closePool = vi.fn(async () => {});
+
     const server = await start({
       config: configFor(await startOrigin()),
       port: 0,
@@ -1949,6 +2102,7 @@ describe("startServer", () => {
     const config = configFor(await startOrigin(), [
       { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
     ]);
+
     const server = await start({ config, port: 0 });
 
     const res = await fetch(`${server.url}/leglas/api/config`);
@@ -1982,6 +2136,7 @@ describe("startServer", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ watching: true }),
       });
+
       expect(response.status).toBe(200);
     });
   });
@@ -2000,6 +2155,7 @@ describe("startServer", () => {
           anchor: { selector: "main" },
         }),
       });
+
       expect(response.status).toBe(200);
     });
   });
@@ -2007,6 +2163,7 @@ describe("startServer", () => {
   test("returns conditional health responses and changes the etag with the body", async () => {
     const targetPort = await startOrigin();
     const target = origins.at(-1);
+
     if (target === undefined) throw new Error("test origin did not start");
     const server = await start({ config: configFor(targetPort), port: 0 });
 
@@ -2021,25 +2178,31 @@ describe("startServer", () => {
     const checkout = deferred<RunningWorktree>();
     const live = fakeLiveHub();
     let starts = 0;
+
     const config = configFor(await startOrigin(), [
       { title: "Wave", url: "/direction", branch: "feature/wave" },
     ]);
+
     config.devCommand = "pnpm dev --port {port}";
     config.installCommand = "pnpm install";
+
     const server = await start({
       config,
       live,
       port: 0,
       startWorktree: async () => {
         starts += 1;
+
         return checkout.promise;
       },
     });
+
     live.changes.splice(0);
 
     const idle = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: Array<Record<string, unknown>>;
     };
+
     expect(idle.previews[0]).toMatchObject({ title: "Wave", state: { status: "idle" } });
     expect(Object.hasOwn(idle.previews[0] ?? {}, "url")).toBe(false);
 
@@ -2052,6 +2215,7 @@ describe("startServer", () => {
         }),
       ),
     );
+
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
     expect(starts).toBe(1);
     expect(await responses[0]?.json()).toMatchObject({
@@ -2062,6 +2226,7 @@ describe("startServer", () => {
     const whileStarting = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: Array<Record<string, unknown>>;
     };
+
     expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
 
     checkout.resolve({
@@ -2075,12 +2240,14 @@ describe("startServer", () => {
       const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
         previews: Array<{ state?: { status?: string } }>;
       };
+
       return body.previews[0]?.state?.status === "ready";
     });
 
     const ready = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: Array<Record<string, unknown>>;
     };
+
     expect(ready.previews[0]).toMatchObject({
       title: "Wave",
       state: { status: "ready" },
@@ -2096,9 +2263,11 @@ describe("startServer", () => {
       { title: "Current", url: "/" },
       { title: "Wave", url: "/direction", branch: "feature/wave" },
     ]);
+
     config.installCommand = "pnpm install";
     config.devCommand = undefined;
     const server = await start({ config, port: 0 });
+
     const post = (title: string) =>
       fetch(`${server.url}/leglas/api/previews/start`, {
         method: "POST",
@@ -2122,11 +2291,14 @@ describe("startServer", () => {
 
   test("closing the server stops a branch worktree that reached ready", async () => {
     let stops = 0;
+
     const config = configFor(await startOrigin(), [
       { title: "Wave", url: "/", branch: "feature/wave" },
     ]);
+
     config.devCommand = "pnpm dev --port {port}";
     config.installCommand = "pnpm install";
+
     const server = await start({
       config,
       port: 0,
@@ -2150,6 +2322,7 @@ describe("startServer", () => {
       const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
         previews: Array<{ state?: { status?: string } }>;
       };
+
       return body.previews[0]?.state?.status === "ready";
     });
 
@@ -2161,6 +2334,7 @@ describe("startServer", () => {
     const config = configFor(await startOrigin(), [
       { title: "Current", url: "/", note: undefined, tags: [] },
     ]);
+
     config.scanPreviews = false;
     const server = await start({ config, port: 0 });
 
@@ -2182,6 +2356,7 @@ describe("startServer", () => {
     const before = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: { title: string }[];
     };
+
     expect(before.previews.map((preview) => preview.title)).toEqual(["Current"]);
 
     writeFileSync(
@@ -2200,6 +2375,7 @@ describe("startServer", () => {
     const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: { title: string; local?: boolean }[];
     };
+
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
 
@@ -2211,10 +2387,12 @@ describe("startServer", () => {
       registry,
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
     );
+
     const config = configFor(await startOrigin(), [
       { title: "Current", url: "/" },
       { title: "Aurora", url: "/?v-hero=aurora", local: true },
     ]);
+
     const server = await start({ config, port: 0, cwd });
     unlinkSync(registry);
     mkdirSync(registry);
@@ -2235,9 +2413,11 @@ describe("startServer", () => {
       join(cwd, ".leglas/previews.json"),
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
     );
+
     const config = configFor(await startOrigin(), [
       { title: "Aurora", url: "/?v-hero=aurora", local: true },
     ]);
+
     const server = await start({ config, port: 0, cwd });
     writeFileSync(join(cwd, ".leglas/previews.json"), "not json");
 
@@ -2259,12 +2439,14 @@ describe("startServer", () => {
       join(cwd, ".leglas/previews.json"),
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
     );
+
     // Local previews are part of the boot config in a real Leglas process.
     // The endpoint must still remove one from the live payload immediately.
     const config = configFor(await startOrigin(), [
       { title: "Current", url: "/" },
       { title: "Aurora", url: "/?v-hero=aurora", local: true },
     ]);
+
     const server = await start({ config, port: 0, cwd });
 
     const deleted = await fetch(`${server.url}/leglas/api/previews/delete`, {
@@ -2272,13 +2454,16 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ titles: ["Aurora"] }),
     });
+
     const payload = (await deleted.json()) as { deleted: number; ok: boolean };
 
     expect(deleted.status).toBe(200);
     expect(payload).toEqual({ deleted: 1, ok: true });
+
     const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
       previews: { title: string }[];
     };
+
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current"]);
   });
 
@@ -2355,12 +2540,14 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-config-changed-"));
     const configPath = join(cwd, "leglas.config.json");
     writeFileSync(configPath, JSON.stringify({}));
+
     const server = await start({
       config: configFor(await startOrigin()),
       configErrors: ["existing config error"],
       port: 0,
       cwd,
     });
+
     writeFileSync(configPath, JSON.stringify({ changed: true }));
     utimesSync(configPath, new Date(2020, 0, 1), new Date(2020, 0, 2));
 
@@ -2502,6 +2689,7 @@ describe("startServer", () => {
       const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
         agent: { running: boolean };
       };
+
       return body.agent.running;
     });
     expect(live.changes).toContain("requests");
@@ -2558,6 +2746,7 @@ describe("startServer", () => {
     await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
     origins.push(target);
     const live = fakeLiveHub(0);
+
     const server = await start({
       config: configFor((target.address() as AddressInfo).port),
       port: 0,
@@ -2611,6 +2800,7 @@ describe("startServer", () => {
     "returns a JSON 404 for an unknown API path (shell: %s)",
     async (withShell) => {
       const shellDir = withShell ? mkdtempSync(join(tmpdir(), "leglas-api-404-shell-")) : null;
+
       if (shellDir !== null) writeFileSync(join(shellDir, "index.html"), "<title>shell</title>");
       const server = await start({ config: configFor(await startOrigin()), port: 0, shellDir });
 
@@ -2641,6 +2831,7 @@ describe("startServer", () => {
     writeFileSync(join(fileDir, ".env"), "SECRET=1");
     writeFileSync(join(draftDir, "index.html"), "<h1>draft, not shared</h1>");
     const live = fakeLiveHub();
+
     const server = await start({
       config: configFor(await startOrigin(), [
         { title: "Current", url: "/" },
@@ -2657,6 +2848,7 @@ describe("startServer", () => {
       port: 0,
       shellDir,
     });
+
     live.changes.splice(0);
 
     const createdResponse = await postShare(server, {
@@ -2665,6 +2857,7 @@ describe("startServer", () => {
       layout: shareLayout(),
       tunnel: "none",
     });
+
     const created = (await createdResponse.json()) as {
       ok: true;
       share: {
@@ -2673,6 +2866,7 @@ describe("startServer", () => {
         tunnel: { status: string };
       };
     };
+
     expect(createdResponse.status).toBe(200);
     expect(created.share.sharePort).not.toBe(server.port);
     expect(created.share.grants[0].localUrl).toMatch(
@@ -2682,12 +2876,15 @@ describe("startServer", () => {
 
     const cookie = await enterShare(created.share.grants[0].localUrl);
     const remote = `http://127.0.0.1:${created.share.sharePort}`;
+
     // The entry answers HEAD too, so a link checker sees a live link.
     const peek = await fetch(created.share.grants[0].localUrl, {
       method: "HEAD",
       redirect: "manual",
     });
+
     expect(peek.status).toBe(302);
+
     const viewerConfig = (await (
       await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })
     ).json()) as {
@@ -2698,6 +2895,7 @@ describe("startServer", () => {
       warnings: string[];
       viewer: { scope: string; layout: ReturnType<typeof shareLayout> };
     };
+
     // Nothing that names the sharer's machine reaches a viewer: the project
     // id is normally the config's absolute path, and health names the
     // working directory and the dev server's address.
@@ -2711,20 +2909,24 @@ describe("startServer", () => {
     expect(viewerConfig.viewer).toEqual({ scope: "rail", layout: shareLayout() });
 
     expect((await fetch(`${remote}/leglas/api/config`)).status).toBe(403);
+
     const mutation = await fetch(`${remote}/leglas/api/watch`, {
       method: "POST",
       headers: { cookie },
     });
+
     expect(mutation.status).toBe(403);
     expect(await mutation.json()).toEqual({
       ok: false,
       error: "Viewers can look, not change what runs.",
     });
+
     for (const path of ["requests", "agents", "annotations", "update"]) {
       const response = await fetch(`${remote}/leglas/api/${path}`, { headers: { cookie } });
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Not available to viewers." });
     }
+
     const health = await fetch(`${remote}/leglas/api/health`, { headers: { cookie } });
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ reachable: true });
@@ -2748,6 +2950,7 @@ describe("startServer", () => {
     expect((await fetch(`${remote}/leglas/files/paper/.env`, { headers: { cookie } })).status).toBe(
       403,
     );
+
     // A dev server mounts routes that act on the machine: Vite's editor
     // launcher opens a file on the sharer's computer for anyone who asks.
     // Those are refused before the proxy sees them, and so is a service
@@ -2764,6 +2967,7 @@ describe("startServer", () => {
       expect(refused.status).toBe(403);
       expect(await refused.json()).toEqual({ ok: false, error: "Not available to viewers." });
     }
+
     expect(
       (
         await fetch(`${remote}/sw.js`, {
@@ -2785,6 +2989,7 @@ describe("startServer", () => {
               `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
           );
         });
+
         socket.once("data", (chunk: Buffer) => resolve(chunk.toString("latin1")));
         socket.once("close", () => resolve("closed"));
         socket.once("error", (error) => reject(error));
@@ -2796,6 +3001,7 @@ describe("startServer", () => {
       titles: ["Current"],
       layout: shareLayout(),
     });
+
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({
       ok: false,
@@ -2807,6 +3013,7 @@ describe("startServer", () => {
       { scope: "direction", titles: ["Current"], layout: shareLayout() },
       "/update",
     );
+
     const updated = (await updatedResponse.json()) as typeof created;
     expect(updatedResponse.status).toBe(200);
     expect(updated.share.grants[0].localUrl).toBe(created.share.grants[0].localUrl);
@@ -2843,6 +3050,7 @@ describe("startServer", () => {
       layout: shareLayout(),
       tunnel: "none",
     });
+
     expect(branch.status).toBe(400);
     expect(await branch.json()).toEqual({
       ok: false,
@@ -2855,6 +3063,7 @@ describe("startServer", () => {
       layout: shareLayout(),
       tunnel: "none",
     });
+
     expect(unknown.status).toBe(400);
 
     expect(
@@ -2884,25 +3093,30 @@ describe("startServer", () => {
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
       port: 0,
     });
+
     const response = await postShare(server, {
       scope: "direction",
       titles: ["Current"],
       layout: shareLayout(),
       tunnel: "none",
     });
+
     const created = (await response.json()) as {
       share: { grants: { localUrl: string }[]; sharePort: number };
     };
+
     const cookie = await enterShare(created.share.grants[0].localUrl);
 
     await new Promise<void>((resolve) => {
       const refused = net.connect(created.share.sharePort, "127.0.0.1");
       let settled = false;
+
       const done = (): void => {
         if (settled) return;
         settled = true;
         resolve();
       };
+
       refused.once("error", done);
       refused.once("close", done);
       refused.once("connect", () => {
@@ -2944,12 +3158,14 @@ describe("startServer", () => {
   test("a viewer arriving settles a tunnel the probe has not seen answer", async () => {
     const child = new ShareTunnelChild();
     const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
       port: 0,
       detectTunnels: async () => ["cloudflared"],
       startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
+
     const created = (await (
       await postShare(server, {
         scope: "direction",
@@ -2958,6 +3174,7 @@ describe("startServer", () => {
         tunnel: "cloudflared",
       })
     ).json()) as { share: { localUrl: string; sharePort: number } };
+
     const status = async () =>
       (
         (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
@@ -2967,6 +3184,7 @@ describe("startServer", () => {
           };
         }
       ).share;
+
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
     child.stderr.write("| https://example-share.trycloudflare.com |\n");
     await eventually(async () => (await status()).tunnel.url !== undefined);
@@ -2980,11 +3198,13 @@ describe("startServer", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await status()).tunnel.status).toBe("starting");
     local.destroy();
+
     const viewer = await openViewerSocket(
       created.share.sharePort,
       cookie,
       "X-Forwarded-For: 203.0.113.7\r\nCf-Connecting-Ip: 203.0.113.7\r\n",
     );
+
     await eventually(async () => (await status()).tunnel.status === "ready");
     expect((await status()).grants[0].url).toMatch(
       /^https:\/\/example-share\.trycloudflare\.com\/leglas\/s\/[A-Za-z0-9_-]{32}$/,
@@ -2995,18 +3215,21 @@ describe("startServer", () => {
   test("closing the primary server stops its tunnel and share listener first", async () => {
     const child = new ShareTunnelChild();
     const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
       port: 0,
       detectTunnels: async () => ["cloudflared"],
       startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
+
     const response = await postShare(server, {
       scope: "direction",
       titles: ["Current"],
       layout: shareLayout(),
       tunnel: "cloudflared",
     });
+
     const created = (await response.json()) as { share: { sharePort: number } };
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
 
@@ -3028,6 +3251,7 @@ describe("startServer", () => {
         );
         resolve();
       });
+
       // The server destroys this socket on shutdown; without a handler the
       // reset surfaces as an unhandled exception and fails the run.
       socket.on("error", () => {});
@@ -3057,6 +3281,7 @@ describe("update routes", () => {
       phase: { status: "idle" },
       busy: false,
     };
+
     return {
       status: vi.fn(() => status),
       check: vi.fn(async () => status),
@@ -3121,11 +3346,13 @@ describe("update routes", () => {
     async (type) => {
       const updates = updateService();
       const server = await bootUpdates(updates);
+
       const response = await fetch(`${server.url}/leglas/api/update/skip`, {
         method: "POST",
         headers: type === undefined ? {} : { "content-type": type },
         body: JSON.stringify({ version: "1.1.0" }),
       });
+
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
       expect(updates.skip).not.toHaveBeenCalled();
@@ -3147,11 +3374,13 @@ describe("update routes", () => {
   test("check forces a refresh and ignores its body", async () => {
     const updates = updateService();
     const server = await bootUpdates(updates);
+
     const response = await fetch(`${server.url}/leglas/api/update/check`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "ignored",
     });
+
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual(updates.status());
@@ -3161,11 +3390,13 @@ describe("update routes", () => {
   test("skip accepts the version and returns the changed status", async () => {
     const updates = updateService();
     const server = await bootUpdates(updates);
+
     const response = await fetch(`${server.url}/leglas/api/update/skip`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ version: "1.1.0" }),
     });
+
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ ...updates.status(), skipped: "1.1.0" });
@@ -3200,11 +3431,13 @@ describe("update routes", () => {
   test.each(["{", "null", "[]", "42"])("skip rejects a non-object body: %s", async (body) => {
     const updates = updateService();
     const server = await bootUpdates(updates);
+
     const response = await fetch(`${server.url}/leglas/api/update/skip`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
     });
+
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
     expect(updates.skip).not.toHaveBeenCalled();
@@ -3215,11 +3448,13 @@ describe("update routes", () => {
     async (body) => {
       const updates = updateService();
       const server = await bootUpdates(updates);
+
       const response = await fetch(`${server.url}/leglas/api/update/skip`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
+
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ ok: false, error: "Body needs a version." });
       expect(updates.skip).not.toHaveBeenCalled();
@@ -3231,11 +3466,13 @@ describe("update routes", () => {
     updates.skip.mockRejectedValue(new Error("That is not the newest version."));
     updates.update.mockRejectedValue(new Error("A change is running. Wait for it to finish."));
     const server = await bootUpdates(updates);
+
     const skip = await fetch(`${server.url}/leglas/api/update/skip`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ version: "1.0.1" }),
     });
+
     expect(skip.status).toBe(400);
     expect(await skip.json()).toEqual({ ok: false, error: "That is not the newest version." });
     const install = await fetch(`${server.url}/leglas/api/update/install`, { method: "POST" });
@@ -3251,11 +3488,13 @@ describe("update routes", () => {
     async (action) => {
       const updates = updateService();
       const server = await bootUpdates(updates);
+
       const response = await fetch(`${server.url}/leglas/api/update/${action}`, {
         method: "POST",
         headers: { origin: "https://other.example" },
         body: JSON.stringify({ version: "1.1.0" }),
       });
+
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({
         ok: false,
@@ -3331,12 +3570,14 @@ describe("mutation trust", () => {
 describe("what a capture may resolve", () => {
   test("a direction added from a file after boot is not captured, matching the rail", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-fresh-file-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       port: 0,
       cwd,
       pool: capturePool(),
     });
+
     // Registered while the server runs, the way an agent does it. A file
     // needs the mount boot builds, so the rail holds it back until the
     // restart, and a capture of it would render the wrong page.
@@ -3357,6 +3598,7 @@ describe("what a capture may resolve", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Fresh" }),
     });
+
     expect(fresh.status).toBe(404);
 
     // A plain URL added the same way joins at once, as it does in the rail.
@@ -3365,11 +3607,13 @@ describe("what a capture may resolve", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Live" }),
     });
+
     expect(live.status).toBe(200);
   });
 
   test("the same words against a different comparison or picture are not a duplicate", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-context-"));
+
     // No browser on purpose: a repeat is a repeat of what was asked, and it
     // has to be caught whether or not the capture behind it succeeded.
     const server = await start({
@@ -3381,6 +3625,7 @@ describe("what a capture may resolve", () => {
       port: 0,
       cwd,
     });
+
     const send = (body: Record<string, unknown>) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
@@ -3403,8 +3648,10 @@ describe("what a capture may resolve", () => {
     expect((await send({ title: "Poster", intent: "like the other one" })).status).toBe(200);
     // A picture is part of the ask too, by identity rather than by count.
     mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
+
     const paste = (id: string) =>
       writeFileSync(join(cwd, REFERENCES_DIR, `${id}.png`), TWO_BY_THREE_PNG);
+
     paste("r1");
     expect((await send({ title: "Poster", intent: "like this", references: ["r1"] })).status).toBe(
       200,
@@ -3459,17 +3706,21 @@ describe("a body that is not an object", () => {
 
   const routes = (): string[] => {
     const source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8");
+
     const found = [
       ...source.matchAll(
         /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g,
       ),
     ].map((match) => match.groups?.["route"] ?? "");
+
     expect(found.length, "no POST routes found; the pattern above has drifted").toBeGreaterThan(5);
+
     return found.filter((route) => !(route in NOT_A_JSON_OBJECT));
   };
 
   test("is refused by every route that takes one, and none of them fall over", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-json-body-"));
+
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
@@ -3483,6 +3734,7 @@ describe("a body that is not an object", () => {
           headers: { "content-type": "application/json" },
           method: "POST",
         });
+
         expect(answer.status, `${route} answering ${nonsense}`).toBe(400);
       }
     }

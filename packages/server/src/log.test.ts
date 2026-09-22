@@ -76,6 +76,7 @@ describe("composeEntry", () => {
 
   test("takes a direction's last frame, so a changed one shows its later self", () => {
     const frame = (file: string) => ({ kind: "frame" as const, file, width: 1, height: 1 });
+
     const entry = composeEntry({
       surface: "hero",
       won: { title: "Table", to: "src/Hero.tsx" },
@@ -95,6 +96,7 @@ describe("composeEntry", () => {
   test("records the pins left on a direction", () => {
     const note = (over: Partial<Annotation>): Annotation =>
       ({ id: "a1", title: "Table", note: "", anchor: {}, ...over }) as Annotation;
+
     const entry = composeEntry({
       surface: "hero",
       won: { title: "Table", to: "src/Hero.tsx" },

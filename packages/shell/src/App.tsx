@@ -44,6 +44,7 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+
     const read = (signal: AbortSignal) =>
       fetch("/leglas/api/config", { signal }).then((response) => {
         if (!response.ok) {
@@ -51,6 +52,7 @@ export function App() {
             status: response.status,
           });
         }
+
         return response.json() as Promise<ConfigPayload>;
       });
 
@@ -80,6 +82,7 @@ export function App() {
           })
           .catch((error: unknown) => {
             if (cancelled) return;
+
             if (!wasAborted(error)) misses.current += 1;
             // The share listener refusing the cookie is the sharer having
             // stopped: final, and a new link is the only way back. Anything

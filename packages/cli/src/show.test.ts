@@ -37,6 +37,7 @@ describe("planShow", () => {
     const plan = planShow({ title: "Aurora", previews, requests: [] });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.direction).toEqual({
       title: "Aurora",
@@ -55,6 +56,7 @@ describe("planShow", () => {
     const plan = planShow({ title: "Dot grid", previews, requests: [] });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.direction.target).toBe(".leglas/variants/hero/dotgrid.tsx");
     expect(plan.direction.local).toBe(true);
@@ -68,6 +70,7 @@ describe("planShow", () => {
     });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.direction.target).toBeNull();
   });
@@ -80,6 +83,7 @@ describe("planShow", () => {
     });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.direction.target).toBe("pages/a.html");
   });
@@ -88,6 +92,7 @@ describe("planShow", () => {
     const plan = planShow({ title: "Aurora", previews, requests: [] });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.variants.map((variant) => variant.title)).toEqual(["Aurora Dusk"]);
   });
@@ -96,6 +101,7 @@ describe("planShow", () => {
     const plan = planShow({ title: "Aurora", previews, requests: [] });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     // An agent handed one direction and nothing else improves it straight out
     // of the comparison, which is the one thing the product exists to prevent.
@@ -110,6 +116,7 @@ describe("planShow", () => {
     });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.requests.map((entry) => entry.intent)).toEqual(["warmer"]);
   });
@@ -118,6 +125,7 @@ describe("planShow", () => {
     const plan = planShow({ title: "Nope", previews, requests: [] });
 
     expect(plan.ok).toBe(false);
+
     if (plan.ok) return;
     expect(plan.error).toContain('No direction called "Nope"');
   });

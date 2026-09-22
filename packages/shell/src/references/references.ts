@@ -61,6 +61,7 @@ export function imageFilesFrom<T extends FileLike>(
     Symbol.iterator in files
       ? [...(files as Iterable<T | null | undefined>)]
       : Array.from(files as ArrayLike<T | null | undefined>);
+
   return list.filter((file): file is T => file != null && isReferenceImage(file));
 }
 
@@ -81,22 +82,27 @@ export function admit<T extends FileLike>(
   const accepted: T[] = [];
   const refused: { file: T; why: Refusal }[] = [];
   let room = Math.max(0, REFERENCE_CAP - current.length);
+
   for (const file of files) {
     if (!isReferenceImage(file)) {
       refused.push({ file, why: "not-an-image" });
       continue;
     }
+
     if (file.size > REFERENCE_BYTES_CAP) {
       refused.push({ file, why: "too-big" });
       continue;
     }
+
     if (room === 0) {
       refused.push({ file, why: "too-many" });
       continue;
     }
+
     room -= 1;
     accepted.push(file);
   }
+
   return { accepted, refused };
 }
 
@@ -111,8 +117,10 @@ export function refusalMessage(
   refused: readonly { file: FileLike; why: Refusal }[],
 ): string | null {
   const first = refused[0];
+
   if (first === undefined) return null;
   const many = refused.length > 1;
+
   switch (first.why) {
     case "too-many":
       return `Up to ${REFERENCE_CAP} images can ride with a change. ${
@@ -130,6 +138,7 @@ export function refusalMessage(
 /** A name worth showing, since a pasted screenshot is called "image.png" by every browser. */
 export function displayName(name: string): string {
   const trimmed = name.replace(/\s+/g, " ").trim();
+
   return trimmed === "" ? "image" : trimmed;
 }
 
@@ -144,6 +153,7 @@ export function headerName(name: string): string {
   const ascii = displayName(name)
     .replace(/[^\x20-\x7E]/g, "")
     .trim();
+
   return (ascii === "" ? "image" : ascii).slice(0, 80);
 }
 
@@ -151,8 +161,10 @@ export function headerName(name: string): string {
 export function describeBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
+
   if (kb < 1024) return `${Math.round(kb)} KB`;
   const mb = kb / 1024;
+
   return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
 
@@ -172,12 +184,15 @@ export function referenceIds(drafts: readonly ReferenceDraft[]): string[] {
  */
 export function sendBlocker(drafts: readonly ReferenceDraft[]): "uploading" | "failed" | null {
   if (drafts.some((draft) => draft.status === "failed")) return "failed";
+
   if (drafts.some((draft) => draft.status === "uploading")) return "uploading";
+
   return null;
 }
 
 /** Whether a drag carries files at all, before anything is read from it. */
 export function carriesFiles(types: ArrayLike<string> | readonly string[] | undefined): boolean {
   if (types === undefined) return false;
+
   return Array.from(types).includes("Files");
 }

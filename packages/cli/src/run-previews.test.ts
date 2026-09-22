@@ -12,6 +12,7 @@ function scratch(): string {
 function collect() {
   const lines: string[] = [];
   const errors: string[] = [];
+
   return {
     deps: { log: (line: string) => lines.push(line), error: (line: string) => errors.push(line) },
     lines,
@@ -63,9 +64,11 @@ describe("runAdd with --based-on", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
+
     const written = JSON.parse(readFileSync(join(cwd, ".leglas/previews.json"), "utf8")) as {
       previews: { title: string; basedOn?: string }[];
     };
+
     expect(written.previews.find((entry) => entry.title === "Dusk")?.basedOn).toBe("Meridian");
   });
 });

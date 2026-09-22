@@ -44,12 +44,15 @@ function slugify(value: string): string {
  */
 function frameFor(title: string, requests: readonly PendingRequest[]): Attachment | null {
   let found: Attachment | null = null;
+
   for (const request of requests) {
     if (request.title !== title) continue;
+
     for (const attachment of request.attachments ?? []) {
       if (attachment.kind === "frame") found = attachment;
     }
   }
+
   return found;
 }
 
@@ -105,6 +108,7 @@ export function composeEntry(input: LogInput): LogEntry {
     }
 
     const frame = frameFor(preview.title, input.requests);
+
     if (frame !== null) {
       const name = `${slugify(preview.title)}.png`;
       pictures.push({ from: frame.file, to: name });
@@ -118,30 +122,37 @@ export function composeEntry(input: LogInput): LogEntry {
     }
 
     const asked = askedOf(preview.title, input.requests);
+
     if (asked.length > 0) {
       lines.push("Asked for:");
       lines.push("");
+
       for (const words of asked) lines.push(`- ${words}`);
       lines.push("");
     }
 
     const notes = input.annotations.filter((note) => note.title === preview.title);
+
     if (notes.length > 0) {
       lines.push("Marked on the design:");
       lines.push("");
+
       for (const note of notes) lines.push(`- ${note.note}`);
       lines.push("");
     }
   }
 
   const failed = input.requests.filter((request) => request.status === "failed");
+
   if (failed.length > 0) {
     lines.push("## Changes that did not land");
     lines.push("");
+
     for (const request of failed) {
       const why = request.failure?.message;
       lines.push(`- ${request.title}: ${request.intent}${why === undefined ? "" : ` (${why})`}`);
     }
+
     lines.push("");
   }
 

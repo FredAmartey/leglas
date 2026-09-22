@@ -32,10 +32,12 @@ export type Placement = "bottom" | "right" | "top";
  */
 export function fitShift(rect: Edges, viewportWidth: number, margin = TIP_MARGIN): number {
   if (rect.left < margin) return margin - rect.left;
+
   if (rect.right > viewportWidth - margin) {
     // Never push the left edge off in the course of pulling the right edge in.
     return Math.max(margin - rect.left, viewportWidth - margin - rect.right);
   }
+
   return 0;
 }
 
@@ -53,6 +55,7 @@ export function shouldFlipBelow(
 ): boolean {
   if (rect.top >= margin) return false;
   const height = rect.bottom - rect.top;
+
   return anchor.bottom + margin + height <= viewportHeight - margin;
 }
 
@@ -73,17 +76,21 @@ export function placeTip(
   viewport: { height: number; width: number },
 ): { at: Placement; shift: number; y: number } | null {
   const left = tip.at === "right" ? tip.x : tip.x - bubble.width / 2;
+
   const top =
     tip.at === "top"
       ? tip.y - bubble.height
       : tip.at === "bottom"
         ? tip.y
         : tip.y - bubble.height / 2;
+
   const rect = { bottom: top + bubble.height, left, right: left + bubble.width, top };
 
   if (tip.at === "top" && shouldFlipBelow(rect, anchor, viewport.height)) {
     return { at: "bottom", shift: tip.shift, y: anchor.bottom + TIP_GAP };
   }
+
   const shift = fitShift(rect, viewport.width);
+
   return shift === tip.shift ? null : { at: tip.at, shift, y: tip.y };
 }

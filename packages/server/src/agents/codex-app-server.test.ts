@@ -22,6 +22,7 @@ class FakeProcess {
       this.buffered += chunk.toString();
       const lines = this.buffered.split("\n");
       this.buffered = lines.pop() ?? "";
+
       for (const line of lines) {
         if (line !== "") this.messages.push(JSON.parse(line) as Message);
       }
@@ -30,15 +31,19 @@ class FakeProcess {
 
   once(event: "error" | "close", listener: (...args: unknown[]) => void): FakeProcess {
     this.events.once(event, listener);
+
     return this;
   }
 
   kill(signal: NodeJS.Signals): boolean {
     this.signals.push(signal);
+
     if (this.ended) return false;
+
     if (signal === "SIGTERM" && !this.closeOnSigterm) return true;
     this.ended = true;
     queueMicrotask(() => this.events.emit("close", null, signal));
+
     return true;
   }
 
@@ -49,11 +54,14 @@ class FakeProcess {
 
 function harness(closeOnSigterm = true) {
   const processes: FakeProcess[] = [];
+
   const spawn: CodexAppServerSpawn = (_command, _args, _options) => {
     const process = new FakeProcess(closeOnSigterm);
     processes.push(process);
+
     return process;
   };
+
   return { processes, spawn };
 }
 
@@ -62,6 +70,7 @@ async function until(check: () => boolean): Promise<void> {
     if (check()) return;
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
+
   throw new Error("condition was not reached");
 }
 
@@ -80,6 +89,7 @@ async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
   process.send({ id: request.id, result: { userAgent: "codex-test" } });
   await warming;
   await until(() => byMethod(process, "initialized").length === 1);
+
   return { process, server, spawned };
 }
 
@@ -142,6 +152,7 @@ describe("Codex app-server transport", () => {
       sessionId: null,
       images: ["/project/frame.png", "/project/note-1.png"],
     });
+
     await until(() => byMethod(process, "thread/start").length === 1);
     const threadStart = byMethod(process, "thread/start")[0] as Message;
     expect(threadStart.params).toMatchObject({
@@ -169,6 +180,7 @@ describe("Codex app-server transport", () => {
     const firstChild = await firstRun;
     const firstLines: string[] = [];
     firstChild.stdout.on("data", (chunk: Buffer) => firstLines.push(chunk.toString()));
+
     const firstClosed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolve) => firstChild.once("close", (code, signal) => resolve({ code, signal })),
     );
@@ -207,6 +219,7 @@ describe("Codex app-server transport", () => {
       sessionId: "th_1",
       images: [],
     });
+
     await until(() => byMethod(process, "turn/start").length === 2);
     expect(byMethod(process, "thread/start")).toHaveLength(1);
     expect(byMethod(process, "thread/resume")).toHaveLength(0);
@@ -226,12 +239,14 @@ describe("Codex app-server transport", () => {
 
   test("resumes a stored thread after a new app-server process", async () => {
     const { process, server } = await initialize();
+
     const running = server.run({
       prompt: "continue",
       effort: "max",
       sessionId: "stored_1",
       images: [],
     });
+
     await until(() => byMethod(process, "thread/resume").length === 1);
     const resume = byMethod(process, "thread/resume")[0] as Message;
     process.send({ id: resume.id, result: { thread: { id: "stored_1" } } });
@@ -304,9 +319,11 @@ describe("Codex app-server transport", () => {
         })}\n`,
     );
     const child = await running;
+
     const closed = new Promise<number | null>((resolve) =>
       child.once("close", (code) => resolve(code)),
     );
+
     await expect(closed).resolves.toBe(0);
     await server.close();
   });
@@ -344,9 +361,11 @@ describe("Codex app-server transport", () => {
     await expect(running).rejects.toThrow("EPIPE");
 
     let closed = false;
+
     const closing = server.close().then(() => {
       closed = true;
     });
+
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(closed).toBe(false);
     await closing;

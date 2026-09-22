@@ -92,6 +92,7 @@ const LABEL_CAP = 80;
 /** What a pin answers to, for anyone not looking at the colours. */
 function label(pin: Pin): string {
   const said = pin.note.length > LABEL_CAP ? `${pin.note.slice(0, LABEL_CAP - 1)}…` : pin.note;
+
   return [
     `Annotation ${pin.number}`,
     said === "" ? null : `: ${said}`,
@@ -108,6 +109,7 @@ function pinTitle(pin: Pin): string | undefined {
     pin.stale ? "This element has moved or gone since the annotation was left." : null,
     pin.sent ? "Already sent with a change that has not landed yet." : null,
   ].filter((part) => part !== null);
+
   return parts.length === 0 ? undefined : parts.join(" ");
 }
 
@@ -192,17 +194,22 @@ export function AnnotateLayer({
     const frame = document.querySelector<HTMLIFrameElement>(
       `iframe[data-preview="${CSS.escape(title)}"]`,
     );
+
     if (frame === null) return null;
     let doc: Document | null = null;
+
     try {
       doc = frame.contentDocument;
     } catch {
       // Another origin. Unreadable by design, so annotations are unavailable.
       return null;
     }
+
     const view = doc?.defaultView ?? null;
+
     if (doc === null || view === null) return null;
     const rect = frame.getBoundingClientRect();
+
     return { doc, rect, scale: view.innerWidth > 0 ? rect.width / view.innerWidth : 1, view };
   }, [title]);
 
@@ -210,7 +217,9 @@ export function AnnotateLayer({
   const toPreview = useCallback(
     (clientX: number, clientY: number): Point | null => {
       const at = geometry();
+
       if (at === null) return null;
+
       return { x: (clientX - at.rect.left) / at.scale, y: (clientY - at.rect.top) / at.scale };
     },
     [geometry],
@@ -229,11 +238,13 @@ export function AnnotateLayer({
   const elementAt = useCallback(
     (at: Geometry, point: Point): { box: Box; element: Element } | null => {
       const hit = at.doc.elementFromPoint(point.x, point.y);
+
       if (hit === null) return null;
 
       const candidates = new Set<Element>();
       let scope: Element | null = hit;
       let scanned = 0;
+
       // Looking through the hit element and its two closest containers catches
       // layered siblings without turning every pointer move into a page-wide
       // layout scan.
@@ -241,19 +252,23 @@ export function AnnotateLayer({
         candidates.add(scope);
         const walk = at.doc.createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
         let descendant = walk.nextNode();
+
         while (descendant !== null && scanned < PICK_SCAN_CAP) {
           if (!candidates.has(descendant as Element)) {
             candidates.add(descendant as Element);
             scanned += 1;
           }
+
           descendant = walk.nextNode();
         }
+
         scope = scope.parentElement;
       }
 
       const weight = (element: Element) => {
         const tag = element.tagName.toLowerCase();
         const text = elementText(element.textContent);
+
         return (
           (text === "" ? 0 : 4) +
           (tag === "a" || tag === "button" || tag === "img" ? 3 : 0) +
@@ -264,6 +279,7 @@ export function AnnotateLayer({
       const visible = [...candidates]
         .filter((element) => {
           const tag = element.tagName.toLowerCase();
+
           if (
             element === at.doc.body ||
             element === at.doc.documentElement ||
@@ -273,9 +289,12 @@ export function AnnotateLayer({
           ) {
             return false;
           }
+
           const box = boxOf(element.getBoundingClientRect());
+
           if (box.width <= 0 || box.height <= 0 || !containsPoint(box, point)) return false;
           const style = at.view.getComputedStyle(element);
+
           return style.display !== "none" && style.visibility !== "hidden";
         })
         .map((element) => ({
@@ -289,9 +308,11 @@ export function AnnotateLayer({
       visible.sort((a, b) => {
         const aContainsB = a.element.contains(b.element);
         const bContainsA = b.element.contains(a.element);
+
         if (aContainsB !== bContainsA) return aContainsB ? 1 : -1;
 
         const weightDifference = b.weight - a.weight;
+
         if (weightDifference !== 0) return weightDifference;
 
         return a.box.width * a.box.height - b.box.width * b.box.height;
@@ -319,11 +340,13 @@ export function AnnotateLayer({
    */
   const anchored = useCallback((at: Geometry, anchor: Anchor): Anchored => {
     let found: Element | null = null;
+
     try {
       found = at.doc.querySelector(anchor.selector);
     } catch {
       // A selector the browser will not parse is a stale one, not a crash.
     }
+
     const box = found === null ? boxOf(anchor.rect) : boxOf(found.getBoundingClientRect());
     const spot = anchor.spot ?? { x: 0.5, y: 0.5 };
     const region = anchor.region ? boxFromFractions(box, anchor.region) : null;
@@ -343,10 +366,12 @@ export function AnnotateLayer({
   /** Where each annotation belongs now, in the order the request will read them. */
   const measure = useCallback((): Pin[] => {
     const at = geometry();
+
     if (at === null) return [];
 
     return notes.map((note, index) => {
       const where = anchored(at, note.anchor);
+
       return {
         anchor: note.anchor,
         box: where.box,
@@ -366,6 +391,7 @@ export function AnnotateLayer({
   const repick = useCallback(() => {
     const held = pointer.current;
     const at = geometry();
+
     if (held === null || at === null || open !== null) return;
     setPicked(elementAt(at, held)?.box ?? null);
   }, [elementAt, geometry, open]);
@@ -373,13 +399,16 @@ export function AnnotateLayer({
   useEffect(() => {
     remeasure();
     const at = geometry();
+
     const onScroll = () => {
       remeasure();
       repick();
     };
+
     at?.view.addEventListener("scroll", onScroll, { passive: true });
     at?.view.addEventListener("resize", onScroll);
     window.addEventListener("resize", onScroll);
+
     return () => {
       at?.view.removeEventListener("scroll", onScroll);
       at?.view.removeEventListener("resize", onScroll);
@@ -398,14 +427,19 @@ export function AnnotateLayer({
    */
   useEffect(() => {
     const node = layerRef.current;
+
     if (node === null) return;
+
     const onWheel = (event: WheelEvent) => {
       const at = geometry();
+
       if (at === null) return;
       event.preventDefault();
       at.view.scrollBy({ behavior: "auto", left: event.deltaX, top: event.deltaY });
     };
+
     node.addEventListener("wheel", onWheel, { passive: false });
+
     return () => node.removeEventListener("wheel", onWheel);
   }, [geometry]);
 
@@ -424,16 +458,23 @@ export function AnnotateLayer({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+
       if (open !== null) {
         setOpen(null);
+
         return;
       }
+
       onExit();
     };
+
     const targets: EventTarget[] = [window];
     const at = geometry();
+
     if (at !== null) targets.push(at.doc);
+
     for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+
     return () => {
       for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
     };
@@ -453,6 +494,7 @@ export function AnnotateLayer({
    */
   useEffect(() => {
     if (open === null || open.kind !== "kept") return;
+
     if (notes.some((note) => note.id === open.id)) return;
     setOpen({
       anchor: open.anchor,
@@ -466,6 +508,7 @@ export function AnnotateLayer({
   /** Measure the card once it exists, so its placement knows its real height. */
   useEffect(() => {
     const node = cardRef.current;
+
     if (open === null || node === null) return;
     const height = node.offsetHeight;
     const width = node.offsetWidth;
@@ -484,14 +527,17 @@ export function AnnotateLayer({
    */
   const sweep = (at: Geometry, region: Box) => {
     const all = [...at.doc.body.querySelectorAll("*")].slice(0, SCAN_CAP);
+
     // Touched, not enclosed. A band swept through a row of cards encloses
     // none of them, and requiring containment described that as an area
     // covering nothing at all. Sweeping through things is the gesture people
     // actually make, so intersecting the sweep is what counts.
     const touched = all.filter((element) => {
       const box = boxOf(element.getBoundingClientRect());
+
       return box.width > 0 && box.height > 0 && overlaps(region, box);
     });
+
     // The innermost of those, not the outermost. A box drawn around a row is
     // held by the row, and naming the row says only "the row"; naming the
     // heading and the sentence inside each card says what was being looked
@@ -515,9 +561,12 @@ export function AnnotateLayer({
     // The nearest thing that holds the whole region, which is what makes the
     // annotation resolvable: the region itself belongs to no element.
     let holder: Element = at.doc.body;
+
     for (const element of all) {
       const box = boxOf(element.getBoundingClientRect());
+
       if (!contains(box, region)) continue;
+
       if (holder.contains(element)) holder = element;
     }
 
@@ -536,6 +585,7 @@ export function AnnotateLayer({
 
   const finish = (to: Point, from: Point | null) => {
     const at = geometry();
+
     if (at === null) return;
 
     // A sweep names an area; a click names the thing under it.
@@ -557,10 +607,12 @@ export function AnnotateLayer({
         note: "",
       });
       setRefused(null);
+
       return;
     }
 
     const target = elementAt(at, to);
+
     if (target === null) return;
     setOpen({
       anchor: anchorFor(target.element, target.box, at.view.innerWidth, to),
@@ -579,6 +631,7 @@ export function AnnotateLayer({
   // re-read on every render so a preview scrolled under an open card takes
   // the card with it.
   const openAt = open === null || at === null ? null : anchored(at, open.anchor);
+
   const placed =
     openAt === null
       ? null
@@ -595,13 +648,16 @@ export function AnnotateLayer({
         if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
+
         if (point === null || frame === null) return;
+
         try {
           event.currentTarget.setPointerCapture(event.pointerId);
         } catch {
           // A pointer that has already gone cannot be captured, and a drag
           // that never starts is not worth throwing over.
         }
+
         dragging.current = {
           from: point,
           scroll: { x: frame.view.scrollX, y: frame.view.scrollY },
@@ -609,16 +665,19 @@ export function AnnotateLayer({
       }}
       onPointerLeave={() => {
         pointer.current = null;
+
         if (dragging.current === null) setPicked(null);
       }}
       onPointerMove={(event) => {
         if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
+
         if (point === null || frame === null) return;
         pointer.current = point;
 
         const held = dragging.current;
+
         if (held !== null) {
           // The start was recorded against the scroll position it was taken
           // at, so a page scrolled mid-drag keeps the region over the content
@@ -627,8 +686,10 @@ export function AnnotateLayer({
             x: held.from.x + held.scroll.x - frame.view.scrollX,
             y: held.from.y + held.scroll.y - frame.view.scrollY,
           };
+
           setMarquee(isDrag(from, point) ? boxBetween(from, point) : null);
           setPicked(null);
+
           return;
         }
 
@@ -638,10 +699,13 @@ export function AnnotateLayer({
         const held = dragging.current;
         dragging.current = null;
         setMarquee(null);
+
         if (open !== null) return;
         const point = toPreview(event.clientX, event.clientY);
         const frame = geometry();
+
         if (point === null || frame === null) return;
+
         const from =
           held === null
             ? null
@@ -649,6 +713,7 @@ export function AnnotateLayer({
                 x: held.from.x + held.scroll.x - frame.view.scrollX,
                 y: held.from.y + held.scroll.y - frame.view.scrollY,
               };
+
         setPicked(null);
         finish(point, from);
       }}
@@ -767,6 +832,7 @@ export function AnnotateLayer({
             onSubmit={(event) => {
               event.preventDefault();
               const card = open.field;
+
               if (saving === card) return;
               const input = event.currentTarget.elements.namedItem("note");
               const words = input instanceof HTMLInputElement ? input.value.trim() : "";
@@ -775,6 +841,7 @@ export function AnnotateLayer({
               void (open.kind === "new" ? onKeep(open.anchor, words) : onRevise(open.id, words))
                 .then((kept) => {
                   setSaving((current) => (current === card ? null : current));
+
                   if (kept) setOpen((current) => (current?.field === card ? null : current));
                   else setRefused(card);
                 })

@@ -9,6 +9,7 @@ import { startPoll, wasAborted, type PollTimers } from "./poll.js";
  */
 function clock() {
   type Interval = { callback: () => void; every: number; next: number };
+
   type Timeout = { callback: () => void; at: number };
 
   let now = 0;
@@ -20,12 +21,14 @@ function clock() {
     setInterval: (callback, every) => {
       const id = ++handle;
       intervals.set(id, { callback, every, next: now + every });
+
       return id;
     },
     clearInterval: (id) => void intervals.delete(id as number),
     setTimeout: (callback, after) => {
       const id = ++handle;
       timeouts.set(id, { callback, at: now + after });
+
       return id;
     },
     clearTimeout: (id) => void timeouts.delete(id as number),
@@ -40,27 +43,35 @@ function clock() {
     // A real timer never fires ahead of a promise callback that is already
     // queued. Draining first keeps the fake honest about that ordering.
     await flush();
+
     for (;;) {
       let soonest = Infinity;
+
       for (const timeout of timeouts.values()) soonest = Math.min(soonest, timeout.at);
+
       for (const interval of intervals.values()) soonest = Math.min(soonest, interval.next);
+
       if (soonest > target) break;
 
       now = soonest;
+
       for (const [id, timeout] of [...timeouts]) {
         if (timeout.at <= now) {
           timeouts.delete(id);
           timeout.callback();
         }
       }
+
       for (const interval of [...intervals.values()]) {
         if (interval.next <= now) {
           interval.next = now + interval.every;
           interval.callback();
         }
       }
+
       await flush();
     }
+
     now = target;
     await flush();
   };
@@ -75,20 +86,24 @@ function never(): Promise<never> {
 function deferred() {
   let settle!: () => void;
   let fail!: (error: Error) => void;
+
   const promise = new Promise<void>((resolve, reject) => {
     settle = () => resolve();
     fail = reject;
   });
+
   return { promise, settle, fail };
 }
 
 /** Record every read the loop starts, and the signal it was handed. */
 function reads(task: (signal: AbortSignal) => Promise<unknown>) {
   const signals: AbortSignal[] = [];
+
   return {
     signals,
     task: (signal: AbortSignal) => {
       signals.push(signal);
+
       return task(signal);
     },
   };
@@ -104,6 +119,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.flush();
 
     expect(recorded.signals).toHaveLength(1);
@@ -123,6 +139,7 @@ describe("startPoll", () => {
       timeoutMs: 600_000,
       timers: fake.timers,
     });
+
     await fake.advance(60_000);
 
     expect(recorded.signals).toHaveLength(1);
@@ -140,6 +157,7 @@ describe("startPoll", () => {
       timeoutMs: 600_000,
       timers: fake.timers,
     });
+
     await fake.advance(10_000);
     expect(recorded.signals).toHaveLength(1);
 
@@ -161,6 +179,7 @@ describe("startPoll", () => {
       timeoutMs: 600_000,
       timers: fake.timers,
     });
+
     first.fail(new Error("the server went away"));
     await fake.advance(2000);
 
@@ -177,6 +196,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.advance(9000);
     expect(recorded.signals[0]?.aborted).toBe(false);
 
@@ -197,6 +217,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.advance(12_000);
 
     expect(recorded.signals).toHaveLength(2);
@@ -214,6 +235,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.advance(30_000);
 
     expect(recorded.signals[0]?.aborted).toBe(false);
@@ -232,6 +254,7 @@ describe("startPoll", () => {
       timeoutMs: 600_000,
       timers: fake.timers,
     });
+
     await fake.flush();
     stop();
 
@@ -248,6 +271,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.flush();
     stop();
     await fake.advance(60_000);
@@ -264,6 +288,7 @@ describe("startPoll", () => {
       timeoutMs: 10_000,
       timers: fake.timers,
     });
+
     await fake.flush();
     stop();
 
@@ -280,6 +305,7 @@ describe("startPoll", () => {
       timeoutMs: 600_000,
       timers: fake.timers,
     });
+
     await fake.flush();
     stop();
     late.settle();
@@ -296,9 +322,11 @@ describe("wasAborted", () => {
     expect(wasAborted(new DOMException("signal is aborted without reason", "AbortError"))).toBe(
       true,
     );
+
     const nodeStyle = Object.assign(new Error("This operation was aborted"), {
       name: "AbortError",
     });
+
     expect(wasAborted(nodeStyle)).toBe(true);
 
     // A server that answered, badly, is the caller's story to tell.
@@ -327,11 +355,13 @@ describe("a loop driven by something other than the clock", () => {
       timers: fake.timers,
       subscribe: (run) => {
         nudge.run = run;
+
         return () => {
           nudge.run = null;
         };
       },
     });
+
     await fake.flush();
     expect(recorded.signals).toHaveLength(1);
 
@@ -361,9 +391,11 @@ describe("a loop driven by something other than the clock", () => {
       timers: fake.timers,
       subscribe: (run) => {
         nudge.run = run;
+
         return () => {};
       },
     });
+
     await fake.flush();
     expect(recorded.signals).toHaveLength(1);
 

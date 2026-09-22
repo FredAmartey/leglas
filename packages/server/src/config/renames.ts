@@ -24,7 +24,9 @@ export async function readRenames(cwd: string): Promise<Renames> {
   try {
     const raw = await readFile(join(cwd, RENAMES_PATH), "utf8");
     const parsed = JSON.parse(raw) as { renames?: unknown };
+
     if (parsed.renames === null || typeof parsed.renames !== "object") return {};
+
     // Anything not a string pair is dropped rather than trusted: this file is
     // written by a browser and read by commands that act on real source.
     return Object.fromEntries(
@@ -68,7 +70,10 @@ export function resolveTitle(
   if (titles.includes(input)) return { ok: true, title: input };
 
   const matches = titles.filter((title) => renames[title] === input);
+
   if (matches.length === 1 && matches[0] !== undefined) return { ok: true, title: matches[0] };
+
   if (matches.length > 1) return { ok: false, reason: "ambiguous", matches };
+
   return { ok: false, reason: "unknown" };
 }

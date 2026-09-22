@@ -8,21 +8,26 @@ const mocked = vi.hoisted(() => ({
   run: vi.fn(),
   shutdown: vi.fn(),
 }));
+
 vi.mock("node:fs", async (original) => ({
   ...(await original<typeof import("node:fs")>()),
   realpathSync: mocked.realpath,
 }));
+
 vi.mock("@leglas/server", async (original) => ({
   ...(await original<typeof import("@leglas/server")>()),
   createUpdateService: mocked.create,
 }));
+
 vi.mock("./run.js", () => ({ run: mocked.run }));
+
 vi.mock("./shutdown.js", async (original) => ({
   ...(await original<typeof import("./shutdown.js")>()),
   installShutdown: mocked.shutdown,
 }));
 
 const argv = process.argv;
+
 const warningListeners = process.listeners("warning");
 
 beforeEach(() => {
@@ -31,12 +36,15 @@ beforeEach(() => {
   mocked.create.mockReturnValue({ onRestart: vi.fn() });
   mocked.run.mockImplementation(async (_options, deps) => {
     deps.log('{"ok":true}');
+
     return { stop: vi.fn(async () => {}) };
   });
 });
+
 afterEach(() => {
   process.argv = argv;
   process.removeAllListeners("warning");
+
   for (const listener of warningListeners) process.on("warning", listener);
   vi.restoreAllMocks();
   vi.clearAllMocks();

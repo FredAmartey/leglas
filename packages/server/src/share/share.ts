@@ -106,12 +106,14 @@ export function routeAllowed(routes: readonly string[], url: string): boolean {
   // "/assets/../secrets" starts with "/assets/" as a string while naming
   // something else entirely.
   const path = canonical(rawPath);
+
   return routes.some((route) => {
     // A trailing slash means a directory, and the root is not one: an app
     // served at "/" would otherwise stand for every path there is, which
     // turns the whole list into "allow anything". Found by a test that
     // expected a refusal and got the app.
     const prefix = route.endsWith("/") && route !== "/";
+
     // An exact route also answers to itself with a slash on the end: the two
     // are one resource to every dev server, and an allowed directory index
     // would otherwise be refused the moment the browser asked for it with
@@ -210,10 +212,15 @@ type ShareManager = {
 /** Everything Leglas serves itself. Kept here rather than imported from the
  * server, which imports this file. */
 const OWN_PREFIX = "/leglas";
+
 const ENTRY_PREFIX = `${OWN_PREFIX}/s/`;
+
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+
 export const MAX_GRANTS = 16;
+
 export const MAX_TOMBSTONES = 32;
+
 const NS_PER_MS = 1_000_000n;
 
 /**
@@ -401,35 +408,43 @@ export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
  */
 function canonical(path: string): string {
   let form = path;
+
   try {
     form = decodeURIComponent(path);
   } catch {
     // A malformed escape is not a spelling of anything; the raw form stands.
   }
+
   return posix.normalize(form.replaceAll("\\", "/").replace(/\/{2,}/g, "/"));
 }
 
 function spellings(path: string): string[] {
   const seen = new Set<string>();
+
   const add = (value: string): void => {
     seen.add(value);
     seen.add(value.toLowerCase());
   };
+
   add(path);
   const forms = [path];
+
   try {
     forms.push(decodeURIComponent(path));
   } catch {
     // A malformed escape is not a spelling of anything; the raw form stands.
   }
+
   for (const value of forms) {
     add(value);
+
     for (const slashed of [value, value.replaceAll("\\", "/")]) {
       const collapsed = slashed.replace(/\/{2,}/g, "/");
       add(collapsed);
       add(posix.normalize(collapsed));
     }
   }
+
   return [...seen];
 }
 
@@ -440,16 +455,21 @@ function spellings(path: string): string[] {
  */
 export function isDevControlRequest(url: string): boolean {
   const [rawPath = "/", query] = url.split("?", 2);
+
   for (const path of spellings(rawPath)) {
     if (DEV_CONTROL_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+
     if (DEV_CONTROL_ROUTES.some((route) => path === route || path.startsWith(`${route}/`))) {
       return true;
     }
   }
+
   if (query === undefined) return false;
   const keys = new URLSearchParams(query);
+
   return DEV_CONTROL_QUERY_KEYS.some((key) => keys.has(key) || keys.has(key.toUpperCase()));
 }
+
 /** Where file previews are served, the same prefix the server mounts them under. */
 /**
  * Whether a path reaches for something hidden.
@@ -470,18 +490,21 @@ export function isHiddenPath(path: string): boolean {
   return spellings(path).some((form) => {
     const segments = form.split("/");
     const modules = segments.indexOf("node_modules");
+
     return segments.some((segment, at) => {
       if (!segment.startsWith(".") || segment === "." || segment === "..") return false;
       // The carve-out is for the dot *directories* a dev server serves
       // from, never for a dotfile that happens to sit under one: a package
       // carrying its own `.env` is still a `.env`.
       const last = at === segments.length - 1;
+
       return last || !(modules >= 0 && at > modules);
     });
   });
 }
 
 const FILES_PREFIX_PATH = "/leglas/files/";
+
 /** How long a detection of tunnel programs stands before the next ask looks again. */
 const DETECT_TTL_MS = 10_000;
 
@@ -499,6 +522,7 @@ function stringRecord(value: unknown): value is Record<string, string> {
 
 function layoutFrom(value: unknown): ShareLayout | null {
   if (!isRecord(value)) return null;
+
   if (
     !stringArray(value.order) ||
     !stringRecord(value.renames) ||
@@ -509,6 +533,7 @@ function layoutFrom(value: unknown): ShareLayout | null {
   ) {
     return null;
   }
+
   return {
     order: [...value.order],
     renames: { ...value.renames },
@@ -525,8 +550,10 @@ function manifestFrom(
   if (!isRecord(value)) {
     return { ok: false, error: "Share details must be a JSON object." };
   }
+
   const scope = value.scope;
   const layout = layoutFrom(value.layout);
+
   if (
     (scope !== "direction" && scope !== "compare" && scope !== "rail") ||
     !stringArray(value.titles) ||
@@ -534,29 +561,36 @@ function manifestFrom(
   ) {
     return { ok: false, error: "Share details need a scope, directions and a complete layout." };
   }
+
   const titles = [...value.titles];
+
   if (titles.length === 0) {
     return { ok: false, error: "Choose at least one direction to share." };
   }
 
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const unknown = [...new Set(titles.filter((title) => !byTitle.has(title)))];
+
   if (unknown.length > 0) {
     return {
       ok: false,
       error: `Directions are not available to share: ${unknown.join(", ")}.`,
     };
   }
+
   const branches = [...new Set(titles.filter((title) => byTitle.get(title)?.branch !== undefined))];
+
   if (branches.length > 0) {
     return {
       ok: false,
       error: `Branch directions can't be shared yet: ${branches.join(", ")}.`,
     };
   }
+
   if (scope === "direction" && titles.length > 1) {
     return { ok: false, error: "A direction share can contain only one direction." };
   }
+
   if (
     scope === "compare" &&
     (titles.length !== 2 ||
@@ -569,31 +603,40 @@ function manifestFrom(
       error: "A comparison share needs exactly two directions and one of them on the right.",
     };
   }
+
   if (scope !== "compare" && layout.compare !== null) {
     return { ok: false, error: "Only a comparison share can name a right pane." };
   }
+
   const reach = value.reach === "listed" ? "listed" : "open";
+
   if (value.reach !== undefined && value.reach !== "open" && value.reach !== "listed") {
     return { ok: false, error: "Reach is either open or listed." };
   }
+
   if (value.routes !== undefined && !stringArray(value.routes)) {
     return { ok: false, error: "The route list must be an array of paths." };
   }
+
   // Only paths, and only ones that could be asked for: a route that does not
   // begin with a slash can never match a request, so it is a mistake worth
   // naming rather than dead weight in the list.
   const routes = [...new Set((value.routes ?? []).map((route) => route.split("?", 1)[0] ?? ""))]
     .filter((route) => route !== "")
     .slice(0, 400);
+
   if (routes.some((route) => !route.startsWith("/"))) {
     return { ok: false, error: "Every route must be a path beginning with a slash." };
   }
+
   // The shared directions themselves are always in: a share whose own pages
   // are refused is not a share.
   const own = titles.flatMap((title) => {
     const url = byTitle.get(title)?.url;
+
     return url === undefined ? [] : [url.split("?", 1)[0] ?? ""];
   });
+
   return {
     ok: true,
     manifest: { scope, titles, layout, reach, routes: [...new Set([...routes, ...own])] },
@@ -613,11 +656,15 @@ function manifestFrom(
 function matchOne(candidate: string, grants: Iterable<Grant>): Grant | null {
   const received = Buffer.from(candidate, "utf8");
   let found: Grant | null = null;
+
   for (const grant of grants) {
     const expected = Buffer.from(grant.token, "utf8");
+
     if (expected.length !== received.length) continue;
+
     if (timingSafeEqual(expected, received)) found = grant;
   }
+
   return found;
 }
 
@@ -645,12 +692,17 @@ function expired(grant: Grant, now: number, nowMono: bigint): boolean {
 function cookieToken(req: http.IncomingMessage): string | null {
   const raw = req.headers.cookie;
   const cookies = (Array.isArray(raw) ? raw.join(";") : (raw ?? "")).split(";");
+
   for (const cookie of cookies) {
     const separator = cookie.indexOf("=");
+
     if (separator === -1) continue;
+
     if (cookie.slice(0, separator).trim() !== SHARE_COOKIE) continue;
+
     return cookie.slice(separator + 1).trim();
   }
+
   return null;
 }
 
@@ -658,6 +710,7 @@ function cookieToken(req: http.IncomingMessage): string | null {
 function forwardedProto(req: http.IncomingMessage): string {
   const forwarded = req.headers["x-forwarded-proto"];
   const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+
   return first?.split(",", 1)[0]?.trim() || "http";
 }
 
@@ -723,9 +776,11 @@ function refuse(
   const refusal = REFUSALS[cause];
   const accept = req.headers.accept;
   const html = (Array.isArray(accept) ? accept.join(",") : (accept ?? "")).includes("text/html");
+
   if (!html) {
     return sendJson(res, refusal.status, { ok: false, error: refusal.sentence });
   }
+
   res.writeHead(refusal.status, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
@@ -746,11 +801,13 @@ function bind(server: http.Server): Promise<number> {
       server.removeListener("listening", onListening);
       reject(error);
     };
+
     const onListening = (): void => {
       server.removeListener("error", onError);
       const address = server.address();
       resolve(typeof address === "object" && address !== null ? address.port : 0);
     };
+
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(0, "127.0.0.1");
@@ -763,6 +820,7 @@ function closeListener(share: ActiveShare): Promise<void> {
       clearTimeout(share.expiryTimer);
       share.expiryTimer = null;
     }
+
     for (const socket of share.sockets) socket.destroy();
     share.sockets.clear();
     share.server.closeAllConnections();
@@ -809,14 +867,17 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       detectedAt = Date.now();
       detected = detect().catch(() => []);
     }
+
     return detected;
   };
 
   const status = (): ShareStatus | null => {
     const share = active;
+
     if (share === null) return null;
     const tunnelUrl = "url" in share.tunnel ? share.tunnel.url : undefined;
     const origin = tunnelUrl === undefined ? null : tunnelUrl.replace(/\/$/, "");
+
     return {
       id: share.id,
       scope: share.scope,
@@ -827,6 +888,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         .toSorted((a, b) => a.createdAt - b.createdAt)
         .map((grant) => {
           const entryPath = `${ENTRY_PREFIX}${grant.token}`;
+
           return {
             id: grant.id,
             name: grant.name,
@@ -860,21 +922,28 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     grant.endedBy = why;
     grant.viewers = 0;
     share.tombstones.push(grant);
+
     while (share.tombstones.length > MAX_TOMBSTONES) share.tombstones.shift();
+
     for (const socket of share.grantSockets.get(grant.id) ?? []) socket.destroy();
     share.grantSockets.delete(grant.id);
+
     for (const held of share.grantRequests.get(grant.id) ?? []) {
       held.res.destroy();
       held.req.destroy();
     }
+
     share.grantRequests.delete(grant.id);
+
     // Whoever was waiting for a slot under this link gets the same sentence
     // a live request would, rather than a dropped connection.
     for (const held of [...(share.waiting.get(grant.id) ?? [])]) {
       if (held.drop()) refuse(held.req, held.res, why);
     }
+
     share.waiting.delete(grant.id);
     const turn = share.rota.indexOf(grant.id);
+
     if (turn >= 0) share.rota.splice(turn, 1);
   };
 
@@ -887,27 +956,34 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const sweepExpiry = (): void => {
     const share = active;
+
     if (share === null) return;
+
     if (share.expiryTimer !== null) {
       clearTimeout(share.expiryTimer);
       share.expiryTimer = null;
     }
+
     const at = now();
     const mono = nowMono();
     let ended = false;
+
     for (const grant of [...share.grants.values()]) {
       if (!expired(grant, at, mono)) continue;
       endGrant(share, grant, "expiry");
       ended = true;
     }
+
     const next = [...share.grants.values()].reduce<number | null>(
       (soonest, grant) => (soonest === null ? grant.expiresAt : Math.min(soonest, grant.expiresAt)),
       null,
     );
+
     if (next !== null) {
       share.expiryTimer = setTimeout(sweepExpiry, Math.max(1, next - at));
       share.expiryTimer.unref?.();
     }
+
     if (ended) options.live.nudge("share");
   };
 
@@ -917,8 +993,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // Unique is an invariant, not a probability: a repeat would leave one
     // token valid through a second grant after the first was revoked.
     const taken = new Set([...share.grants.values(), ...share.tombstones].map((g) => g.token));
+
     while (taken.has(token)) token = randomBytes(24).toString("base64url");
     const at = now();
+
     const grant: Grant = {
       id: randomUUID(),
       name,
@@ -930,7 +1008,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       endedBy: null,
       viewers: 0,
     };
+
     share.grants.set(grant.id, grant);
+
     return grant;
   };
 
@@ -948,14 +1028,19 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     candidate: string,
   ): { grant: Grant } | { refusal: Refusal } => {
     const grant = grantFor(share, candidate);
+
     if (grant !== null) {
       if (!expired(grant, now(), nowMono())) return { grant };
       endGrant(share, grant, "expiry");
       options.live.nudge("share");
+
       return { refusal: "expiry" };
     }
+
     const ended = endedGrantFor(share, candidate);
+
     if (ended !== null) return { refusal: ended.endedBy === "revoke" ? "revoke" : "expiry" };
+
     return { refusal: "inactive" };
   };
 
@@ -968,21 +1053,26 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const pump = (share: ActiveShare): void => {
     while (share.running < VIEWER_CONCURRENCY && share.rota.length > 0) {
       const grantId = share.rota[0];
+
       if (grantId === undefined) return;
       const next = share.waiting.get(grantId)?.[0];
+
       if (next === undefined) {
         share.rota.shift();
         share.waiting.delete(grantId);
         continue;
       }
+
       // Taking it out of the queue is the queue's own job, including
       // tidying this link away once it holds nothing.
       next.drop();
       const turn = share.rota.indexOf(grantId);
+
       if (turn >= 0) {
         share.rota.splice(turn, 1);
         share.rota.push(grantId);
       }
+
       // Whether a request still has time is a question about the clock,
       // asked here rather than left to a timer. When a whole queue runs out
       // at once, each request freed by the one ahead of it would otherwise
@@ -992,12 +1082,14 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         next.shed();
         continue;
       }
+
       // Asked again here rather than trusted from arrival: a link revoked
       // while this waited must not be given work now.
       if (!share.grants.has(grantId)) {
         refuse(next.req, next.res, "revoke");
         continue;
       }
+
       next.start();
     }
   };
@@ -1020,6 +1112,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     run: () => void,
   ): void => {
     const queue = share.waiting.get(grant.id) ?? [];
+
     if (queue.length >= VIEWER_QUEUE) {
       return sendJson(res, 503, { ok: false, error: "Too much at once. Try again." });
     }
@@ -1028,6 +1121,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     let running = false;
     let over = false;
     const spentAt = Date.now() + deadlineMs;
+
     const shed = (): void => {
       if (over) return;
       over = true;
@@ -1042,6 +1136,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const deadline = setTimeout(() => {
       if (over) return;
       const waited = held.drop();
+
       if (running) {
         // Destroying the response aborts the request upstream through the
         // proxy's own close handling, so the slot is given back to somebody
@@ -1049,10 +1144,13 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         over = true;
         res.destroy();
         release();
+
         return;
       }
+
       if (waited) shed();
     }, deadlineMs);
+
     deadline.unref?.();
 
     /** Headers, finish, close and the deadline can all fire for one request. */
@@ -1073,6 +1171,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       const writeHead = res.writeHead.bind(res);
       res.writeHead = ((...args: Parameters<typeof writeHead>) => {
         release();
+
         return writeHead(...args);
       }) as typeof res.writeHead;
       res.once("finish", release);
@@ -1092,22 +1191,28 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         queued = false;
         const rest = share.waiting.get(grant.id);
         const at = rest?.indexOf(held) ?? -1;
+
         if (rest !== undefined && at >= 0) rest.splice(at, 1);
+
         if (rest !== undefined && rest.length === 0) {
           share.waiting.delete(grant.id);
           const turn = share.rota.indexOf(grant.id);
+
           if (turn >= 0) share.rota.splice(turn, 1);
         }
+
         return true;
       },
     };
 
     queue.push(held);
     share.waiting.set(grant.id, queue);
+
     if (!share.rota.includes(grant.id)) share.rota.push(grant.id);
     // Synchronous, so a free slot starts the request in this same tick and
     // the queue is only ever a queue when there is something to wait for.
     pump(share);
+
     if (!queued) return;
 
     // A viewer who closed the tab must not be given a slot later. Revoking a
@@ -1115,6 +1220,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // that request stops holding a budget nobody is going to spend.
     res.once("close", () => {
       held.drop();
+
       if (running) return;
       over = true;
       clearTimeout(deadline);
@@ -1123,15 +1229,19 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
   const request = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const share = active;
+
     if (share === null) return refuse(req, res);
     const path = (req.url ?? "/").split("?")[0] ?? "/";
 
     if (path.startsWith(ENTRY_PREFIX)) {
       const candidate = path.slice(ENTRY_PREFIX.length);
+
       if ((req.method !== "GET" && req.method !== "HEAD") || candidate.includes("/")) {
         return refuse(req, res);
       }
+
       const found = resolve(share, candidate);
+
       if ("refusal" in found) return refuse(req, res, found.refusal);
       const secure = forwardedProto(req) === "https" ? "; Secure" : "";
       res.writeHead(302, {
@@ -1140,28 +1250,35 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         "cache-control": "no-store",
       });
       res.end();
+
       return;
     }
 
     const cookie = cookieToken(req);
+
     if (cookie === null) return refuse(req, res);
     const found = resolve(share, cookie);
+
     if ("refusal" in found) return refuse(req, res, found.refusal);
     const grant = found.grant;
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       return sendJson(res, 403, {
         ok: false,
         error: "Viewers can look, not change what runs.",
       });
     }
+
     // A GET that opens an editor is still a write, and the dev server will
     // happily perform one. Refused before the proxy sees it.
     if (isDevControlRequest(req.url ?? "/")) {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
+
     if (isHiddenPath(path)) {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
+
     // A service worker outlives the share: it stays registered on the tunnel
     // origin, serves from its own cache once the link is stopped, and makes
     // fetches of its own. Nothing a viewer needs for a design review, so the
@@ -1171,9 +1288,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     if (req.headers["sec-fetch-dest"] === "serviceworker") {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
+
     // Everything Leglas serves itself is the interface, which a viewer needs
     // in order to be a viewer at all. The list is about the app behind it.
     const url = req.url ?? "/";
+
     // Everything Leglas serves itself is the interface, which a viewer needs
     // in order to be a viewer at all, so it skips the list and the ceiling
     // alike.
@@ -1190,6 +1309,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const interfaceOwn = spellings(path).every(
       (form) => form === OWN_PREFIX || form.startsWith(`${OWN_PREFIX}/`),
     );
+
     if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
       // Remembered so the sharer can see what their app wanted and let it
       // in, because no list written in advance survives a lazy chunk. The
@@ -1197,13 +1317,17 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       // the list is read the same way: a raw spelling would be a string the
       // viewer chose, and allowing it would let nothing through.
       const asked = canonical(url.split("?", 1)[0] ?? "/");
+
       if (!share.refused.includes(asked)) {
         share.refused.push(asked);
+
         while (share.refused.length > MAX_REFUSED) share.refused.shift();
         options.live.nudge("share");
       }
+
       return sendJson(res, 403, { ok: false, error: "Not shared." });
     }
+
     // Counted as running only once it actually runs, so that a request still
     // waiting for a slot belongs to the queue alone. Revoking a link cuts
     // the two in different ways: what is running is destroyed mid-response,
@@ -1216,15 +1340,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       inFlight.add(held);
       share.grantRequests.set(grant.id, inFlight);
       let released = false;
+
       const release = (): void => {
         if (released) return;
         released = true;
         share.grantRequests.get(grant.id)?.delete(held);
       };
+
       res.once("finish", release);
       res.once("close", release);
       options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
     };
+
     // The interface is not the dev server, so it is never counted and never
     // made to wait. Same settled path as the list uses, so a request cannot
     // dodge the ceiling by wearing the interface's prefix either.
@@ -1235,28 +1362,38 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {
     const share = active;
     const cookie = cookieToken(req);
+
     if (share === null || cookie === null) {
       socket.destroy();
+
       return;
     }
+
     const found = resolve(share, cookie);
+
     if ("refusal" in found) {
       socket.destroy();
+
       return;
     }
+
     const grant = found.grant;
     // Only the interface's own socket. An app's live-reload socket is a
     // two-way channel into the dev server, which is a write by another
     // name; a viewer refreshes to see a change instead.
     const path = (req.url ?? "/").split("?")[0] ?? "/";
+
     if (path !== LIVE_PATH) {
       socket.destroy();
+
       return;
     }
+
     // Somebody reaching the socket through the tunnel is the one proof the
     // link answers that no probe from this machine can beat. A socket from
     // this machine (the sharer opening their own local link) proves nothing.
     if (throughTunnel(req)) share.runningTunnel?.settle();
+
     if (!options.upgrade(req, socket, head)) return;
     // The count belongs to the link, so the panel can say which one is being
     // watched. Tracked here rather than in the live hub, which has no
@@ -1272,6 +1409,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // counting somebody who is gone for as long as the share ran. The live
     // hub lets go on the same three, so this follows it.
     let gone = false;
+
     const letGo = (): void => {
       if (gone) return;
       gone = true;
@@ -1279,6 +1417,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       grant.viewers = Math.max(0, grant.viewers - 1);
       options.live.nudge("share");
     };
+
     socket.once("close", letGo);
     socket.once("end", letGo);
     socket.once("error", letGo);
@@ -1286,17 +1425,22 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
   const create = async (input: unknown): Promise<ShareResult> => {
     if (closed) return { ok: false, status: 409, error: "Leglas is shutting down." };
+
     if (active !== null || creating) {
       return { ok: false, status: 409, error: "Stop the current share first." };
     }
+
     creating = true;
     const stopsAtStart = stops;
+
     try {
       const previews = await options.previews();
       const parsed = manifestFrom(input, previews);
+
       if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
       const providers = await tunnels();
       const requested = isRecord(input) ? input.tunnel : undefined;
+
       if (
         requested !== undefined &&
         requested !== "none" &&
@@ -1305,6 +1449,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       ) {
         return { ok: false, status: 400, error: "That tunnel provider is not supported." };
       }
+
       if (requested !== undefined && requested !== "none" && !providers.includes(requested)) {
         return {
           ok: false,
@@ -1312,7 +1457,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
           error: `${requested} is not available on this machine.`,
         };
       }
+
       const provider = requested ?? providers[0] ?? "none";
+
       if (closed) return { ok: false, status: 409, error: "Leglas is shutting down." };
 
       const server = http.createServer(request);
@@ -1323,6 +1470,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       });
       server.on("upgrade", upgrade);
       let port: number;
+
       try {
         port = await bind(server);
       } catch (error) {
@@ -1336,17 +1484,22 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
           }).`,
         };
       }
+
       if (closed) {
         // The server went while this was binding; nothing must outlive it.
         await new Promise<void>((resolve) => server.close(() => resolve()));
+
         return { ok: false, status: 409, error: "Leglas is shutting down." };
       }
+
       if (stops !== stopsAtStart) {
         // Somebody asked to stop while this was still finding a port. They
         // are owed the share not existing, so it does not.
         await new Promise<void>((resolve) => server.close(() => resolve()));
+
         return { ok: false, status: 409, error: "Sharing was stopped while it was starting." };
       }
+
       const share: ActiveShare = {
         ...parsed.manifest,
         id: randomUUID(),
@@ -1368,6 +1521,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         waiting: new Map(),
         rota: [],
       };
+
       active = share;
       // A share starts with one link, unnamed until the sharer names it.
       mintGrant(share, "");
@@ -1377,6 +1531,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       if (provider !== "none") {
         share.launch = setImmediate(() => {
           share.launch = null;
+
           if (active !== share) return;
           share.runningTunnel = runTunnel({
             provider,
@@ -1393,6 +1548,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         });
         share.launch.unref?.();
       }
+
       return { ok: true, share: status() as ShareStatus };
     } finally {
       creating = false;
@@ -1402,12 +1558,16 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   /** A second link to the same share, named by whoever asks for it. */
   const createGrant = (input: unknown): ShareResult => {
     const share = active;
+
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
     const name = isRecord(input) && typeof input.name === "string" ? input.name.trim() : "";
+
     if (name.length > 60) {
       return { ok: false, status: 400, error: "That name is too long for a link." };
     }
+
     sweepExpiry();
+
     if (share.grants.size >= MAX_GRANTS) {
       return {
         ok: false,
@@ -1415,9 +1575,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         error: `A share can hold ${MAX_GRANTS} links. Revoke one to make another.`,
       };
     }
+
     mintGrant(share, name);
     sweepExpiry();
     options.live.nudge("share");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -1430,13 +1592,16 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const revokeGrant = (input: unknown): ShareResult => {
     const share = active;
+
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
     const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
     const grant = share.grants.get(id);
+
     if (grant === undefined) return { ok: false, status: 404, error: "No such link." };
     endGrant(share, grant, "revoke");
     sweepExpiry();
     options.live.nudge("share");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -1448,18 +1613,22 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const extendGrant = (input: unknown): ShareResult => {
     const share = active;
+
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
     const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
     sweepExpiry();
     const grant = share.grants.get(id);
+
     if (grant === undefined) {
       return { ok: false, status: 404, error: "That link has ended. Make a new one." };
     }
+
     const at = now();
     grant.expiresAt = at + DEFAULT_TTL_MS;
     grant.expiresAtMono = nowMono() + BigInt(DEFAULT_TTL_MS) * 1_000_000n;
     sweepExpiry();
     options.live.nudge("share");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -1470,14 +1639,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const rotate = async (): Promise<ShareResult> => {
     const share = active;
+
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
+
     for (const grant of [...share.grants.values()]) endGrant(share, grant, "revoke");
     const provider = "provider" in share.tunnel ? share.tunnel.provider : null;
     await share.runningTunnel?.stop().catch(() => {});
     share.runningTunnel = null;
+
     if (active !== share) return { ok: false, status: 404, error: "Nothing is being shared." };
     mintGrant(share, "");
     sweepExpiry();
+
     if (provider !== null) {
       share.tunnelGeneration += 1;
       const generation = share.tunnelGeneration;
@@ -1488,13 +1661,16 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
         onState: (next) => {
           if (active !== share || share.tunnelGeneration !== generation) return;
+
           if (JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
           share.tunnel = next;
           options.live.nudge("share");
         },
       });
     }
+
     options.live.nudge("share");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -1508,31 +1684,39 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const allowRoute = (input: unknown): ShareResult => {
     const share = active;
+
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
     const given = isRecord(input) && typeof input.path === "string" ? input.path.trim() : "";
+
     if (!given.startsWith("/")) {
       return { ok: false, status: 400, error: "A route is a path beginning with a slash." };
     }
+
     // Whether this means the path or everything beneath it travels with the
     // request, not on a trailing slash. The list reads a trailing slash as
     // "everything beneath", and a refusal for a directory index ends in one,
     // so Allow beside it would otherwise hand the list the folder button's
     // meaning without the folder button's label.
     const subtree = isRecord(input) && input.subtree === true;
+
     if (subtree && given.replace(/\/+$/, "") === "") {
       return { ok: false, status: 400, error: "The root is a page, not a folder." };
     }
+
     const asked = subtree
       ? `${given.replace(/\/+$/, "")}/`
       : given === "/"
         ? given
         : given.replace(/\/+$/, "");
+
     if (share.routes.length >= 400) {
       return { ok: false, status: 409, error: "That share is holding as many routes as it can." };
     }
+
     if (!share.routes.includes(asked)) share.routes.push(asked);
     share.refused = share.refused.filter((path) => !routeAllowed([asked], path));
     options.live.nudge("share");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
@@ -1540,14 +1724,19 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     input: unknown,
   ): Promise<ShareResult | { ok: false; status: 404; error: string }> => {
     const share = active;
+
     if (share === null) {
       return { ok: false, status: 404, error: "Nothing is being shared." };
     }
+
     const parsed = manifestFrom(input, await options.previews());
+
     if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+
     if (active !== share) {
       return { ok: false, status: 404, error: "Nothing is being shared." };
     }
+
     share.scope = parsed.manifest.scope;
     share.titles = parsed.manifest.titles;
     share.layout = parsed.manifest.layout;
@@ -1555,15 +1744,19 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // sharer's panel for the status, every viewer for the rail.
     options.live.nudge("share");
     options.live.nudge("config");
+
     return { ok: true, share: status() as ShareStatus };
   };
 
   const viewerConfig = async (grantId: string): Promise<unknown | null> => {
     const share = active;
+
     if (share === null || !share.grants.has(grantId)) return null;
     const titles = new Set(share.titles);
     const previews = (await options.previews()).filter((preview) => titles.has(preview.title));
+
     if (active !== share) return null;
+
     return {
       ...options.viewerConfig,
       // The project id is the config's absolute path, which keys the sharer's
@@ -1587,36 +1780,47 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    */
   const fileSlugAllowed = async (slug: string, grantId: string): Promise<boolean> => {
     const share = active;
+
     if (share === null || !share.grants.has(grantId)) return false;
     const titles = new Set(share.titles);
     const previews = await options.previews();
+
     return previews.some((preview) => {
       if (!titles.has(preview.title) || preview.file === undefined) return false;
+
       const rest = preview.url.startsWith(FILES_PREFIX_PATH)
         ? preview.url.slice(FILES_PREFIX_PATH.length)
         : "";
+
       const slash = rest.indexOf("/");
+
       return (slash === -1 ? rest : rest.slice(0, slash)) === slug;
     });
   };
 
   const stop = (): Promise<void> => {
     stops += 1;
+
     if (stopPromise !== null) return stopPromise;
     const share = active;
+
     if (share === null) return Promise.resolve();
+
     if (share.launch !== null) {
       clearImmediate(share.launch);
       share.launch = null;
     }
+
     stopPromise = (async () => {
       await share.runningTunnel?.stop().catch(() => {});
       await closeListener(share);
+
       if (active === share) active = null;
       options.live.nudge("share");
     })().finally(() => {
       stopPromise = null;
     });
+
     return stopPromise;
   };
 

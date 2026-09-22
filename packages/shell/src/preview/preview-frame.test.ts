@@ -22,6 +22,7 @@ function fakeFrame(initial: { href: string; readyState: DocumentReadyState } | n
             readyState: documentState.readyState,
           } as Document),
   });
+
   return {
     frame,
     setDocument: (next: typeof documentState) => {
@@ -112,6 +113,7 @@ describe("preview iframe readiness", () => {
     const { frame } = fakeFrame(null);
     const onReady = vi.fn();
     const onFailure = vi.fn();
+
     const stop = watchPreviewFrame({
       frame,
       onFailure,

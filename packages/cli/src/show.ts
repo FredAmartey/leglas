@@ -76,6 +76,7 @@ function describe(preview: Preview & { local?: boolean }): ShowDirection {
 
 export function planShow({ title, previews, requests }: ShowInput): ShowPlan {
   const found = previews.find((preview) => preview.title === title);
+
   if (!found) {
     return {
       ok: false,

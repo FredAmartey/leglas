@@ -85,6 +85,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.detail).toBe("This is the latest version.");
     expect(view.meta).toBe("Checked 2 hours ago");
     expect(view.primary?.label).toBe("Check again");
@@ -105,6 +106,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.detail).toBe("Could not reach npm.");
     expect(view.meta).toBe("Last answer yesterday");
     expect(view.warning).toBe(true);
@@ -118,6 +120,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.heading).toBe("1.1.0 is out");
     expect(view.title).toBe(newer.title);
     expect(view.meta).toBe("You have 1.0.0");
@@ -137,6 +140,7 @@ describe("updateView", () => {
         false,
         NOW,
       );
+
     expect(of({ kind: "npx", manager: "npm", command: "npx leglas@latest" }).note).toBe(
       "Restarts Leglas with 1.1.0 through npx. Your rail stays as it is.",
     );
@@ -161,6 +165,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.primary?.disabled).toBe(true);
     expect(view.note).toBe("Wait for the running change to finish, then update.");
   });
@@ -172,6 +177,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.detail).toBe("Skipped. Nothing will nag until the next release.");
     expect(view.primary?.label).toBe("Update anyway");
     expect(view.skip).toBe(false);
@@ -184,24 +190,29 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(installing.heading).toBe("Updating to 1.1.0");
     expect(installing.detail).toBe("Installing with npm…");
     expect(installing.spinner).toBe(true);
     expect(installing.primary).toBeNull();
+
     const restarting = updateView(
       status({ latest: newer, available: true, phase: { status: "restarting", version: "1.1.0" } }),
       { status: "none" },
       false,
       NOW,
     );
+
     expect(restarting.heading).toBe("Restarting Leglas");
     expect(restarting.detail).toBe("This page reloads once 1.1.0 answers.");
+
     const held = updateView(
       status({ latest: newer, available: true, phase: { status: "waiting", version: "1.1.0" } }),
       { status: "none" },
       false,
       NOW,
     );
+
     expect(held.heading).toBe("Updating to 1.1.0");
     expect(held.detail).toBe(
       "Installed. Waiting for the running change to finish, then restarting.",
@@ -221,6 +232,7 @@ describe("updateView", () => {
       false,
       NOW,
     );
+
     expect(view.heading).toBe("Could not update to 1.1.0");
     expect(view.detail).toBe("npm i -g leglas@1.1.0 exited 1.");
     expect(view.warning).toBe(true);
@@ -234,6 +246,7 @@ describe("updateView", () => {
       available: true,
       phase: { status: "restarting", version: "1.1.0" },
     });
+
     expect(
       updateView(
         gone,

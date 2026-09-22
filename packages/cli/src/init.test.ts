@@ -114,6 +114,7 @@ describe("planInit", () => {
 
   test("reports when there is nothing left to do", () => {
     const existing = `${AGENTS_MARKER_START}\nx\n${AGENTS_MARKER_END}\n`;
+
     const result = plan({
       agents: existing,
       config: "export default {};",

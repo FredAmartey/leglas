@@ -24,6 +24,7 @@ describe("CHANGELOG.md", () => {
 
   test("every release heading carries a date and a title", () => {
     expect(released.length).toBeGreaterThan(0);
+
     for (const entry of released) {
       const name = entry.versions.join(" and ");
       expect(entry.date, `${name} has no date`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -36,28 +37,34 @@ describe("CHANGELOG.md", () => {
 
   test("the newest release is the one the packages declare", () => {
     const first = changelog.entries[0]!;
+
     if (first.versions[0] === "Unreleased") return;
+
     const declared = JSON.parse(
       readFileSync(join(root, "packages/cli/package.json"), "utf8"),
     ).version;
+
     // An entry can name two releases, as the first one does.
     expect(first.versions, "the top entry is not the version being shipped").toContain(declared);
   });
 
   test("releases run newest first, and none repeats", () => {
     const seen = new Set<string>();
+
     for (const entry of released) {
       for (const version of entry.versions) {
         expect(seen.has(version), `${version} appears twice`).toBe(false);
         seen.add(version);
       }
     }
+
     const dates = released.map((entry) => entry.date!);
     expect(dates).toEqual([...dates].sort().reverse());
   });
 
   test("renders as one page with an anchor for every release", () => {
     const html = renderPage(changelog, loadAssets(root));
+
     for (const entry of changelog.entries) expect(html).toContain(`id="${anchor(entry)}"`);
     expect(html).toContain("@font-face");
     expect(html).toContain('class="mark"');
@@ -67,15 +74,18 @@ describe("CHANGELOG.md", () => {
 
   test("buildSite writes a release index led by the published CLI version", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
+
     try {
       const written = buildSite(root, out);
       const path = join(out, "releases.json");
       expect(written).toContain(path);
       const text = readFileSync(path, "utf8");
       const releases = JSON.parse(text) as { version: string; date: string; title: string }[];
+
       const declared = JSON.parse(
         readFileSync(join(root, "packages/cli/package.json"), "utf8"),
       ).version;
+
       expect(releases[0]).toMatchObject({
         version: declared,
         date: expect.any(String),
@@ -101,8 +111,10 @@ describe("reading the markdown", () => {
         "",
       ].join("\n"),
     );
+
     const group = entries[0]!.blocks[0]!;
     expect(group.kind).toBe("group");
+
     if (group.kind !== "group") return;
     expect(group.heading).toBe("Added");
     expect(group.blocks[0]).toEqual({
@@ -131,7 +143,9 @@ describe("reading the markdown", () => {
         "",
       ].join("\n"),
     );
+
     const group = entries[0]!.blocks[0]!;
+
     if (group.kind !== "group") throw new Error("expected a group");
     expect(group.blocks).toHaveLength(2);
     expect(group.blocks[0]).toMatchObject({
@@ -159,7 +173,9 @@ describe("reading the markdown", () => {
         "",
       ].join("\n"),
     );
+
     const group = entries[0]!.blocks[0]!;
+
     if (group.kind !== "group") throw new Error("expected a group");
     expect(group.blocks[1]).toEqual({
       kind: "media",
@@ -182,6 +198,7 @@ describe("reading the markdown", () => {
         "",
       ].join("\n"),
     );
+
     expect(entries[0]).toMatchObject({ versions: ["Unreleased"], date: null, title: null });
     expect(anchor(entries[0]!)).toBe("unreleased");
     expect(entries[1]).toMatchObject({
@@ -197,6 +214,7 @@ describe("reading the markdown", () => {
     const html = renderPage(parseChangelog(markdown), loadAssets(root));
     expect(html).toContain('<article class="entry" id="v0.1.0">');
     expect(html).toContain('<div class="body"><span id="v0.1.1"></span><h2');
+
     for (const { version } of releasesIndex(markdown)) {
       expect(html.split(`id="v${version}"`)).toHaveLength(2);
     }
@@ -273,6 +291,7 @@ describe("reading the markdown", () => {
       ),
       loadAssets(root),
     );
+
     expect(html).toContain(
       '<figure class="media" style="max-width:500px"><img src="https://x.y/picker.png"',
     );
@@ -293,6 +312,7 @@ describe("reading the markdown", () => {
       ),
       loadAssets(root),
     );
+
     expect(html).toContain('<strong class="lead"><code>leglas</code></strong>, the tool');
     expect(html).toContain('<strong class="lead">Lead.</strong> Then words.');
     expect(html).toContain('<strong class="lead">Alone.</strong></span>');

@@ -4,7 +4,9 @@ import type { UpdateStatus } from "../types.js";
 /** The update endpoints, as the panel calls them. */
 export async function readUpdate(signal?: AbortSignal): Promise<UpdateStatus> {
   const response = await fetch("/leglas/api/update", signal === undefined ? {} : { signal });
+
   if (!response.ok) throw await refusal(response, `the server answered ${response.status}`);
+
   return response.json() as Promise<UpdateStatus>;
 }
 

@@ -6,6 +6,7 @@
  */
 export async function refusal(response: Response, fallback: string): Promise<Error> {
   const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+
   return new Error(typeof payload?.error === "string" ? payload.error : fallback);
 }
 
@@ -15,6 +16,8 @@ export async function postJson<T>(path: string, body: unknown, fallback: string)
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+
   if (!response.ok) throw await refusal(response, fallback);
+
   return response.json() as Promise<T>;
 }

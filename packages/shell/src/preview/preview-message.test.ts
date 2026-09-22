@@ -5,6 +5,7 @@ import { previewFrameForSource, previewMessageSignal } from "./preview-message.j
 function frameFor(source: WindowProxy) {
   const frame = {} as HTMLIFrameElement;
   Object.defineProperty(frame, "contentWindow", { value: source });
+
   return frame;
 }
 

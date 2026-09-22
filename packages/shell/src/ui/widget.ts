@@ -20,7 +20,9 @@ export const DRAG_THRESHOLD = 10;
 export const WIDGET_SIZE = 44;
 
 export type Point = { x: number; y: number };
+
 export type Stage = { width: number; height: number };
+
 export type Corner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
 
 /**
@@ -35,8 +37,10 @@ export function clampWidget(point: Point, stage: Stage): Point {
   const clamp = (value: number, extent: number) => {
     const low = Math.min(WIDGET_MARGIN, extent / 2);
     const high = Math.max(low, extent - WIDGET_MARGIN);
+
     return Math.max(low, Math.min(high, value));
   };
+
   return { x: clamp(point.x, stage.width), y: clamp(point.y, stage.height) };
 }
 
@@ -69,8 +73,12 @@ export function isDrag(start: Point, current: Point, threshold = DRAG_THRESHOLD)
 export function nearestCorner(point: Point, stage: Stage): { corner: Corner } {
   const left = point.x < stage.width / 2;
   const top = point.y < stage.height / 2;
+
   if (top && left) return { corner: "top-left" };
+
   if (top) return { corner: "top-right" };
+
   if (left) return { corner: "bottom-left" };
+
   return { corner: "bottom-right" };
 }

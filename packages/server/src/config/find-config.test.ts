@@ -53,6 +53,7 @@ describe("findConfigFile", () => {
 
   test("resolves extensions in a stable order when several exist", () => {
     const dir = scratch();
+
     for (const basename of CONFIG_BASENAMES) {
       writeFileSync(join(dir, basename), "export default {}");
     }

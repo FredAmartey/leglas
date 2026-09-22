@@ -23,13 +23,16 @@ export function HelpOverlay({
   useEffect(() => {
     const returnTo = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
       }
     };
+
     window.addEventListener("keydown", onKey);
+
     return () => {
       window.removeEventListener("keydown", onKey);
       returnTo?.focus?.();

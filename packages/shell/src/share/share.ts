@@ -31,7 +31,9 @@ const LAYOUT_KEYS = ["order", "renames", "collapsedFamilies", "viewport"] as con
  */
 export function unshareableReason(preview: Preview | undefined): string | null {
   if (preview === undefined) return "is not on the rail";
+
   if (preview.branch !== undefined) return "runs on its own port and can't be shared yet";
+
   return null;
 }
 
@@ -41,6 +43,7 @@ function restrictedLayout(
   compare: string | null,
 ): ShareLayout {
   const included = new Set(titles);
+
   return {
     order: [...titles],
     renames: Object.fromEntries(
@@ -66,15 +69,19 @@ export function railShare(
 ): { request: ShareRequest; leftOut: string[] } {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const gone = new Set([...prefs.deleted, ...prefs.hidden]);
+
   const titles = railOrder(
     prefs.order,
     previews.map((preview) => preview.title),
   ).filter((title) => !gone.has(title));
+
   const leftOut: string[] = [];
   const shared: string[] = [];
+
   for (const title of titles) {
     (unshareableReason(byTitle.get(title)) === null ? shared : leftOut).push(title);
   }
+
   return {
     request: {
       scope: "rail",
@@ -102,14 +109,19 @@ export function stageShare(
 ): { request: ShareRequest | null; reason: string | null } {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const titles = compare === null || compare === active ? [active] : [active, compare];
+
   if (active === "") return { request: null, reason: "Nothing is on stage yet" };
+
   for (const title of titles) {
     const reason = unshareableReason(byTitle.get(title));
+
     if (reason !== null) {
       return { request: null, reason: `${prefs.renames[title] ?? title} ${reason}` };
     }
   }
+
   const scope: ShareScope = titles.length === 2 ? "compare" : "direction";
+
   return {
     request: {
       scope,
@@ -129,6 +141,7 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 /** Whether two manifests would show a viewer the same thing. */
 export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   if (a.scope !== b.scope || !sameList(a.titles, b.titles)) return false;
+
   // Reach changes what a viewer can reach, so it is part of what "the same
   // share" means. The route list is not: it grows as the sharer allows
   // things, and offering to push that back as an update would ask them to
@@ -138,6 +151,7 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   const y = b.layout;
   const renamesX = Object.entries(x.renames).toSorted();
   const renamesY = Object.entries(y.renames).toSorted();
+
   return (
     sameList(x.order, y.order) &&
     sameList([...x.collapsedFamilies].toSorted(), [...y.collapsedFamilies].toSorted()) &&
@@ -178,7 +192,9 @@ export function adoptLayout(
 ): Prefs {
   const seeded = loadPrefs(viewerPrefsRaw(layout), previews);
   const next = { ...current };
+
   for (const key of LAYOUT_KEYS) (next as Record<string, unknown>)[key] = seeded[key];
+
   return next;
 }
 
@@ -191,6 +207,7 @@ export function scopeLine(
   if (scope === "rail") {
     return `The whole rail · ${titles.length} direction${titles.length === 1 ? "" : "s"}`;
   }
+
   return titles.map(displayName).join(" + ");
 }
 
@@ -204,7 +221,9 @@ export function scopeLine(
  */
 export function viewersLine(viewers: number): string {
   if (viewers === 0) return "nobody on it yet";
+
   if (viewers === 1) return "1 watching";
+
   return `${viewers} watching`;
 }
 
@@ -230,10 +249,13 @@ export function observedRoutes(
 ): string[] {
   const wanted = new Set(titles);
   const routes = new Set<string>();
+
   for (const frame of frames) {
     const title = frame.dataset["preview"];
+
     if (title === undefined || !wanted.has(title)) continue;
     let entries: PerformanceEntryList = [];
+
     try {
       entries = frame.contentWindow?.performance.getEntriesByType("resource") ?? [];
     } catch {
@@ -241,9 +263,11 @@ export function observedRoutes(
       // branch direction is not in a share anyway.
       continue;
     }
+
     for (const entry of entries) {
       try {
         const { origin: entryOrigin, pathname } = new URL(entry.name);
+
         // Only what this server serves. A font from a CDN is the viewer's
         // browser talking to the CDN, and no business of the list.
         if (entryOrigin !== origin) continue;
@@ -253,6 +277,7 @@ export function observedRoutes(
       }
     }
   }
+
   return [...routes].toSorted();
 }
 
@@ -263,7 +288,9 @@ export function observedRoutes(
  */
 export function directoryOf(path: string): string | null {
   const cut = path.lastIndexOf("/");
+
   if (cut <= 0) return null;
+
   return path.slice(0, cut + 1);
 }
 
@@ -280,10 +307,13 @@ export function totalViewers(grants: readonly { viewers: number }[]): number {
  */
 export function expiryLine(expiresAt: number, now: number): string {
   const left = expiresAt - now;
+
   if (left <= 0) return "expired";
   const minutes = Math.round(left / 60_000);
+
   if (minutes < 60) return `${Math.max(1, minutes)}m left`;
   const hours = Math.round(left / 3_600_000);
+
   return `${hours}h left`;
 }
 
@@ -299,6 +329,7 @@ export function grantLabel(name: string, index: number): string {
 export function shortLink(url: string): string {
   try {
     const parsed = new URL(url);
+
     return `${parsed.host}${parsed.pathname.replace(/\/s\/.+$/, "/s/…")}`;
   } catch {
     return url;

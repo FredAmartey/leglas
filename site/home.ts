@@ -120,6 +120,7 @@ ${bar(assets, { home: "./", docs: "./docs/", changelog: "./changelog/", active: 
 </section>
 </main>
 ${foot(`The <a href="./docs/">docs</a> say all of this at length.`)}`;
+
   return document({
     title: "Leglas",
     description: "Compare design directions inside your own running app.",

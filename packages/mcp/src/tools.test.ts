@@ -17,6 +17,7 @@ import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
+
 const captureServers: http.Server[] = [];
 
 afterEach(async () => {
@@ -42,6 +43,7 @@ async function connect(
   options: { touches?: { count: number } } = {},
 ): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
+
   // A silent engagement, so no test beats a real port; the recording variant
   // proves the wiring where a test asks for it.
   const engagement = {
@@ -50,10 +52,12 @@ async function connect(
     },
     stop: async () => {},
   };
+
   cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd), engagement }));
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
   return client;
 }
 
@@ -66,6 +70,7 @@ async function call(
     content: { type: string; text: string }[];
     isError?: boolean;
   };
+
   return {
     envelope: JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>,
     isError: result.isError === true,
@@ -142,9 +147,12 @@ describe("the MCP face", () => {
     const file = ".leglas/captures/show/aurora-390.png";
     mkdirSync(join(dir, ".leglas/captures/show"), { recursive: true });
     writeFileSync(join(dir, file), image);
+
     const captureServer = http.createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
+
       if (req.url === "/leglas/api/health") return res.end(JSON.stringify({ ok: true }));
+
       return res.end(
         JSON.stringify({
           ok: true,
@@ -156,6 +164,7 @@ describe("the MCP face", () => {
         }),
       );
     });
+
     captureServers.push(captureServer);
     await new Promise<void>((resolve) => captureServer.listen(0, "127.0.0.1", resolve));
     const port = (captureServer.address() as AddressInfo).port;
@@ -326,15 +335,18 @@ describe("a host that works somewhere other than the project", () => {
         project: hostProject(server.server, { cwd, ...(pluginRoot && { pluginRoot }) }),
       }),
     );
+
     const client = new Client(
       { name: "test-host", version: "0.0.0" },
       { capabilities: { roots: {} } },
     );
+
     client.setRequestHandler(ListRootsRequestSchema, () => ({
       roots: roots.map((root) => ({ uri: pathToFileURL(root).href, name: "project" })),
     }));
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
     return client;
   }
 

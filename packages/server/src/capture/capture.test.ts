@@ -66,12 +66,14 @@ class FakePage implements CdpPage {
 
   async send<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     this.sent.push({ method, params });
+
     if (method === "Page.navigate") {
       queueMicrotask(() => {
         this.emit("Network.responseReceived", {
           type: "Document",
           response: { status: this.documentStatus },
         });
+
         if (this.loadErrors === null) {
           this.emit("Runtime.consoleAPICalled", {
             type: "error",
@@ -83,30 +85,39 @@ class FakePage implements CdpPage {
             this.emit("Log.entryAdded", { entry: { level: "error", text } });
           }
         }
+
         this.emit("Page.loadEventFired", {});
       });
+
       return {} as T;
     }
+
     if (method === "Page.getLayoutMetrics") {
       return { cssContentSize: { width: 1200.1, height: this.contentHeight } } as T;
     }
+
     if (method === "Page.captureScreenshot") {
       return { data: Buffer.from("png-data").toString("base64") } as T;
     }
+
     if (method === "Runtime.evaluate") {
       // Only the locator is counted. The readiness waits evaluate too, and
       // counting those would hand the first note the second answer.
       const expression = String(params.expression);
+
       if (expression.startsWith("document.fonts") || expression.includes("requestAnimationFrame")) {
         return { result: { value: true } } as T;
       }
+
       this.locatorCalls += 1;
+
       return {
         result: {
           value: this.locatorCalls === 1 ? this.found : null,
         },
       } as T;
     }
+
     return {} as T;
   }
 
@@ -114,6 +125,7 @@ class FakePage implements CdpPage {
     const group = this.listeners.get(method) ?? new Set();
     group.add(listener);
     this.listeners.set(method, group);
+
     return () => group.delete(listener);
   }
 
@@ -125,11 +137,13 @@ class FakePage implements CdpPage {
 describe("capturePage", () => {
   test("takes one frame and ordered crops while collecting load errors", async () => {
     const page = new FakePage();
+
     const browser: Browser = {
       closed: false,
       close: async () => {},
       withPage: async (work) => work(page),
     };
+
     const focuses: Focus[] = [
       {
         selector: "#found",
@@ -166,9 +180,11 @@ describe("capturePage", () => {
     expect(page.sent.filter((entry) => entry.method === "Page.navigate")).toEqual([
       { method: "Page.navigate", params: { url: "http://127.0.0.1/page" } },
     ]);
+
     const metrics = page.sent.find(
       (entry) => entry.method === "Emulation.setDeviceMetricsOverride",
     );
+
     expect(metrics?.params).toMatchObject({ width: 320, height: 900, deviceScaleFactor: 1 });
   });
 
@@ -183,6 +199,7 @@ describe("capturePage", () => {
       ),
       message,
     ];
+
     const browser: Browser = {
       closed: false,
       close: async () => {},
@@ -202,6 +219,7 @@ describe("capturePage", () => {
     const page = new FakePage();
     page.contentHeight = 8000;
     page.found = { x: 500, y: 6000, width: 100, height: 40 };
+
     const browser: Browser = {
       closed: false,
       close: async () => {},
@@ -226,6 +244,7 @@ describe("capturePage", () => {
   test("a document the app could not serve is not a capture of the direction", async () => {
     const page = new FakePage();
     page.documentStatus = 502;
+
     const browser: Browser = {
       closed: false,
       close: async () => {},
@@ -242,8 +261,10 @@ describe("capturePage", () => {
     const original = page.send.bind(page);
     page.send = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
       if (method === "Page.navigate") return { errorText: "net::ERR_CONNECTION_REFUSED" };
+
       return original(method, params);
     }) as CdpPage["send"];
+
     const browser: Browser = {
       closed: false,
       close: async () => {},
@@ -257,7 +278,9 @@ describe("capturePage", () => {
 });
 
 const executable = findBrowser();
+
 const liveBrowsers: Browser[] = [];
+
 const liveServers: http.Server[] = [];
 
 afterAll(async () => {
@@ -287,6 +310,7 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
           "<h1>Hello there</h1><p id=\"x\">Body copy</p><script>console.error('boom')</script>",
         );
       });
+
       liveServers.push(server);
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const port = (server.address() as AddressInfo).port;
@@ -346,6 +370,7 @@ describe.skipIf(executable === null)("two captures of one design", () => {
             requestAnimationFrame(() => document.getElementById("panel").classList.add("on")));
         </script>`);
       });
+
       liveServers.push(server);
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const port = (server.address() as AddressInfo).port;
@@ -353,6 +378,7 @@ describe.skipIf(executable === null)("two captures of one design", () => {
       liveBrowsers.push(browser);
 
       const shots = [];
+
       for (let attempt = 0; attempt < 3; attempt += 1) {
         shots.push(await capturePage(browser, { url: `http://127.0.0.1:${port}/`, width: 400 }));
       }

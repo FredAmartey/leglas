@@ -72,16 +72,20 @@ export function Crumbs({
     },
     [],
   );
+
   const toggleAsk = () => {
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     setAskSettled(still);
     setAskOpen((current) => !current);
+
     // A timer rather than transitionend: the event never comes when there
     // was nothing to transition, and the clamp has to come back regardless.
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = setTimeout(() => setAskSettled(true), still ? 0 : ASK_MS + 20);
   };
+
   const parts = expanded ? { head: [...chain], hidden: [], tail: [] } : collapseChain(chain);
+
   const separator = (
     <span aria-hidden className="select-none text-[#84848C]/50">
       ›
@@ -90,6 +94,7 @@ export function Crumbs({
 
   const crumb = (title: string) => {
     const name = displayName(title);
+
     if (!onRail(title)) {
       return (
         <span className="max-w-36 truncate text-[#84848C]/70" title={`${name} is not on the rail`}>
@@ -97,6 +102,7 @@ export function Crumbs({
         </span>
       );
     }
+
     return (
       <Tip
         label={

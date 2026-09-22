@@ -22,6 +22,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.move).toEqual({
       from: ".leglas/variants/hero/aurora.tsx",
@@ -33,6 +34,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.removeDir).toBe(".leglas/variants/hero");
   });
@@ -41,6 +43,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.dropTitles.sort()).toEqual(["Aurora", "Current", "Dusk"]);
   });
@@ -53,6 +56,7 @@ describe("planKeep", () => {
     });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.dropTitles).not.toContain("Compact");
   });
@@ -61,6 +65,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.exportName).toBe("Hero");
   });
@@ -69,6 +74,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
 
     expect(plan.ok).toBe(true);
+
     if (!plan.ok) return;
     expect(plan.instructions).toContain("src/components/hero.tsx");
     expect(plan.instructions).toContain("Hero");
@@ -78,6 +84,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Nope", previews, to: "src/hero.tsx" });
 
     expect(plan.ok).toBe(false);
+
     if (plan.ok) return;
     expect(plan.error).toContain("Nope");
   });
@@ -90,6 +97,7 @@ describe("planKeep", () => {
     });
 
     expect(plan.ok).toBe(false);
+
     if (plan.ok) return;
     expect(plan.error.toLowerCase()).toContain("cannot tell");
   });
@@ -98,6 +106,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: ".leglas/variants/hero/keep.tsx" });
 
     expect(plan.ok).toBe(false);
+
     if (plan.ok) return;
     expect(plan.error).toContain(".leglas");
   });
@@ -106,6 +115,7 @@ describe("planKeep", () => {
     const plan = planKeep({ title: "Aurora", previews, to: "../elsewhere/hero.tsx" });
 
     expect(plan.ok).toBe(false);
+
     if (plan.ok) return;
     expect(plan.error.toLowerCase()).toContain("inside the project");
   });

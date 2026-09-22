@@ -155,6 +155,7 @@ function ShareSetup({
 }) {
   const picked = choice === "rail" ? rail.request : stage.request;
   const railCount = rail.request.titles.length;
+
   return (
     <>
       <span className="block px-1 pb-1 pt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
@@ -292,6 +293,7 @@ function GrantRow({
   const left = expiryLine(grant.expiresAt, now);
   const ending = grant.expiresAt - now < 60 * 60 * 1000;
   const label = grantLabel(grant.name, index);
+
   return (
     <li className="group relative flex h-8 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]">
       <span className="min-w-0 flex-1 truncate text-xs text-[#D1D5DB]">{label}</span>
@@ -359,6 +361,7 @@ function GrantRow({
 function NewLink({ busy, onCreate }: { busy: Busy; onCreate: (name: string) => void }) {
   const [name, setName] = useState("");
   const [open, setOpen] = useState(false);
+
   if (!open) {
     return (
       <button
@@ -371,6 +374,7 @@ function NewLink({ busy, onCreate }: { busy: Busy; onCreate: (name: string) => v
       </button>
     );
   }
+
   return (
     <form
       className="mt-0.5 flex items-center gap-1 px-2 py-1"
@@ -440,6 +444,7 @@ function ShareLive({
   share: ShareStatus;
 }) {
   const tunnel = share.tunnel;
+
   return (
     <>
       <span className="flex items-center gap-1.5 px-1 pb-1 pt-0.5 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">
@@ -692,6 +697,7 @@ export function SharePanel({
     if (!open) return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+
     return () => window.clearInterval(timer);
   }, [open]);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -729,10 +735,12 @@ export function SharePanel({
     () => railShare(prefs, previews, reach, seed),
     [prefs, previews, reach, seed],
   );
+
   const stage = useMemo(
     () => stageShare(prefs, previews, active, compare, reach, seed),
     [prefs, previews, active, compare, reach, seed],
   );
+
   const provider: TunnelProviderId | "none" = tunnels[0] ?? "none";
 
   /**
@@ -742,6 +750,7 @@ export function SharePanel({
    */
   const next: ShareRequest | null =
     share === null ? null : share.scope === "rail" ? rail.request : stage.request;
+
   const changed =
     share !== null &&
     next !== null &&
@@ -760,6 +769,7 @@ export function SharePanel({
    * this machine and the person it was sent to has no way to know.
    */
   const first = share?.grants[0] ?? null;
+
   const link =
     first === null
       ? null
@@ -780,6 +790,7 @@ export function SharePanel({
     copyText(url).then((outcome) => {
       if (outcome === "blocked") {
         setCopiedId(null);
+
         // A copy nobody asked for that the browser refused (the tab was not
         // in front, or the browser wants a gesture) is not worth a warning;
         // the button is right there. A click that failed is.
@@ -791,11 +802,15 @@ export function SharePanel({
           tone: "danger",
           ttl: null,
         });
+
         return;
       }
+
       setCopiedId(forId);
+
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopiedId(null), COPIED_MS);
+
       if (!quiet) {
         notify({
           kind: "share",
@@ -813,6 +828,7 @@ export function SharePanel({
   const tunnelStatus = share?.tunnel.status ?? null;
   useEffect(() => {
     if (share === null || link === null || startedHere.current !== share.id) return;
+
     if (autoCopied.current !== share.id) {
       autoCopied.current = share.id;
       void copyLink(link, true).then(() =>
@@ -826,8 +842,10 @@ export function SharePanel({
           ttl: TOAST_TTL.action,
         }),
       );
+
       return;
     }
+
     if (tunnelStatus === "ready") {
       notify({
         kind: "share",
@@ -907,6 +925,7 @@ export function SharePanel({
 
   const retry = () => {
     if (busy !== null || share === null) return;
+
     const request: ShareRequest = {
       scope: share.scope,
       titles: share.titles,
@@ -914,6 +933,7 @@ export function SharePanel({
       reach: share.reach,
       routes: share.routes,
     };
+
     setBusy("start");
     void stopShare()
       .then(() => startShare({ ...request, tunnel: provider }))
@@ -949,6 +969,7 @@ export function SharePanel({
           onPick={setChoice}
           onStart={() => {
             const picked = choice === "rail" ? rail.request : stage.request;
+
             if (picked !== null) start(picked);
           }}
           provider={provider}

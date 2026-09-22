@@ -138,6 +138,7 @@ export type ShareStatus = {
 
 /** How the running Leglas got onto this machine, which decides how it updates. */
 export type InstallKind = "npx" | "global" | "project" | "source";
+
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
 export type Install = {

@@ -23,6 +23,7 @@ const root = join(import.meta.dirname, "..");
 const committed = (): string[] => {
   const result = spawnSync("git", ["ls-files", "docs/*.md"], { cwd: root, encoding: "utf8" });
   expect(result.status, result.stderr).toBe(0);
+
   return result.stdout
     .split("\n")
     .filter((line) => line !== "")

@@ -27,15 +27,20 @@ export async function uploadReference(
     },
     method: "POST",
   });
+
   if (!response.ok) throw new Error("Leglas refused the image.");
+
   const result = (await response.json()) as {
     ok?: unknown;
     reference?: { id?: unknown; file?: unknown };
   };
+
   const id = result.reference?.id;
   const path = result.reference?.file;
+
   if (result.ok !== true || typeof id !== "string" || typeof path !== "string") {
     throw new Error("Leglas refused the image.");
   }
+
   return { id, file: path };
 }

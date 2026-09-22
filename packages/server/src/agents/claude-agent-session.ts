@@ -64,14 +64,20 @@ export type ClaudeTurnRunner = {
 };
 
 const INITIALIZE_TIMEOUT_MS = 30_000;
+
 const IMAGE_MAX_BYTES = 5_000_000;
 
 function imageMediaType(path: string): string | null {
   const extension = extname(path).toLowerCase();
+
   if (extension === ".png") return "image/png";
+
   if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+
   if (extension === ".webp") return "image/webp";
+
   if (extension === ".gif") return "image/gif";
+
   return null;
 }
 
@@ -79,9 +85,12 @@ function imageMediaType(path: string): string | null {
 async function claudeContent(prompt: string, images: readonly string[]): Promise<unknown> {
   if (images.length === 0) return prompt;
   const blocks: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+
   for (const path of images) {
     const mediaType = imageMediaType(path);
+
     if (mediaType === null) continue;
+
     try {
       if ((await stat(path)).size > IMAGE_MAX_BYTES) continue;
       const data = await readFile(path);
@@ -93,17 +102,21 @@ async function claudeContent(prompt: string, images: readonly string[]): Promise
       // A missing capture is skipped; the prompt still names it for diagnosis.
     }
   }
+
   return blocks;
 }
 
 function waitForAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return work;
+
   if (signal.aborted) return Promise.reject(new Error("cancelled"));
+
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
       reject(new Error("cancelled"));
     };
+
     signal.addEventListener("abort", onAbort, { once: true });
     void work.then(
       (value) => {
@@ -123,6 +136,7 @@ const defaultStartup: ClaudeSdkStartup = async (params) => {
   // rejects and the runner retains the installed `claude -p` fallback instead
   // of making the whole Leglas server fail at module import time.
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
+
   return sdk.startup(params) as unknown as ClaudeWarmQuery;
 };
 
@@ -134,6 +148,7 @@ class InputQueue implements AsyncIterable<ClaudeMessage> {
   push(message: ClaudeMessage): void {
     if (this.ended) throw new Error("Claude input is closed.");
     const reader = this.readers.shift();
+
     if (reader === undefined) this.queued.push(message);
     else reader({ value: message, done: false });
   }
@@ -141,6 +156,7 @@ class InputQueue implements AsyncIterable<ClaudeMessage> {
   close(): void {
     if (this.ended) return;
     this.ended = true;
+
     for (const reader of this.readers.splice(0)) {
       reader({ value: undefined, done: true });
     }
@@ -150,12 +166,15 @@ class InputQueue implements AsyncIterable<ClaudeMessage> {
     return {
       next: () => {
         const message = this.queued.shift();
+
         if (message !== undefined) {
           return Promise.resolve({ value: message, done: false });
         }
+
         if (this.ended) {
           return Promise.resolve({ value: undefined, done: true });
         }
+
         return new Promise((resolve) => this.readers.push(resolve));
       },
     };
@@ -190,15 +209,19 @@ class ClaudeTurnChild implements RunnerChild {
           terminal.signal,
         );
       });
+
       return this;
     }
+
     this.events.once(event, listener);
+
     return this;
   }
 
   kill(signal: NodeJS.Signals): boolean {
     if (this.ended) return false;
     this.interrupt(signal);
+
     return true;
   }
 
@@ -214,6 +237,7 @@ class ClaudeTurnChild implements RunnerChild {
     if (this.ended) return;
     this.ended = true;
     this.terminal = { code, signal };
+
     if (error !== null) this.stderr.write(`${error}\n`);
     this.stdout.end();
     this.stderr.end();
@@ -260,10 +284,14 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   warm(sessionId: string | null = null): Promise<void> {
     this.generation += 1;
+
     if (this.closed) return Promise.reject(new Error("Claude Agent SDK is closed."));
+
     if (this.query !== null) return Promise.resolve();
+
     if (this.warmQuery !== null || this.warming !== null) {
       if (this.warmedFor === sessionId) return this.warming ?? Promise.resolve();
+
       // A process cannot change which session it loaded, so a handle warmed
       // for another conversation (or for a fresh one when this needs a
       // resume) goes, and the right one starts. One spawn, which is what the
@@ -274,6 +302,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     this.warmedFor = sessionId;
     const controller = new AbortController();
     this.processAbort = controller;
+
     const warming = this.startup({
       options: {
         abortController: controller,
@@ -301,27 +330,36 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       .finally(() => {
         if (this.warming === warming) this.warming = null;
       });
+
     this.warming = warming;
+
     return warming;
   }
 
   async run(input: ClaudeTurnInput, signal?: AbortSignal): Promise<RunnerChild> {
     if (this.closed) throw new Error("Claude Agent SDK is closed.");
+
     if (this.active !== null) throw new Error("Claude already has an active turn.");
+
     if (signal?.aborted) throw new Error("cancelled");
+
     const onAbort = () => {
       void this.resetQuery();
     };
+
     signal?.addEventListener("abort", onAbort, { once: true });
     let child: ClaudeTurnChild | null = null;
 
     try {
       if (this.resetting !== null) await waitForAbort(this.resetting, signal);
+
       if (signal?.aborted) throw new Error("cancelled");
+
       // The runner deliberately starts fresh after its bounded session cap. A
       // null session id therefore rotates the process instead of quietly
       // carrying old context into what the caller believes is a clean turn.
       if (this.query !== null && input.sessionId === null) await this.resetQuery();
+
       if (signal?.aborted) throw new Error("cancelled");
 
       if (this.query === null) {
@@ -341,12 +379,14 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
       const query = this.query;
       const queue = this.input;
+
       if (query === null || queue === null) throw new Error("Claude Agent SDK did not start.");
 
       child = new ClaudeTurnChild((turnSignal) => {
         if (child !== null) this.interrupt(query, child, turnSignal);
       });
       this.active = child;
+
       // null clears only the SDK's flag layer and falls back to the user's own
       // Claude setting. No model is supplied, so their selected model remains
       // authoritative too.
@@ -354,6 +394,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
         await waitForAbort(query.applyFlagSettings({ effortLevel: input.effort }), signal);
         this.appliedEffort = input.effort;
       }
+
       if (signal?.aborted) throw new Error("cancelled");
       queue.push({
         type: "user",
@@ -361,6 +402,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
         parent_tool_use_id: null,
         origin: { kind: "human" },
       });
+
       return child;
     } catch (error) {
       if (child !== null && this.active === child) this.active = null;
@@ -388,6 +430,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     // newer warm has been asked for since, in which case it is the newer
     // intent and this release has nothing left to say.
     const asOf = this.generation;
+
     do {
       await this.resetQuery();
     } while (
@@ -404,8 +447,10 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   private async startQuery(signal?: AbortSignal, sessionId: string | null = null): Promise<void> {
     await waitForAbort(this.warm(sessionId), signal);
+
     if (signal?.aborted) throw new Error("cancelled");
     const warmQuery = this.warmQuery;
+
     if (warmQuery === null) throw new Error("Claude Agent SDK did not warm.");
 
     const input = new InputQueue();
@@ -421,6 +466,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   private async read(query: ClaudeSdkQuery): Promise<void> {
     let endedNormally = false;
+
     try {
       for await (const message of query) {
         if (typeof message.session_id === "string" && message.session_id !== "") {
@@ -428,14 +474,17 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
         }
 
         const child = this.active;
+
         if (child === null) continue;
         child.line(message);
+
         if (message.type === "result") {
           if (this.active === child) this.active = null;
           const success = message.subtype === "success" && message.is_error !== true;
           child.finish(success ? 0 : 1);
         }
       }
+
       endedNormally = true;
     } catch (error) {
       if (this.query === query) {
@@ -447,6 +496,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       if (this.query === query) {
         const child = this.active;
         this.active = null;
+
         if (child !== null) {
           child.finish(
             1,
@@ -454,6 +504,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
             endedNormally ? "Claude Agent SDK ended before the turn completed." : null,
           );
         }
+
         this.query = null;
         this.input = null;
         this.pump = null;
@@ -465,12 +516,15 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   private interrupt(query: ClaudeSdkQuery, child: ClaudeTurnChild, signal: NodeJS.Signals): void {
     if (this.active !== child || this.query !== query) return;
+
     if (signal === "SIGKILL") {
       this.active = null;
       child.finish(null, signal);
       void this.resetQuery();
+
       return;
     }
+
     void query.interrupt().catch((error) => {
       if (this.active !== child) return;
       this.active = null;
@@ -481,10 +535,13 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
   private resetQuery(): Promise<void> {
     if (this.resetting !== null) return this.resetting;
+
     const resetting = this.performReset().finally(() => {
       if (this.resetting === resetting) this.resetting = null;
     });
+
     this.resetting = resetting;
+
     return resetting;
   }
 
@@ -507,6 +564,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     input?.close();
     query?.close();
     controller?.abort();
+
     if (pump !== null) {
       await Promise.race([
         pump.catch(() => {}),

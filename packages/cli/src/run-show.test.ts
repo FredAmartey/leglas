@@ -15,6 +15,7 @@ function scratch(): string {
 function collect() {
   const lines: string[] = [];
   const errors: string[] = [];
+
   return {
     deps: { log: (line: string) => lines.push(line), error: (line: string) => errors.push(line) },
     lines,
@@ -115,6 +116,7 @@ describe("runShow", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
@@ -163,6 +165,7 @@ describe("runShow", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response("{}", { status: 200 }))
@@ -208,6 +211,7 @@ describe("runShow", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response("{}", { status: 200 }))
@@ -239,25 +243,30 @@ describe("runShow", () => {
     const absent = collect();
     // No record on disk, and nothing answering on the default port either.
     const refused = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error("ECONNREFUSED"));
+
     const missing = await runShow(
       { title: "Aurora", json: true, screenshot: true, width: null, port: null, cwd },
       { ...absent.deps, fetch: refused },
     );
+
     expect(refused.mock.calls[0]?.[0]).toBe("http://127.0.0.1:4100/leglas/api/health");
     expect(missing.exitCode).toBe(1);
     expect(envelope(absent.lines)["error"]).toContain("Leglas is not running here");
 
     const unavailable = collect();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response("{}", { status: 200 }))
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: false, error: "No browser here." }), { status: 503 }),
       );
+
     const failed = await runShow(
       { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
       { ...unavailable.deps, fetch },
     );
+
     expect(failed.exitCode).toBe(1);
     expect(envelope(unavailable.lines)["error"]).toBe("No browser here.");
   });
@@ -268,6 +277,7 @@ describe("whose server a screenshot comes from", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
+
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
       new Response(JSON.stringify({ reachable: true, cwd: join(cwd, "..", "elsewhere") }), {
         status: 200,
@@ -288,6 +298,7 @@ describe("whose server a screenshot comes from", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v-hero=aurora");
     const { deps, lines } = collect();
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(

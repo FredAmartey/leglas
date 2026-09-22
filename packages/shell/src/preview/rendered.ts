@@ -38,7 +38,9 @@ export function renderedSignature(
   visual: readonly string[] = [],
 ): string | null {
   const normalised = text.replace(/\s+/g, " ").trim().toLowerCase();
+
   if (normalised.length < MEANINGFUL_TEXT) return null;
+
   return shortHash(
     `${tags.join(">")} ${normalised} ${paint.join("|")} ${visual.join("|")}`.trimEnd(),
   );
@@ -56,6 +58,7 @@ export type PaintStyle = { backgroundColor: string; backgroundImage: string; col
 const UNPAINTED = new Set(["LINK", "META", "NOSCRIPT", "SCRIPT", "STYLE", "TEMPLATE"]);
 
 const MAX_VISUAL_ELEMENTS = 720;
+
 const EDGE_SAMPLE = 180;
 
 /**
@@ -217,29 +220,35 @@ const IGNORED_TOOLING = [
 ].join(",");
 
 type VisualStyle = Pick<CSSStyleDeclaration, "getPropertyValue">;
+
 type RectLike = Pick<DOMRect, "bottom" | "height" | "left" | "right" | "top" | "width">;
 
 /** Half-pixel precision absorbs rasterisation noise without hiding layout. */
 export function quantiseCssPixel(value: number): string {
   if (!Number.isFinite(value)) return "?";
   const quantised = Math.round(value * 2) / 2;
+
   return Object.is(quantised, -0) ? "0" : String(quantised);
 }
 
 function shortHash(value: string): string {
   let a = 0x811c9dc5;
   let b = 0x9e3779b9;
+
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     a = Math.imul(a ^ code, 0x01000193);
     b = Math.imul(b ^ code, 0x85ebca6b);
   }
+
   return `${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}`;
 }
 
 function bounded(value: string, limit = 480): string {
   const normalised = value.replace(/\s+/g, " ").trim();
+
   if (normalised.length <= limit) return normalised;
+
   return `${normalised.slice(0, 180)}…${normalised.slice(-80)}#${normalised.length}:${shortHash(normalised)}`;
 }
 
@@ -255,12 +264,14 @@ function sampleIndices(elements: readonly Element[]): number[] {
   if (elements.length <= MAX_VISUAL_ELEMENTS) return elements.map((_, index) => index);
 
   const selected = new Set<number>();
+
   const add = (index: number) => {
     if (index >= 0 && index < elements.length && selected.size < MAX_VISUAL_ELEMENTS)
       selected.add(index);
   };
 
   for (let index = 0; index < EDGE_SAMPLE; index += 1) add(index);
+
   for (let index = Math.max(0, elements.length - EDGE_SAMPLE); index < elements.length; index += 1)
     add(index);
 
@@ -269,6 +280,7 @@ function sampleIndices(elements: readonly Element[]): number[] {
   // the remaining budget evenly across a large document.
   for (let index = 0; index < elements.length && selected.size < MAX_VISUAL_ELEMENTS; index += 1) {
     const element = elements[index]!;
+
     if (
       !element.matches(
         "a,button,input,select,textarea,summary,[role],svg,svg *,canvas,img,picture,video,audio,iframe",
@@ -277,6 +289,7 @@ function sampleIndices(elements: readonly Element[]): number[] {
       continue;
     add(index);
     let parent = element.parentElement;
+
     for (let depth = 0; parent !== null && depth < 3; depth += 1) {
       add(elements.indexOf(parent));
       parent = parent.parentElement;
@@ -284,8 +297,10 @@ function sampleIndices(elements: readonly Element[]): number[] {
   }
 
   const remaining = MAX_VISUAL_ELEMENTS - selected.size;
+
   if (remaining > 0) {
     const step = (elements.length - 1) / Math.max(1, remaining - 1);
+
     for (let slot = 0; slot < remaining; slot += 1) add(Math.round(slot * step));
   }
 
@@ -295,7 +310,9 @@ function sampleIndices(elements: readonly Element[]): number[] {
 function elementAnimations(element: Element, style: VisualStyle): boolean {
   if (style.getPropertyValue("animation-name").trim() !== "none") return true;
   const getAnimations = (element as Element & { getAnimations?: () => Animation[] }).getAnimations;
+
   if (typeof getAnimations !== "function") return false;
+
   try {
     return getAnimations.call(element).some((animation) => animation.playState === "running");
   } catch {
@@ -306,36 +323,45 @@ function elementAnimations(element: Element, style: VisualStyle): boolean {
 function rectSample(element: Element, animated: boolean): string {
   if (animated) return "rect:animated";
   let rect: RectLike;
+
   try {
     rect = element.getBoundingClientRect();
   } catch {
     return "rect:?";
   }
+
   const view = element.ownerDocument.defaultView;
   const position = view?.getComputedStyle(element).position;
   const scrollX = position === "fixed" ? 0 : (view?.scrollX ?? 0);
   const scrollY = position === "fixed" ? 0 : (view?.scrollY ?? 0);
+
   return `rect:${quantiseCssPixel(rect.left + scrollX)},${quantiseCssPixel(rect.top + scrollY)},${quantiseCssPixel(rect.width)},${quantiseCssPixel(rect.height)}`;
 }
 
 function attributeSample(element: Element): string {
   const attributes: string[] = [];
+
   for (const name of VECTOR_ATTRIBUTES) {
     const value = element.getAttribute(name);
+
     if (value !== null) attributes.push(`${name}:${bounded(value)}`);
   }
 
   const tag = element.tagName;
+
   if (["A", "AUDIO", "IFRAME", "IMG", "SOURCE", "VIDEO"].includes(tag)) {
     for (const name of ["href", "src", "srcset", "poster"]) {
       const value = element.getAttribute(name);
+
       if (value !== null) attributes.push(`${name}:${bounded(value)}`);
     }
   }
+
   if (tag === "CANVAS") {
     const canvas = element as HTMLCanvasElement;
     attributes.push(`bitmap:${canvas.width}x${canvas.height}`);
   }
+
   return attributes.join(",");
 }
 
@@ -345,13 +371,17 @@ function pseudoSample(
   styleOf: (element: Element, pseudo?: string) => VisualStyle,
 ): string {
   let style: VisualStyle;
+
   try {
     style = styleOf(element, pseudo);
   } catch {
     return "";
   }
+
   const content = style.getPropertyValue("content").trim();
+
   if (content === "" || content === "none" || content === "normal") return "";
+
   return `${pseudo}{${PSEUDO_PROPERTIES.map((property) => `${property}:${bounded(style.getPropertyValue(property))}`).join(";")}}`;
 }
 
@@ -368,25 +398,31 @@ export function visualSample(
   styleOf: (element: Element, pseudo?: string) => VisualStyle,
 ): string[] {
   if (!body) return [];
+
   const elements = [body, ...body.querySelectorAll("*")].filter(
     (element) => !ignoredTooling(element),
   );
+
   return sampleIndices(elements).map((index) => {
     const element = elements[index]!;
     const style = styleOf(element);
     const animated = elementAnimations(element, style);
+
     const styles = VISUAL_PROPERTIES.map((property) => {
       const value =
         animated && VOLATILE_ANIMATION_PROPERTIES.has(property)
           ? "<animated>"
           : bounded(style.getPropertyValue(property));
+
       return `${property}:${value}`;
     }).join(";");
+
     const role = element.getAttribute("role");
     const type = element.getAttribute("type");
     const semantics = [role && `role:${role}`, type && `type:${type}`].filter(Boolean).join(",");
     const before = pseudoSample(element, "::before", styleOf);
     const after = pseudoSample(element, "::after", styleOf);
+
     return `${element.tagName}${semantics ? `[${semantics}]` : ""}{${rectSample(element, animated)};${styles};${attributeSample(element)};${before};${after}}`;
   });
 }
@@ -410,35 +446,45 @@ export function paintSample(
   if (!body) return [];
   const samples: string[] = [];
   let current: PaintNode = body;
+
   for (let depth = 0; depth < 4; depth += 1) {
     const style = styleOf(current);
     samples.push(`${style.backgroundColor};${style.backgroundImage};${style.color}`);
+
     const rendered = Array.from(current.children as ArrayLike<PaintNode>).filter(
       (child) => !UNPAINTED.has(child.tagName ?? ""),
     );
+
     const only = rendered.length === 1 ? rendered[0] : undefined;
+
     if (only === undefined) break;
     current = only;
   }
+
   return samples;
 }
 
 /** For each preview, the others that drew the same page. */
 export function twinsOf(signatures: Record<string, string | null>): Record<string, string[]> {
   const bySignature = new Map<string, string[]>();
+
   for (const [title, signature] of Object.entries(signatures)) {
     if (signature === null) continue;
     const group = bySignature.get(signature);
+
     if (group) group.push(title);
     else bySignature.set(signature, [title]);
   }
 
   const twins: Record<string, string[]> = {};
+
   for (const group of bySignature.values()) {
     if (group.length < 2) continue;
+
     for (const title of group) {
       twins[title] = group.filter((other) => other !== title);
     }
   }
+
   return twins;
 }

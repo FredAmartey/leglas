@@ -24,6 +24,7 @@ describe("scanQueue", () => {
       tags: [],
       branch: "warm-red",
     };
+
     expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain(
       "Warm red",
     );
@@ -55,6 +56,7 @@ describe("scanQueue", () => {
     const changed = PREVIEWS.map((preview) =>
       preview.title === "Aurora" ? { ...preview, url: "/?v-hero=changed" } : preview,
     );
+
     const scans: PreviewScans = {
       Current: { url: "/", status: "complete", signature: "current" },
       Aurora: { url: "/?v-hero=aurora", status: "complete", signature: "old" },
@@ -67,6 +69,7 @@ describe("scanQueue", () => {
 
   test("previews that appear mid-session join the queue", () => {
     const grown = [...PREVIEWS, { title: "New", url: "/?v-hero=new", tags: [] }];
+
     const scans = PREVIEWS.reduce<
       Record<string, { url: string; status: "complete"; signature: string }>
     >(
@@ -144,6 +147,7 @@ describe("replacedPanes", () => {
       ["Wave", identity("Wave", 0)],
       ["Dot grid", identity("Dot grid", 0)],
     ]);
+
     const current = new Map([
       ["Wave", identity("Wave", 0)],
       ["Dot grid", identity("Dot grid", 2)],
@@ -167,6 +171,7 @@ describe("replacedPanes across a dev-server recovery", () => {
       ["Dot grid", identity("Dot grid", 0)],
       ["Session", identity("Session", 0)],
     ]);
+
     const afterRecovery = new Map([
       ["Wave", identity("Wave", 1)],
       ["Dot grid", identity("Dot grid", 1)],
@@ -187,6 +192,7 @@ describe("replacedPanes across a dev-server recovery", () => {
       ["Wave", identity("Wave", 0)],
       ["Paper", identity("Paper", 0)],
     ]);
+
     const afterRecovery = new Map([
       ["Wave", identity("Wave", 1)],
       ["Paper", identity("Paper", 0)],

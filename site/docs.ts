@@ -53,12 +53,16 @@ export const PAGES = [
 
 export function loadDocs(root: string): DocPage[] {
   const dir = join(root, "docs");
+
   const read = (file: string): DocPage => {
     const path = join(dir, file);
+
     if (!existsSync(path)) throw new Error(`docs/${file} is named in the manual but not there.`);
     const markdown = readFileSync(path, "utf8");
     const heading = markdown.split("\n").find((line) => line.startsWith("# "));
+
     if (heading === undefined) throw new Error(`docs/${file} has no title heading.`);
+
     return {
       file,
       slug: file === "README.md" ? "" : file.slice(0, -".md".length),
@@ -66,6 +70,7 @@ export function loadDocs(root: string): DocPage[] {
       markdown,
     };
   };
+
   return [read("README.md"), ...PAGES.map((page) => read(`${page}.md`))];
 }
 
@@ -90,13 +95,17 @@ export type Block =
 export function parseBlocks(markdown: string, file: string): Block[] {
   const lines = markdown.split("\n");
   const blocks: Block[] = [];
+
   const refuse = (index: number, why: string): never => {
     throw new Error(`docs/${file}:${index + 1}: ${why}: "${lines[index]}"`);
   };
+
   let i = 0;
   let titled = false;
+
   while (i < lines.length) {
     const line = lines[i] ?? "";
+
     if (line.trim() === "") {
       i += 1;
     } else if (line.startsWith("# ")) {
@@ -111,20 +120,25 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       const lang = line.slice(3).trim();
       const body: string[] = [];
       i += 1;
+
       while (i < lines.length && !(lines[i] ?? "").startsWith("```")) {
         body.push(lines[i] ?? "");
         i += 1;
       }
+
       if (i >= lines.length) refuse(i - 1, "a code fence that never closes");
       blocks.push({ kind: "code", lang, text: body.join("\n") });
       i += 1;
     } else if (line.startsWith("|")) {
       const rows: string[][] = [];
+
       while (i < lines.length && (lines[i] ?? "").startsWith("|")) {
         rows.push(cells(lines[i] ?? ""));
         i += 1;
       }
+
       const [head, rule, ...body] = rows;
+
       if (
         head === undefined ||
         rule === undefined ||
@@ -132,35 +146,45 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       ) {
         refuse(i - rows.length, "a table without a header rule");
       }
+
       blocks.push({ kind: "table", head: head ?? [], rows: body });
     } else if (line.startsWith("- ")) {
       const items: string[] = [];
+
       while (i < lines.length && (lines[i] ?? "").startsWith("- ")) {
         let item = (lines[i] ?? "").slice(2);
         i += 1;
+
         while (i < lines.length && (lines[i] ?? "").startsWith("  ")) {
           item += ` ${(lines[i] ?? "").trim()}`;
           i += 1;
         }
+
         items.push(item);
       }
+
       blocks.push({ kind: "list", ordered: false, items });
     } else if (/^\d+\. /.test(line)) {
       // GitHub numbers a list from whatever its first item says and ignores
       // the rest, so only 1, 2, 3 reads the same there and here.
       const items: string[] = [];
+
       while (i < lines.length && /^\d+\. /.test(lines[i] ?? "")) {
         const [, number = "", rest = ""] = /^(\d+)\. (.*)$/.exec(lines[i] ?? "") ?? [];
+
         if (Number(number) !== items.length + 1)
           refuse(i, "a numbered list that does not count from 1");
         let item = rest;
         i += 1;
+
         while (i < lines.length && (lines[i] ?? "").startsWith("  ")) {
           item += ` ${(lines[i] ?? "").trim()}`;
           i += 1;
         }
+
         items.push(item);
       }
+
       blocks.push({ kind: "list", ordered: true, items });
     } else if (CAPTURE.test(line)) {
       // The centred capture blocks the docs use. They are the one HTML the
@@ -168,10 +192,12 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       // copied, so a block is either the shape below or a build error.
       const start = i;
       const html: string[] = [];
+
       while (i < lines.length && (lines[i] ?? "").trim() !== "") {
         html.push(lines[i] ?? "");
         i += 1;
       }
+
       blocks.push({
         kind: "html",
         text: captureBlock(html.join("\n"), (why) => refuse(start, why)),
@@ -182,6 +208,7 @@ export function parseBlocks(markdown: string, file: string): Block[] {
       refuse(i, "markdown this page cannot show");
     } else {
       const text: string[] = [];
+
       while (
         i < lines.length &&
         (lines[i] ?? "").trim() !== "" &&
@@ -191,9 +218,11 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         text.push((lines[i] ?? "").trim());
         i += 1;
       }
+
       blocks.push({ kind: "paragraph", text: text.join(" ") });
     }
   }
+
   return blocks;
 }
 
@@ -207,35 +236,48 @@ const CAPTURE = /^<p[\s>]/;
  */
 export function captureBlock(text: string, refuse: (why: string) => never): string {
   const match = /^<p align="center">([\s\S]*)<\/p>\s*$/.exec(text);
+
   if (match === null) {
     if (!/<\/p>\s*$/.test(text)) refuse("a capture block that does not close");
+
     return refuse("a capture block that is not a centred paragraph");
   }
+
   const parts: string[] = [];
   const inner = match[1] ?? "";
   const token = /<img\b([^<>]*?)\s*\/?>|<i>([^<>]*)<\/i>|([^<>]+)|([<>])/g;
+
   for (const piece of inner.matchAll(token)) {
     const [, image, caption, prose, stray] = piece;
+
     if (image !== undefined) {
       // Attributes are read in order until nothing is left; a bare word, an
       // unquoted value or a second form of quoting is a refusal, not a skip.
       const attributes = new Map<string, string>();
       let rest = image.trim();
+
       while (rest !== "") {
         const attribute = /^([a-z]+)="([^"<>]*)"\s*/.exec(rest);
+
         if (attribute === null) return refuse("an image attribute this page cannot show");
         attributes.set(attribute[1] ?? "", attribute[2] ?? "");
         rest = rest.slice(attribute[0].length);
       }
+
       const src = attributes.get("src");
       const width = attributes.get("width");
       const alt = attributes.get("alt");
+
       for (const name of attributes.keys())
         if (!["src", "width", "alt"].includes(name))
           refuse(`an image attribute this page cannot show: ${name}`);
-      if (src === undefined || !/^https:\/\//.test(src)) refuse("an image without an https source");
+
+      if (src === undefined || !src.startsWith("https://"))
+        refuse("an image without an https source");
+
       if (width !== undefined && !/^\d+$/.test(width))
         refuse("an image width that is not a number");
+
       if (alt === undefined) refuse("an image without alt text");
       parts.push(
         `<img src="${escape(src)}"${width === undefined ? "" : ` width="${width}"`} alt="${escape(alt)}" />`,
@@ -248,7 +290,9 @@ export function captureBlock(text: string, refuse: (why: string) => never): stri
       refuse("a tag this page cannot show in a capture block");
     }
   }
+
   if (parts.length === 0) refuse("an empty capture block");
+
   return parts.length === 1 && parts[0]?.startsWith("<i>")
     ? `<p align="center">${parts[0]}</p>`
     : `<p align="center">\n  ${parts.join("\n  ")}\n</p>`;
@@ -286,12 +330,16 @@ export function resolveLink(href: string, page: DocPage, pages: DocPage[]): stri
   const [path, fragment] = hash === -1 ? [href, ""] : [href.slice(0, hash), href.slice(hash)];
   const up = page.slug === "" ? "./" : "../";
   const inTree = posix.normalize(path.startsWith("/") ? path.slice(1) : posix.join("docs", path));
+
   if (inTree.startsWith("docs/")) {
     const target = pages.find((candidate) => `docs/${candidate.file}` === inTree);
+
     if (target !== undefined)
       return `${up}${target.slug === "" ? "" : `${target.slug}/`}${fragment}`;
   }
+
   if (inTree === "README.md") return `${up}../${fragment}`;
+
   return `${REPO}/blob/main/${inTree}${fragment}`;
 }
 
@@ -305,8 +353,10 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         (_, label: string, href: string) => `[${label}](${resolveLink(href, page, pages)})`,
       ),
     );
+
   const html: string[] = [];
   const seen = new Map<string, number>();
+
   for (const block of blocks) {
     switch (block.kind) {
       case "heading": {
@@ -317,6 +367,7 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         html.push(`<h${block.level} id="${id}">${text(block.text)}</h${block.level}>`);
         break;
       }
+
       case "paragraph":
         html.push(`<p>${text(block.text)}</p>`);
         break;
@@ -327,6 +378,7 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         );
         break;
       }
+
       case "code":
         html.push(
           `<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`,
@@ -344,6 +396,7 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         break;
     }
   }
+
   return html.join("\n");
 }
 
@@ -388,12 +441,14 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 
 export function renderDoc(page: DocPage, pages: DocPage[], assets: Assets): string {
   const up = page.slug === "" ? "./" : "../";
+
   const place = {
     home: `${up}../`,
     docs: up,
     changelog: `${up}../changelog/`,
     active: "docs" as const,
   };
+
   const nav = pages
     .filter((candidate) => candidate.slug !== "")
     .map((candidate) =>
@@ -402,6 +457,7 @@ export function renderDoc(page: DocPage, pages: DocPage[], assets: Assets): stri
         : `<a href="${up}${candidate.slug}/">${escape(candidate.title)}</a>`,
     )
     .join("");
+
   const body = `<div class="dots" aria-hidden="true"></div>
 ${bar(assets, place)}
 <main class="page">
@@ -413,6 +469,7 @@ ${bar(assets, place)}
 <div class="doc rise">${renderBlocks(parseBlocks(page.markdown, page.file), page, pages)}</div>
 </main>
 ${foot(`Made from <a href="${REPO}/blob/main/docs/${page.file}">docs/${page.file}</a>.`)}`;
+
   return document({
     title: page.slug === "" ? "Leglas Documentation" : `${page.title}, Leglas`,
     description: `${page.title}: the Leglas manual, made from the repository's docs/ folder.`,
