@@ -455,6 +455,35 @@ describe("startServer", () => {
     expect(await readRequests(cwd)).toEqual([]);
   });
 
+  test("says whether an absolute-URL direction will let the interface frame it", async () => {
+    const refusing = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY" });
+      res.end("<h1>no frames</h1>");
+    });
+
+    origins.push(refusing);
+    await new Promise<void>((resolve) => refusing.listen(0, "127.0.0.1", () => resolve()));
+
+    const server = await start({
+      config: configFor(await startOrigin(), [
+        { title: "Docs", url: `http://127.0.0.1:${boundPort(refusing)}/` },
+        { title: "Aurora", url: "/" },
+      ]),
+      port: 0,
+    });
+
+    const framing = async (title: string) =>
+      fetch(`${server.url}/leglas/api/previews/framing?title=${encodeURIComponent(title)}`);
+
+    expect(await (await framing("Docs")).json()).toEqual({
+      framable: false,
+      refusal: { header: "x-frame-options", value: "DENY" },
+    });
+    // A direction served through Leglas is never framed from its own address.
+    expect(await (await framing("Aurora")).json()).toEqual({ framable: true });
+    expect((await framing("Nobody")).status).toBe(404);
+  });
+
   test("POST then GET exposes queued request state without collecting it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
 

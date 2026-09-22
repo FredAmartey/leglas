@@ -106,8 +106,10 @@ bug.
 Because a preview is a URL, the same interface compares two routes, two
 implementations behind a query parameter or a local server against a
 deployed one. Absolute URLs load directly rather than through the proxy,
-so a site that refuses to be framed will not preview; the interface says
-so instead of showing an empty pane.
+so a site that refuses to be framed will not preview. The pane says so
+instead of showing the browser's broken page: which header refused it, a
+button that opens the page in a tab, and the one header that would let it
+through if the site is yours.
 
 Leglas also compares what each preview actually draws and warns when two
 are identical. This catches a typo like `?v-hero=wavee` that your app

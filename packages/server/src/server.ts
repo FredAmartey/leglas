@@ -68,6 +68,7 @@ import {
   updateAnnotation,
 } from "./requests/annotations.js";
 import { createCoalescer, createLiveHub, type LiveChange, type LiveHub } from "./live.js";
+import { checkFraming } from "./frame-policy.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./config/renames.js";
 import {
@@ -1323,6 +1324,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             warnings: configWarnings,
           }),
         );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/previews/framing` && req.method === "GET") {
+      const title = query.get("title");
+
+      return void livePreviewDefinitions().then(async (previews) => {
+        const preview = previews.find((entry) => entry.title === title);
+
+        if (preview === undefined) {
+          return sendJson(res, 404, { ok: false, error: "There is no direction by that name." });
+        }
+
+        // Only a page the frame loads straight from its own address can
+        // refuse it. Everything else reaches the frame through Leglas, and a
+        // viewer never gets this far: remote API calls are refused above.
+        if (
+          preview.file !== undefined ||
+          preview.branch !== undefined ||
+          !/^https?:\/\//i.test(preview.url)
+        ) {
+          return sendJson(res, 200, { framable: true });
+        }
+
+        // The page doing the framing is the interface as this browser reached it.
+        const embedder = `http://${req.headers.host ?? "localhost"}${LEGLAS_PREFIX}/`;
+
+        sendJson(res, 200, await checkFraming(preview.url, embedder));
+      });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/previews/start` && req.method === "POST") {

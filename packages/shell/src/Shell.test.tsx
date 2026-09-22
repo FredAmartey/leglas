@@ -50,10 +50,11 @@ const AGENTS: AgentsPayload = {
 type Sent = { path: string; body: unknown };
 
 /** Answer the interface's reads from a table and remember what it wrote. */
-function serve(requests: RequestStatus[] = []): Sent[] {
+function serve(requests: RequestStatus[] = [], framing: JsonValue = { framable: true }): Sent[] {
   const sent: Sent[] = [];
 
   const reads = new Map<string, JsonValue>([
+    ["previews/framing", framing],
     ["agents", AGENTS],
     ["annotations", { annotations: [] }],
     ["health", { devServer: "http://localhost:3000", reachable: true, cwd: "" }],
@@ -107,13 +108,23 @@ function serve(requests: RequestStatus[] = []): Sent[] {
 
 let root: Root;
 
-async function mount(props: { requests?: RequestStatus[]; viewer?: ViewerInfo }): Promise<Sent[]> {
-  const sent = serve(props.requests);
+async function mount(props: {
+  requests?: RequestStatus[];
+  viewer?: ViewerInfo;
+  previews?: Preview[];
+  framing?: JsonValue;
+}): Promise<Sent[]> {
+  const sent = serve(props.requests, props.framing);
   document.body.innerHTML = `<div id="root"></div>`;
   root = createRoot(must(document.getElementById("root"), "the root"));
   await act(async () => {
     root.render(
-      <Shell previews={PREVIEWS} project="a-project" scanPreviews={false} viewer={props.viewer} />,
+      <Shell
+        previews={props.previews ?? PREVIEWS}
+        project="a-project"
+        scanPreviews={false}
+        viewer={props.viewer}
+      />,
     );
     await vi.advanceTimersByTimeAsync(1500);
   });
@@ -198,6 +209,24 @@ describe("the rail and the stage", () => {
     );
 
     expect(shown.map((frame) => frame.dataset.preview)).toEqual(["Menu"]);
+  });
+
+  test("a page that refuses to be framed says so, and offers a tab of its own", async () => {
+    await mount({
+      previews: [{ title: "Docs", url: "https://docs.example.com/start", tags: [] }, ...PREVIEWS],
+      framing: { framable: false, refusal: { header: "x-frame-options", value: "DENY" } },
+    });
+
+    // The browser fires load for its own "refused" page just as for the real one.
+    await after(() => find('iframe[data-preview="Docs"]').dispatchEvent(new Event("load")));
+
+    const alert = find('[role="alert"]');
+    expect(alert.textContent).toContain("docs.example.com won’t open inside another page");
+    expect(alert.textContent).toContain("X-Frame-Options: DENY");
+
+    const open = alert.querySelector("a");
+    expect(open?.getAttribute("href")).toBe("https://docs.example.com/start");
+    expect(open?.getAttribute("target")).toBe("_blank");
   });
 
   test("C puts a second direction beside the first, and its row says so", async () => {

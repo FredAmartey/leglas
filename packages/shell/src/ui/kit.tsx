@@ -756,6 +756,44 @@ export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reaso
 }
 
 /**
+ * A page that answered and said no to being framed. Unlike a failure there is
+ * nothing to reload, so the one action is the one that works: opening it in a
+ * tab of its own.
+ */
+export function RefusedOverlay({
+  headline,
+  hint,
+  href,
+  reason,
+}: {
+  headline: string;
+  hint: string;
+  href: string;
+  reason: string;
+}) {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white p-6 text-center"
+      role="alert"
+    >
+      <div className="max-w-sm">
+        <p className="text-balance text-sm font-medium text-neutral-800">{headline}</p>
+        <p className="mt-1 text-pretty text-xs leading-snug text-neutral-500">{reason}</p>
+      </div>
+      <a
+        className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-neutral-700"
+        href={href}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        Open in a new tab
+      </a>
+      <p className="max-w-sm text-balance text-[11px] leading-snug text-neutral-400">{hint}</p>
+    </div>
+  );
+}
+
+/**
  * The marks of the agents Leglas can run, so the selector reads before it is
  * read. Claude and Cursor are the official paths as distributed by
  * simple-icons; the Codex mark is the product's own, wearing the blue of its

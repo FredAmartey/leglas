@@ -1,7 +1,8 @@
 import { EASE } from "../prefs.js";
+import { refusalWords, type FrameRefusal } from "../preview/framing.js";
 import { previewFrameIsReady } from "../preview/preview-frame.js";
 import type { BranchPreviewState } from "../types.js";
-import { BranchOverlay, ErrorOverlay, SkeletonOverlay } from "../ui/kit.js";
+import { BranchOverlay, ErrorOverlay, RefusedOverlay, SkeletonOverlay } from "../ui/kit.js";
 
 /**
  * One direction on the stage: its frame, and whatever has to be said over it
@@ -31,6 +32,7 @@ export function Pane({
   onStartBranch,
   order,
   paneScale,
+  refusal,
   scaling,
   second,
   serverUp,
@@ -67,6 +69,8 @@ export function Pane({
   /** Left or right, while two panes share the stage. */
   order: number;
   paneScale: number;
+  /** The page told the browser not to frame it; the pane says so instead of showing the browser's broken page. */
+  refusal: FrameRefusal | null;
   /** Two panes, each drawn at its design width and scaled down to fit. */
   scaling: boolean;
   /** The right-hand pane of a comparison. */
@@ -197,6 +201,8 @@ export function Pane({
                 : "Your dev server stopped. This returns on its own once it is back."
             }
           />
+        ) : refusal !== null ? (
+          <RefusedOverlay href={src} {...refusalWords(refusal, src, window.location.origin)} />
         ) : (
           <SkeletonOverlay loaded={loaded} />
         )}
