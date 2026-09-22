@@ -51,6 +51,13 @@ it was about.
   uncovers it for the rest of the session.
   (`leglas`)
 
+- **Every command answers `--help`.** The command line docs send you to
+  `leglas <command> --help` for a command's options, but `init`, `explore`,
+  `list`, `log`, `show`, `requests` and `keep` refused the flag, and
+  `leglas log -h` went looking for a log entry called "-h". They all print
+  the help now.
+  (`leglas`)
+
 ## 1.1.2 (2026-09-18): The card on a row is drawn again
 
 ### Fixed
