@@ -979,7 +979,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   schedule();
 
   const cancel = (id?: string): boolean => {
-    if (active === null || active.cancelled) return false;
+    // A run Leglas is already ending for its silence keeps that verdict: the
+    // stop would only rename why it ended.
+    if (active === null || active.cancelled || active.silenced) return false;
 
     // A stop aimed at a specific request must not land on its successor: in
     // the gap between one run ending and the next starting, the card the user

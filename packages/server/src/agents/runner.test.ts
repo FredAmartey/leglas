@@ -904,6 +904,47 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test("a stop that lands while a quiet run is being ended leaves its verdict alone", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-race-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Poster"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let grace: (() => void) | null = null;
+    let now = 1_790_000_000_000;
+
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      setTimeout: (callback) => {
+        grace = callback;
+      },
+      now: () => now,
+    });
+
+    await until(() => spawned.children.length === 1);
+    // A child that ignores SIGTERM holds the run open through the grace period.
+    const stubborn = spawned.children[0];
+
+    if (stubborn !== undefined) stubborn.child.kill = vi.fn(() => true);
+
+    now += SILENCE_CEILING_MS;
+    clock.tick();
+    expect(stubborn?.child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    // Leglas has already decided why this run ends; a stop now changes nothing.
+    expect(runner.cancel()).toBe(false);
+
+    grace?.();
+    await until(async () => (await readRequests(cwd))[0]?.status === "failed");
+    expect((await readRequests(cwd))[0]?.failure?.code).toBe("agent-silent");
+    await runner.stop();
+  });
+
   test("an agent that keeps talking is never cut off, however long it runs", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-chatty-"));
     await saveAgentChoice(cwd, { agent: "claude" });
