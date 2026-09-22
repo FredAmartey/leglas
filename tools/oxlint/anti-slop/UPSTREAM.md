@@ -12,6 +12,7 @@ Vendored Oxlint rules from https://github.com/dmmulroy/anti-slop.
   this repository does not depend on Effect.
 - Runtime: `oxlint` and `@oxlint/plugins`, both pinned to the same exact
   version in the root `package.json`. Move them together.
+- License: MIT, in `LICENSE` beside this file, copied from upstream.
 - Local changes: none.
 
 `vendor/eslint-stylistic/` carries its own `LICENSE` and `UPSTREAM.md` and
