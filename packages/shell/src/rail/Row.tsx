@@ -391,7 +391,6 @@ export function RailRow({
           family={(meta?.descendants ?? 0) > 0}
           folded={meta?.folded ?? false}
           fresh={freshFor(title)}
-          lifted={isDragged}
           lit={lit}
           row={meta.graph}
           tint={tint}

@@ -43,8 +43,6 @@ export type CopyKind = "link" | "reference";
 export type ShellStateProps = {
   previews: readonly Preview[];
   project: string;
-  /** Owned by the body; this only focuses it. */
-  searchRef: React.RefObject<HTMLInputElement | null>;
   /** Invoked by the compare shortcut; the split itself lives in the shell. */
   onToggleSplit?: (() => void) | undefined;
   /** Invoked by the help shortcut; the overlay lives in the shell. */
@@ -68,7 +66,6 @@ export type ShellStateProps = {
 export function useShellState({
   previews,
   project,
-  searchRef,
   onToggleSplit,
   onToggleHelp,
   onToggleTools,
