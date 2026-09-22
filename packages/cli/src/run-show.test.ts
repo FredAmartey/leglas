@@ -42,8 +42,13 @@ const add = (cwd: string, title: string, url: string) =>
     collect().deps,
   );
 
-const envelope = (lines: string[]) =>
-  JSON.parse(lines[lines.length - 1] ?? "{}") as Record<string, unknown>;
+type ShowEnvelope = {
+  direction?: { title: string };
+  error?: string;
+  screenshot?: { hydration: { framework: string; message: string } | null };
+};
+
+const envelope = (lines: string[]): ShowEnvelope => JSON.parse(lines[lines.length - 1] ?? "{}");
 
 describe("runShow", () => {
   test("answers to the name the rail was renamed to, not just the config title", async () => {
@@ -59,8 +64,7 @@ describe("runShow", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
-    const direction = envelope(lines)["direction"] as Record<string, unknown>;
-    expect(direction["title"]).toBe("Cool");
+    expect(envelope(lines).direction).toMatchObject({ title: "Cool" });
   });
 
   test("a config title still wins over another direction's local nickname", async () => {
@@ -76,8 +80,7 @@ describe("runShow", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
-    const direction = envelope(lines)["direction"] as Record<string, unknown>;
-    expect(direction["title"]).toBe("Warm");
+    expect(envelope(lines).direction).toMatchObject({ title: "Warm" });
   });
 
   test("refuses a nickname two directions share rather than picking one", async () => {
@@ -323,7 +326,109 @@ describe("whose server a screenshot comes from", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
-    expect((envelope(lines)["screenshot"] as Record<string, unknown>)["hydration"]).toBeNull();
+    expect(envelope(lines).screenshot?.hydration).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("capture response boundaries", () => {
+  const capture = {
+    file: ".leglas/captures/show/aurora.png",
+    width: 390,
+    height: 800,
+    viewport: 390,
+  };
+
+  test.each([
+    { body: { ...capture, file: 4 }, status: 200 },
+    { body: { ...capture, width: "390" }, status: 200 },
+    { body: { ...capture, height: null }, status: 200 },
+    { body: { ...capture, viewport: false }, status: 200 },
+    { body: { error: 503 }, status: 503 },
+  ])("rejects malformed capture fields: $body", async ({ body, status }) => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v-hero=aurora");
+    const { deps, lines } = collect();
+
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json({ cwd: 42 }))
+      .mockResolvedValueOnce(Response.json(body, { status }));
+
+    const result = await runShow(
+      { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
+      { ...deps, fetch },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(envelope(lines).error).toBe("The direction could not be captured.");
+  });
+
+  test("keeps string diagnostics in order and ignores incomplete hydration evidence", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v-hero=aurora");
+    const { deps, lines } = collect();
+
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json({ cwd }))
+      .mockResolvedValueOnce(
+        Response.json({
+          ...capture,
+          errors: ["first", null, 1, "second"],
+          hydration: { framework: "React", message: false },
+          cut: "true",
+        }),
+      );
+
+    await runShow(
+      { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
+      { ...deps, fetch },
+    );
+
+    expect(envelope(lines).screenshot).toEqual({
+      ...capture,
+      errors: ["first", "second"],
+      hydration: null,
+      cut: false,
+    });
+  });
+
+  test.each([200, 503])(
+    "a null capture reply is a failed capture, not a crash, for status %s",
+    async (status) => {
+      const cwd = scratch();
+      await add(cwd, "Aurora", "/?v-hero=aurora");
+      const { deps, lines } = collect();
+
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(Response.json({ cwd }))
+        .mockResolvedValueOnce(Response.json(null, { status }));
+
+      const result = await runShow(
+        { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
+        { ...deps, fetch },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(envelope(lines).error).toBe("The direction could not be captured.");
+    },
+  );
+
+  test("a null health reply fails before requesting a capture", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v-hero=aurora");
+    const { deps, lines } = collect();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(Response.json(null));
+
+    const result = await runShow(
+      { title: "Aurora", json: true, screenshot: true, width: null, port: 4321, cwd },
+      { ...deps, fetch },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(envelope(lines).error).toContain("Leglas is not running here");
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

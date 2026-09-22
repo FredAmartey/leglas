@@ -80,7 +80,7 @@ describe("CHANGELOG.md", () => {
       const path = join(out, "releases.json");
       expect(written).toContain(path);
       const text = readFileSync(path, "utf8");
-      const releases = JSON.parse(text) as { version: string; date: string; title: string }[];
+      const releases: { version: string; date: string; title: string }[] = JSON.parse(text);
 
       const declared = JSON.parse(
         readFileSync(join(root, "packages/cli/package.json"), "utf8"),

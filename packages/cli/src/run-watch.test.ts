@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { appendRequest, readRequests } from "@leglas/server";
 
+import type { JsonValue } from "./json.js";
 import { runWatch } from "./run-watch.js";
 
 /**
@@ -41,7 +42,7 @@ function deps() {
   };
 }
 
-function writeWatchConfig(root: string, config: Record<string, unknown>): void {
+function writeWatchConfig(root: string, config: { [key: string]: JsonValue }): void {
   mkdirSync(join(root, ".leglas"), { recursive: true });
   writeFileSync(join(root, ".leglas/watch.json"), `${JSON.stringify(config, null, 2)}\n`);
 }

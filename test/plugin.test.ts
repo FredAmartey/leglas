@@ -21,10 +21,11 @@ const root = join(import.meta.dirname, "..");
 
 const read = (path: string): string => readFileSync(join(root, path), "utf8");
 
-const readJson = (path: string): Record<string, unknown> =>
-  JSON.parse(read(path)) as Record<string, unknown>;
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-const schema = (name: string): Record<string, unknown> =>
+const readJson = (path: string): { [key: string]: JsonValue } => JSON.parse(read(path));
+
+const schema = (name: string): { [key: string]: JsonValue } =>
   readJson(`schemas/agent-plugins-1.0.0/${name}.schema.json`);
 
 /**
@@ -34,7 +35,7 @@ const schema = (name: string): Record<string, unknown> =>
  */
 const validator = new Ajv2020({ strict: false, allErrors: true });
 
-function violations(manifest: Record<string, unknown>, against: string): string[] {
+function violations(manifest: { [key: string]: JsonValue }, against: string): string[] {
   const validate = validator.compile(schema(against));
 
   if (validate(manifest)) return [];
@@ -133,7 +134,8 @@ describe("the plugin's components", () => {
   test("mcp.json launches the package this repository publishes", () => {
     type Server = { type: string; command?: string; args?: string[] };
 
-    const servers = readJson("mcp.json")["mcpServers"] as Record<string, Server>;
+    const manifest: { mcpServers: Record<string, Server> } = JSON.parse(read("mcp.json"));
+    const servers = manifest.mcpServers;
     const published = readJson("packages/mcp/package.json")["name"];
 
     const launched = Object.values(servers)

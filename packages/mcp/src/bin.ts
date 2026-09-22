@@ -16,6 +16,7 @@ import { registerLeglasTools } from "./tools.js";
 
 function version(): string {
   const require = createRequire(import.meta.url);
+  // SAFETY: The MCP package includes its own manifest with the published version.
   const pkg = require("../package.json") as { version: string };
 
   return pkg.version;

@@ -30,6 +30,19 @@ import type { Project } from "./project.js";
  * One implementation of every operation, two faces on it.
  */
 
+/** A capture path is useful only when the CLI returned it as text. */
+function hasCaptureFile(value: unknown): value is { screenshot: { file: string } } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "screenshot" in value &&
+    typeof value.screenshot === "object" &&
+    value.screenshot !== null &&
+    "file" in value.screenshot &&
+    typeof value.screenshot.file === "string"
+  );
+}
+
 type CaptureDeps = { log(line: string): void; error(line: string): void };
 
 async function capture(
@@ -259,13 +272,15 @@ export function registerLeglasTools(
       if (text === undefined || text.type !== "text") return result;
 
       try {
-        const envelope = JSON.parse(text.text) as { screenshot?: { file?: unknown } };
-        const file = envelope.screenshot?.file;
+        const envelope: unknown = JSON.parse(text.text);
+
+        if (!hasCaptureFile(envelope)) return result;
+        const file = envelope.screenshot.file;
 
         // The path comes back over a loopback socket, which a stale record
         // can point at something that is not Leglas. Only a real file inside
         // this project's captures is read and handed to the host.
-        if (typeof file !== "string" || !(await isOwnCapture(located.directory, file))) {
+        if (!(await isOwnCapture(located.directory, file))) {
           return result;
         }
 

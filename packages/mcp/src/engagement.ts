@@ -23,8 +23,8 @@ const POST_TIMEOUT_MS = 1000;
 
 export type EngagementDeps = {
   post?: (watching: boolean) => Promise<void>;
-  setInterval?: (callback: () => void, milliseconds: number) => unknown;
-  clearInterval?: (handle: unknown) => void;
+  setInterval?: (callback: () => void, milliseconds: number) => ReturnType<typeof setInterval>;
+  clearInterval?: (handle: ReturnType<typeof setInterval>) => void;
   now?: () => number;
 };
 
@@ -64,12 +64,11 @@ export function createEngagement(deps: EngagementDeps = {}): Engagement {
   const setEvery =
     deps.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
 
-  const clearEvery =
-    deps.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+  const clearEvery = deps.clearInterval ?? ((handle) => clearInterval(handle));
 
   const now = deps.now ?? (() => Date.now());
 
-  let timer: unknown = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
   let lastTouch = 0;
 
   const quiet = () => {

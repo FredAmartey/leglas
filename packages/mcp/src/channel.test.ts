@@ -14,6 +14,7 @@ import {
   startChannel,
   unpushed,
   type Channel,
+  type ChannelEvent,
 } from "./channel.js";
 import { fixedProject } from "./project.js";
 
@@ -42,26 +43,46 @@ function writeQueue(cwd: string, requests: PendingRequest[]): void {
   writeFileSync(join(cwd, ".leglas/requests.json"), JSON.stringify({ requests }));
 }
 
+function isChannelEvent(value: unknown): value is ChannelEvent {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "content" in value &&
+    typeof value.content === "string" &&
+    "meta" in value &&
+    typeof value.meta === "object" &&
+    value.meta !== null &&
+    Object.values(value.meta).every((entry): entry is string => typeof entry === "string")
+  );
+}
+
 /** A connected pair with the client capturing channel notifications. */
 async function connect(
   cwd: string,
   pollMs: number,
   read?: (cwd: string) => Promise<PendingRequest[]>,
-): Promise<{ events: unknown[] }> {
+): Promise<{ events: ChannelEvent[] }> {
   const server = new McpServer(
     { name: "leglas-test", version: "0.0.0" },
     { capabilities: { experimental: CHANNEL_CAPABILITY } },
   );
 
   const client = new Client({ name: "test-host", version: "0.0.0" });
-  const events: unknown[] = [];
+  const events: ChannelEvent[] = [];
   client.fallbackNotificationHandler = async (notification) => {
-    if (notification.method === "notifications/claude/channel") events.push(notification.params);
+    if (notification.method !== "notifications/claude/channel") return;
+    const event = notification.params;
+
+    if (!isChannelEvent(event)) throw new Error("Malformed channel event.");
+    events.push(event);
   };
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-  channels.push(startChannel(server, { project: fixedProject(cwd), pollMs, read }));
+  const options: Parameters<typeof startChannel>[1] = { project: fixedProject(cwd), pollMs };
+
+  if (read !== undefined) options.read = read;
+  channels.push(startChannel(server, options));
 
   return { events };
 }
@@ -154,7 +175,7 @@ describe("startChannel", () => {
 
     await until(() => events.length >= 2);
     await new Promise((tick) => setTimeout(tick, 60));
-    const ids = events.map((event) => (event as { meta: { request_id: string } }).meta.request_id);
+    const ids = events.map((event) => event.meta.request_id);
     expect(ids.sort()).toEqual(["a", "b"]);
   });
 

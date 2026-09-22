@@ -23,10 +23,10 @@ export function detectFramework(packageJson: string | null): Framework {
   if (!packageJson) return "react";
 
   try {
-    const parsed = JSON.parse(packageJson) as {
+    const parsed: {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
-    };
+    } = JSON.parse(packageJson);
 
     const deps = { ...parsed.dependencies, ...parsed.devDependencies };
 

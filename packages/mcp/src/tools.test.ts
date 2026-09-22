@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
@@ -61,18 +60,22 @@ async function connect(
   return client;
 }
 
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 async function call(
   client: Client,
   name: string,
-  args: Record<string, unknown>,
-): Promise<{ envelope: Record<string, unknown>; isError: boolean }> {
-  const result = (await client.callTool({ name, arguments: args })) as {
-    content: { type: string; text: string }[];
-    isError?: boolean;
-  };
+  args: { [key: string]: JsonValue },
+): Promise<{ envelope: { [key: string]: JsonValue }; isError: boolean }> {
+  const result = CallToolResultSchema.parse(await client.callTool({ name, arguments: args }));
+  const first = result.content[0];
+
+  const envelope: { [key: string]: JsonValue } = JSON.parse(
+    first?.type === "text" ? first.text : "{}",
+  );
 
   return {
-    envelope: JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>,
+    envelope,
     isError: result.isError === true,
   };
 }
@@ -124,9 +127,10 @@ describe("the MCP face", () => {
     const { envelope, isError } = await call(client, "show", { title: "Aurora" });
 
     expect(isError).toBe(false);
-    const direction = envelope["direction"] as Record<string, unknown>;
-    expect(direction["note"]).toBe("Warm.");
-    expect(direction["target"]).toBe(".leglas/variants/hero/aurora.tsx");
+    expect(envelope["direction"]).toMatchObject({
+      note: "Warm.",
+      target: ".leglas/variants/hero/aurora.tsx",
+    });
     expect(envelope["comparedWith"]).toContain("Dusk");
     expect(envelope["comparedWith"]).not.toContain("Aurora");
   });
@@ -167,20 +171,18 @@ describe("the MCP face", () => {
 
     captureServers.push(captureServer);
     await new Promise<void>((resolve) => captureServer.listen(0, "127.0.0.1", resolve));
-    const port = (captureServer.address() as AddressInfo).port;
+    // SAFETY: `listen` completed on a TCP host, so `address` is an IP address and port.
+    const port = (captureServer.address() as import("node:net").AddressInfo).port;
     await writeServerInfo(dir, { port, url: `http://localhost:${port}`, pid: process.pid });
     const client = await connect(dir);
     await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
 
-    const result = (await client.callTool({
-      name: "show",
-      arguments: { title: "Aurora", screenshot: true, width: 390 },
-    })) as {
-      content: Array<
-        { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
-      >;
-      isError?: boolean;
-    };
+    const result = CallToolResultSchema.parse(
+      await client.callTool({
+        name: "show",
+        arguments: { title: "Aurora", screenshot: true, width: 390 },
+      }),
+    );
 
     expect(result.isError).not.toBe(true);
     expect(result.content[0]?.type).toBe("text");
@@ -225,8 +227,9 @@ describe("the MCP face", () => {
 
     const { envelope } = await call(client, "list", {});
 
-    const previews = envelope["previews"] as { title: string; local: boolean }[];
-    expect(previews.some((preview) => preview.title === "Aurora" && preview.local)).toBe(true);
+    expect(envelope["previews"]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Aurora", local: true })]),
+    );
   });
 
   test("classify routes a dependency change to a checkout", async () => {

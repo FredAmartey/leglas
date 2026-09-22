@@ -1,4 +1,4 @@
-import { REPO, bar, document, foot, type Assets } from "./chrome.ts";
+import { bar, document, foot, type Assets } from "./chrome.ts";
 
 /**
  * The homepage. Everything on it is in the README and docs at greater length; this is

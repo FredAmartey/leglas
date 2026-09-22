@@ -7,6 +7,7 @@ import {
   collectRequests,
   loadConfig,
   readLocalPreviews,
+  type PendingRequest,
 } from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
@@ -21,7 +22,37 @@ export type PreviewResult = { exitCode: number };
  * Every command prints a single JSON envelope under --json, with a stable
  * shape and exit code, so an agent and a human drive the same surface.
  */
-function envelope(deps: PreviewDeps, ok: boolean, body: Record<string, unknown>): void {
+type AddedPreview = {
+  added: string;
+  url?: string;
+  local?: boolean;
+  branch?: string;
+  file?: string;
+  note?: string;
+  warning?: string;
+};
+
+type EnvelopeBody =
+  | { error: string | undefined }
+  | AddedPreview
+  | {
+      previews: {
+        title: string;
+        url: string;
+        note: string | null;
+        tags: readonly string[];
+        basedOn: string | null;
+        askedFor: string | null;
+        local: boolean;
+        branch: string | null;
+        file: string | null;
+      }[];
+      errors: string[];
+    }
+  | { cleared: number; pending: number }
+  | { requests: PendingRequest[] };
+
+function envelope(deps: PreviewDeps, ok: boolean, body: EnvelopeBody): void {
   deps.log(JSON.stringify({ ok, ...body }));
 }
 
@@ -105,23 +136,25 @@ export async function runAdd(
     options.preview.branch !== undefined && loaded.config?.devCommand === undefined;
 
   if (options.json) {
-    envelope(deps, true, {
-      added: options.preview.title,
-      ...(options.preview.url === undefined ? {} : { url: options.preview.url }),
-      local: true,
-      ...(options.preview.branch === undefined ? {} : { branch: options.preview.branch }),
-      ...(options.preview.file === undefined ? {} : { file: options.preview.file }),
-      note:
-        options.preview.branch === undefined && options.preview.file === undefined
-          ? "A running interface picks this up within seconds."
-          : "Restart Leglas to see this preview: branch checkouts and file mounts are built when Leglas starts.",
-      ...(needsDevCommand
-        ? {
-            warning:
-              "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config.",
-          }
-        : {}),
-    });
+    const added: AddedPreview = { added: options.preview.title };
+
+    if (options.preview.url !== undefined) added.url = options.preview.url;
+    added.local = true;
+
+    if (options.preview.branch !== undefined) added.branch = options.preview.branch;
+
+    if (options.preview.file !== undefined) added.file = options.preview.file;
+    added.note =
+      options.preview.branch === undefined && options.preview.file === undefined
+        ? "A running interface picks this up within seconds."
+        : "Restart Leglas to see this preview: branch checkouts and file mounts are built when Leglas starts.";
+
+    if (needsDevCommand) {
+      added.warning =
+        "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config.";
+    }
+
+    envelope(deps, true, added);
   } else {
     deps.log(
       `  added  ${options.preview.title}  ${options.preview.url ?? options.preview.file ?? ""}`,

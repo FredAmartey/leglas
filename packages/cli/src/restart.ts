@@ -1,4 +1,4 @@
-import type { spawn as spawnChild } from "node:child_process";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 
 import type { RestartCommand } from "@leglas/server";
 
@@ -16,13 +16,13 @@ export function createHandoff() {
     command: RestartCommand,
     stop: () => Promise<void>,
     deps: {
-      spawn: typeof spawnChild;
+      spawn: (file: string, args: string[], options: SpawnOptions) => ChildProcess;
       exit: (code: number) => void;
-      target: SignalTarget & { off(signal: ShutdownSignal, listener: () => void): unknown };
+      target: SignalTarget & { off(signal: ShutdownSignal, listener: () => void): void };
     },
   ): Promise<void> {
     transferred = true;
-    let child: ReturnType<typeof spawnChild> | null = null;
+    let child: ChildProcess | null = null;
     let cancelled = false;
     let exited = false;
 
@@ -59,10 +59,10 @@ export function createHandoff() {
 
     if (cancelled) return exit(0);
 
-    const failed = (error: unknown): void => {
+    const failed = (cause: unknown): void => {
       if (exited) return;
 
-      const message = (error instanceof Error ? error.message : String(error)).replace(
+      const message = (cause instanceof Error ? cause.message : String(cause)).replace(
         /[.!?]+$/,
         "",
       );

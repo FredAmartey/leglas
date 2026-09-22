@@ -17,6 +17,7 @@ import {
 } from "@leglas/server";
 
 import { WATCH_PATH, commandFor, nextRequest, parseTemplate, type WatchTemplate } from "./watch.js";
+import { isJsonObject, type JsonValue } from "./json.js";
 
 export type WatchDeps = { log(line: string): void; error(line: string): void };
 
@@ -37,14 +38,12 @@ async function saveTemplate(cwd: string, run: string): Promise<void> {
   // The file also carries the interface's agent choice. Writing only the
   // template here would silently erase that choice and switch the embedded
   // runner off, so the template joins the file instead of becoming it.
-  let config: Record<string, unknown> = {};
+  let config: { [key: string]: JsonValue } = {};
 
   try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+    const parsed: JsonValue = JSON.parse(await readFile(path, "utf8"));
 
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      config = parsed as Record<string, unknown>;
-    }
+    if (isJsonObject(parsed)) config = parsed;
   } catch {
     // Never watched here before; an empty config is the whole story.
   }
