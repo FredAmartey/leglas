@@ -158,6 +158,7 @@ describe("requestCard", () => {
       title: "Warm serif",
       stopping: false,
       waiting: null,
+      quietSince: null,
     });
   });
 
@@ -171,6 +172,7 @@ describe("requestCard", () => {
       title: "Aurora",
       stopping: false,
       waiting: null,
+      quietSince: null,
     });
   });
 
@@ -381,6 +383,7 @@ describe("what the status card says", () => {
     title: "Aurora",
     stopping: false,
     waiting: null,
+    quietSince: null,
   };
 
   test("a run names its agent, then the one useful thing about it", () => {
@@ -392,6 +395,41 @@ describe("what the status card says", () => {
     expect(
       cardDetail({ ...running, waiting: { attempt: 2, max: 5, status: 429, reason: null } }),
     ).toBe("provider is rate limiting · retry 2 of 5");
+  });
+
+  test("a run that has gone quiet says for how long, in place of its last activity", () => {
+    const quiet = { ...running, quietSince: 1_000_000 };
+
+    expect(cardDetail(quiet, 1_000_000 + 4 * 60_000 + 12_000)).toBe("no output for 4m 12s");
+    // A provider backing off is the better explanation of the same silence.
+    expect(
+      cardDetail({ ...quiet, waiting: { attempt: 2, max: 5, status: 529, reason: null } }, 0),
+    ).toBe("provider is overloaded · retry 2 of 5");
+    expect(cardDetail({ ...quiet, stopping: true }, 0)).toBe("waiting for it to exit");
+    // Without a clock to read it against, the card falls back to what it had.
+    expect(cardDetail(quiet)).toBe("Editing hero.tsx");
+  });
+
+  test("the card carries the quiet only while the run is not already stopping", () => {
+    const agent = {
+      attached: false,
+      running: true,
+      name: "Codex",
+      activity: "editing src/Hero.tsx",
+      startedAt: 1_000,
+      quietSince: 2_000,
+    };
+
+    const card = requestCard([request("running", "running")], agent, true);
+    expect(card?.kind === "running" ? card.quietSince : "not running").toBe(2_000);
+
+    const stopping = requestCard(
+      [request("running", "running")],
+      { ...agent, stopping: true },
+      true,
+    );
+
+    expect(stopping?.kind === "running" ? stopping.quietSince : "not running").toBeNull();
   });
 
   test("a stop in progress says so until the agent actually goes", () => {

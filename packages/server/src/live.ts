@@ -104,11 +104,7 @@ export function createCoalescer(
     });
 
   const clearLater: NonNullable<typeof options.clearTimeout> =
-    options.clearTimeout ??
-    ((handle) => {
-      // SAFETY: Native scheduling and clearing are paired; injected clocks provide both operations.
-      clearTimeout(handle);
-    });
+    options.clearTimeout ?? ((handle) => clearTimeout(handle));
 
   // One pending nudge per kind, so a burst of config changes cannot delay a
   // requests nudge that arrived in the middle of it.

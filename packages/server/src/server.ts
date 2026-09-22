@@ -2014,6 +2014,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         startedAt: null,
         stopping: false,
         waiting: null,
+        quietSince: null,
         failedIds: [],
       };
 
@@ -2053,6 +2054,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             stopping: snapshot.running && snapshot.stopping,
             // Why a run that looks stalled is stalled, while it is stalled.
             waiting: snapshot.running ? snapshot.waiting : null,
+            // When a run that has gone quiet last said anything. A run on its
+            // way out is not quiet, it is stopping.
+            quietSince: snapshot.running && !snapshot.stopping ? snapshot.quietSince : null,
           },
         }),
       );

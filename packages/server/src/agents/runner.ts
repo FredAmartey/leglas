@@ -30,6 +30,7 @@ import {
   type PendingRequest,
 } from "../requests/requests.js";
 import type { TimerHandle } from "../timers.js";
+import { QUIET_NOTICE_MS, SILENCE_CEILING_MS } from "./silence.js";
 
 const POLL_MS = 2000;
 
@@ -77,6 +78,13 @@ export type RunnerState = {
    * backoff, but it can stop the wait being a mystery.
    */
   waiting: RetryNotice | null;
+  /**
+   * When the agent last said anything, once it has been quiet past the notice;
+   * null while it is talking. The card reads the silence off this against its
+   * own clock, so a stall shows as a stall instead of as the last thing the
+   * agent happened to be doing.
+   */
+  quietSince: number | null;
   failedIds: readonly string[];
 };
 
@@ -119,6 +127,8 @@ export type RunnerOptions = {
   clearInterval?: (handle: TimerHandle) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
   setTimeout?: (callback: () => void, milliseconds: number) => void;
+  /** Injected by tests so half an hour of silence does not cost half an hour. */
+  now?: () => number;
   /**
    * How a fork's prompt names the registration CLI, exactly as the prompt
    * composer received it. It feeds the pre-approval a non-interactive CLI
@@ -285,12 +295,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const setEvery =
     options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
 
-  const clearEvery =
-    options.clearInterval ??
-    ((handle) => {
-      // SAFETY: The default interval comes from Node; injected clocks provide the corresponding clear operation.
-      clearInterval(handle);
-    });
+  const clearEvery = options.clearInterval ?? ((handle) => clearInterval(handle));
 
   const failed = new Set<string>();
 
@@ -302,6 +307,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       setTimeout(callback, milliseconds).unref?.();
     });
 
+  const now = options.now ?? (() => Date.now());
+
   let state: ActiveRunnerState = {
     running: false,
     requestId: null,
@@ -310,6 +317,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     startedAt: null,
     stopping: false,
     waiting: null,
+    quietSince: null,
   };
 
   const setState = (
@@ -335,6 +343,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     controller: AbortController;
     /** Settle the run as stopped without waiting for the child's streams. */
     abandon: () => void;
+    /** When the agent last produced a line of output, or started. */
+    heardAt: number;
+    /** True once Leglas has ended the run for saying nothing. */
+    silenced: boolean;
   } | null = null;
 
   /** Which vendor the run in flight is on, so a switch never tears it down. */
@@ -430,6 +442,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       startedAt: null,
       stopping: false,
       waiting: null,
+      quietSince: null,
     });
   };
 
@@ -493,6 +506,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       cancelled: false,
       controller,
       abandon: () => {},
+      heardAt: now(),
+      silenced: false,
     };
 
     // Cancellation has to exist before an embedded transport starts. Warming,
@@ -502,6 +517,18 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     activeAgent = resolved.agent;
 
     const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
+    const silent = (): ChildOutcome => ({ ok: false, error: "silent" });
+
+    // Any line at all, on either stream, is the agent still being there. The
+    // state only changes when a notice is showing, so a chatty run costs no
+    // extra reads.
+    const heard = () => {
+      current.heardAt = now();
+
+      if (active === current && state.quietSince !== null) {
+        setState((value) => ({ ...value, quietSince: null }));
+      }
+    };
 
     const startPersistent = async (): Promise<RunnerChild> => {
       if (persistent === null) throw new Error("No persistent transport.");
@@ -564,6 +591,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
                 stdio: ["ignore", "pipe", "pipe"],
               });
       } catch (error) {
+        // A transport ended for its silence must not fall back to the CLI
+        // behind it: that would be the same unanswered question, asked again.
+        if (current.silenced) return silent();
+
         if (current.cancelled || stopped || controller.signal.aborted) return cancelled();
 
         // A missing SDK, older Codex build or failed persistent handshake keeps
@@ -598,10 +629,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           // The run is already classified as cancelled below.
         }
 
-        return cancelled();
+        return current.silenced ? silent() : cancelled();
       }
 
       const stdoutFlush = lineReader(child.stdout, (line) => {
+        heard();
         rememberLine(lines, line);
         const sessionId = sessionFrom(resolved.agent, line);
 
@@ -627,7 +659,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         }
       });
 
-      const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
+      const stderrFlush = lineReader(child.stderr, (line) => {
+        heard();
+        rememberLine(lines, line);
+      });
 
       return await new Promise<ChildOutcome>((resolve) => {
         let settled = false;
@@ -640,11 +675,21 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           resolve(outcome);
         };
 
-        current.abandon = () => settle(cancelled());
+        current.abandon = () => settle(current.silenced ? silent() : cancelled());
 
-        child.once("error", (error) => settle({ ok: false, error: error.message }));
+        // An error on the way out, a signal Node could not deliver, belongs to
+        // the ending Leglas already chose. Only an error nobody asked for is
+        // the agent's own failure.
+        child.once("error", (error) => {
+          if (current.cancelled) return settle(cancelled());
+
+          if (current.silenced) return settle(silent());
+          settle({ ok: false, error: error.message });
+        });
         child.once("close", (code, signal) => {
           if (current.cancelled) return settle(cancelled());
+
+          if (current.silenced) return settle(silent());
 
           if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
           settle({ ok: true, code: code ?? 0 });
@@ -722,6 +767,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         startedAt: Date.now(),
         stopping: false,
         waiting: null,
+        quietSince: null,
       });
 
       const observed: ObservedTurn = {
@@ -884,23 +930,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       });
   };
 
-  const timer = setEvery(() => schedule(), POLL_MS);
-  schedule();
-
-  const cancel = (id?: string): boolean => {
-    if (active === null || active.cancelled) return false;
-
-    // A stop aimed at a specific request must not land on its successor: in
-    // the gap between one run ending and the next starting, the card the user
-    // clicked may describe a run that no longer exists. Refusing the mismatch
-    // makes that click a no-op instead of a misfire.
-    if (id !== undefined && active.requestId !== id) return false;
-    const current = active;
-    current.cancelled = true;
-    failed.add(current.requestId);
-    // The card stops claiming the run is live the moment the stop is asked
-    // for, rather than whenever the child gets around to going.
-    setState((value) => ({ ...value, stopping: true, waiting: null }));
+  /** Ask the run in flight to go, and make sure it has gone once the grace period is up. */
+  const end = (current: NonNullable<typeof active>): void => {
     current.controller.abort();
 
     try {
@@ -921,6 +952,57 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
       current.abandon();
     }, CANCEL_GRACE_MS);
+  };
+
+  /**
+   * Check on the run in flight, once a poll. Quiet past the notice, the card
+   * learns when the agent last spoke; quiet past the ceiling, the run is ended
+   * the way a stop ends it, under a verdict of its own rather than the
+   * user's. Any output resets both, so a run that keeps talking is never cut.
+   */
+  const listen = (): void => {
+    const current = active;
+
+    if (current === null || current.cancelled || current.silenced) return;
+    const quiet = now() - current.heardAt;
+
+    if (quiet >= SILENCE_CEILING_MS) {
+      current.silenced = true;
+      setState((value) => ({ ...value, stopping: true, waiting: null, quietSince: null }));
+      end(current);
+
+      return;
+    }
+
+    if (quiet >= QUIET_NOTICE_MS && state.quietSince === null) {
+      setState((value) => ({ ...value, quietSince: current.heardAt }));
+    }
+  };
+
+  const timer = setEvery(() => {
+    listen();
+    schedule();
+  }, POLL_MS);
+
+  schedule();
+
+  const cancel = (id?: string): boolean => {
+    // A run Leglas is already ending for its silence keeps that verdict: the
+    // stop would only rename why it ended.
+    if (active === null || active.cancelled || active.silenced) return false;
+
+    // A stop aimed at a specific request must not land on its successor: in
+    // the gap between one run ending and the next starting, the card the user
+    // clicked may describe a run that no longer exists. Refusing the mismatch
+    // makes that click a no-op instead of a misfire.
+    if (id !== undefined && active.requestId !== id) return false;
+    const current = active;
+    current.cancelled = true;
+    failed.add(current.requestId);
+    // The card stops claiming the run is live the moment the stop is asked
+    // for, rather than whenever the child gets around to going.
+    setState((value) => ({ ...value, stopping: true, waiting: null, quietSince: null }));
+    end(current);
 
     return true;
   };

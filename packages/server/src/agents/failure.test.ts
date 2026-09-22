@@ -104,6 +104,21 @@ describe("classifyFailure", () => {
     );
   });
 
+  test("a run that went quiet is ended by Leglas, and says so", () => {
+    // The same process would sit on the same unanswerable question a second
+    // time, which is why this is not a conversation failure either.
+    const failure = classifyFailure({
+      agent: "Cursor",
+      error: "silent",
+      lines: ["Do you trust the files in this folder? (y/n)"],
+    });
+
+    expect(failure.code).toBe("agent-silent");
+    expect(failure.message).toBe(
+      "Cursor sent nothing for 30 minutes, so Leglas stopped it. It may have been waiting on a question nothing here can answer. Its last output is in the Leglas terminal.",
+    );
+  });
+
   test("only a session-shaped failure earns a second run", () => {
     expect(conversationFailure("agent-error")).toBe(true);
 
@@ -116,6 +131,7 @@ describe("classifyFailure", () => {
       "provider-limit",
       "needs-trust",
       "not-registered",
+      "agent-silent",
     ] as const) {
       expect([code, conversationFailure(code)]).toEqual([code, false]);
     }

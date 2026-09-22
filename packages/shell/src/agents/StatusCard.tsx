@@ -130,11 +130,10 @@ export function StatusCard({
   onDismiss: (id: string) => void;
   onRetry: (id: string) => void;
 }) {
-  const detail = cardDetail(card);
   // The elapsed counter ticks locally between polls; the anchor comes from
   // the server so a reload half-way through a run does not restart it. The
   // tick lives here so that one second passing redraws this card and not the
-  // rail and the stage around it.
+  // rail and the stage around it. The quiet line reads the same clock.
   const runStartedAt = card.kind === "running" ? card.startedAt : null;
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -144,6 +143,7 @@ export function StatusCard({
 
     return () => window.clearInterval(timer);
   }, [runStartedAt]);
+  const detail = cardDetail(card, runStartedAt === null ? null : clock);
 
   return (
     <div

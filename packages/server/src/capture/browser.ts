@@ -985,11 +985,7 @@ export function createBrowserPool(
     });
 
   const clearLater: NonNullable<typeof options.clearTimeout> =
-    options.clearTimeout ??
-    ((handle) => {
-      // SAFETY: The default clock returns Node timers; an injected clock supplies its matching clear function.
-      clearTimeout(handle);
-    });
+    options.clearTimeout ?? ((handle) => clearTimeout(handle));
 
   let browser: Browser | null = null;
   let exposed: Browser | null = null;

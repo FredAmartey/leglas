@@ -46,6 +46,11 @@ export type AgentStatus = {
   /** A stop has been asked for and the agent has not gone yet. */
   stopping?: boolean;
   waiting?: AgentWaiting | null;
+  /**
+   * When a run that has gone quiet last said anything; null while it talks.
+   * Absent from an older server, which never says.
+   */
+  quietSince?: number | null;
 };
 
 export type AgentOption = {
@@ -174,6 +179,8 @@ export type RequestCard =
       stopping: boolean;
       /** Set while the vendor is backing off, so the wait can say why. */
       waiting: AgentWaiting | null;
+      /** When the agent last said anything, once it has gone quiet. */
+      quietSince: number | null;
     }
   | { kind: "queued"; count: number; attended: boolean }
   | { kind: "picked-up" }
@@ -230,13 +237,23 @@ export function cardHeadline(card: RequestCard): string {
           : "That change failed";
 }
 
-export function cardDetail(card: RequestCard): string | null {
+/**
+ * The card's second line, read against the card's own clock where the line
+ * depends on time. A quiet run shows how long it has been quiet instead of
+ * the last thing it was doing: a stalled agent used to go on reading
+ * "editing hero.tsx" for as long as it stalled, which says the opposite of
+ * what is happening. A vendor's retry outranks the silence because it is the
+ * better explanation of it.
+ */
+export function cardDetail(card: RequestCard, now: number | null = null): string | null {
   return card.kind === "running"
     ? card.stopping
       ? "waiting for it to exit"
       : card.waiting !== null
         ? waitingLabel(card.waiting)
-        : (card.activity ?? card.title)
+        : card.quietSince !== null && now !== null
+          ? `no output for ${formatElapsed(now - card.quietSince)}`
+          : (card.activity ?? card.title)
     : card.kind === "queued"
       ? card.attended
         ? "your agent picks it up next"
@@ -277,8 +294,10 @@ export function requestCard(
       startedAt: agent.startedAt,
       title: running?.title ?? null,
       stopping: agent.stopping === true,
-      // A run on its way out is not waiting on a provider any more.
+      // A run on its way out is not waiting on a provider any more, and is
+      // not quiet either: it is stopping.
       waiting: agent.stopping === true ? null : (agent.waiting ?? null),
+      quietSince: agent.stopping === true ? null : (agent.quietSince ?? null),
     };
   }
 

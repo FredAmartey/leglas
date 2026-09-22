@@ -1,3 +1,5 @@
+import { SILENCE_CEILING_MS } from "./silence.js";
+
 /**
  * Why a run ended, in words the interface can show and code it can act on.
  *
@@ -30,7 +32,13 @@ export type FailureCode =
   /** The run exited cleanly without registering the direction it was asked for. */
   | "not-registered"
   /** The agent ran, did its own thing, and exited nonzero. */
-  | "agent-error";
+  | "agent-error"
+  /**
+   * The agent said nothing for so long that Leglas ended it: most likely a
+   * prompt nothing here can answer. Never retried, because the same process
+   * would sit on the same question again.
+   */
+  | "agent-silent";
 
 export type Failure = { code: FailureCode; message: string };
 
@@ -132,6 +140,8 @@ function message(code: FailureCode, input: FailureInput): string {
       return `Codex refused this project: it is not a git repository and Codex has no trust on record for it.`;
     case "not-registered":
       return `${agent} finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.`;
+    case "agent-silent":
+      return `${agent} sent nothing for ${SILENCE_CEILING_MS / 60_000} minutes, so Leglas stopped it. It may have been waiting on a question nothing here can answer. Its last output is in the Leglas terminal.`;
     case "agent-error":
       return input.exitCode === null || input.exitCode === undefined
         ? `${agent} stopped without finishing. Its last output is in the Leglas terminal.`
@@ -157,14 +167,16 @@ export function classifyFailure(input: FailureInput): Failure {
       ? "cancelled"
       : error === "not-registered"
         ? "not-registered"
-        : error !== null && error.startsWith("stopped by ")
-          ? "stopped"
-          : error !== null && MISSING_BINARY.test(error)
-            ? "missing-agent"
-            : ((error !== null ? fromLines([error]) : null) ??
-              fromStatus(input.retry?.status ?? null, input.retry?.reason ?? null) ??
-              fromLines(lines) ??
-              "agent-error");
+        : error === "silent"
+          ? "agent-silent"
+          : error !== null && error.startsWith("stopped by ")
+            ? "stopped"
+            : error !== null && MISSING_BINARY.test(error)
+              ? "missing-agent"
+              : ((error !== null ? fromLines([error]) : null) ??
+                fromStatus(input.retry?.status ?? null, input.retry?.reason ?? null) ??
+                fromLines(lines) ??
+                "agent-error");
 
   return { code, message: message(code, input) };
 }

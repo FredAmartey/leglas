@@ -1451,6 +1451,7 @@ describe("startServer", () => {
       startedAt: null,
       stopping: false,
       waiting: null,
+      quietSince: null,
     });
     // A running server always leaves its rendezvous record under .leglas.
     expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(true);
@@ -1784,6 +1785,7 @@ describe("startServer", () => {
       startedAt: expect.any(Number),
       stopping: false,
       waiting: null,
+      quietSince: null,
     });
 
     // Naming a request that is not the running one is a refusal, not a stop.

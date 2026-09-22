@@ -12,6 +12,21 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Changed
+
+- **An agent that goes quiet says so, and cannot hold up the queue.** A run
+  that stopped to ask something nothing in Leglas can answer, a trust prompt
+  or an approval, used to sit under the last file it touched for as long as
+  you let it, and every change queued behind it waited too. After three
+  minutes without a word, the card now says how long the agent has been
+  quiet. After thirty, Leglas ends the run and says why, and the next change
+  starts. Anything the agent prints resets both, so a long build or a model
+  thinking hard is never cut off: thirty minutes is half as long again as the
+  longest silence measured in real runs.
+  (`leglas`)
+
 ## 1.1.2 (2026-09-18): The card on a row is drawn again
 
 ### Fixed
