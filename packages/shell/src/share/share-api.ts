@@ -1,6 +1,7 @@
-import { refusal } from "../net/api.js";
+import { readJson, refusal } from "../net/api.js";
 import type { ShareRequest } from "./share.js";
 import type { ShareStatus, TunnelProviderId } from "../types.js";
+import type { JsonRecord } from "../json.js";
 
 /**
  * The share endpoints, as the panel calls them. Every refusal comes back as
@@ -19,7 +20,7 @@ export async function readShare(signal?: AbortSignal): Promise<SharePayload> {
 
   if (!response.ok) throw new Error(`the server answered ${response.status}`);
 
-  return response.json() as Promise<SharePayload>;
+  return readJson<SharePayload>(response);
 }
 
 export async function startShare(
@@ -32,7 +33,7 @@ export async function startShare(
   });
 
   if (!response.ok) throw await refusal(response, "Leglas could not start sharing.");
-  const payload = (await response.json()) as { share: ShareStatus };
+  const payload = await readJson<{ share: ShareStatus }>(response);
 
   return payload.share;
 }
@@ -45,20 +46,20 @@ export async function updateShare(body: ShareRequest): Promise<ShareStatus> {
   });
 
   if (!response.ok) throw await refusal(response, "Leglas could not update the share.");
-  const payload = (await response.json()) as { share: ShareStatus };
+  const payload = await readJson<{ share: ShareStatus }>(response);
 
   return payload.share;
 }
 
-async function shareWrite(path: string, body: unknown, fallback: string): Promise<ShareStatus> {
+async function shareWrite(path: string, body: JsonRecord, fallback: string): Promise<ShareStatus> {
   const response = await fetch(`/leglas/api/share${path}`, {
-    body: JSON.stringify(body ?? {}),
+    body: JSON.stringify(body),
     headers: { "content-type": "application/json" },
     method: "POST",
   });
 
   if (!response.ok) throw await refusal(response, fallback);
-  const payload = (await response.json()) as { share: ShareStatus };
+  const payload = await readJson<{ share: ShareStatus }>(response);
 
   return payload.share;
 }

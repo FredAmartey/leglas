@@ -1,4 +1,6 @@
 import { headerName } from "./references.js";
+import { isString, type JsonValue } from "../json.js";
+import { readJson } from "../net/api.js";
 
 export type ReferenceFetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -30,15 +32,15 @@ export async function uploadReference(
 
   if (!response.ok) throw new Error("Leglas refused the image.");
 
-  const result = (await response.json()) as {
-    ok?: unknown;
-    reference?: { id?: unknown; file?: unknown };
-  };
+  const result = await readJson<{
+    ok?: boolean;
+    reference?: { id?: JsonValue; file?: JsonValue };
+  }>(response);
 
   const id = result.reference?.id;
   const path = result.reference?.file;
 
-  if (result.ok !== true || typeof id !== "string" || typeof path !== "string") {
+  if (result.ok !== true || !isString(id) || !isString(path)) {
     throw new Error("Leglas refused the image.");
   }
 

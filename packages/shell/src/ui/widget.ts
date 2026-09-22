@@ -70,7 +70,9 @@ export function isDrag(start: Point, current: Point, threshold = DRAG_THRESHOLD)
  * predictable between sessions. Dead centre resolves to bottom right, which is
  * where it starts.
  */
-export function nearestCorner(point: Point, stage: Stage): { corner: Corner } {
+export type Settled = { corner: Corner };
+
+export function nearestCorner(point: Point, stage: Stage): Settled {
   const left = point.x < stage.width / 2;
   const top = point.y < stage.height / 2;
 

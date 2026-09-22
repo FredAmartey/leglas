@@ -1,12 +1,14 @@
+import { isJsonRecord } from "../json.js";
+
 export type PreviewMessageSignal = "error" | "ready";
 
 /**
  * Parse the deliberately tiny protocol a same-origin preview can use to tell
  * the shell that its client-side setup has completed (or failed).
  */
-export function previewMessageSignal(data: unknown): PreviewMessageSignal | null {
-  if (typeof data !== "object" || data === null) return null;
-  const type = Reflect.get(data, "type");
+export function previewMessageSignal(data: MessageEvent["data"]): PreviewMessageSignal | null {
+  if (!isJsonRecord(data)) return null;
+  const type = data.type;
 
   if (type === "leglas:preview-ready") return "ready";
 

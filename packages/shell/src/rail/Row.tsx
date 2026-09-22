@@ -434,7 +434,7 @@ export function RailRow({
             // badge, the empty space beside them — is one target.
             if (renamingThis) return;
 
-            if ((event.target as HTMLElement).closest("button")) return;
+            if (event.target instanceof Element && event.target.closest("button")) return;
             // The second click of the pair has already selected a word.
             window.getSelection()?.removeAllRanges();
             onOpenAlone();

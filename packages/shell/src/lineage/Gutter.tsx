@@ -92,7 +92,9 @@ const RING_CLEAR = 8;
  * family opens more lanes than usual, and both are zero on a rail that draws
  * nothing, where a card fills its row as it always did.
  */
-export function railInsets(meta: ReadonlyMap<string, RowMeta>): { root: number; variant: number } {
+export type RailInsets = { root: number; variant: number };
+
+export function railInsets(meta: ReadonlyMap<string, RowMeta>): RailInsets {
   let root = 0;
   let variant = 0;
 
@@ -121,12 +123,12 @@ type Piece =
       key: string;
       lane: number;
       segment: Segment;
-      shape: "line";
+      kind: "line";
       x: number;
       y1: number;
       y2: number | string;
     }
-  | { key: string; lane: number; segment: Segment; shape: "path"; d: string };
+  | { key: string; lane: number; segment: Segment; kind: "path"; d: string };
 
 export function Gutter({
   active,
@@ -192,7 +194,7 @@ export function Gutter({
       key: `t${lane}`,
       lane,
       segment: `through:${lane}`,
-      shape: "line",
+      kind: "line",
       x: x(lane),
       y1: 0,
       y2: "100%",
@@ -204,7 +206,7 @@ export function Gutter({
       key: "a",
       lane: row.lane,
       segment: "above",
-      shape: "line",
+      kind: "line",
       x: cx,
       y1: 0,
       y2: cy - clear,
@@ -215,7 +217,7 @@ export function Gutter({
       key: "b",
       lane: row.lane,
       segment: "below",
-      shape: "line",
+      kind: "line",
       x: cx,
       y1: cy + clear,
       y2: "100%",
@@ -228,12 +230,12 @@ export function Gutter({
     const curve = forkCurve(cx, cy, x(lane), clear);
 
     if (curve !== "")
-      pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, shape: "path", d: curve });
+      pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, kind: "path", d: curve });
     pieces.push({
       key: `ft${lane}`,
       lane,
       segment: `fork:${lane}`,
-      shape: "line",
+      kind: "line",
       x: x(lane),
       y1: knee,
       y2: "100%",
@@ -244,7 +246,7 @@ export function Gutter({
     piece: Piece,
     extra: React.SVGProps<SVGLineElement> & React.SVGProps<SVGPathElement>,
   ) =>
-    piece.shape === "line" ? (
+    piece.kind === "line" ? (
       <line
         key={piece.key}
         pathLength={1}
@@ -275,9 +277,8 @@ export function Gutter({
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
       <svg
-        className="absolute left-0 overflow-visible"
+        className="absolute left-0 overflow-visible [shape-rendering:geometricPrecision]"
         fill="none"
-        shapeRendering="geometricPrecision"
         strokeWidth={1.25}
         style={{ height: `calc(100% + ${overflow * 2}px)`, top: -overflow, width }}
       >

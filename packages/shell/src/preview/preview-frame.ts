@@ -23,15 +23,11 @@ export function previewIsLoaded(loaded: LoadedPreviews, title: string, identity:
   return loaded[title] === identity;
 }
 
-export function markPreviewLoaded(
-  loaded: LoadedPreviews,
-  title: string,
-  identity: string,
-): Record<string, string> {
+export function markPreviewLoaded(loaded: LoadedPreviews, title: string, identity: string) {
   return loaded[title] === identity ? loaded : { ...loaded, [title]: identity };
 }
 
-export function resetPreviewLoaded(loaded: LoadedPreviews, title: string): Record<string, string> {
+export function resetPreviewLoaded(loaded: LoadedPreviews, title: string) {
   if (!(title in loaded)) return loaded;
   const next = { ...loaded };
   delete next[title];

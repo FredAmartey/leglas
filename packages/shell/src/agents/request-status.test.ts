@@ -81,7 +81,7 @@ describe("composerAgent", () => {
     });
   });
 
-  test.each([[[] as AgentOption[]], [[option("claude", false)]]])(
+  test.each<[AgentOption[]]>([[[]], [[option("claude", false)]]])(
     "disappears when no agent is detected: %j",
     (available) => {
       expect(composerAgent(null, available)).toEqual({ kind: "none" });

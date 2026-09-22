@@ -19,9 +19,6 @@ export type ShareRequest = {
   routes: string[];
 };
 
-/** The preference fields a share carries. The rest are the viewer's own. */
-const LAYOUT_KEYS = ["order", "renames", "collapsedFamilies", "viewport"] as const;
-
 /**
  * Why a direction cannot be shared, or null when it can.
  *
@@ -61,12 +58,14 @@ function restrictedLayout(
  * The whole rail: every direction showing, in rail order, minus the ones that
  * cannot go. `leftOut` names those so the panel can say so.
  */
+export type RailShare = { request: ShareRequest; leftOut: string[] };
+
 export function railShare(
   prefs: Prefs,
   previews: readonly Preview[],
   reach: ShareReach = "open",
   routes: readonly string[] = [],
-): { request: ShareRequest; leftOut: string[] } {
+): RailShare {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const gone = new Set([...prefs.deleted, ...prefs.hidden]);
 
@@ -99,6 +98,8 @@ export function railShare(
  * split. Null with the reason when one of them cannot go, because a
  * comparison with one side missing is not the comparison that was meant.
  */
+export type StageShare = { request: ShareRequest | null; reason: string | null };
+
 export function stageShare(
   prefs: Prefs,
   previews: readonly Preview[],
@@ -106,9 +107,10 @@ export function stageShare(
   compare: string | null,
   reach: ShareReach = "open",
   routes: readonly string[] = [],
-): { request: ShareRequest | null; reason: string | null } {
+): StageShare {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
-  const titles = compare === null || compare === active ? [active] : [active, compare];
+  const pair = compare === null || compare === active ? null : compare;
+  const titles = pair === null ? [active] : [active, pair];
 
   if (active === "") return { request: null, reason: "Nothing is on stage yet" };
 
@@ -120,13 +122,13 @@ export function stageShare(
     }
   }
 
-  const scope: ShareScope = titles.length === 2 ? "compare" : "direction";
+  const scope: ShareScope = pair === null ? "direction" : "compare";
 
   return {
     request: {
       scope,
       titles,
-      layout: restrictedLayout(prefs, titles, scope === "compare" ? (compare as string) : null),
+      layout: restrictedLayout(prefs, titles, pair),
       reach,
       routes: [...routes],
     },
@@ -191,11 +193,15 @@ export function adoptLayout(
   previews: readonly Preview[],
 ): Prefs {
   const seeded = loadPrefs(viewerPrefsRaw(layout), previews);
-  const next = { ...current };
 
-  for (const key of LAYOUT_KEYS) (next as Record<string, unknown>)[key] = seeded[key];
-
-  return next;
+  // The fields a share carries, and only those; the rest are the viewer's own.
+  return {
+    ...current,
+    collapsedFamilies: seeded.collapsedFamilies,
+    order: seeded.order,
+    renames: seeded.renames,
+    viewport: seeded.viewport,
+  };
 }
 
 /** What is being shared, in a few words, for the panel and the tip. */
@@ -241,8 +247,16 @@ export function viewersLine(viewers: number): string {
  * turns the rest away and says what it turned away, which is where the list
  * grows from.
  */
+/** What `observedRoutes` reads of a frame, so a test can hand it one it made. */
+export type RouteFrame = {
+  dataset: { preview?: string | undefined };
+  contentWindow: {
+    performance: { getEntriesByType(type: string): readonly { name: string }[] };
+  } | null;
+};
+
 export function observedRoutes(
-  frames: Iterable<HTMLIFrameElement>,
+  frames: Iterable<RouteFrame>,
   titles: readonly string[],
   /** Taken rather than read, so this stays pure and can be tested. */
   origin: string,
@@ -254,7 +268,7 @@ export function observedRoutes(
     const title = frame.dataset["preview"];
 
     if (title === undefined || !wanted.has(title)) continue;
-    let entries: PerformanceEntryList = [];
+    let entries: readonly { name: string }[] = [];
 
     try {
       entries = frame.contentWindow?.performance.getEntriesByType("resource") ?? [];

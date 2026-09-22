@@ -55,11 +55,7 @@ export function replacedPanes(
 }
 
 /** Record one scan only against the URL whose document produced it. */
-export function recordScan(
-  scans: PreviewScans,
-  preview: Preview,
-  outcome: PreviewScanOutcome,
-): Record<string, PreviewScan> {
+export function recordScan(scans: PreviewScans, preview: Preview, outcome: PreviewScanOutcome) {
   const record: PreviewScan =
     outcome.status === "complete"
       ? { url: preview.url, status: "complete", signature: outcome.signature }
@@ -81,10 +77,7 @@ export function recordScan(
 }
 
 /** Complete duplicate signatures for the current title and URL pairs only. */
-export function scanSignatures(
-  previews: readonly Preview[],
-  scans: PreviewScans,
-): Record<string, string | null> {
+export function scanSignatures(previews: readonly Preview[], scans: PreviewScans) {
   const signatures: Record<string, string | null> = {};
 
   for (const preview of previews) {

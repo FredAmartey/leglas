@@ -32,7 +32,7 @@ export function useDismissal(
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
 
       if (!panelRef.current?.contains(target) && !trigger?.contains(target)) onCloseRef.current();
     };

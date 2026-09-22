@@ -41,6 +41,9 @@
  * update takes, and without the nudge the interface read the status once a
  * second for the length of a package install.
  */
+import { isJsonRecord, isString, parseJson } from "../json.js";
+import type { TimerHandle } from "./timers.js";
+
 export type LiveChange = "config" | "requests" | "health" | "share" | "update";
 
 /**
@@ -65,18 +68,16 @@ export const FALLBACK_MS = 15_000;
 const CHANGES: readonly LiveChange[] = ["config", "requests", "health", "share"];
 
 export function isLiveChange(value: unknown): value is LiveChange {
-  return typeof value === "string" && (CHANGES as readonly string[]).includes(value);
+  return CHANGES.some((change) => change === value);
 }
 
 /** The kind a frame names, or null for anything this does not recognise. */
-export function changeFrom(data: unknown): LiveChange | null {
-  if (typeof data !== "string") return null;
-
+export function changeFrom(frame: string): LiveChange | null {
   try {
-    const parsed: unknown = JSON.parse(data);
+    const parsed = parseJson(frame);
 
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const changed = Reflect.get(parsed, "changed");
+    if (!isJsonRecord(parsed)) return null;
+    const changed = parsed.changed;
 
     return isLiveChange(changed) ? changed : null;
   } catch {
@@ -109,8 +110,12 @@ export function retryDelay(attempt: number): number {
   return Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempt);
 }
 
-/** Only what a message carries; every other event carries nothing we read. */
-export type LiveEvent = { data?: unknown };
+/**
+ * Only what a message carries; every other event carries nothing we read.
+ * A frame is text, and anything else on the wire is something this does
+ * not speak and drops.
+ */
+export type LiveEvent = { data?: string };
 
 /**
  * The smallest shape a real WebSocket already satisfies, so a test can hand
@@ -127,8 +132,8 @@ export type LiveSocket = {
 export type LiveOptions = {
   /** Open a socket. Injected so tests never need a server. */
   connect?: (url: string) => LiveSocket;
-  setTimeout?: (callback: () => void, ms: number) => unknown;
-  clearTimeout?: (handle: unknown) => void;
+  setTimeout?: (callback: () => void, ms: number) => TimerHandle;
+  clearTimeout?: (handle: TimerHandle) => void;
   /** Where to dial. Defaults to this page's origin, as ws or wss. */
   url?: string;
 };
@@ -145,6 +150,23 @@ function defaultUrl(): string {
   const { host, protocol } = window.location;
 
   return `${protocol === "https:" ? "wss" : "ws"}://${host}/leglas/api/live`;
+}
+
+/**
+ * The browser's socket, seen through the shape above. A message's data is
+ * passed on only when it is text; a binary frame arrives as an event that
+ * carries nothing, and the reader ignores it.
+ */
+function browserSocket(url: string): LiveSocket {
+  const socket = new WebSocket(url);
+
+  return {
+    addEventListener: (type, listener) =>
+      socket.addEventListener(type, (event) => {
+        listener("data" in event && isString(event.data) ? { data: event.data } : {});
+      }),
+    close: () => socket.close(),
+  };
 }
 
 /**
@@ -176,15 +198,15 @@ export function liveConnection(): Live {
  * and spend a connection.
  */
 export function startLive(options: LiveOptions = {}): Live {
-  const connect = options.connect ?? ((url: string) => new WebSocket(url) as unknown as LiveSocket);
+  const connect = options.connect ?? browserSocket;
   const setLater = options.setTimeout ?? ((callback, ms) => globalThis.setTimeout(callback, ms));
-  const clearLater = options.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle as never));
+  const clearLater = options.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle));
 
   const listeners = new Map<LiveChange, Set<() => void>>();
   let socket: LiveSocket | null = null;
   let connected = false;
   let attempt = 0;
-  let retry: unknown = null;
+  let retry: TimerHandle | null = null;
   let stopped = false;
 
   const dial = () => {
@@ -212,6 +234,7 @@ export function startLive(options: LiveOptions = {}): Live {
     });
 
     opened.addEventListener("message", (event) => {
+      if (event.data === undefined) return;
       const change = changeFrom(event.data);
 
       if (change === null) return;

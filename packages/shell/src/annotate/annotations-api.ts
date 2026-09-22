@@ -1,4 +1,6 @@
 import type { Anchor } from "./anchor.js";
+import type { JsonValue } from "../json.js";
+import { readJson } from "../net/api.js";
 
 export type Annotation = {
   id: string;
@@ -15,12 +17,12 @@ export async function readNotes(fetcher: NoteFetcher = browserFetch): Promise<An
   const response = await fetcher("/leglas/api/annotations");
 
   if (!response.ok) throw new Error("Leglas refused the notes.");
-  const payload = (await response.json()) as { annotations?: Annotation[] };
+  const payload = await readJson<{ annotations?: Annotation[] }>(response);
 
   return payload.annotations ?? [];
 }
 
-async function post<T>(path: string, body: unknown, fetcher: NoteFetcher): Promise<T> {
+async function post<T>(path: string, body: JsonValue, fetcher: NoteFetcher): Promise<T> {
   const response = await fetcher(path, {
     body: JSON.stringify(body),
     headers: { "content-type": "application/json" },
@@ -28,7 +30,7 @@ async function post<T>(path: string, body: unknown, fetcher: NoteFetcher): Promi
   });
 
   if (!response.ok) throw new Error("Leglas refused the note.");
-  const result = (await response.json()) as { ok?: unknown } & T;
+  const result = await readJson<{ ok?: boolean } & T>(response);
 
   if (result.ok !== true) throw new Error("Leglas refused the note.");
 

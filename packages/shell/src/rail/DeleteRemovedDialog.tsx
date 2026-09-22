@@ -27,7 +27,7 @@ export function DeleteRemovedDialog({
     const dialog = dialogRef.current;
 
     if (dialog === null) return;
-    const returnTo = document.activeElement as HTMLElement | null;
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const onDialogCancel = (event: Event) => {
       event.preventDefault();

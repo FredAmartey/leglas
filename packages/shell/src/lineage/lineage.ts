@@ -170,23 +170,34 @@ export function lineageRail(
       held !== null && index !== lane ? [index] : [],
     );
 
-    const forks = kids.slice(1).map((kid) => {
+    const [first, ...rest] = kids;
+
+    const forked = rest.map((kid) => {
       const opened = firstFree();
       lanes[opened] = kid;
 
-      return opened;
+      return { kid, lane: opened };
     });
 
-    rows.push({ title, depth, lane, fromAbove, toBelow: kids.length > 0, forks, through });
+    rows.push({
+      title,
+      depth,
+      lane,
+      fromAbove,
+      toBelow: first !== undefined,
+      forks: forked.map((fork) => fork.lane),
+      through,
+    });
 
-    if (kids.length === 0) {
+    if (first === undefined) {
       lanes[lane] = null;
 
       return;
     }
 
-    visit(kids[0] as string, depth + 1, lane, true);
-    kids.slice(1).forEach((kid, index) => visit(kid, depth + 1, forks[index] as number, true));
+    visit(first, depth + 1, lane, true);
+
+    for (const fork of forked) visit(fork.kid, depth + 1, fork.lane, true);
   };
 
   for (const root of tree.roots) {
@@ -240,7 +251,7 @@ export function reorderAmongSiblings(
       ? list.indexOf(before)
       : Math.max(
           -1,
-          ...siblings.filter((entry) => entry !== title).map((entry) => list.indexOf(entry)),
+          ...siblings.flatMap((entry) => (entry === title ? [] : [list.indexOf(entry)])),
         ) + 1;
 
   list.splice(at, 0, title);
@@ -311,9 +322,11 @@ export function tracedTree(
   const nodes = [...up];
   const edges: [string, string][] = [];
 
-  for (let index = 0; index + 1 < up.length; index += 1) {
-    edges.push([up[index] as string, up[index + 1] as string]);
-  }
+  up.forEach((node, index) => {
+    const next = up[index + 1];
+
+    if (next !== undefined) edges.push([node, next]);
+  });
 
   if (up.length > 1) return { nodes, edges };
   const seen = new Set(nodes);
@@ -366,8 +379,8 @@ export function tracedSegments(
     const lane = meta.get(child)?.graph?.lane ?? 0;
     add(parent, meta.get(parent)?.graph?.lane === lane ? "below" : `fork:${lane}`);
 
-    for (let row = rows.indexOf(parent) + 1; row < rows.indexOf(child); row += 1) {
-      add(rows[row] as string, `through:${lane}`);
+    for (const between of rows.slice(rows.indexOf(parent) + 1, rows.indexOf(child))) {
+      add(between, `through:${lane}`);
     }
 
     add(child, "above");
@@ -417,6 +430,8 @@ export type Crumbs = { head: string[]; hidden: string[]; tail: string[] };
 export function collapseChain(chain: readonly string[], max = 3): Crumbs {
   if (chain.length <= max) return { head: [...chain], hidden: [], tail: [] };
 
+  // SAFETY: the chain is longer than `max`, which is never below zero, so it
+  // has a first entry and a last one.
   return {
     head: [chain[0] as string],
     hidden: chain.slice(1, -1),
@@ -476,11 +491,9 @@ const line = (a: Point, b: Point): Cubic => [
 ];
 
 /** The fork's curve as cubic segments, and where the lane's straight run begins. */
-function forkSegments(
-  fromX: number,
-  fromY: number,
-  toX: number,
-): { segments: Cubic[]; knee: number } {
+type Fork = { segments: Cubic[]; knee: number };
+
+function forkSegments(fromX: number, fromY: number, toX: number): Fork {
   const d = Math.abs(toX - fromX);
   const side = toX > fromX ? 1 : -1;
   const r = d / 2;
@@ -595,8 +608,9 @@ export function trailPath(marks: readonly Mark[]): string {
   let path = "";
 
   for (let index = 1; index < marks.length; index += 1) {
-    const from = marks[index - 1] as Mark;
-    const to = marks[index] as Mark;
+    // SAFETY: `index` runs from 1 to the last position, so both neighbours
+    // are inside the array.
+    const [from, to] = [marks[index - 1], marks[index]] as [Mark, Mark];
     const skip = from.clear ?? 0;
     const start = from.y + skip;
     const end = to.y - (to.clear ?? 0);

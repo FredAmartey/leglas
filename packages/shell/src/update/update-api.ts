@@ -1,4 +1,4 @@
-import { postJson, refusal } from "../net/api.js";
+import { postJson, readJson, refusal } from "../net/api.js";
 import type { UpdateStatus } from "../types.js";
 
 /** The update endpoints, as the panel calls them. */
@@ -7,7 +7,7 @@ export async function readUpdate(signal?: AbortSignal): Promise<UpdateStatus> {
 
   if (!response.ok) throw await refusal(response, `the server answered ${response.status}`);
 
-  return response.json() as Promise<UpdateStatus>;
+  return readJson<UpdateStatus>(response);
 }
 
 /** Ask npm now, whatever the cache says. Resolves once npm has answered or given up. */

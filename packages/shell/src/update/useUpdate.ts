@@ -199,10 +199,10 @@ export function useUpdate(
     });
   }, [ready]);
 
-  const fail = (fallback: string) => (error: unknown) =>
+  const fail = (fallback: string) => (cause: unknown) =>
     latest.current.notify({
       kind: "update",
-      message: error instanceof Error ? error.message : fallback,
+      message: cause instanceof Error ? cause.message : fallback,
       tone: "danger",
       ttl: TOAST_TTL.action,
     });

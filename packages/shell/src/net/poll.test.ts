@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { startPoll, wasAborted, type PollTimers } from "./poll.js";
+import type { TimerHandle } from "./timers.js";
 
 /**
  * A clock the test drives by hand. The poll loop takes its timers as an
@@ -14,8 +15,8 @@ function clock() {
 
   let now = 0;
   let handle = 0;
-  const intervals = new Map<number, Interval>();
-  const timeouts = new Map<number, Timeout>();
+  const intervals = new Map<TimerHandle, Interval>();
+  const timeouts = new Map<TimerHandle, Timeout>();
 
   const timers: PollTimers = {
     setInterval: (callback, every) => {
@@ -24,14 +25,14 @@ function clock() {
 
       return id;
     },
-    clearInterval: (id) => void intervals.delete(id as number),
+    clearInterval: (id) => void intervals.delete(id),
     setTimeout: (callback, after) => {
       const id = ++handle;
       timeouts.set(id, { callback, at: now + after });
 
       return id;
     },
-    clearTimeout: (id) => void timeouts.delete(id as number),
+    clearTimeout: (id) => void timeouts.delete(id),
   };
 
   // Real timers are untouched by the fake ones, so a genuine zero-delay
@@ -96,7 +97,7 @@ function deferred() {
 }
 
 /** Record every read the loop starts, and the signal it was handed. */
-function reads(task: (signal: AbortSignal) => Promise<unknown>) {
+function reads(task: (signal: AbortSignal) => Promise<void>) {
   const signals: AbortSignal[] = [];
 
   return {
@@ -343,7 +344,9 @@ describe("a loop driven by something other than the clock", () => {
    * subscribe callback has run is not narrowed back to null by the compiler,
    * which cannot see that the callback already ran.
    */
-  const held = () => ({ run: null as (() => void) | null });
+  type Held = { run: (() => void) | null };
+
+  const held = (): Held => ({ run: null });
 
   test("a nudge reads now, and the interval still covers a silent socket", async () => {
     const fake = clock();

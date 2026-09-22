@@ -89,13 +89,15 @@ export function boxFromFractions(outer: Box, fractions: Box): Box {
  * card taller or wider than the viewport is pinned to the top left, which is
  * the only honest answer when there is no room at all.
  */
+export type CardPlacement = { left: number; top: number; flipped: boolean };
+
 export function placeCard(options: {
   /** The element or region the card is about, in the preview's coordinates. */
   anchor: Box;
   card: Size;
   bounds: Size;
   gap?: number;
-}): { left: number; top: number; flipped: boolean } {
+}): CardPlacement {
   const gap = options.gap ?? 8;
   const { anchor, bounds, card } = options;
 

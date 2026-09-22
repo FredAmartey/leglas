@@ -114,7 +114,7 @@ function AgentMenu({
               disabled={savingEffort || pickingAgent !== null}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                onPickEffort(value === "" ? null : (value as AgentEffort));
+                onPickEffort(selectedAgent.efforts.find((effort) => effort === value) ?? null);
               }}
               value={selectedEffort ?? ""}
             >

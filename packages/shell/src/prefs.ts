@@ -1,3 +1,4 @@
+import { isBoolean, isJsonRecord, isNumber, isString, parseJson, type JsonValue } from "./json.js";
 import type { Preview } from "./types.js";
 
 export const EASE = "ease-[cubic-bezier(0.32,0.72,0,1)]";
@@ -88,56 +89,52 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
 
   try {
     if (!raw) return { ...DEFAULT_PREFS, order: titles };
-    const saved = JSON.parse(raw) as Partial<Prefs>;
-    const parsed = { ...DEFAULT_PREFS, ...saved };
+    const saved = parseJson(raw);
 
-    const deleted = (Array.isArray(parsed.deleted) ? parsed.deleted : []).filter((title) =>
-      titles.includes(title),
-    );
+    if (!isJsonRecord(saved)) return { ...DEFAULT_PREFS, order: titles };
 
+    // A saved list holds titles; anything else in it is dropped with the
+    // titles that no longer exist.
+    const titlesIn = (value: JsonValue | undefined, among: readonly string[]): string[] =>
+      Array.isArray(value) ? value.filter(isString).filter((title) => among.includes(title)) : [];
+
+    const deleted = titlesIn(saved.deleted, titles);
     const available = titles.filter((title) => !deleted.includes(title));
-
-    const kept = (Array.isArray(parsed.order) ? parsed.order : []).filter((title) =>
-      available.includes(title),
-    );
+    const kept = titlesIn(saved.order, available);
 
     const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"] as const;
+    const renames: Record<string, string> = {};
+
+    if (isJsonRecord(saved.renames)) {
+      for (const [title, name] of Object.entries(saved.renames)) {
+        if (available.includes(title) && isString(name)) renames[title] = name;
+      }
+    }
 
     return {
-      collapsed: Boolean(parsed.collapsed),
-      collapsedFamilies: (Array.isArray(parsed.collapsedFamilies)
-        ? parsed.collapsedFamilies
-        : []
-      ).filter((title) => available.includes(title)),
+      collapsed: Boolean(saved.collapsed),
+      collapsedFamilies: titlesIn(saved.collapsedFamilies, available),
       // An unrecognised corner would leave the widget unpositioned, and it is
       // the only way into the tools.
-      corner: CORNERS.includes(parsed.corner as (typeof CORNERS)[number])
-        ? (parsed.corner as Prefs["corner"])
-        : DEFAULT_PREFS.corner,
+      corner: CORNERS.find((corner) => corner === saved.corner) ?? DEFAULT_PREFS.corner,
       deleted,
-      font: typeof parsed.font === "string" ? parsed.font : DEFAULT_PREFS.font,
-      hidden: (Array.isArray(parsed.hidden) ? parsed.hidden : []).filter((title) =>
-        available.includes(title),
-      ),
+      font: isString(saved.font) ? saved.font : DEFAULT_PREFS.font,
+      hidden: titlesIn(saved.hidden, available),
       // Keep saved positions, append anything the config has added since.
       order: [...kept, ...available.filter((title) => !kept.includes(title))],
-      renames: Object.fromEntries(
-        Object.entries(parsed.renames ?? {}).filter(([title]) => available.includes(title)),
-      ),
-      scaleSplit:
-        typeof saved.scaleSplit === "boolean" ? saved.scaleSplit : DEFAULT_PREFS.scaleSplit,
-      showDevOverlays:
-        typeof saved.showDevOverlays === "boolean"
-          ? saved.showDevOverlays
-          : DEFAULT_PREFS.showDevOverlays,
-      showWidget:
-        typeof saved.showWidget === "boolean" ? saved.showWidget : DEFAULT_PREFS.showWidget,
-      viewport: VIEWPORTS.some((viewport) => viewport.width === parsed.viewport)
-        ? parsed.viewport
-        : null,
-      width: Number.isFinite(parsed.width)
-        ? Math.round(Math.min(MAX_W, Math.max(MIN_W, parsed.width)))
-        : DEFAULT_W,
+      renames,
+      scaleSplit: isBoolean(saved.scaleSplit) ? saved.scaleSplit : DEFAULT_PREFS.scaleSplit,
+      showDevOverlays: isBoolean(saved.showDevOverlays)
+        ? saved.showDevOverlays
+        : DEFAULT_PREFS.showDevOverlays,
+      showWidget: isBoolean(saved.showWidget) ? saved.showWidget : DEFAULT_PREFS.showWidget,
+      viewport:
+        VIEWPORTS.map((viewport) => viewport.width).find((width) => width === saved.viewport) ??
+        null,
+      width:
+        isNumber(saved.width) && Number.isFinite(saved.width)
+          ? Math.round(Math.min(MAX_W, Math.max(MIN_W, saved.width)))
+          : DEFAULT_W,
     };
   } catch {
     return { ...DEFAULT_PREFS, order: titles };

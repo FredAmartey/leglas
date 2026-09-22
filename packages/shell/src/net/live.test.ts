@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
+import type { TimerHandle } from "./timers.js";
+
 import {
   FIRST_RETRY_MS,
   MAX_RETRY_MS,
@@ -33,7 +35,7 @@ class FakeSocket implements LiveSocket {
 
 /** Timers a test advances itself, so backoff costs no wall clock. */
 function manualTimers() {
-  const pending = new Map<number, { at: number; callback: () => void }>();
+  const pending = new Map<TimerHandle, { at: number; callback: () => void }>();
   let now = 0;
   let next = 1;
 
@@ -45,8 +47,8 @@ function manualTimers() {
 
       return handle;
     },
-    clearTimeout: (handle: unknown) => {
-      pending.delete(handle as number);
+    clearTimeout: (handle: TimerHandle) => {
+      pending.delete(handle);
     },
     advance(ms: number) {
       now += ms;
@@ -78,7 +80,6 @@ describe("what a frame can say", () => {
     expect(changeFrom("not json")).toBeNull();
     expect(changeFrom(JSON.stringify(["config"]))).toBeNull();
     expect(changeFrom(JSON.stringify({ changed: 3 }))).toBeNull();
-    expect(changeFrom(null)).toBeNull();
   });
 });
 

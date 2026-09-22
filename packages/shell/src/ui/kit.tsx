@@ -7,6 +7,7 @@ import { EASE } from "../prefs.js";
 import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
 import type { BranchPreviewState } from "../types.js";
+import { isString } from "../json.js";
 
 /**
  * The Leglas mark in its brand colours, the lockup's dark variant: the one
@@ -388,7 +389,7 @@ export function Tip({
       className="contents"
       onBlur={close}
       onFocus={(event) => {
-        if ((event.target as HTMLElement).matches(":focus-visible")) open();
+        if (event.target instanceof Element && event.target.matches(":focus-visible")) open();
       }}
       onPointerDown={close}
       onPointerEnter={enter}
@@ -468,7 +469,7 @@ export function RenameForm({
         event.preventDefault();
         const value = new FormData(event.currentTarget).get("name");
         cancelled.current = true;
-        onCommit(typeof value === "string" ? value.trim() : "", "submit");
+        onCommit(isString(value) ? value.trim() : "", "submit");
       }}
     >
       <input

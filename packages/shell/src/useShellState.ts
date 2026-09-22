@@ -20,6 +20,7 @@ import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./previe
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./ui/toasts.js";
 import { adoptLayout, viewerPrefsRaw } from "./share/share.js";
 import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
+import { refusal } from "./net/api.js";
 
 /**
  * The engine every shell body sits on: prefs, selection, search, rename and
@@ -350,8 +351,7 @@ export function useShellState({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(payload?.error ?? "The directions could not be deleted from Leglas.");
+        throw await refusal(response, "The directions could not be deleted from Leglas.");
       }
     }
 
@@ -448,11 +448,11 @@ export function useShellState({
     const cycle = rows;
 
     const onKey = (event: KeyboardEvent) => {
+      // SAFETY: read for its tag rather than checked with instanceof, because
+      // a target inside a preview comes from that frame's realm, where the
+      // parent's HTMLInputElement never matches, and every keystroke typed
+      // into the app would look like a shortcut.
       const target = event.target as HTMLElement | null;
-      // Read the tag rather than instanceof: a target inside a preview comes
-      // from that frame's realm, where the parent's HTMLInputElement never
-      // matches, and every keystroke typed into the app would look like a
-      // shortcut.
       const tag = target?.tagName?.toLowerCase();
 
       const action = resolveKey({
@@ -541,10 +541,15 @@ export function useShellState({
       }
     }
 
-    for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+    // SAFETY: registered for keydown alone, so every event it is handed is a
+    // KeyboardEvent; the union of windows and documents hides the typed
+    // overload that would say so.
+    const listener = onKey as EventListener;
+
+    for (const target of targets) target.addEventListener("keydown", listener);
 
     return () => {
-      for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
+      for (const target of targets) target.removeEventListener("keydown", listener);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

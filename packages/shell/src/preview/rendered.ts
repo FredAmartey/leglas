@@ -223,6 +223,30 @@ type VisualStyle = Pick<CSSStyleDeclaration, "getPropertyValue">;
 
 type RectLike = Pick<DOMRect, "bottom" | "height" | "left" | "right" | "top" | "width">;
 
+/**
+ * What the sampler reads of an element. A real `Element` is one; a test's
+ * stand-in carrying just these members is another, which is how the sampler
+ * is tested without a browser.
+ */
+export type Sampled<E> = {
+  tagName: string;
+  parentElement: E | null;
+  getAttribute(name: string): string | null;
+  getBoundingClientRect(): RectLike;
+  matches(selectors: string): boolean;
+  closest(selectors: string): E | null;
+  querySelectorAll(selectors: string): ArrayLike<E>;
+  /** Absent where the Web Animations API is: an older engine, or a stand-in. */
+  getAnimations?: () => readonly { playState: string }[];
+  ownerDocument: {
+    defaultView: {
+      getComputedStyle(element: E): { position: string };
+      scrollX: number;
+      scrollY: number;
+    } | null;
+  };
+};
+
 /** Half-pixel precision absorbs rasterisation noise without hiding layout. */
 export function quantiseCssPixel(value: number): string {
   if (!Number.isFinite(value)) return "?";
@@ -252,7 +276,7 @@ function bounded(value: string, limit = 480): string {
   return `${normalised.slice(0, 180)}…${normalised.slice(-80)}#${normalised.length}:${shortHash(normalised)}`;
 }
 
-function ignoredTooling(element: Element): boolean {
+function ignoredTooling<E extends Sampled<E>>(element: E): boolean {
   return (
     UNPAINTED.has(element.tagName) ||
     element.matches(IGNORED_TOOLING) ||
@@ -260,7 +284,7 @@ function ignoredTooling(element: Element): boolean {
   );
 }
 
-function sampleIndices(elements: readonly Element[]): number[] {
+function sampleIndices<E extends Sampled<E>>(elements: readonly E[]): number[] {
   if (elements.length <= MAX_VISUAL_ELEMENTS) return elements.map((_, index) => index);
 
   const selected = new Set<number>();
@@ -307,20 +331,17 @@ function sampleIndices(elements: readonly Element[]): number[] {
   return [...selected].sort((a, b) => a - b);
 }
 
-function elementAnimations(element: Element, style: VisualStyle): boolean {
+function elementAnimations<E extends Sampled<E>>(element: E, style: VisualStyle): boolean {
   if (style.getPropertyValue("animation-name").trim() !== "none") return true;
-  const getAnimations = (element as Element & { getAnimations?: () => Animation[] }).getAnimations;
-
-  if (typeof getAnimations !== "function") return false;
 
   try {
-    return getAnimations.call(element).some((animation) => animation.playState === "running");
+    return (element.getAnimations?.() ?? []).some((animation) => animation.playState === "running");
   } catch {
     return false;
   }
 }
 
-function rectSample(element: Element, animated: boolean): string {
+function rectSample<E extends Sampled<E>>(element: E, animated: boolean): string {
   if (animated) return "rect:animated";
   let rect: RectLike;
 
@@ -338,7 +359,7 @@ function rectSample(element: Element, animated: boolean): string {
   return `rect:${quantiseCssPixel(rect.left + scrollX)},${quantiseCssPixel(rect.top + scrollY)},${quantiseCssPixel(rect.width)},${quantiseCssPixel(rect.height)}`;
 }
 
-function attributeSample(element: Element): string {
+function attributeSample<E extends Sampled<E>>(element: E): string {
   const attributes: string[] = [];
 
   for (const name of VECTOR_ATTRIBUTES) {
@@ -358,17 +379,19 @@ function attributeSample(element: Element): string {
   }
 
   if (tag === "CANVAS") {
-    const canvas = element as HTMLCanvasElement;
+    // SAFETY: the tag says canvas, so the bitmap size is there to read;
+    // instanceof would miss an element from the preview's own realm.
+    const canvas = element as E & Pick<HTMLCanvasElement, "width" | "height">;
     attributes.push(`bitmap:${canvas.width}x${canvas.height}`);
   }
 
   return attributes.join(",");
 }
 
-function pseudoSample(
-  element: Element,
+function pseudoSample<E extends Sampled<E>>(
+  element: E,
   pseudo: "::before" | "::after",
-  styleOf: (element: Element, pseudo?: string) => VisualStyle,
+  styleOf: (element: E, pseudo?: string) => VisualStyle,
 ): string {
   let style: VisualStyle;
 
@@ -393,13 +416,13 @@ function pseudoSample(
  * while the volatile frame of a running animation is not, so two identical
  * previews loaded milliseconds apart still agree.
  */
-export function visualSample(
-  body: HTMLElement | null,
-  styleOf: (element: Element, pseudo?: string) => VisualStyle,
+export function visualSample<E extends Sampled<E>>(
+  body: E | null,
+  styleOf: (element: E, pseudo?: string) => VisualStyle,
 ): string[] {
   if (!body) return [];
 
-  const elements = [body, ...body.querySelectorAll("*")].filter(
+  const elements = [body, ...Array.from(body.querySelectorAll("*"))].filter(
     (element) => !ignoredTooling(element),
   );
 
@@ -427,7 +450,8 @@ export function visualSample(
   });
 }
 
-type PaintNode = { children: ArrayLike<unknown>; tagName?: string };
+/** What the paint sample reads of a node: an element, or a test's stand-in. */
+type PaintNode<Node> = { children: ArrayLike<Node>; tagName?: string };
 
 /**
  * The colours a page is painted with, sampled where apps actually put them.
@@ -439,19 +463,19 @@ type PaintNode = { children: ArrayLike<unknown>; tagName?: string };
  * catches the surface wherever it is. Depth is capped so a pathological chain
  * cannot make this expensive.
  */
-export function paintSample(
-  body: PaintNode | null,
-  styleOf: (element: unknown) => PaintStyle,
+export function paintSample<Node extends PaintNode<Node>>(
+  body: Node | null,
+  styleOf: (element: Node) => PaintStyle,
 ): string[] {
   if (!body) return [];
   const samples: string[] = [];
-  let current: PaintNode = body;
+  let current: Node = body;
 
   for (let depth = 0; depth < 4; depth += 1) {
     const style = styleOf(current);
     samples.push(`${style.backgroundColor};${style.backgroundImage};${style.color}`);
 
-    const rendered = Array.from(current.children as ArrayLike<PaintNode>).filter(
+    const rendered = Array.from(current.children).filter(
       (child) => !UNPAINTED.has(child.tagName ?? ""),
     );
 
@@ -465,7 +489,7 @@ export function paintSample(
 }
 
 /** For each preview, the others that drew the same page. */
-export function twinsOf(signatures: Record<string, string | null>): Record<string, string[]> {
+export function twinsOf(signatures: Record<string, string | null>) {
   const bySignature = new Map<string, string[]>();
 
   for (const [title, signature] of Object.entries(signatures)) {

@@ -143,7 +143,7 @@ export function ToolsPopover({
           // Applied to every open pane at once, so the change is visible
           // without reloading anything.
           for (const frame of document.querySelectorAll("iframe")) {
-            applyOverlayPref(frame as HTMLIFrameElement, !show);
+            applyOverlayPref(frame, !show);
           }
         }}
         role="switch"

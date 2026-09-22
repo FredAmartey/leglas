@@ -8,6 +8,7 @@ import {
   scanSignatures,
   type PreviewScans,
 } from "./scan.js";
+import type { Preview } from "../types.js";
 
 const PREVIEWS = [
   { title: "Current", url: "/", tags: [] },
@@ -18,12 +19,10 @@ const PREVIEWS = [
 
 describe("scanQueue", () => {
   test("a branch preview that has not started has no url yet, and is skipped rather than thrown on", () => {
-    const idle = {
-      title: "Warm red",
-      url: undefined as unknown as string,
-      tags: [],
-      branch: "warm-red",
-    };
+    const unstarted: Partial<Preview> = { title: "Warm red", tags: [], branch: "warm-red" };
+    // SAFETY: a branch preview that has not started arrives without a url,
+    // which the type does not admit; that gap is what this test is about.
+    const idle = unstarted as Preview;
 
     expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain(
       "Warm red",
@@ -70,17 +69,12 @@ describe("scanQueue", () => {
   test("previews that appear mid-session join the queue", () => {
     const grown = [...PREVIEWS, { title: "New", url: "/?v-hero=new", tags: [] }];
 
-    const scans = PREVIEWS.reduce<
-      Record<string, { url: string; status: "complete"; signature: string }>
-    >(
-      (current, preview) =>
+    const scans = Object.fromEntries(
+      PREVIEWS.flatMap((preview) =>
         preview.url.startsWith("/")
-          ? {
-              ...current,
-              [preview.title]: { url: preview.url, status: "complete", signature: "sig" },
-            }
-          : current,
-      {},
+          ? [[preview.title, { url: preview.url, status: "complete", signature: "sig" }] as const]
+          : [],
+      ),
     );
 
     expect(scanQueue(grown, scans).map((preview) => preview.title)).toEqual(["New"]);

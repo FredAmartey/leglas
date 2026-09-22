@@ -57,15 +57,14 @@ export function isReferenceImage(file: FileLike): boolean {
 export function imageFilesFrom<T extends FileLike>(
   files: Iterable<T | null | undefined> | ArrayLike<T | null | undefined>,
 ): T[] {
-  const list =
-    Symbol.iterator in files
-      ? [...(files as Iterable<T | null | undefined>)]
-      : Array.from(files as ArrayLike<T | null | undefined>);
+  const list = Symbol.iterator in files ? [...files] : Array.from(files);
 
   return list.filter((file): file is T => file != null && isReferenceImage(file));
 }
 
 export type Refusal = "too-many" | "too-big" | "not-an-image";
+
+export type Admission<T> = { accepted: T[]; refused: { file: T; why: Refusal }[] };
 
 /**
  * Which of the offered files may join the drafts, and why the rest may not.
@@ -78,7 +77,7 @@ export type Refusal = "too-many" | "too-big" | "not-an-image";
 export function admit<T extends FileLike>(
   current: readonly ReferenceDraft[],
   files: readonly T[],
-): { accepted: T[]; refused: { file: T; why: Refusal }[] } {
+): Admission<T> {
   const accepted: T[] = [];
   const refused: { file: T; why: Refusal }[] = [];
   let room = Math.max(0, REFERENCE_CAP - current.length);

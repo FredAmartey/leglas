@@ -405,7 +405,7 @@ describe("trailPath", () => {
     expect(whole.endsWith("14 24 L 14 80")).toBe(true);
     expect(cut.endsWith("14 24 L 14 80")).toBe(true);
     // Five pixels of arc: the four-pixel drop, then one pixel into the turn.
-    const [, sx, sy] = cut.match(/^M ([\d.]+) ([\d.]+)/) as RegExpMatchArray;
+    const [, sx, sy] = cut.match(/^M ([\d.]+) ([\d.]+)/) ?? [];
     expect(Number(sx)).toBeGreaterThanOrEqual(4);
     expect(Number(sx)).toBeLessThan(4.3);
     expect(Number(sy)).toBeGreaterThan(14.9);

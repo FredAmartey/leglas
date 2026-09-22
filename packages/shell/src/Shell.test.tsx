@@ -7,6 +7,8 @@ import type { AgentsPayload } from "./agents/agent-api.js";
 import type { AgentStatus, RequestStatus } from "./agents/request-status.js";
 import { Shell } from "./Shell.js";
 import type { Preview, ViewerInfo } from "./types.js";
+import type { JsonValue } from "./json.js";
+import { must } from "./must.js";
 
 /**
  * The shell, mounted whole against a server that answers from a table.
@@ -51,29 +53,33 @@ type Sent = { path: string; body: unknown };
 function serve(requests: RequestStatus[] = []): Sent[] {
   const sent: Sent[] = [];
 
-  const reads: Record<string, unknown> = {
-    agents: AGENTS,
-    annotations: { annotations: [] },
-    health: { devServer: "http://localhost:3000", reachable: true, cwd: "" },
-    requests: { requests, agent: IDLE },
-    share: { share: null, tunnels: [] },
-    update: {
-      version: "1.0.0",
-      install: { kind: "source", manager: "npm", command: null },
-      latest: null,
-      checkedAt: null,
-      checkError: null,
-      skipped: null,
-      available: false,
-      phase: { status: "idle" },
-      busy: false,
-    },
-  };
+  const reads = new Map<string, JsonValue>([
+    ["agents", AGENTS],
+    ["annotations", { annotations: [] }],
+    ["health", { devServer: "http://localhost:3000", reachable: true, cwd: "" }],
+    ["requests", { requests, agent: IDLE }],
+    ["share", { share: null, tunnels: [] }],
+    [
+      "update",
+      {
+        version: "1.0.0",
+        install: { kind: "source", manager: "npm", command: null },
+        latest: null,
+        checkedAt: null,
+        checkError: null,
+        skipped: null,
+        available: false,
+        phase: { status: "idle" },
+        busy: false,
+      },
+    ],
+  ]);
 
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input)
-      .replace(/^https?:\/\/[^/]+/, "")
-      .split("?")[0] as string;
+    const path =
+      String(input)
+        .replace(/^https?:\/\/[^/]+/, "")
+        .split("?")[0] ?? "";
 
     const name = path.replace("/leglas/api/", "");
 
@@ -84,8 +90,8 @@ function serve(requests: RequestStatus[] = []): Sent[] {
       return new Response(JSON.stringify(answer), { status: 200 });
     }
 
-    return new Response(JSON.stringify(reads[name] ?? {}), {
-      status: name in reads ? 200 : 404,
+    return new Response(JSON.stringify(reads.get(name) ?? {}), {
+      status: reads.has(name) ? 200 : 404,
     });
   });
   vi.stubGlobal(
@@ -104,7 +110,7 @@ let root: Root;
 async function mount(props: { requests?: RequestStatus[]; viewer?: ViewerInfo }): Promise<Sent[]> {
   const sent = serve(props.requests);
   document.body.innerHTML = `<div id="root"></div>`;
-  root = createRoot(document.getElementById("root") as HTMLElement);
+  root = createRoot(must(document.getElementById("root"), "the root"));
   await act(async () => {
     root.render(
       <Shell previews={PREVIEWS} project="a-project" scanPreviews={false} viewer={props.viewer} />,
@@ -145,10 +151,14 @@ const type = (el: HTMLTextAreaElement, value: string) => {
 const tools = () => find<HTMLElement>('[role="dialog"][aria-label="Leglas tools"]');
 
 beforeEach(() => {
+  // SAFETY: React reads its act flag off the global, which has no type for it.
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers({ now: 1_790_000_000_000 });
+
   // The previews are frames onto a dev server that is not running here.
-  const happy = (window as { happyDOM?: { settings: Record<string, unknown> } }).happyDOM;
+  // SAFETY: happy-dom hangs its settings off the window it makes, and nothing types that.
+  const happy = (window as { happyDOM?: { settings: { disableIframePageLoading?: boolean } } })
+    .happyDOM;
 
   if (happy) happy.settings.disableIframePageLoading = true;
   const memory = new Map<string, string>();
@@ -213,7 +223,7 @@ describe("the keys", () => {
     expect(tools().getAttribute("aria-hidden")).toBe("false");
 
     const outfit = [...tools().querySelectorAll("button")].find((b) => b.textContent === "Outfit");
-    await after(() => click(outfit as Element));
+    await after(() => click(must(outfit, "the Outfit button")));
     expect(outfit?.getAttribute("aria-pressed")).toBe("true");
     expect(find<HTMLElement>("main").style.fontFamily).toContain("--font-outfit");
   });
@@ -294,7 +304,7 @@ describe("asking for a change", () => {
       b.textContent?.includes("Codex"),
     );
 
-    await after(() => click(codex as Element), 900);
+    await after(() => click(must(codex, "the Codex button")), 900);
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
   });
 });

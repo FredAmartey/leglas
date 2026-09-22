@@ -96,7 +96,7 @@ describe("loadPrefs", () => {
   });
 
   test("survives a store whose fields are the wrong shape", () => {
-    const prefs = loadPrefs(stored({ hidden: "nope" as unknown as string[] }), previews);
+    const prefs = loadPrefs(JSON.stringify({ hidden: "nope" }), previews);
 
     expect(prefs.hidden).toEqual([]);
   });

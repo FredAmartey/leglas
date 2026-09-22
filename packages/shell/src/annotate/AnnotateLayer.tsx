@@ -254,8 +254,11 @@ export function AnnotateLayer({
         let descendant = walk.nextNode();
 
         while (descendant !== null && scanned < PICK_SCAN_CAP) {
-          if (!candidates.has(descendant as Element)) {
-            candidates.add(descendant as Element);
+          // SAFETY: the walker was made with SHOW_ELEMENT, so it yields nothing else.
+          const element = descendant as Element;
+
+          if (!candidates.has(element)) {
+            candidates.add(element);
             scanned += 1;
           }
 
@@ -276,32 +279,28 @@ export function AnnotateLayer({
         );
       };
 
-      const visible = [...candidates]
-        .filter((element) => {
-          const tag = element.tagName.toLowerCase();
+      const visible = [...candidates].flatMap((element) => {
+        const tag = element.tagName.toLowerCase();
 
-          if (
-            element === at.doc.body ||
-            element === at.doc.documentElement ||
-            tag === "head" ||
-            tag === "script" ||
-            tag === "style"
-          ) {
-            return false;
-          }
+        if (
+          element === at.doc.body ||
+          element === at.doc.documentElement ||
+          tag === "head" ||
+          tag === "script" ||
+          tag === "style"
+        ) {
+          return [];
+        }
 
-          const box = boxOf(element.getBoundingClientRect());
+        const box = boxOf(element.getBoundingClientRect());
 
-          if (box.width <= 0 || box.height <= 0 || !containsPoint(box, point)) return false;
-          const style = at.view.getComputedStyle(element);
+        if (box.width <= 0 || box.height <= 0 || !containsPoint(box, point)) return [];
+        const style = at.view.getComputedStyle(element);
 
-          return style.display !== "none" && style.visibility !== "hidden";
-        })
-        .map((element) => ({
-          box: boxOf(element.getBoundingClientRect()),
-          element,
-          weight: weight(element),
-        }));
+        if (style.display === "none" || style.visibility === "hidden") return [];
+
+        return [{ box, element, weight: weight(element) }];
+      });
 
       if (visible.length === 0) return null;
 
@@ -473,10 +472,15 @@ export function AnnotateLayer({
 
     if (at !== null) targets.push(at.doc);
 
-    for (const target of targets) target.addEventListener("keydown", onKey as EventListener);
+    // SAFETY: registered for keydown alone, so every event it is handed is a
+    // KeyboardEvent; the union of windows and documents hides the typed
+    // overload that would say so.
+    const listener = onKey as EventListener;
+
+    for (const target of targets) target.addEventListener("keydown", listener);
 
     return () => {
-      for (const target of targets) target.removeEventListener("keydown", onKey as EventListener);
+      for (const target of targets) target.removeEventListener("keydown", listener);
     };
   }, [geometry, onExit, open]);
 

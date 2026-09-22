@@ -9,8 +9,9 @@ import {
   retryFailedRequest,
   type AgentFetcher,
 } from "./agent-api.js";
+import type { JsonValue } from "../json.js";
 
-function recorder(body: unknown = { ok: true }, status = 200) {
+function recorder(body: JsonValue = { ok: true }, status = 200) {
   const calls: { input: string; init?: RequestInit }[] = [];
 
   const fetcher: AgentFetcher = async (input, init) => {

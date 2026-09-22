@@ -106,6 +106,8 @@ import { RailHeader } from "./rail/Header.js";
 import { RailRow } from "./rail/Row.js";
 import { Search } from "./rail/Search.js";
 import { ViewerBanner } from "./share/ViewerBanner.js";
+import { isString } from "./json.js";
+import { readJson } from "./net/api.js";
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -377,7 +379,7 @@ export function Shell({
    * instead of the list snapping to its new shape.
    */
   const foldFamily = (title: string) => {
-    if (!stillMotion && typeof document.startViewTransition === "function") {
+    if (!stillMotion && "startViewTransition" in document) {
       document.startViewTransition(() => flushSync(() => st.toggleFamily(title)));
 
       return;
@@ -888,7 +890,7 @@ export function Shell({
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
 
       if (!popoverRef.current?.contains(target) && !widgetButtonRef.current?.contains(target)) {
         setWidgetOpen(false);
@@ -933,20 +935,20 @@ export function Shell({
    * where they were measured, and a light chasing them is noise on top of a
    * gesture that has the user's whole attention.
    */
-  type TrailShape = { d: string; height: number; marks: TrailMark[] };
+  type TrailDrawing = { d: string; height: number; marks: TrailMark[] };
 
   /**
    * The light on stage and, for a moment, the one it replaced: a change of
    * lineage fades the old light out while the new one fades in, both on the
    * same clock, so the current reroutes instead of restarting.
    */
-  const [trail, setTrail] = useState<TrailShape | null>(null);
+  const [trail, setTrail] = useState<TrailDrawing | null>(null);
   /** Every light still fading out, each dropped once its fade is done. */
-  const [leaving, setLeaving] = useState<readonly TrailShape[]>([]);
+  const [leaving, setLeaving] = useState<readonly TrailDrawing[]>([]);
   const traceEdges = litTree.edges;
   const trailKey = `${traceEdges.map((edge) => edge.join(">")).join(",")}|${dragging}|${st.prefs.width}|${gutter}`;
 
-  const replaceTrail = (next: TrailShape | null) =>
+  const replaceTrail = (next: TrailDrawing | null) =>
     setTrail((current) => {
       if (current?.d === next?.d) return current;
 
@@ -999,9 +1001,12 @@ export function Shell({
       // Every edge is its own subpath, so a tree with forks is one path the
       // light can run down and split along.
       const d = traceEdges
-        .map(([parent, child]) =>
-          trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark]),
-        )
+        .flatMap(([parent, child]) => {
+          const from = at.get(parent);
+          const to = at.get(child);
+
+          return from && to ? [trailPath([from, to])] : [];
+        })
         .join(" ");
 
       replaceTrail({ d, height: list.scrollHeight, marks: [...at.values()] });
@@ -1335,10 +1340,7 @@ export function Shell({
     const poll = async (signal: AbortSignal) => {
       const signalled: NoteFetcher = (input, init) => fetch(input, { ...init, signal });
       await fetch("/leglas/api/requests", { signal })
-        .then(
-          (response) =>
-            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
-        )
+        .then((response) => readJson<{ requests: RequestStatus[]; agent?: AgentStatus }>(response))
         .then((payload) => {
           if (cancelled) return;
 
@@ -1466,7 +1468,7 @@ export function Shell({
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
 
       if (!agentMenuRef.current?.contains(target) && !agentTriggerRef.current?.contains(target)) {
         setAgentMenuOpen(false);
@@ -1590,7 +1592,7 @@ export function Shell({
 
     const poll = (signal: AbortSignal) =>
       fetch("/leglas/api/health", { signal })
-        .then((response) => response.json() as Promise<{ reachable: boolean }>)
+        .then((response) => readJson<{ reachable: boolean }>(response))
         .then(({ reachable }) => {
           if (!cancelled) setHealth((current) => nextHealthState(current, reachable));
         })
@@ -1716,6 +1718,7 @@ export function Shell({
     }
 
     if (!doc?.head) return;
+    const owner = doc;
 
     const ID = "leglas-hide-dev-overlays";
 
@@ -1731,7 +1734,7 @@ export function Shell({
       }
 
       if (existing) return;
-      const style = (doc as Document).createElement("style");
+      const style = owner.createElement("style");
       style.id = ID;
       style.textContent = css;
       into.appendChild(style);
@@ -1760,7 +1763,7 @@ export function Shell({
    */
   useEffect(() => {
     for (const frame of document.querySelectorAll("iframe")) {
-      applyOverlayPref(frame as HTMLIFrameElement, !st.prefs.showDevOverlays);
+      applyOverlayPref(frame, !st.prefs.showDevOverlays);
     }
   });
 
@@ -1784,8 +1787,8 @@ export function Shell({
     const view = doc.defaultView;
 
     const paint = view
-      ? paintSample(doc.body, (element) => {
-          const style = view.getComputedStyle(element as Element);
+      ? paintSample<Element>(doc.body, (element) => {
+          const style = view.getComputedStyle(element);
 
           return {
             backgroundColor: style.backgroundColor,
@@ -1796,7 +1799,7 @@ export function Shell({
       : [];
 
     const visual = view
-      ? visualSample(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
+      ? visualSample<Element>(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
       : [];
 
     return renderedSignature(doc.body.innerText ?? "", tags, paint, visual);
@@ -1833,7 +1836,7 @@ export function Shell({
         onRead(readRendered(frame));
       };
 
-      if (typeof window.requestIdleCallback === "function") {
+      if (typeof window.requestIdleCallback !== "undefined") {
         window.requestIdleCallback(run, { timeout: 1_200 });
       } else {
         window.setTimeout(run, 0);
@@ -2058,7 +2061,8 @@ export function Shell({
       // most of the surface a hand lands on. It is a drag candidate now, and
       // which gesture the press turns out to be is settled by the direction
       // it moves in rather than by where it started.
-      if ((event.target as HTMLElement).closest("button, [data-selectable]")) return;
+      if (event.target instanceof Element && event.target.closest("button, [data-selectable]"))
+        return;
       const list = listRef.current;
       const scroller = list?.parentElement;
 
@@ -2490,31 +2494,40 @@ export function Shell({
                   }
 
                   const attached = referenceIds(references);
+
+                  type RequestBody = {
+                    title: string;
+                    intent: string;
+                    mode: typeof mode;
+                    width?: number;
+                    compare?: string;
+                    references?: typeof attached;
+                  };
+
+                  const body: RequestBody = { title, intent: value, mode };
+
+                  // The width the design is drawn at, so the agent sees the
+                  // layout being judged rather than a default one.
+                  if (drawnWidth !== null) body.width = drawnWidth;
+
+                  // The other pane, when there is one: "the other one" in the
+                  // words typed means it, and the agent should see it too.
+                  if (splitting && compare !== null && compare !== title) body.compare = compare;
+
+                  if (attached.length > 0) body.references = attached;
                   setSending(true);
                   void fetch("/leglas/api/request", {
                     method: "POST",
                     headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      title,
-                      intent: value,
-                      mode,
-                      // The width the design is drawn at, so the agent sees the
-                      // layout being judged rather than a default one.
-                      ...(drawnWidth === null ? {} : { width: drawnWidth }),
-                      // The other pane, when there is one: "the other one" in the
-                      // words typed means it, and the agent should see it too.
-                      ...(splitting && compare !== null && compare !== title ? { compare } : {}),
-                      ...(attached.length === 0 ? {} : { references: attached }),
-                    }),
+                    body: JSON.stringify(body),
                   })
-                    .then(
-                      (response) =>
-                        response.json() as Promise<{
-                          ok: boolean;
-                          prompt?: string;
-                          duplicate?: boolean;
-                          error?: string;
-                        }>,
+                    .then((response) =>
+                      readJson<{
+                        ok: boolean;
+                        prompt?: string;
+                        duplicate?: boolean;
+                        error?: string;
+                      }>(response),
                     )
                     .then((result) => {
                       // The same words at the same direction, already waiting.
@@ -2536,7 +2549,7 @@ export function Shell({
                       // A refusal with a reason (an image pruned while the
                       // composer sat open) keeps the words and the thumbnails:
                       // the reason says what to do with them.
-                      if (!result.ok && typeof result.error === "string") {
+                      if (!result.ok && isString(result.error)) {
                         setSending(false);
                         st.notify({
                           kind: "request",

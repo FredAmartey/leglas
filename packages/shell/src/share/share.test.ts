@@ -18,6 +18,7 @@ import {
   viewersLine,
 } from "./share.js";
 import type { Preview } from "../types.js";
+import type { RouteFrame } from "./share.js";
 
 const previews: Preview[] = [
   { title: "Aurora", url: "/?v=aurora", tags: [] },
@@ -146,17 +147,16 @@ describe("viewerPrefsRaw", () => {
 });
 
 describe("observedRoutes", () => {
-  const frameFor = (title: string, names: string[], readable = true): HTMLIFrameElement =>
-    ({
-      dataset: { preview: title },
-      get contentWindow() {
-        if (!readable) throw new Error("cross-origin");
+  const frameFor = (title: string, names: string[], readable = true): RouteFrame => ({
+    dataset: { preview: title },
+    get contentWindow() {
+      if (!readable) throw new Error("cross-origin");
 
-        return {
-          performance: { getEntriesByType: () => names.map((name) => ({ name })) },
-        } as unknown as Window;
-      },
-    }) as unknown as HTMLIFrameElement;
+      return {
+        performance: { getEntriesByType: () => names.map((name) => ({ name })) },
+      };
+    },
+  });
 
   test("takes the paths a shared direction loaded, from this origin only", () => {
     const origin = "http://localhost:4100";

@@ -109,8 +109,8 @@ export function Trail({
   const surge = useRef<SVGLinearGradientElement | null>(null);
   const surgeLayer = useRef<SVGGElement | null>(null);
   const blooms = useRef<(SVGCircleElement | null)[]>([]);
-  const shape = useRef(marks);
-  shape.current = marks;
+  const latest = useRef(marks);
+  latest.current = marks;
 
   useEffect(() => {
     if (still) return;
@@ -119,7 +119,7 @@ export function Trail({
     const layer = surgeLayer.current;
 
     if (!flow || !band || !layer) return;
-    const marks = shape.current;
+    const marks = latest.current;
     const top = Math.min(...marks.map((mark) => mark.y));
     const bottom = Math.max(...marks.map((mark) => mark.y));
     // The surge gathers above the first mark and is gone below the last, so

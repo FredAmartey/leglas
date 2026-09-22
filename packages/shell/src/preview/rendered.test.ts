@@ -220,10 +220,10 @@ describe("visualSample", () => {
 
     child.parentElement = body;
 
-    return body as unknown as HTMLElement;
+    return body;
   };
 
-  const styleOf = (_element: Element, pseudo?: string) => ({
+  const styleOf = (_element: FakeElement, pseudo?: string) => ({
     getPropertyValue: (property: string) => {
       if (property === "content") return pseudo ? "none" : "";
 
@@ -264,7 +264,7 @@ describe("paintSample", () => {
     paint: { backgroundColor: bg, backgroundImage: "none", color: "#111" },
   });
 
-  const styleOf = (element: unknown) => (element as Node).paint;
+  const styleOf = (element: Node) => element.paint;
 
   test("a script beside the root is not a branch", () => {
     // Vite injects its module script into body, so body has two element

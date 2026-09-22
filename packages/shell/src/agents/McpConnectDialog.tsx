@@ -10,6 +10,9 @@ import {
 } from "./mcp-connect.js";
 import { BrandMark, Mark, P, PIcon, Wordmark } from "../ui/kit.js";
 
+// SAFETY: the options are keyed by `McpClient` and hold no other keys.
+const MCP_CLIENTS = Object.keys(MCP_CONNECT_OPTIONS) as McpClient[];
+
 function ClientMarks({ client }: { client: McpClient }) {
   return (
     <span
@@ -52,7 +55,7 @@ export function McpConnectDialog({
     const dialog = dialogRef.current;
 
     if (dialog === null) return;
-    const returnTo = document.activeElement as HTMLElement | null;
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const close = (event: Event) => {
       event.preventDefault();
@@ -158,7 +161,7 @@ export function McpConnectDialog({
             MCP client
           </legend>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(Object.keys(MCP_CONNECT_OPTIONS) as McpClient[]).map((id, index) => {
+            {MCP_CLIENTS.map((id, index) => {
               const entry = MCP_CONNECT_OPTIONS[id];
               const selected = client === id;
 

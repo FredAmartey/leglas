@@ -1,3 +1,5 @@
+import { isString } from "../json.js";
+
 /**
  * How a note finds its way back to the thing it was left on.
  *
@@ -20,7 +22,7 @@
 export type ElementLike = {
   tagName: string;
   id?: string | null;
-  className?: unknown;
+  className?: string | SVGAnimatedString | undefined;
   textContent?: string | null;
   parentElement: ElementLike | null;
   children: ArrayLike<ElementLike>;
@@ -78,15 +80,15 @@ const DEPTH_CAP = 8;
  * per render. An id that cannot survive a reload is worse than no id, because
  * it truncates the path that would have worked.
  */
-function stableId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+function stableId(value: string | null | undefined): string | null {
+  if (value == null) return null;
   const id = value.trim();
 
   return /^[A-Za-z][\w-]*$/.test(id) ? id : null;
 }
 
-function classList(value: unknown): string[] {
-  if (typeof value !== "string") return [];
+function classList(value: ElementLike["className"]): string[] {
+  if (!isString(value)) return [];
 
   return value.trim().split(/\s+/).filter(Boolean).slice(0, CLASS_CAP);
 }

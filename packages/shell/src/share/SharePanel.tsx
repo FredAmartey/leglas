@@ -545,45 +545,49 @@ function ShareLive({
             </span>
           </span>
           <ul aria-label="Paths this share turned away" className="max-h-32 overflow-y-auto">
-            {share.refused.map((refused) => (
-              <li
-                className="group flex h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]"
-                key={refused}
-              >
-                <span
-                  className="min-w-0 flex-1 select-text truncate font-mono text-[10px] text-[#D1D5DB]"
-                  data-selectable
-                  title={refused}
+            {share.refused.map((refused) => {
+              const directory = directoryOf(refused);
+
+              return (
+                <li
+                  className="group flex h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]"
+                  key={refused}
                 >
-                  {refused}
-                </span>
-                <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-has-[button:focus-visible]:opacity-100 motion-reduce:transition-none">
-                  <button
-                    aria-label={`Let ${refused} through`}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
-                    disabled={busy !== null}
-                    onClick={() => onAllow(refused, false)}
-                    type="button"
+                  <span
+                    className="min-w-0 flex-1 select-text truncate font-mono text-[10px] text-[#D1D5DB]"
+                    data-selectable
+                    title={refused}
                   >
-                    Allow
-                  </button>
-                  {/* Several refusals from one folder is a bundler's asset
-                      directory, and allowing them one at a time is work the
-                      sharer should not have to do. */}
-                  {directoryOf(refused) === null ? null : (
+                    {refused}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-has-[button:focus-visible]:opacity-100 motion-reduce:transition-none">
                     <button
-                      aria-label={`Let everything in ${directoryOf(refused)} through`}
+                      aria-label={`Let ${refused} through`}
                       className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
                       disabled={busy !== null}
-                      onClick={() => onAllow(directoryOf(refused) as string, true)}
+                      onClick={() => onAllow(refused, false)}
                       type="button"
                     >
-                      + folder
+                      Allow
                     </button>
-                  )}
-                </span>
-              </li>
-            ))}
+                    {/* Several refusals from one folder is a bundler's asset
+                      directory, and allowing them one at a time is work the
+                      sharer should not have to do. */}
+                    {directory === null ? null : (
+                      <button
+                        aria-label={`Let everything in ${directory} through`}
+                        className="rounded px-1.5 py-0.5 text-[10px] text-[#9CA3AF] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+                        disabled={busy !== null}
+                        onClick={() => onAllow(directory, true)}
+                        type="button"
+                      >
+                        + folder
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -858,10 +862,10 @@ export function SharePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [share?.id, link, tunnelStatus]);
 
-  const fail = (error: unknown, fallback: string) =>
+  const fail = (cause: unknown, fallback: string) =>
     notify({
       kind: "share",
-      message: error instanceof Error ? error.message : fallback,
+      message: cause instanceof Error ? cause.message : fallback,
       tone: "danger",
       ttl: TOAST_TTL.action,
     });
@@ -875,7 +879,7 @@ export function SharePanel({
       .then((started) => {
         startedHere.current = started.id;
       })
-      .catch((error: unknown) => fail(error, "Leglas could not start sharing."))
+      .catch((cause: unknown) => fail(cause, "Leglas could not start sharing."))
       .finally(() => setBusy(null));
   };
 
@@ -886,7 +890,7 @@ export function SharePanel({
       .then(() => {
         notify({ kind: "share", message: "Stopped sharing", tone: "info", ttl: TOAST_TTL.plain });
       })
-      .catch((error: unknown) => fail(error, "Leglas could not stop sharing."))
+      .catch((cause: unknown) => fail(cause, "Leglas could not stop sharing."))
       .finally(() => setBusy(null));
   };
 
@@ -902,7 +906,7 @@ export function SharePanel({
           ttl: TOAST_TTL.plain,
         });
       })
-      .catch((error: unknown) => fail(error, "Leglas could not update the share."))
+      .catch((cause: unknown) => fail(cause, "Leglas could not update the share."))
       .finally(() => setBusy(null));
   };
 
@@ -919,7 +923,7 @@ export function SharePanel({
       .then(() => {
         notify({ kind: "share", message: said, tone: "success", ttl: TOAST_TTL.plain });
       })
-      .catch((error: unknown) => fail(error, "That did not work."))
+      .catch((cause: unknown) => fail(cause, "That did not work."))
       .finally(() => setBusy(null));
   };
 
@@ -940,7 +944,7 @@ export function SharePanel({
       .then((started) => {
         startedHere.current = started.id;
       })
-      .catch((error: unknown) => fail(error, "Leglas could not start sharing."))
+      .catch((cause: unknown) => fail(cause, "Leglas could not start sharing."))
       .finally(() => setBusy(null));
   };
 

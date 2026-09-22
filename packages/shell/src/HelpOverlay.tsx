@@ -21,7 +21,7 @@ export function HelpOverlay({
   const shortcuts = shortcutList(mac, viewer);
 
   useEffect(() => {
-    const returnTo = document.activeElement as HTMLElement | null;
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
 
     const onKey = (event: KeyboardEvent) => {
