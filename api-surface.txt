@@ -41,7 +41,13 @@ export type FailureCode =
 /** The run exited cleanly without registering the direction it was asked for. */
  | "not-registered"
 /** The agent ran, did its own thing, and exited nonzero. */
- | "agent-error";
+ | "agent-error"
+/**
+ * The agent said nothing for so long that Leglas ended it: most likely a
+ * prompt nothing here can answer. Never retried, because the same process
+ * would sit on the same question again.
+ */
+ | "agent-silent";
 export type Framework = "next" | "react";
 export declare const LEGLAS_PREFIX = "/leglas";
 export declare const NO_BROWSER: string;

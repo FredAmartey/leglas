@@ -483,20 +483,26 @@ export type PendingRequest = {
   references?: readonly string[];
 };
 
-const FAILURE_CODES: readonly FailureCode[] = [
-  "cancelled",
-  "stopped",
-  "missing-agent",
-  "not-signed-in",
-  "provider-overloaded",
-  "provider-limit",
-  "needs-trust",
-  "not-registered",
-  "agent-error",
-];
+/**
+ * Every verdict the runner writes, keyed so the compiler notices a new one.
+ * A list here once went stale: the reader drops a code it does not know, so
+ * a verdict added in the runner and not here would vanish from the card.
+ */
+const FAILURE_CODES: Record<FailureCode, true> = {
+  cancelled: true,
+  stopped: true,
+  "missing-agent": true,
+  "not-signed-in": true,
+  "provider-overloaded": true,
+  "provider-limit": true,
+  "needs-trust": true,
+  "not-registered": true,
+  "agent-error": true,
+  "agent-silent": true,
+};
 
 function isFailureCode(value: unknown): value is FailureCode {
-  return FAILURE_CODES.some((code) => code === value);
+  return isString(value) && Object.hasOwn(FAILURE_CODES, value);
 }
 
 function failureOf(entry: JsonValue | undefined): Failure | null {

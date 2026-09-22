@@ -137,6 +137,7 @@ const IDLE_AGENT: AgentStatus = {
   startedAt: null,
   stopping: false,
   waiting: null,
+  quietSince: null,
 };
 
 const EMPTY_AGENTS: AgentsPayload = {

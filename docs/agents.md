@@ -55,6 +55,14 @@ command explicit:
 npx leglas watch --run "my-agent {prompt}"
 ```
 
+When the interface runs the agent, a run that goes quiet is told apart from
+one that is working. After three minutes without a line of output the card
+says how long it has been quiet; after thirty, Leglas ends the run and says
+why, so a question the agent is stuck on, which nothing here can answer,
+never holds up the changes queued behind it. Anything the agent prints
+resets both, so a long build or a model thinking hard is never cut short,
+and a run ended this way is not retried on its own.
+
 ## MCP server
 
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the

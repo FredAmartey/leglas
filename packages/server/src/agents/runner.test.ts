@@ -12,6 +12,7 @@ import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
 import { appendRequest, readRequests } from "../requests/requests.js";
 import { IDLE_RELEASE_MS, startRunner, type RunnerSpawn } from "./runner.js";
+import { QUIET_NOTICE_MS, SILENCE_CEILING_MS } from "./silence.js";
 
 const input = (title: string) => ({
   title,
@@ -845,6 +846,143 @@ describe("startRunner", () => {
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).toContain("prompt for Next");
     spawned.children[1]?.close(0);
+    await runner.stop();
+  });
+
+  test("a run that goes quiet is described, then ended with a reason of its own", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Poster"));
+    await appendRequest(cwd, input("Next"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let now = 1_790_000_000_000;
+
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      now: () => now,
+    });
+
+    await until(() => spawned.children.length === 1);
+    const started = now;
+
+    // A quiet stretch shorter than the notice is ordinary and goes unmentioned.
+    now = started + QUIET_NOTICE_MS - 1;
+    clock.tick();
+    expect(runner.snapshot().quietSince).toBeNull();
+
+    // Past it, the card is told when the agent last said anything.
+    now = started + QUIET_NOTICE_MS;
+    clock.tick();
+    expect(runner.snapshot().quietSince).toBe(started);
+
+    // One line of output ends the quiet, and the count starts again from it.
+    spawned.children[0]?.child.stdout.write('{"type":"system","subtype":"status"}\n');
+    await until(() => runner.snapshot().quietSince === null);
+    const spoke = now;
+
+    now = spoke + SILENCE_CEILING_MS - 1;
+    clock.tick();
+    expect(spawned.children[0]?.child.kill).not.toHaveBeenCalled();
+
+    now = spoke + SILENCE_CEILING_MS;
+    clock.tick();
+    expect(spawned.children[0]?.child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    await until(async () => (await readRequests(cwd))[0]?.status === "failed");
+    expect((await readRequests(cwd))[0]?.failure?.code).toBe("agent-silent");
+
+    // No second run of the same request, and the one behind it goes next.
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).toContain("prompt for Next");
+    spawned.children[1]?.close(0);
+    await runner.stop();
+  });
+
+  test("an agent that keeps talking is never cut off, however long it runs", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-chatty-"));
+    await saveAgentChoice(cwd, { agent: "claude" });
+    await appendRequest(cwd, input("Long"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let now = 1_790_000_000_000;
+
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      now: () => now,
+    });
+
+    await until(() => spawned.children.length === 1);
+    const child = spawned.children[0];
+
+    // Two hours, with something said every twenty minutes: well past the
+    // ceiling in total, never past it in one silence.
+    for (let beat = 1; beat <= 6; beat += 1) {
+      now += 20 * 60_000;
+      child?.child.stdout.write('{"type":"assistant"}\n');
+      await until(() => runner.snapshot().quietSince === null);
+      clock.tick();
+    }
+
+    expect(child?.child.kill).not.toHaveBeenCalled();
+    expect(runner.snapshot().running).toBe(true);
+    child?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 0);
+    await runner.stop();
+  });
+
+  test("a transport that never finishes starting is ended by the same ceiling", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-start-"));
+    await saveAgentChoice(cwd, { agent: "codex" });
+    await appendRequest(cwd, input("Starting"));
+    const clock = manualClock();
+    const spawned = spawner();
+    let startSignal: AbortSignal | null = null;
+    let now = 1_790_000_000_000;
+
+    const appServer: CodexTurnRunner = {
+      warm: async () => {},
+      // A handshake that never answers: nothing arrives, nothing settles,
+      // until the signal says to give up.
+      run: (_turn, signal) => {
+        startSignal = signal ?? null;
+
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      },
+      close: async () => {},
+    };
+
+    const runner = startRunner({
+      cwd,
+      externallyAttached: () => false,
+      spawn: spawned.spawn,
+      codexAppServer: appServer,
+      setInterval: clock.setInterval,
+      clearInterval: clock.clearInterval,
+      now: () => now,
+    });
+
+    await until(() => runner.snapshot().running && startSignal !== null);
+    now += SILENCE_CEILING_MS;
+    clock.tick();
+
+    await until(async () => (await readRequests(cwd))[0]?.status === "failed");
+    expect(startSignal?.aborted).toBe(true);
+    expect((await readRequests(cwd))[0]?.failure?.code).toBe("agent-silent");
+    // A transport that hung is not a reason to try the CLI behind it.
+    expect(spawned.calls).toHaveLength(0);
     await runner.stop();
   });
 
