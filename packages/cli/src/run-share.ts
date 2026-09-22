@@ -49,7 +49,8 @@ type ShareView = {
   links: ShareLink[];
 };
 
-type Read<T> = { ok: true; value: T } | { ok: false; error: string };
+/** `answered` is false when the request never got a reply, so what it did is unknown. */
+type Read<T> = { ok: true; value: T } | { ok: false; error: string; answered: boolean };
 
 /** What the share endpoint takes: the manifest the panel sends, and the tunnel to use. */
 type ShareBody = {
@@ -143,22 +144,28 @@ async function readShare(base: string, request: typeof fetch): Promise<Read<Shar
       return {
         ok: false,
         error: `Leglas answered ${response.status} when asked what it is sharing.`,
+        answered: true,
       };
     }
 
     const payload = await bodyOf(response);
 
-    if (!isJsonObject(payload))
-      return { ok: false, error: "Leglas did not say what it is sharing." };
+    if (!isJsonObject(payload)) {
+      return { ok: false, error: "Leglas did not say what it is sharing.", answered: true };
+    }
 
     if (payload.share === null) return { ok: true, value: null };
     const share = shareFrom(payload.share);
 
     return share === null
-      ? { ok: false, error: "Leglas is sharing something this version of the command cannot read." }
+      ? {
+          ok: false,
+          error: "Leglas is sharing something this version of the command cannot read.",
+          answered: true,
+        }
       : { ok: true, value: share };
   } catch {
-    return { ok: false, error: NOT_RUNNING };
+    return { ok: false, error: NOT_RUNNING, answered: false };
   }
 }
 
@@ -182,12 +189,13 @@ async function post(
       return {
         ok: false,
         error: isJsonObject(payload) && isString(payload.error) ? payload.error : fallback,
+        answered: true,
       };
     }
 
     return { ok: true, value: payload };
   } catch {
-    return { ok: false, error: NOT_RUNNING };
+    return { ok: false, error: NOT_RUNNING, answered: false };
   }
 }
 
@@ -385,6 +393,20 @@ export async function runShare(
 
   if (options.tunnel !== null) body.tunnel = options.tunnel;
 
+  // Once the start has been asked for, a share may exist. Failing without
+  // ending it would leave the app open to a link nobody was given, with an
+  // error saying nothing happened.
+  const giveUp = async (error: string, known = true) => {
+    const stopped = await post(found.base, "/leglas/api/share/stop", {}, request, "");
+    const what = known ? "The share it started" : "A share";
+
+    return fail(
+      stopped.ok
+        ? `${error} ${known ? "The share it started is stopped." : "Anything it started is stopped."}`
+        : `${error} ${what} may still be running; stop it with npx leglas share --stop.`,
+    );
+  };
+
   const created = await post(
     found.base,
     "/leglas/api/share",
@@ -393,19 +415,13 @@ export async function runShare(
     "Leglas could not start sharing.",
   );
 
-  if (!created.ok) return fail(created.error);
-
-  // From here a share exists. Failing without ending it would leave the app
-  // open to a link nobody was given, with an error saying nothing happened.
-  const giveUp = async (error: string) => {
-    const stopped = await post(found.base, "/leglas/api/share/stop", {}, request, "");
-
-    return fail(
-      stopped.ok
-        ? `${error} The share it started is stopped.`
-        : `${error} The share it started may still be running; stop it with npx leglas share --stop.`,
-    );
-  };
+  if (!created.ok) {
+    // No reply at all is not a refusal: the share may have been made before
+    // the connection went, so it is treated as one that exists.
+    return created.answered
+      ? fail(created.error)
+      : giveUp("Leglas stopped answering while the share was starting.", false);
+  }
 
   let share = isJsonObject(created.value) ? shareFrom(created.value.share) : null;
 

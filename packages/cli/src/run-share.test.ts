@@ -61,6 +61,7 @@ function fakeLeglas(
   let refusal: string | null = null;
   let garbled = false;
   let failReads = false;
+  let dropCreateReply = false;
 
   const statusFor = (body: { [key: string]: JsonValue }) => {
     const tunnel = tunnels[Math.min(reads, tunnels.length - 1)] ?? { status: "none" };
@@ -118,6 +119,9 @@ function fakeLeglas(
 
       share = statusFor(isJsonObject(body) ? body : {});
 
+      // The share exists, and then the connection goes before the answer does.
+      if (dropCreateReply) throw new TypeError("socket hang up");
+
       // A server whose share this version cannot read, as a newer one might be.
       return Response.json({ ok: true, share: garbled ? { kind: "new" } : share });
     }
@@ -144,6 +148,9 @@ function fakeLeglas(
       failReads = true;
     },
     sharing: () => share !== null,
+    dropCreateReply: () => {
+      dropCreateReply = true;
+    },
     running: (body: { [key: string]: JsonValue }) => {
       share = statusFor(body);
     },
@@ -320,6 +327,22 @@ describe("runShare", () => {
     );
     expect(leglas.sharing()).toBe(false);
     expect(String(last(lines).error)).toContain("The share it started is stopped.");
+  });
+
+  test("a start whose answer was lost is treated as a share that may exist", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v=aurora");
+    const leglas = fakeLeglas(cwd);
+    leglas.dropCreateReply();
+    const { deps, lines } = collect();
+
+    expect(
+      (await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly })).exitCode,
+    ).toBe(1);
+    expect(leglas.sharing()).toBe(false);
+    expect(String(last(lines).error)).toBe(
+      "Leglas stopped answering while the share was starting. Anything it started is stopped.",
+    );
   });
 
   test("the server's own refusal is what the person reads", async () => {
