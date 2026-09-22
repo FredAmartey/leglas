@@ -4,6 +4,7 @@ dist
 pnpm-lock.yaml
 api-surface.txt
 schemas
+tools/oxlint/anti-slop
 # Copies of other commits and job output; build.ts regenerates the tasks from git
 evals/tasks
 evals/jobs
