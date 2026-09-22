@@ -254,9 +254,31 @@ describe("runShare", () => {
     });
   });
 
+  test("a direction is not compared with itself, under either of its names", async () => {
+    const cwd = scratch();
+    await add(cwd, "Cool", "/?v=cool");
+    await writeRenames(cwd, { Cool: "Sunrise" });
+    const leglas = fakeLeglas(cwd);
+    const { deps, lines } = collect();
+
+    const result = await runShare(options(cwd, { titles: ["Sunrise", "Cool"] }), {
+      ...deps,
+      fetch: leglas.fetch,
+      sleep: instantly,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(last(lines)).toEqual({
+      ok: false,
+      error: "Both names are Cool. Name two different directions to compare them.",
+    });
+    expect(leglas.posted).toEqual([]);
+  });
+
   test("a share already running is shown rather than started twice", async () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
+    await add(cwd, "Dusk", "/?v=dusk");
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "direction", titles: ["Aurora"] });
     const { deps, lines } = collect();
@@ -292,7 +314,7 @@ describe("runShare", () => {
 
     expect(
       (
-        await runShare(options(cwd, { titles: ["Aurora", "Aurora"] }), {
+        await runShare(options(cwd, { titles: ["Aurora", "Dusk"] }), {
           ...other.deps,
           fetch: leglas.fetch,
           sleep: instantly,

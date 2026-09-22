@@ -355,6 +355,13 @@ export async function runShare(
     titles.push(resolved.title);
   }
 
+  // Two names can be one direction, the rail's name and the config's.
+  const [first, second] = titles;
+
+  if (first !== undefined && first === second) {
+    return fail(`Both names are ${first}. Name two different directions to compare them.`);
+  }
+
   const scope: ShareBody["scope"] =
     titles.length === 0 ? "rail" : titles.length === 1 ? "direction" : "compare";
 
