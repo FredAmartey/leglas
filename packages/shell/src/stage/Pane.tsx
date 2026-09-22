@@ -5,6 +5,47 @@ import type { BranchPreviewState } from "../types.js";
 import { BranchOverlay, ErrorOverlay, RefusedOverlay, SkeletonOverlay } from "../ui/kit.js";
 
 /**
+ * What is said over a pane's frame: why it failed, why the page refused it,
+ * or the skeleton until it has drawn.
+ */
+function PaneOverlay({
+  errored,
+  fromApp,
+  loaded,
+  onReload,
+  refusal,
+  serverUp,
+  src,
+}: {
+  errored: boolean;
+  fromApp: boolean;
+  loaded: boolean;
+  onReload: () => void;
+  refusal: FrameRefusal | null;
+  serverUp: boolean;
+  src: string;
+}) {
+  if (errored) {
+    return (
+      <ErrorOverlay
+        onReload={onReload}
+        reason={
+          serverUp || !fromApp
+            ? `${src} didn’t respond.`
+            : "Your dev server stopped. This returns on its own once it is back."
+        }
+      />
+    );
+  }
+
+  if (refusal !== null) {
+    return <RefusedOverlay href={src} {...refusalWords(refusal, src, window.location.origin)} />;
+  }
+
+  return <SkeletonOverlay loaded={loaded} />;
+}
+
+/**
  * One direction on the stage: its frame, and whatever has to be said over it
  * while it starts, fails, or goes stale.
  *
@@ -192,19 +233,16 @@ export function Pane({
           )}
           {annotate}
         </div>
-        {branch !== null && branch.status !== "ready" ? null : errored ? (
-          <ErrorOverlay
+        {branch !== null && branch.status !== "ready" ? null : (
+          <PaneOverlay
+            errored={errored}
+            fromApp={fromApp}
+            loaded={loaded}
             onReload={onReload}
-            reason={
-              serverUp || !fromApp
-                ? `${src} didn’t respond.`
-                : "Your dev server stopped. This returns on its own once it is back."
-            }
+            refusal={refusal}
+            serverUp={serverUp}
+            src={src}
           />
-        ) : refusal !== null ? (
-          <RefusedOverlay href={src} {...refusalWords(refusal, src, window.location.origin)} />
-        ) : (
-          <SkeletonOverlay loaded={loaded} />
         )}
         {/* A pane that loaded before the server died keeps showing that
             render. Saying so is the difference between a stale preview

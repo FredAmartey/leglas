@@ -37,6 +37,9 @@ describe("frameRefusal", () => {
 describe("refusalWords", () => {
   const shell = "http://localhost:4100";
 
+  const said = (words: { lead: string; quote: string; tail: string }) =>
+    `${words.lead}${words.quote}${words.tail}`;
+
   test("says which site refused, and why, in the header's own words", () => {
     const deny = refusalWords(
       { header: "x-frame-options", value: "DENY" },
@@ -45,30 +48,42 @@ describe("refusalWords", () => {
     );
 
     expect(deny.headline).toBe("docs.example.com won’t open inside another page");
-    expect(deny.reason).toBe(
-      "It sends X-Frame-Options: DENY, which tells every browser not to show it in a frame.",
-    );
+    // The header's words are set apart, so they can be shown as the site sent them.
+    expect(deny.reason).toEqual({
+      lead: "It sends ",
+      quote: "X-Frame-Options: DENY",
+      tail: ", which tells every browser not to show it in a frame.",
+    });
 
     expect(
-      refusalWords({ header: "x-frame-options", value: "SAMEORIGIN" }, "https://x.dev/", shell)
-        .reason,
+      said(
+        refusalWords({ header: "x-frame-options", value: "SAMEORIGIN" }, "https://x.dev/", shell)
+          .reason,
+      ),
     ).toBe("It sends X-Frame-Options: SAMEORIGIN, which lets only its own pages frame it.");
 
     expect(
-      refusalWords(
-        { header: "content-security-policy", value: "frame-ancestors 'none'" },
-        "https://x.dev/",
-        shell,
-      ).reason,
+      said(
+        refusalWords(
+          { header: "content-security-policy", value: "frame-ancestors 'none'" },
+          "https://x.dev/",
+          shell,
+        ).reason,
+      ),
     ).toBe(
       "Its Content-Security-Policy says frame-ancestors 'none', and Leglas is not on that list.",
     );
   });
 
   test("tells the site's owner the one header that would change it", () => {
-    expect(
-      refusalWords({ header: "x-frame-options", value: "DENY" }, "https://x.dev/", shell).hint,
-    ).toBe(
+    const hint = refusalWords(
+      { header: "x-frame-options", value: "DENY" },
+      "https://x.dev/",
+      shell,
+    ).hint;
+
+    expect(hint.quote).toBe("frame-ancestors http://localhost:4100");
+    expect(said(hint)).toBe(
       "If the site is yours, a Content-Security-Policy of frame-ancestors http://localhost:4100 lets it show here.",
     );
   });

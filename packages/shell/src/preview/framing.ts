@@ -48,7 +48,10 @@ export async function frameRefusal(
   }
 }
 
-export type RefusalWords = { headline: string; reason: string; hint: string };
+/** A sentence around some words the site itself sent, kept apart so they can be shown as sent. */
+export type Quoted = { lead: string; quote: string; tail: string };
+
+export type RefusalWords = { headline: string; reason: Quoted; hint: Quoted };
 
 function hostOf(src: string): string {
   try {
@@ -58,20 +61,29 @@ function hostOf(src: string): string {
   }
 }
 
-function because(refusal: FrameRefusal): string {
+function because(refusal: FrameRefusal): Quoted {
   if (refusal.header === "content-security-policy") {
-    return `Its Content-Security-Policy says ${refusal.value}, and Leglas is not on that list.`;
+    return {
+      lead: "Its Content-Security-Policy says ",
+      quote: refusal.value,
+      tail: ", and Leglas is not on that list.",
+    };
   }
 
   const value = refusal.value.trim();
+  const quote = `X-Frame-Options: ${value}`;
 
   switch (value.toLowerCase()) {
     case "deny":
-      return `It sends X-Frame-Options: ${value}, which tells every browser not to show it in a frame.`;
+      return {
+        lead: "It sends ",
+        quote,
+        tail: ", which tells every browser not to show it in a frame.",
+      };
     case "sameorigin":
-      return `It sends X-Frame-Options: ${value}, which lets only its own pages frame it.`;
+      return { lead: "It sends ", quote, tail: ", which lets only its own pages frame it." };
     default:
-      return `It sends X-Frame-Options: ${value}, which browsers read as a refusal.`;
+      return { lead: "It sends ", quote, tail: ", which browsers read as a refusal." };
   }
 }
 
@@ -85,6 +97,10 @@ export function refusalWords(refusal: FrameRefusal, src: string, embedder: strin
   return {
     headline: `${hostOf(src)} won’t open inside another page`,
     reason: because(refusal),
-    hint: `If the site is yours, a Content-Security-Policy of frame-ancestors ${embedder} lets it show here.`,
+    hint: {
+      lead: "If the site is yours, a Content-Security-Policy of ",
+      quote: `frame-ancestors ${embedder}`,
+      tail: " lets it show here.",
+    },
   };
 }
