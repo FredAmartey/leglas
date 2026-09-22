@@ -356,6 +356,8 @@ function parseShare(rest: string[]): ParseResult {
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
 
+    if (argument === "--help" || argument === "-h") return { kind: "help" };
+
     if (argument === "--json") {
       json = true;
       continue;
