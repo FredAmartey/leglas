@@ -27,6 +27,7 @@ describe("planExplore", () => {
     // The prewritten deck is retired. If a named style ever shows up in the
     // instructions again, the tool has gone back to directing designs.
     const text = planExplore("hero", 6).instructions.toLowerCase();
+
     for (const style of ["quiet", "editorial", "kinetic", "playful", "minimal", "brutalis"]) {
       expect(text).not.toContain(style);
     }
@@ -69,6 +70,7 @@ describe("planExplore", () => {
   test("both modes share the same file mechanics", () => {
     const spread = planExplore("hero", 3).instructions;
     const variants = planExplore("hero", 3, "Aurora").instructions;
+
     const shared = spread.slice(
       spread.indexOf("Each one is its own file"),
       spread.indexOf("Register each"),

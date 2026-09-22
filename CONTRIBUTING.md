@@ -58,8 +58,8 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 
 ## Before opening a pull request
 
-- `pnpm test`, `pnpm typecheck` and `pnpm format:check` pass. CI runs all
-  three; `pnpm format` fixes the last one.
+- `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm format:check` pass. CI
+  runs all four; `pnpm format` fixes the last one.
 - If your change touches what the packages export, run `pnpm api:update`
   and commit `api-surface.txt`. It is the record of the public surface, and
   a patch release is refused when it has moved since the previous one.

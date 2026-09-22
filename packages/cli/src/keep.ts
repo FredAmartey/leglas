@@ -16,16 +16,20 @@ export type KeepPlan =
 /** The surface a preview belongs to, read from the param the scaffold uses. */
 function surfaceOf(url: string): string | null {
   if (!url.startsWith("/") || !url.includes("?")) return null;
+
   for (const pair of url.slice(url.indexOf("?") + 1).split("&")) {
     const key = pair.split("=")[0];
+
     if (key?.startsWith("v-")) return key.slice(2);
   }
+
   return null;
 }
 
 /** A component name derived from the destination filename. */
 function exportNameFor(to: string): string {
   const stem = basename(to, extname(to));
+
   return stem
     .split(/[^a-zA-Z0-9]+/)
     .filter(Boolean)
@@ -51,6 +55,7 @@ export function planKeep(options: {
   to: string;
 }): KeepPlan {
   const winner = options.previews.find((preview) => preview.title === options.title);
+
   if (!winner) {
     return {
       ok: false,
@@ -60,6 +65,7 @@ export function planKeep(options: {
 
   const from = targetFor(winner.url);
   const surface = surfaceOf(winner.url);
+
   if (from === null || surface === null) {
     return {
       ok: false,
@@ -70,9 +76,11 @@ export function planKeep(options: {
   }
 
   const to = normalize(options.to);
+
   if (to.startsWith("..")) {
     return { ok: false, error: "The destination has to be inside the project." };
   }
+
   if (to.split(/[/\\]/)[0] === ".leglas") {
     return {
       ok: false,

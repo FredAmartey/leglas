@@ -23,20 +23,25 @@ export function useDismissal(
     if (!open) return;
     panelRef.current?.focus();
     const trigger = triggerRef.current;
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onCloseRef.current();
         trigger?.focus();
       }
     };
+
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
+
       if (!panelRef.current?.contains(target) && !trigger?.contains(target)) onCloseRef.current();
     };
+
     const onWindowBlur = () => onCloseRef.current();
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("blur", onWindowBlur);
+
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onPointerDown);

@@ -19,9 +19,6 @@ export type ShareRequest = {
   routes: string[];
 };
 
-/** The preference fields a share carries. The rest are the viewer's own. */
-const LAYOUT_KEYS = ["order", "renames", "collapsedFamilies", "viewport"] as const;
-
 /**
  * Why a direction cannot be shared, or null when it can.
  *
@@ -31,7 +28,9 @@ const LAYOUT_KEYS = ["order", "renames", "collapsedFamilies", "viewport"] as con
  */
 export function unshareableReason(preview: Preview | undefined): string | null {
   if (preview === undefined) return "is not on the rail";
+
   if (preview.branch !== undefined) return "runs on its own port and can't be shared yet";
+
   return null;
 }
 
@@ -41,6 +40,7 @@ function restrictedLayout(
   compare: string | null,
 ): ShareLayout {
   const included = new Set(titles);
+
   return {
     order: [...titles],
     renames: Object.fromEntries(
@@ -58,23 +58,29 @@ function restrictedLayout(
  * The whole rail: every direction showing, in rail order, minus the ones that
  * cannot go. `leftOut` names those so the panel can say so.
  */
+export type RailShare = { request: ShareRequest; leftOut: string[] };
+
 export function railShare(
   prefs: Prefs,
   previews: readonly Preview[],
   reach: ShareReach = "open",
   routes: readonly string[] = [],
-): { request: ShareRequest; leftOut: string[] } {
+): RailShare {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
   const gone = new Set([...prefs.deleted, ...prefs.hidden]);
+
   const titles = railOrder(
     prefs.order,
     previews.map((preview) => preview.title),
   ).filter((title) => !gone.has(title));
+
   const leftOut: string[] = [];
   const shared: string[] = [];
+
   for (const title of titles) {
     (unshareableReason(byTitle.get(title)) === null ? shared : leftOut).push(title);
   }
+
   return {
     request: {
       scope: "rail",
@@ -92,6 +98,8 @@ export function railShare(
  * split. Null with the reason when one of them cannot go, because a
  * comparison with one side missing is not the comparison that was meant.
  */
+export type StageShare = { request: ShareRequest | null; reason: string | null };
+
 export function stageShare(
   prefs: Prefs,
   previews: readonly Preview[],
@@ -99,22 +107,28 @@ export function stageShare(
   compare: string | null,
   reach: ShareReach = "open",
   routes: readonly string[] = [],
-): { request: ShareRequest | null; reason: string | null } {
+): StageShare {
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
-  const titles = compare === null || compare === active ? [active] : [active, compare];
+  const pair = compare === null || compare === active ? null : compare;
+  const titles = pair === null ? [active] : [active, pair];
+
   if (active === "") return { request: null, reason: "Nothing is on stage yet" };
+
   for (const title of titles) {
     const reason = unshareableReason(byTitle.get(title));
+
     if (reason !== null) {
       return { request: null, reason: `${prefs.renames[title] ?? title} ${reason}` };
     }
   }
-  const scope: ShareScope = titles.length === 2 ? "compare" : "direction";
+
+  const scope: ShareScope = pair === null ? "direction" : "compare";
+
   return {
     request: {
       scope,
       titles,
-      layout: restrictedLayout(prefs, titles, scope === "compare" ? (compare as string) : null),
+      layout: restrictedLayout(prefs, titles, pair),
       reach,
       routes: [...routes],
     },
@@ -129,6 +143,7 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 /** Whether two manifests would show a viewer the same thing. */
 export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   if (a.scope !== b.scope || !sameList(a.titles, b.titles)) return false;
+
   // Reach changes what a viewer can reach, so it is part of what "the same
   // share" means. The route list is not: it grows as the sharer allows
   // things, and offering to push that back as an update would ask them to
@@ -138,6 +153,7 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   const y = b.layout;
   const renamesX = Object.entries(x.renames).toSorted();
   const renamesY = Object.entries(y.renames).toSorted();
+
   return (
     sameList(x.order, y.order) &&
     sameList([...x.collapsedFamilies].toSorted(), [...y.collapsedFamilies].toSorted()) &&
@@ -177,9 +193,15 @@ export function adoptLayout(
   previews: readonly Preview[],
 ): Prefs {
   const seeded = loadPrefs(viewerPrefsRaw(layout), previews);
-  const next = { ...current };
-  for (const key of LAYOUT_KEYS) (next as Record<string, unknown>)[key] = seeded[key];
-  return next;
+
+  // The fields a share carries, and only those; the rest are the viewer's own.
+  return {
+    ...current,
+    collapsedFamilies: seeded.collapsedFamilies,
+    order: seeded.order,
+    renames: seeded.renames,
+    viewport: seeded.viewport,
+  };
 }
 
 /** What is being shared, in a few words, for the panel and the tip. */
@@ -191,6 +213,7 @@ export function scopeLine(
   if (scope === "rail") {
     return `The whole rail · ${titles.length} direction${titles.length === 1 ? "" : "s"}`;
   }
+
   return titles.map(displayName).join(" + ");
 }
 
@@ -204,7 +227,9 @@ export function scopeLine(
  */
 export function viewersLine(viewers: number): string {
   if (viewers === 0) return "nobody on it yet";
+
   if (viewers === 1) return "1 watching";
+
   return `${viewers} watching`;
 }
 
@@ -222,18 +247,29 @@ export function viewersLine(viewers: number): string {
  * turns the rest away and says what it turned away, which is where the list
  * grows from.
  */
+/** What `observedRoutes` reads of a frame, so a test can hand it one it made. */
+export type RouteFrame = {
+  dataset: { preview?: string | undefined };
+  contentWindow: {
+    performance: { getEntriesByType(type: string): readonly { name: string }[] };
+  } | null;
+};
+
 export function observedRoutes(
-  frames: Iterable<HTMLIFrameElement>,
+  frames: Iterable<RouteFrame>,
   titles: readonly string[],
   /** Taken rather than read, so this stays pure and can be tested. */
   origin: string,
 ): string[] {
   const wanted = new Set(titles);
   const routes = new Set<string>();
+
   for (const frame of frames) {
     const title = frame.dataset["preview"];
+
     if (title === undefined || !wanted.has(title)) continue;
-    let entries: PerformanceEntryList = [];
+    let entries: readonly { name: string }[] = [];
+
     try {
       entries = frame.contentWindow?.performance.getEntriesByType("resource") ?? [];
     } catch {
@@ -241,9 +277,11 @@ export function observedRoutes(
       // branch direction is not in a share anyway.
       continue;
     }
+
     for (const entry of entries) {
       try {
         const { origin: entryOrigin, pathname } = new URL(entry.name);
+
         // Only what this server serves. A font from a CDN is the viewer's
         // browser talking to the CDN, and no business of the list.
         if (entryOrigin !== origin) continue;
@@ -253,6 +291,7 @@ export function observedRoutes(
       }
     }
   }
+
   return [...routes].toSorted();
 }
 
@@ -263,7 +302,9 @@ export function observedRoutes(
  */
 export function directoryOf(path: string): string | null {
   const cut = path.lastIndexOf("/");
+
   if (cut <= 0) return null;
+
   return path.slice(0, cut + 1);
 }
 
@@ -280,10 +321,13 @@ export function totalViewers(grants: readonly { viewers: number }[]): number {
  */
 export function expiryLine(expiresAt: number, now: number): string {
   const left = expiresAt - now;
+
   if (left <= 0) return "expired";
   const minutes = Math.round(left / 60_000);
+
   if (minutes < 60) return `${Math.max(1, minutes)}m left`;
   const hours = Math.round(left / 3_600_000);
+
   return `${hours}h left`;
 }
 
@@ -299,6 +343,7 @@ export function grantLabel(name: string, index: number): string {
 export function shortLink(url: string): string {
   try {
     const parsed = new URL(url);
+
     return `${parsed.host}${parsed.pathname.replace(/\/s\/.+$/, "/s/…")}`;
   } catch {
     return url;

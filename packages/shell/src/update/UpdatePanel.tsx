@@ -45,12 +45,15 @@ export function UpdatePanel({
     if (!open) return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+
     return () => window.clearInterval(timer);
   }, [open]);
 
   const view = updateView(updates.status, updates.wait, updates.checking, clock);
+
   const act = () => {
     if (view.primary === null) return;
+
     if (view.primary.action === "check") updates.check();
     else updates.install();
   };

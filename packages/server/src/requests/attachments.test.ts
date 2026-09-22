@@ -1,3 +1,4 @@
+import { required, unusedPage } from "../test-helpers.js";
 import {
   existsSync,
   mkdirSync,
@@ -28,8 +29,8 @@ import {
   removeCaptures,
   sniffImage,
 } from "./attachments.js";
-import type { Browser, BrowserPool, CdpPage } from "../capture/browser.js";
-import { NO_BROWSER } from "../capture/browser.js";
+import { type Browser, type BrowserPool, type CdpPage, NO_BROWSER } from "../capture/browser.js";
+
 import type { CaptureOutput } from "../capture/capture.js";
 import type { Preview } from "../config/config.js";
 
@@ -61,7 +62,7 @@ function note(id: string, text: string): Annotation {
 const fakeBrowser: Browser = {
   closed: false,
   close: async () => {},
-  withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+  withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work(unusedPage),
 };
 
 function pool(browser: Browser | null, reason = NO_BROWSER): BrowserPool {
@@ -94,6 +95,7 @@ const PNG = (() => {
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
   bytes.writeUInt32BE(2, 16);
   bytes.writeUInt32BE(3, 20);
+
   return bytes;
 })();
 
@@ -123,10 +125,12 @@ describe("sniffImage", () => {
         const size = Buffer.alloc(4);
         size.writeUInt16BE(40, 0);
         size.writeUInt16BE(60, 2);
+
         return size;
       })(),
       Buffer.alloc(20),
     ]);
+
     expect(sniffImage(jpeg)).toMatchObject({ kind: "jpg", width: 60, height: 40 });
 
     const webp = Buffer.alloc(40);
@@ -234,19 +238,19 @@ describe("attachRequest", () => {
     for (const attachment of result.attachments) {
       expect(existsSync(join(cwd, attachment.file))).toBe(true);
     }
+
     expect(readFileSync(join(cwd, CAPTURES_DIR, "req1", "note-1.png"), "utf8")).toBe("note-one");
     // The upload moved rather than copied, so nothing is left to prune.
     expect(existsSync(join(cwd, REFERENCES_DIR, "paste1.png"))).toBe(false);
     // One load for the direction and its notes, one for the compared pane.
     expect(captured).toHaveBeenCalledTimes(2);
-    expect((captured.mock.calls[0]?.[1] as { url: string }).url).toBe("http://127.0.0.1:4100/");
-    expect((captured.mock.calls[1]?.[1] as { url: string }).url).toBe(
-      "http://127.0.0.1:4100/ledger",
-    );
+    expect(required(captured.mock.calls[0]?.[1]).url).toBe("http://127.0.0.1:4100/");
+    expect(required(captured.mock.calls[1]?.[1]).url).toBe("http://127.0.0.1:4100/ledger");
   });
 
   test("a note whose crop could not be taken is left out rather than misnumbered", async () => {
     const cwd = root();
+
     const captured = vi
       .fn()
       .mockResolvedValue(capture({ crops: [null, { shot: shot("second"), resolved: "element" }] }));
@@ -301,8 +305,16 @@ describe("attachRequest", () => {
 
   test("honours one deadline and returns without waiting for a stuck capture", async () => {
     const cwd = root();
-    const capture = vi.fn(() => new Promise<CaptureOutput>(() => {}));
+
+    const capture = vi.fn<
+      (
+        browser: Browser,
+        input: import("../capture/capture.js").CaptureInput & { signal?: AbortSignal },
+      ) => Promise<CaptureOutput>
+    >(() => new Promise<CaptureOutput>(() => {}));
+
     const started = Date.now();
+
     const result = await attachRequest(
       cwd,
       "slow",
@@ -320,16 +332,15 @@ describe("attachRequest", () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(result.skipped).toBe("The design could not be captured in time.");
     expect(result.attachments).toEqual([]);
-    expect((capture.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect(required(required(capture.mock.calls[0]?.[1]).signal).aborted).toBe(true);
     // The load gets a share of the deadline, so a page that rendered but
     // never fired load is still captured before the deadline lands.
-    expect((capture.mock.calls[0]?.[1] as { timeoutMs: number }).timeoutMs).toBe(
-      Math.floor(20 * LOAD_SHARE),
-    );
+    expect(required(capture.mock.calls[0]?.[1]).timeoutMs).toBe(Math.floor(20 * LOAD_SHARE));
   });
 
   test("a page that will not load is reported rather than thrown", async () => {
     const cwd = root();
+
     const capture = vi.fn(async () => {
       throw new Error("The page did not load: net::ERR_CONNECTION_REFUSED");
     });
@@ -375,6 +386,7 @@ describe("rehomeText", () => {
   test("points every capture path at the new directory and nothing else", () => {
     const text =
       "see .leglas/captures/abc/frame.png and .leglas/captures/abc/note-1.png, not .leglas/captures/abcd/x.png";
+
     expect(rehomeText(text, "abc", "xyz")).toBe(
       "see .leglas/captures/xyz/frame.png and .leglas/captures/xyz/note-1.png, not .leglas/captures/abcd/x.png",
     );
@@ -384,6 +396,7 @@ describe("rehomeText", () => {
 describe("capture cleanup", () => {
   test("removes one request and prunes everything not kept except show", async () => {
     const cwd = root();
+
     for (const name of ["keep", "drop", "show"]) {
       mkdirSync(join(cwd, CAPTURES_DIR, name), { recursive: true });
       writeFileSync(join(cwd, CAPTURES_DIR, name, "frame.png"), "frame");

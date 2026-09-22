@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isNumber, isString, isJsonRecord, type JsonValue, parseJson } from "../json.js";
+
 /**
  * Notes left on a spot in a preview, waiting to become a change request.
  *
@@ -53,29 +55,32 @@ export type Annotation = {
 
 /** Caps for values that arrive from a browser, so one note cannot eat the file. */
 const NOTE_CAP = 500;
+
 const SELECTOR_CAP = 300;
+
 const TEXT_CAP = 120;
+
 const TAG_CAP = 40;
+
 const CLASS_CAP = 8;
+
 const CLASS_LENGTH_CAP = 60;
+
 const COVERS_CAP = 8;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function text(value: unknown, cap: number): string {
-  return typeof value === "string" ? value.trim().slice(0, cap) : "";
+function text(value: JsonValue | undefined, cap: number): string {
+  return isString(value) ? value.trim().slice(0, cap) : "";
 }
 
 /** A fraction of an element's box, clamped to it, defaulting to its middle. */
-function fraction(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0.5;
+function fraction(value: JsonValue | undefined): number {
+  if (!isNumber(value) || !Number.isFinite(value)) return 0.5;
+
   return Math.min(1, Math.max(0, value));
 }
 
-function size(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+function size(value: JsonValue | undefined): number {
+  return isNumber(value) && Number.isFinite(value) ? Math.round(value) : 0;
 }
 
 /**
@@ -87,20 +92,23 @@ function size(value: unknown): number {
  * arrived malformed is still a note worth keeping; only a note with nothing to
  * point at is worthless, and that is what a missing selector means.
  */
-export function anchorFrom(value: unknown): AnnotationAnchor | null {
-  if (!isRecord(value)) return null;
+export function anchorFrom(value: JsonValue | undefined): AnnotationAnchor | null {
+  if (!isJsonRecord(value)) return null;
   const selector = text(value["selector"], SELECTOR_CAP);
+
   if (selector === "") return null;
 
-  const rect = isRecord(value["rect"]) ? value["rect"] : {};
+  const rect = isJsonRecord(value["rect"]) ? value["rect"] : {};
+
   const classes = Array.isArray(value["classes"])
     ? value["classes"]
-        .filter((entry): entry is string => typeof entry === "string")
+        .filter((entry): entry is string => isString(entry))
         .slice(0, CLASS_CAP)
         .map((entry) => entry.slice(0, CLASS_LENGTH_CAP))
     : [];
 
-  const rawRegion = isRecord(value["region"]) ? value["region"] : null;
+  const rawRegion = isJsonRecord(value["region"]) ? value["region"] : null;
+
   const region =
     rawRegion === null
       ? null
@@ -110,9 +118,10 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
           x: fraction(rawRegion["x"]),
           y: fraction(rawRegion["y"]),
         };
+
   const covers = Array.isArray(value["covers"])
     ? value["covers"]
-        .filter(isRecord)
+        .filter(isJsonRecord)
         .slice(0, COVERS_CAP)
         .map((entry) => ({
           tag: text(entry["tag"], TAG_CAP) || "element",
@@ -120,10 +129,8 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
         }))
     : [];
 
-  return {
+  const anchor: AnnotationAnchor = {
     classes,
-    ...(covers.length === 0 ? {} : { covers }),
-    ...(region === null ? {} : { region }),
     rect: {
       height: size(rect["height"]),
       width: size(rect["width"]),
@@ -132,29 +139,39 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
     },
     selector,
     spot: {
-      x: fraction(isRecord(value["spot"]) ? value["spot"]["x"] : undefined),
-      y: fraction(isRecord(value["spot"]) ? value["spot"]["y"] : undefined),
+      x: fraction(isJsonRecord(value["spot"]) ? value["spot"]["x"] : undefined),
+      y: fraction(isJsonRecord(value["spot"]) ? value["spot"]["y"] : undefined),
     },
     tag: text(value["tag"], TAG_CAP) || "element",
     text: text(value["text"], TEXT_CAP),
     viewport: size(value["viewport"]),
   };
+
+  if (covers.length > 0) anchor.covers = covers;
+
+  if (region !== null) anchor.region = region;
+
+  return anchor;
 }
 
 export async function readAnnotations(cwd: string): Promise<Annotation[]> {
   try {
     const raw = await readFile(join(cwd, ANNOTATIONS_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { annotations?: unknown };
-    if (!Array.isArray(parsed.annotations)) return [];
+    const parsed = parseJson(raw);
+
+    if (!isJsonRecord(parsed) || !Array.isArray(parsed.annotations)) return [];
+
     return parsed.annotations.flatMap((entry, index) => {
-      if (!isRecord(entry)) return [];
+      if (!isJsonRecord(entry)) return [];
       const anchor = anchorFrom(entry["anchor"]);
       const title = text(entry["title"], TAG_CAP * 4);
+
       if (anchor === null || title === "") return [];
+
       return [
         {
           anchor,
-          id: typeof entry["id"] === "string" ? entry["id"] : String(index),
+          id: isString(entry["id"]) ? entry["id"] : String(index),
           note: text(entry["note"], NOTE_CAP),
           title,
         },
@@ -199,6 +216,7 @@ function inTurn<T>(work: () => Promise<T>): Promise<T> {
     () => undefined,
     () => undefined,
   );
+
   return next;
 }
 
@@ -209,6 +227,7 @@ export async function addAnnotation(
   return inTurn(async () => {
     const annotation: Annotation = { ...input, id: randomBytes(6).toString("base64url") };
     await write(cwd, [...(await readAnnotations(cwd)), annotation]);
+
     return annotation;
   });
 }
@@ -245,22 +264,27 @@ export async function updateAnnotation(
   return inTurn(async () => {
     const annotations = await readAnnotations(cwd);
     const found = annotations.find((entry) => entry.id === id);
+
     if (found === undefined) return null;
     const words = text(note, NOTE_CAP);
+
     // Opening a note, reading it and pressing Enter is not a second thought.
     // Reissuing it there would quietly take the pin out of the sweep of a
     // change that is about to answer it, and leave it on the pane afterwards
     // as a note about something already done.
     if (words === found.note) return found;
+
     const revised: Annotation = {
       ...found,
       id: randomBytes(6).toString("base64url"),
       note: words,
     };
+
     await write(
       cwd,
       annotations.map((entry) => (entry.id === id ? revised : entry)),
     );
+
     return revised;
   });
 }
@@ -272,9 +296,11 @@ export async function removeAnnotations(cwd: string, ids: readonly string[]): Pr
     const annotations = await readAnnotations(cwd);
     const remaining = annotations.filter((entry) => !wanted.has(entry.id));
     const dropped = annotations.length - remaining.length;
+
     // Same reason an empty queue writes nothing: a request to forget notes
     // that were never there must not materialise .leglas/ in a fresh project.
     if (dropped > 0) await write(cwd, remaining);
+
     return dropped;
   });
 }
@@ -305,12 +331,16 @@ export function describeAnchor(anchor: AnnotationAnchor): string {
     const covered = (anchor.covers ?? [])
       .map((entry) => (entry.text === "" ? `<${entry.tag}>` : `<${entry.tag}> “${entry.text}”`))
       .join(", ");
+
     const inside = covered === "" ? "" : ` covering ${covered};`;
+
     return `an area inside <${anchor.tag}>;${inside} path ${anchor.selector}; ${where}`;
   }
 
   const parts = [`<${anchor.tag}>`];
+
   if (anchor.classes.length > 0) parts.push(`class "${anchor.classes.join(" ")}"`);
+
   if (anchor.text !== "") parts.push(`reading “${anchor.text}”`);
 
   return `${parts.join(", ")}; path ${anchor.selector}; ${where}`;
@@ -328,6 +358,7 @@ export function describeAnnotations(annotations: readonly Annotation[]): string 
   return annotations
     .map((annotation, index) => {
       const said = annotation.note === "" ? "Look at this." : annotation.note;
+
       return `${index + 1}. ${said}\n   The element: ${describeAnchor(annotation.anchor)}`;
     })
     .join("\n\n");

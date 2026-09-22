@@ -16,7 +16,9 @@ test("amber is never a tag's colour, because amber means duplicate", () => {
   const tones = new Set(
     ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"].map((tag) => tagTone(tag).color),
   );
+
   expect(tones.size).toBeGreaterThan(1);
+
   // Tailwind's amber-400 and amber-500, which the duplicate mark wears.
   for (const tone of tones) expect(["#FBBF24", "#F59E0B"]).not.toContain(tone);
 });

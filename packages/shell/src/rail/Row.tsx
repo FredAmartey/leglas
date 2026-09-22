@@ -13,7 +13,9 @@ import { tagTone } from "./tags.js";
 /** A title as a CSS identifier, for a row's view-transition-name. */
 function rowIdent(title: string): string {
   let hash = 0;
+
   for (const char of title) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+
   return Math.abs(hash).toString(36);
 }
 
@@ -297,6 +299,7 @@ export function RailRow({
   const meta = st.rowMeta.get(title);
   const depth = meta?.depth ?? 0;
   const isVariant = depth > 0;
+
   // Rows folded for the drag carry their subtree as a count, so a family
   // moving as one row still says how much is moving. A root already says
   // it beside its fold control.
@@ -304,6 +307,7 @@ export function RailRow({
     dragging && st.dragFolded.has(title) && (meta?.variants ?? 0) === 0
       ? (meta?.descendants ?? 0)
       : 0;
+
   // How the row shows its depth. With lineage on the rail the card itself
   // starts where its text column begins, so the graph lives in the gutter
   // outside every card: a root's card sits past its mark and the forks that
@@ -317,6 +321,7 @@ export function RailRow({
   // were aiming at stopped looking like itself. The field carries the
   // title's own metrics instead, so nothing below it shifts by a pixel.
   const renamingThis = st.renaming === title;
+
   // The end of the title line is contested: at rest it holds the badge, and
   // under the pointer the buttons, which want more room than the badge
   // takes. The badge leaves the flow rather than just fading, so the name
@@ -413,10 +418,13 @@ export function RailRow({
           } ${isDragged ? "shadow-2xl" : ""}`}
           onClick={() => {
             if (renamingThis) return;
+
             if (dragMeta.current?.suppressed) {
               dragMeta.current.suppressed = false;
+
               return;
             }
+
             st.setActive(title);
           }}
           onDoubleClick={(event) => {
@@ -425,7 +433,8 @@ export function RailRow({
             // which stops the event itself. Everything else — the note, the
             // badge, the empty space beside them — is one target.
             if (renamingThis) return;
-            if ((event.target as HTMLElement).closest("button")) return;
+
+            if (event.target instanceof Element && event.target.closest("button")) return;
             // The second click of the pair has already selected a word.
             window.getSelection()?.removeAllRanges();
             onOpenAlone();
@@ -437,6 +446,7 @@ export function RailRow({
             // rename, because the preventDefault here cancelled the form's own
             // submission, and a space never reached the name being typed.
             if (event.target !== event.currentTarget) return;
+
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               st.setActive(title);

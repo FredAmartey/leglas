@@ -83,6 +83,7 @@ describe("resolveKey", () => {
     // Escape is handled where the thing being closed lives, and the search
     // caps only mean anything together, which its own tests cover.
     const skip = ["Esc", "⌘Cmd+K", "Ctrl+K"];
+
     for (const cap of advertised.filter((cap) => !skip.includes(cap))) {
       const key = cap === "↑" ? "ArrowUp" : cap === "↓" ? "ArrowDown" : cap;
       expect(resolveKey({ key })).not.toBeNull();
@@ -110,6 +111,7 @@ describe("resolveKey", () => {
     }
   });
 });
+
 describe("annotating", () => {
   test("A leaves notes on the design", () => {
     expect(resolveKey({ key: "a" })).toEqual({ kind: "note" });

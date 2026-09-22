@@ -106,6 +106,8 @@ import { RailHeader } from "./rail/Header.js";
 import { RailRow } from "./rail/Row.js";
 import { Search } from "./rail/Search.js";
 import { ViewerBanner } from "./share/ViewerBanner.js";
+import { isString } from "./json.js";
+import { readJson } from "./net/api.js";
 
 /** How long a preview may take before it is treated as failed. */
 const LOAD_TIMEOUT_MS = 15_000;
@@ -116,6 +118,7 @@ const LOAD_TIMEOUT_MS = 15_000;
  * not need to send more than one in a while.
  */
 const WARM_THROTTLE_MS = 30_000;
+
 /** One render size makes duplicate verdicts independent of the visible stage. */
 const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
 
@@ -145,6 +148,7 @@ const EMPTY_AGENTS: AgentsPayload = {
 
 /** Whether to write the search chord as Cmd or Ctrl. Read once, never changes. */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
 const SEARCH_CAP = searchCap(IS_MAC);
 
 /** The rail's top and bottom edges, over which its rows and lines fade. */
@@ -193,6 +197,7 @@ export function Shell({
   // The way into the tools when the widget is switched off the stage.
   const onToggleTools = useCallback(() => setWidgetOpen((open) => !open), []);
   const onToggleNote = useCallback(() => setAnnotating((on) => !on), []);
+
   const st = useShellState({
     previews,
     project,
@@ -208,6 +213,7 @@ export function Shell({
     suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
     viewer: viewer === undefined ? undefined : { layout: viewer.layout },
   });
+
   /**
    * Somebody else's rail, opened through a share link. Everything that looks
    * stays; everything that changes what runs, or what the sharer sees, goes.
@@ -225,19 +231,26 @@ export function Shell({
    */
   const known = useRef<Set<string> | null>(null);
   const arrivedAt = useRef(new Map<string, number>());
+
   const arrivingNow = (title: string): boolean => {
     if (known.current === null) return false;
+
     if (!known.current.has(title) && !arrivedAt.current.has(title)) {
       arrivedAt.current.set(title, performance.now());
     }
+
     const at = arrivedAt.current.get(title);
+
     return at !== undefined && performance.now() - at < 1000;
   };
+
   /** A new direction blooms where it lands and on the direction it attaches to. */
   const arriving = (title: string) =>
     arrivingNow(title) || (st.railChildren.get(title) ?? []).some((child) => arrivingNow(child));
+
   useEffect(() => {
     const seen = known.current ?? new Set<string>();
+
     for (const title of st.rows) seen.add(title);
     known.current = seen;
   });
@@ -246,6 +259,7 @@ export function Shell({
   useEffect(() => {
     if (crumbBloom.title === "") return;
     const timer = setTimeout(() => setCrumbBloom((current) => ({ ...current, title: "" })), 950);
+
     return () => clearTimeout(timer);
   }, [crumbBloom]);
   /**
@@ -261,24 +275,30 @@ export function Shell({
    * that follows the pointer instead of answering it. Leaving is immediate.
    */
   const tracePending = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const setTraced = useCallback((title: string | null) => {
     if (tracePending.current) clearTimeout(tracePending.current);
     tracePending.current = null;
+
     if (title === null) {
       setTracedNow(null);
+
       return;
     }
+
     tracePending.current = setTimeout(() => {
       tracePending.current = null;
       setTracedNow(title);
     }, 120);
   }, []);
+
   useEffect(
     () => () => {
       if (tracePending.current) clearTimeout(tracePending.current);
     },
     [],
   );
+
   /**
    * The line the light runs along, and the segments under it. One answer,
    * used twice.
@@ -291,6 +311,7 @@ export function Shell({
    */
   const treeOf = (title: string) =>
     title === "" ? { nodes: [], edges: [] } : tracedTree(st.railParents, st.railChildren, title);
+
   const hovered = traced !== null ? treeOf(traced) : { nodes: [], edges: [] };
   const litTree = hovered.edges.length > 0 ? hovered : treeOf(st.active);
   const litSegments = tracedSegments(st.rows, st.rowMeta, litTree);
@@ -310,70 +331,92 @@ export function Shell({
   // strokes are in. Only asked for when something was drawing: a render that
   // drew nothing settles nothing, which is what keeps this from looping.
   const [, settle] = useReducer((count: number) => count + 1, 0);
+
   const freshFor = (title: string): Set<Segment> | undefined => {
     const graph = st.rowMeta.get(title)?.graph;
+
     if (!graph) return undefined;
     const drawn = drawnSegments.current.get(title);
     const fresh = new Set(segmentsOf(graph).filter((segment) => !drawn?.has(segment)));
+
     if (fresh.size > 0) drawing.current = true;
+
     return fresh;
   };
+
   // Keyed on what the gutter draws, not on renders: the shell re-renders
   // for polls and frames far more often than every 700ms, and a timer reset
   // on each of those would never fire.
   const gutterSignature = st.rows
     .map((title) => {
       const graph = st.rowMeta.get(title)?.graph;
+
       return graph ? `${title}=${segmentsOf(graph).join(",")}` : title;
     })
     .join("|");
+
   useEffect(() => {
     const snapshot = st.rows.map((title) => [title, st.rowMeta.get(title)?.graph] as const);
     const wasDrawing = drawing.current;
+
     const timer = setTimeout(() => {
       drawnSegments.current = new Map(
         snapshot.flatMap(([title, graph]) =>
           graph ? [[title, new Set<string>(segmentsOf(graph))] as const] : [],
         ),
       );
+
       if (wasDrawing) settle();
     }, 700);
+
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gutterSignature]);
+
   /**
    * Folding on a graph rail is a change of layout the browser can animate:
    * the rows that stay slide to their new places and the rows that go fade,
    * instead of the list snapping to its new shape.
    */
   const foldFamily = (title: string) => {
-    if (!stillMotion && typeof document.startViewTransition === "function") {
+    if (!stillMotion && "startViewTransition" in document) {
       document.startViewTransition(() => flushSync(() => st.toggleFamily(title)));
+
       return;
     }
+
     st.toggleFamily(title);
   };
+
   /** A crumb under the pointer lights its row as well as its line. */
   const traceFromCrumb = (title: string | null) => {
     setTraced(title);
+
     if (title === null) {
       setGlow((current) => ({ ...current, on: false }));
+
       return;
     }
+
     setCrumbBloom((current) => ({ nonce: current.nonce + 1, title }));
+
     const row = [...(listRef.current?.querySelectorAll<HTMLElement>("li[data-title]") ?? [])].find(
       (entry) => entry.dataset.title === title,
     );
+
     if (row) setGlow(glowFor(row));
   };
+
   const closeDeletePrompt = () => {
     if (!deletingRemoved) setDeletePrompt(null);
   };
+
   const confirmDeleteRemoved = async () => {
     if (deletePrompt === null || deletingRemoved) return;
     const prompt = deletePrompt;
     setDeletingRemoved(true);
     setDeletePrompt({ ...prompt, error: null });
+
     try {
       await st.deleteRemoved(prompt.titles);
       setDeletePrompt(null);
@@ -395,6 +438,7 @@ export function Shell({
       setDeletingRemoved(false);
     }
   };
+
   // The widget is the only way into the tools, so it must never end up under
   // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
   const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
@@ -426,6 +470,7 @@ export function Shell({
   // wrapping depends on the rail width and the face the user picked.
   useEffect(() => {
     const field = requestRef.current;
+
     if (field === null) return;
     field.style.height = "0px";
     field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
@@ -448,6 +493,7 @@ export function Shell({
   // the pointer crosses the field.
   const [dropping, setDropping] = useState(false);
   const dropDepth = useRef(0);
+
   const uploadReferenceDraft = useCallback((key: string, file: File) => {
     referenceFiles.current.set(key, file);
     setReferences((current) =>
@@ -469,14 +515,18 @@ export function Shell({
         ),
       );
   }, []);
+
   const attachReferences = (files: readonly File[]) => {
     if (st.active === null || sending) return;
     const { accepted, refused } = admit(references, files);
     const message = refusalMessage(refused);
+
     if (message !== null) {
       st.notify({ kind: "reference", message, tone: "info", ttl: TOAST_TTL.action });
     }
+
     if (accepted.length === 0) return;
+
     const drafts = accepted.map((file): ReferenceDraft => ({
       key: crypto.randomUUID(),
       name: referenceName(file.name),
@@ -486,27 +536,36 @@ export function Shell({
       status: "uploading",
       id: null,
     }));
+
     setReferences((current) => [...current, ...drafts]);
     drafts.forEach((draft, index) => {
       const file = accepted[index];
+
       if (file !== undefined) uploadReferenceDraft(draft.key, file);
     });
   };
+
   const removeReference = (key: string) => {
     referenceFiles.current.delete(key);
     const leaving = references.find((draft) => draft.key === key);
+
     if (leaving !== undefined) URL.revokeObjectURL(leaving.url);
     setReferences((current) => current.filter((draft) => draft.key !== key));
   };
+
   const retryReference = (key: string) => {
     const file = referenceFiles.current.get(key);
+
     if (file !== undefined) uploadReferenceDraft(key, file);
   };
+
   const clearReferences = () => {
     referenceFiles.current.clear();
+
     for (const draft of references) URL.revokeObjectURL(draft.url);
     setReferences([]);
   };
+
   const [pickingAgent, setPickingAgent] = useState<string | null>(null);
   const [savingEffort, setSavingEffort] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
@@ -523,11 +582,13 @@ export function Shell({
   const [railFooterH, setRailFooterH] = useState(RAIL_FOOTER_FALLBACK_H);
   useEffect(() => {
     const node = railFooterRef.current;
+
     if (node === null || typeof ResizeObserver === "undefined") return;
     const measure = () => setRailFooterH(node.offsetHeight);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+
     return () => observer.disconnect();
   }, []);
 
@@ -535,6 +596,7 @@ export function Shell({
   // active row carries its own persistent surface, so this is hover-only.
   const listRef = useRef<HTMLUListElement | null>(null);
   const [glow, setGlow] = useState({ height: 0, left: 0, on: false, top: 0 });
+
   // The glow covers the card, not the row: a card starts past the gutter its
   // lineage lives in, so the glow starts where the card does.
   const glowFor = (row: HTMLElement) => ({
@@ -579,15 +641,19 @@ export function Shell({
   useEffect(() => {
     if (!drag) return;
     const meta = dragMeta.current;
+
     if (!meta) return;
+
     const onMove = (event: PointerEvent) => {
       const dy = event.clientY - meta.startY;
       const dx = event.clientX - meta.startX;
       setDrag((current) => {
         if (!current || current.settling) return current;
+
         if (!current.started) {
           // Nothing is decided inside the threshold.
           if (Math.abs(dy) <= 4 && Math.abs(dx) <= 4) return { ...current, dy };
+
           // The first real movement chooses which gesture this press was:
           // down the list reorders, across a line selects the text under the
           // pointer. Both live on the same surface because a row is a handle
@@ -605,10 +671,13 @@ export function Shell({
               meta.siblings.filter((sibling) => (st.rowMeta.get(sibling)?.descendants ?? 0) > 0),
             ),
           );
+
           return { ...current, dy: 0, measured: false, started: true };
         }
+
         if (!current.measured) return current;
         const row = meta.rows[current.from];
+
         if (!row) return current;
         // Where the row would sit if it took each slot its siblings offer.
         // Rows differ in height, so the slot is chosen by which of these the
@@ -619,11 +688,15 @@ export function Shell({
         // so the whole-rail fallback here only covers the frames before that
         // remeasure has run; it never widens a family's slots to the rail.
         const [first, last] = current.span ?? [0, meta.rows.length - 1];
+
         const slotTop = (index: number): number => {
           const slot = meta.rows[index];
+
           if (!slot) return row.top;
+
           return index <= current.from ? slot.top : slot.top + slot.height - row.height;
         };
+
         const low = slotTop(first) - row.top;
         const high = slotTop(last) - row.top;
         // The pointer gets a row of give; the row itself shows a third of
@@ -632,6 +705,7 @@ export function Shell({
         const peek = give / 3;
         let bounded = dy;
         let blocked = false;
+
         if (dy < low) {
           bounded = low + Math.max(-peek, (dy - low) * 0.3);
           blocked = dy < low - give;
@@ -639,26 +713,34 @@ export function Shell({
           bounded = high + Math.min(peek, (dy - high) * 0.3);
           blocked = dy > high + give;
         }
+
         bounded = Math.max(meta.minDy, Math.min(meta.maxDy, bounded));
         const wanted = row.top + Math.max(low, Math.min(high, dy));
         let to = current.from;
         let nearest = Infinity;
+
         for (let index = first; index <= last; index += 1) {
           const distance = Math.abs(slotTop(index) - wanted);
+
           if (distance < nearest) {
             nearest = distance;
             to = index;
           }
         }
+
         return { ...current, blocked, dy: bounded, started: true, to };
       });
     };
+
     const onUp = () => {
       const current = dragRef.current;
+
       if (!current?.started) {
         setDrag(null);
+
         return;
       }
+
       meta.suppressed = true;
       // Let go past the edge and the row goes back where it was, with the
       // reason said once in words; the chip on the row was the short form.
@@ -669,10 +751,12 @@ export function Shell({
       const start = meta.rows[current.from];
       const slot = meta.rows[to];
       let settle = 0;
+
       if (start && slot) {
         settle =
           (to <= current.from ? slot.top : slot.top + slot.height - start.height) - start.top;
       }
+
       setDrag({ ...current, dy: settle, settling: true, to });
       window.setTimeout(() => {
         if (refused) {
@@ -681,14 +765,17 @@ export function Shell({
           // Landing at `to` means going just after the row now there when
           // moving down, and just before it when moving up.
           const [, last] = current.span ?? [0, meta.rows.length - 1];
+
           const before =
             to > current.from
               ? to + 1 <= last
                 ? (meta.rows[to + 1]?.title ?? null)
                 : null
               : (meta.rows[to]?.title ?? null);
+
           st.reorderAmong(current.title, before, meta.siblings);
         }
+
         st.setDragFolded(new Set());
         setDrag(null);
         window.setTimeout(() => {
@@ -696,9 +783,11 @@ export function Shell({
         }, 0);
       }, 190);
     };
+
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -716,17 +805,21 @@ export function Shell({
     const meta = dragMeta.current;
     const list = listRef.current;
     const scroller = list?.parentElement;
+
     if (!meta || !list || !scroller) return;
     const items = [...list.querySelectorAll<HTMLLIElement>("li[data-title]")];
+
     const rows = items.map((item) => ({
       height: item.offsetHeight,
       mid: item.offsetTop + item.offsetHeight / 2,
       title: item.dataset.title ?? "",
       top: item.offsetTop,
     }));
+
     const from = rows.findIndex((entry) => entry.title === drag.title);
     const row = rows[from];
     const item = items[from];
+
     if (!row || !item) return;
     meta.startY -= meta.oldTop - row.top;
     meta.rows = rows;
@@ -734,12 +827,15 @@ export function Shell({
     const rect = item.getBoundingClientRect();
     meta.minDy = view.top - rect.top;
     meta.maxDy = view.bottom - rect.bottom;
+
     const indices = meta.siblings
       .map((sibling) => rows.findIndex((entry) => entry.title === sibling))
       .filter((index) => index !== -1);
+
     const span: [number, number] | null = indices.length
       ? [Math.min(...indices), Math.max(...indices)]
       : null;
+
     setDrag((current) =>
       current && !current.measured
         ? { ...current, from, height: row.height, measured: true, span, to: from }
@@ -759,6 +855,7 @@ export function Shell({
     const name = st.displayName(title);
     const family = parent === null ? null : st.displayName(parent);
     const only = siblings.length < 2;
+
     return {
       note:
         family === null
@@ -784,22 +881,27 @@ export function Shell({
   useEffect(() => {
     if (!widgetOpen) return;
     popoverRef.current?.focus();
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setWidgetOpen(false);
         widgetButtonRef.current?.focus();
       }
     };
+
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
+
       if (!popoverRef.current?.contains(target) && !widgetButtonRef.current?.contains(target)) {
         setWidgetOpen(false);
       }
     };
+
     const onWindowBlur = () => setWidgetOpen(false);
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("blur", onWindowBlur);
+
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onPointerDown);
@@ -822,6 +924,7 @@ export function Shell({
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
+
   /**
    * The light running down the traced line, measured from the marks the rail
    * actually drew rather than worked out again from the layout constants: the
@@ -832,33 +935,41 @@ export function Shell({
    * where they were measured, and a light chasing them is noise on top of a
    * gesture that has the user's whole attention.
    */
-  type TrailShape = { d: string; height: number; marks: TrailMark[] };
+  type TrailDrawing = { d: string; height: number; marks: TrailMark[] };
+
   /**
    * The light on stage and, for a moment, the one it replaced: a change of
    * lineage fades the old light out while the new one fades in, both on the
    * same clock, so the current reroutes instead of restarting.
    */
-  const [trail, setTrail] = useState<TrailShape | null>(null);
+  const [trail, setTrail] = useState<TrailDrawing | null>(null);
   /** Every light still fading out, each dropped once its fade is done. */
-  const [leaving, setLeaving] = useState<readonly TrailShape[]>([]);
+  const [leaving, setLeaving] = useState<readonly TrailDrawing[]>([]);
   const traceEdges = litTree.edges;
   const trailKey = `${traceEdges.map((edge) => edge.join(">")).join(",")}|${dragging}|${st.prefs.width}|${gutter}`;
-  const replaceTrail = (next: TrailShape | null) =>
+
+  const replaceTrail = (next: TrailDrawing | null) =>
     setTrail((current) => {
       if (current?.d === next?.d) return current;
+
       if (current !== null) {
         const going = current;
         setLeaving((rest) => [...rest.filter((entry) => entry.d !== going.d), going]);
         setTimeout(() => setLeaving((rest) => rest.filter((entry) => entry !== going)), 460);
       }
+
       return next;
     });
+
   useLayoutEffect(() => {
     const list = listRef.current;
+
     if (dragging || list === null || traceEdges.length === 0) {
       replaceTrail(null);
+
       return;
     }
+
     const measure = () => {
       const box = list.getBoundingClientRect();
       const at = new Map<string, TrailMark>();
@@ -868,9 +979,11 @@ export function Shell({
       // begins with a digit would never be found and the light would just not
       // appear.
       const rows = [...list.querySelectorAll<HTMLElement>("li[data-title]")];
+
       for (const title of litTree.nodes) {
         const row = rows.find((entry) => entry.dataset.title === title);
         const mark = row?.querySelector("[data-mark]");
+
         if (!row || !mark) return replaceTrail(null);
         const dot = mark.getBoundingClientRect();
         // The room the light leaves around the mark: a dot's radius and a
@@ -884,21 +997,28 @@ export function Shell({
           y: dot.top + dot.height / 2 - row.getBoundingClientRect().top + row.offsetTop,
         });
       }
+
       // Every edge is its own subpath, so a tree with forks is one path the
       // light can run down and split along.
       const d = traceEdges
-        .map(([parent, child]) =>
-          trailPath([at.get(parent) as TrailMark, at.get(child) as TrailMark]),
-        )
+        .flatMap(([parent, child]) => {
+          const from = at.get(parent);
+          const to = at.get(child);
+
+          return from && to ? [trailPath([from, to])] : [];
+        })
         .join(" ");
+
       replaceTrail({ d, height: list.scrollHeight, marks: [...at.values()] });
     };
+
     measure();
     // Row heights answer to the rail's width, to a rename, and to a note
     // wrapping onto another line, none of which this effect would otherwise
     // hear about.
     const observer = new ResizeObserver(measure);
     observer.observe(list);
+
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging, trailKey]);
@@ -915,18 +1035,23 @@ export function Shell({
   // stage, side by side, before the viewer touches anything.
   const [split, setSplit] = useState(viewer?.scope === "compare");
   const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
+
   // A pushed share moves the stage with it, settled while rendering so the
   // frame never shows the old pair first.
   const viewerStage =
     viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
+
   const [seenStage, setSeenStage] = useState(viewerStage);
+
   if (viewerStage !== seenStage) {
     setSeenStage(viewerStage);
+
     if (viewer !== undefined) {
       setSplit(viewer.scope === "compare");
       setComparePin(viewer.layout.compare);
     }
   }
+
   const previousRef = useRef<string | null>(null);
   useEffect(() => {
     // Cleanup runs just before the next change, so this holds the direction
@@ -938,6 +1063,7 @@ export function Shell({
 
   splitRef.current = () => {
     if (!split && compare !== null) setComparePin(compare);
+
     if (compare !== null || split) setSplit((current) => !current);
   };
 
@@ -948,6 +1074,7 @@ export function Shell({
     parent: st.parentOf(st.active),
     rows: st.rows,
   });
+
   const visible = paneTitles({ active: st.active, compare, split });
   /** Where each direction on the stage sits, left to right. */
   const stagePlace = new Map(visible.map((title, index) => [title, index]));
@@ -957,12 +1084,16 @@ export function Shell({
   // memory and network work while offering no visible benefit.
   const mounted = visible;
   const previousMounted = useRef(new Map<string, string>());
+
   const paneIdentityFor = (title: string) =>
     previewIdentity(title, st.urlFor(title), reloadTick[title] ?? 0);
+
   const paneLoaded = (title: string) => {
     const identity = paneIdentityFor(title);
+
     return previousMounted.current.get(title) === identity && st.isLoaded(title, identity);
   };
+
   /**
    * A branch pane on stage is a request to bring that branch up.
    *
@@ -974,6 +1105,7 @@ export function Shell({
   const branchesOnStage = mounted
     .filter((title) => st.branchState(title)?.status === "idle")
     .join("\u0001");
+
   useEffect(() => {
     for (const title of branchesOnStage.split("\u0001").filter(Boolean)) st.startBranch(title);
     // st is rebuilt every render; the titles are what actually changed.
@@ -989,17 +1121,23 @@ export function Shell({
   // with its previous loaded state before the skeleton catches up.
   useLayoutEffect(() => {
     const previous = previousMounted.current;
+
     const changed = [...mountedIdentities].filter(
       ([title, identity]) => previous.get(title) !== identity,
     );
+
     for (const [title] of changed) st.resetLoaded(title);
+
     if (changed.some(([title]) => errored[title])) {
       setErrored((current) => {
         const next = { ...current };
+
         for (const [title] of changed) next[title] = false;
+
         return next;
       });
     }
+
     previousMounted.current = new Map(mountedIdentities);
   }, [mountedIdentityKey]);
 
@@ -1016,6 +1154,7 @@ export function Shell({
   const attachStage = useCallback((node: HTMLDivElement | null) => {
     stageRef.current = node;
     stageWatch.current?.disconnect();
+
     if (node === null) return;
     // Measured once here as well as observed. A ResizeObserver does not report
     // until the compositor produces a frame, so waiting for it alone leaves the
@@ -1023,10 +1162,13 @@ export function Shell({
     // unscaled until something else moves.
     const first = node.getBoundingClientRect();
     setStage({ height: first.height, width: first.width });
+
     const observer = new ResizeObserver(([entry]) => {
       const box = entry?.contentRect;
+
       if (box) setStage({ height: box.height, width: box.width });
     });
+
     observer.observe(node);
     stageWatch.current = observer;
   }, []);
@@ -1067,6 +1209,7 @@ export function Shell({
   const widgetAnchor = widgetDrag
     ? (() => {
         const { x, y } = dragAnchor(widgetDrag);
+
         return { bottom: "auto", left: x, right: "auto", top: y } as const;
       })()
     : undefined;
@@ -1074,6 +1217,7 @@ export function Shell({
   const onWidgetPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     const stage = stageRef.current?.getBoundingClientRect();
+
     if (!stage) return;
     // Pointer capture routes every move back here even while the pointer is
     // over a preview. Without it the iframe, being its own document, takes the
@@ -1087,6 +1231,7 @@ export function Shell({
     // put and the click through to the button survives.
     const origin = { x: event.clientX, y: event.clientY };
     let moved = false;
+
     const onMove = (move: PointerEvent) => {
       if (!moved && !isDrag(origin, { x: move.clientX, y: move.clientY })) return;
       moved = true;
@@ -1097,23 +1242,28 @@ export function Shell({
         ),
       );
     };
+
     const onUp = (up: PointerEvent) => {
       if (handle.hasPointerCapture(up.pointerId)) handle.releasePointerCapture(up.pointerId);
       handle.removeEventListener("pointermove", onMove);
       handle.removeEventListener("pointerup", onUp);
       handle.removeEventListener("pointercancel", onUp);
       setWidgetDrag(null);
+
       if (!moved) return;
       widgetClickSuppressed.current = true;
+
       // A drag settles into a corner rather than staying wherever it was let
       // go, so it never sits over the middle of a design being judged.
       const { corner } = nearestCorner(
         { x: up.clientX - stage.left, y: up.clientY - stage.top },
         { width: stage.width, height: stage.height },
       );
+
       st.setPrefs((current) => ({ ...current, corner }));
       setWidgetOpen(false);
     };
+
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onUp);
     handle.addEventListener("pointercancel", onUp);
@@ -1140,10 +1290,12 @@ export function Shell({
   // is current whenever it is actually read.
   const appPanes = new Set(previews.filter(needsDevServer).map((preview) => preview.title));
   const needsApp = appPanes.size > 0;
+
   const [requestSnapshot, setRequestSnapshot] = useState<{
     requests: RequestStatus[];
     agent: AgentStatus;
   }>({ requests: [], agent: IDLE_AGENT });
+
   /**
    * The notes left on every direction, and whether the preview is currently
    * taking new ones.
@@ -1169,6 +1321,7 @@ export function Shell({
         );
       })
       .catch(() => {});
+
     return () => {
       cancelled = true;
     };
@@ -1183,19 +1336,19 @@ export function Shell({
     // None of this is served to a viewer, and none of it is theirs to see.
     if (viewing) return;
     let cancelled = false;
+
     const poll = async (signal: AbortSignal) => {
       const signalled: NoteFetcher = (input, init) => fetch(input, { ...init, signal });
       await fetch("/leglas/api/requests", { signal })
-        .then(
-          (response) =>
-            response.json() as Promise<{ requests: RequestStatus[]; agent?: AgentStatus }>,
-        )
+        .then((response) => readJson<{ requests: RequestStatus[]; agent?: AgentStatus }>(response))
         .then((payload) => {
           if (cancelled) return;
+
           const next = {
             requests: payload.requests,
             agent: payload.agent ?? IDLE_AGENT,
           };
+
           setRequestSnapshot((current) =>
             JSON.stringify(current) === JSON.stringify(next) ? current : next,
           );
@@ -1218,6 +1371,7 @@ export function Shell({
         })
         .catch(() => {});
     };
+
     // One nudge drives both reads, which is what keeps them a pair. The
     // wire has three kinds and annotations is deliberately not one of them,
     // so there is no way to ask for the notes without the queue and no way
@@ -1226,6 +1380,7 @@ export function Shell({
       everyMs: FALLBACK_MS,
       subscribe: (run) => liveConnection().on("requests", run),
     });
+
     return () => {
       cancelled = true;
       stop();
@@ -1239,23 +1394,28 @@ export function Shell({
   // the seconds spent typing it are where the agent's start-up cost hides.
   // Nothing is warmed before this: a saved choice is not a request.
   const lastWarmAsk = useRef(0);
+
   const warmChosenAgent = () => {
     if (chip.kind !== "chosen") return;
     const now = Date.now();
+
     if (now - lastWarmAsk.current < WARM_THROTTLE_MS) return;
     lastWarmAsk.current = now;
     void warmAgent().catch(() => {
       // Only latency is lost; the request itself warms the agent on the way.
     });
   };
+
   const selectedAgent =
     chip.kind === "chosen"
       ? agentState.agents.find((agent) => agent.id === chip.id && agent.available)
       : undefined;
+
   const selectedEffort =
     agentState.effort !== null && selectedAgent?.efforts.includes(agentState.effort)
       ? agentState.effort
       : null;
+
   /**
    * Where the direction being changed came from, said without being asked.
    *
@@ -1266,24 +1426,31 @@ export function Shell({
    */
   /** The notes waiting on the direction the composer is aimed at. */
   const activeNotes = st.active === null ? [] : notes.filter((note) => note.title === st.active);
+
   const activeOrigin = (() => {
     const origin = provenanceOf(st.active === null ? undefined : st.previewFor(st.active));
+
     if (origin === null) return null;
+
     return provenanceLine(
       origin.basedOn === null ? null : st.displayName(origin.basedOn),
       origin.askedFor,
     );
   })();
+
   /** The selected direction's ancestry, for the rail that draws it as a path. */
   const activeChain = st.active === "" ? [] : st.ancestryOf(st.active);
+
   const chosenSignedOut =
     chip.kind === "chosen" &&
     agentState.agents.some((agent) => agent.id === chip.id && agent.auth === "signed-out");
+
   const card = requestCard(
     requestSnapshot.requests,
     requestSnapshot.agent,
     chip.kind === "chosen" || requestSnapshot.agent.attached,
   );
+
   useEffect(() => {
     if (chip.kind === "none") setAgentMenuOpen(false);
   }, [chip.kind]);
@@ -1292,28 +1459,34 @@ export function Shell({
   useEffect(() => {
     if (!agentMenuOpen) return;
     agentMenuRef.current?.focus();
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setAgentMenuOpen(false);
         agentTriggerRef.current?.focus();
       }
     };
+
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
+      const target = event.target instanceof Node ? event.target : null;
+
       if (!agentMenuRef.current?.contains(target) && !agentTriggerRef.current?.contains(target)) {
         setAgentMenuOpen(false);
       }
     };
+
     const onWindowBlur = () => setAgentMenuOpen(false);
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("blur", onWindowBlur);
+
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [agentMenuOpen]);
+
   const pickAgent = (agent: string) => {
     if (pickingAgent !== null || savingEffort) return;
     const name = agentState.agents.find((option) => option.id === agent)?.name ?? "Agent";
@@ -1327,13 +1500,16 @@ export function Shell({
         try {
           const current = await readAgents(true);
           setAgentState(current);
+
           if (current.choice === agent) {
             setAgentMenuOpen(false);
+
             return;
           }
         } catch {
           // The original error is more useful than a failed recovery read.
         }
+
         st.notify({
           kind: "agent-choice",
           message: `${name} wasn’t selected. Try again.`,
@@ -1343,6 +1519,7 @@ export function Shell({
       })
       .finally(() => setPickingAgent(null));
   };
+
   const pickEffort = (effort: AgentEffort | null) => {
     if (selectedAgent === undefined || savingEffort || pickingAgent !== null) return;
     const previous = agentState.effort;
@@ -1361,6 +1538,7 @@ export function Shell({
       })
       .finally(() => setSavingEffort(false));
   };
+
   const cancelRequest = (id: string | null) => {
     if (requestAction !== null) return;
     setRequestAction("cancel");
@@ -1376,6 +1554,7 @@ export function Shell({
       })
       .finally(() => setRequestAction(null));
   };
+
   const retryRequest = (id: string) => {
     if (requestAction !== null) return;
     setRequestAction("retry");
@@ -1391,6 +1570,7 @@ export function Shell({
       })
       .finally(() => setRequestAction(null));
   };
+
   const dismissRequest = (id: string) => {
     if (requestAction !== null) return;
     setRequestAction("dismiss");
@@ -1406,11 +1586,13 @@ export function Shell({
       })
       .finally(() => setRequestAction(null));
   };
+
   useEffect(() => {
     let cancelled = false;
+
     const poll = (signal: AbortSignal) =>
       fetch("/leglas/api/health", { signal })
-        .then((response) => response.json() as Promise<{ reachable: boolean }>)
+        .then((response) => readJson<{ reachable: boolean }>(response))
         .then(({ reachable }) => {
           if (!cancelled) setHealth((current) => nextHealthState(current, reachable));
         })
@@ -1418,6 +1600,7 @@ export function Shell({
           // Leglas itself is unreachable; that is not the dev server's fault
           // and the page will fail visibly enough on its own.
         });
+
     // The server probes the dev server once for every interface rather than
     // each of them probing separately, and says so only when the answer
     // changes. A restart is still noticed in the same beat it always was.
@@ -1425,6 +1608,7 @@ export function Shell({
       everyMs: FALLBACK_MS,
       subscribe: (run) => liveConnection().on("health", run),
     });
+
     return () => {
       cancelled = true;
       stop();
@@ -1439,13 +1623,16 @@ export function Shell({
     if (!health.reachable || !health.wasDown) return;
     setErrored((current) => {
       const next = { ...current };
+
       for (const title of Object.keys(next)) {
         if (appPanes.has(title)) next[title] = false;
       }
+
       return next;
     });
     setReloadTick((current) => {
       const next = { ...current };
+
       // Every app-backed pane, not only the ones that ever reported loaded.
       // A pane whose first navigation failed never reported anything, so
       // keying off that skipped exactly the pane most in need of a remount:
@@ -1454,6 +1641,7 @@ export function Shell({
       for (const title of appPanes) {
         next[title] = (next[title] ?? 0) + 1;
       }
+
       return next;
     });
     setHealth((current) => ({ ...current, wasDown: false }));
@@ -1472,6 +1660,7 @@ export function Shell({
   useEffect(() => {
     const onChange = () => setPageVisible(!document.hidden);
     document.addEventListener("visibilitychange", onChange);
+
     return () => document.removeEventListener("visibilitychange", onChange);
   }, []);
 
@@ -1489,12 +1678,15 @@ export function Shell({
   const scanIdentities = new Map(
     previews.map((preview) => [preview.title, paneIdentityFor(preview.title)]),
   );
+
   const scanIdentityKey = [...scanIdentities]
     .map(([title, identity]) => `${title}${identity}`)
     .join("");
+
   const previousScanPanes = useRef(new Map<string, string>());
   useLayoutEffect(() => {
     const changed = replacedPanes(previousScanPanes.current, scanIdentities);
+
     if (changed.length > 0) setScans((current) => forgetScans(current, changed));
     previousScanPanes.current = new Map(scanIdentities);
   }, [scanIdentityKey]);
@@ -1518,32 +1710,41 @@ export function Shell({
    */
   const applyOverlayPref = (frame: HTMLIFrameElement, hide: boolean) => {
     let doc: Document | null = null;
+
     try {
       doc = frame.contentDocument;
     } catch {
       return;
     }
+
     if (!doc?.head) return;
+    const owner = doc;
 
     const ID = "leglas-hide-dev-overlays";
+
     // `find` and `into` differ: a style is looked up on the document but has to
     // be appended to its head, because a Document may hold only one element.
     const put = (find: Document | ShadowRoot, into: Node, css: string) => {
       const existing = find.getElementById(ID);
+
       if (!hide) {
         existing?.remove();
+
         return;
       }
+
       if (existing) return;
-      const style = (doc as Document).createElement("style");
+      const style = owner.createElement("style");
       style.id = ID;
       style.textContent = css;
       into.appendChild(style);
     };
 
     put(doc, doc.head, BADGE_CSS);
+
     for (const portal of doc.querySelectorAll("nextjs-portal")) {
       const root = portal.shadowRoot;
+
       if (root) put(root, root, NEXT_BADGE_CSS);
     }
   };
@@ -1562,7 +1763,7 @@ export function Shell({
    */
   useEffect(() => {
     for (const frame of document.querySelectorAll("iframe")) {
-      applyOverlayPref(frame as HTMLIFrameElement, !st.prefs.showDevOverlays);
+      applyOverlayPref(frame, !st.prefs.showDevOverlays);
     }
   });
 
@@ -1570,20 +1771,25 @@ export function Shell({
     // Cross-origin panes are unreadable by design; a branch preview or a
     // deployed URL simply goes uncompared.
     let doc: Document | null = null;
+
     try {
       doc = frame.contentDocument;
     } catch {
       return undefined;
     }
+
     if (!doc?.body) return undefined;
 
     const tags = [...doc.body.querySelectorAll("*")]
       .slice(0, 400)
       .map((element) => element.tagName);
+
     const view = doc.defaultView;
+
     const paint = view
-      ? paintSample(doc.body, (element) => {
-          const style = view.getComputedStyle(element as Element);
+      ? paintSample<Element>(doc.body, (element) => {
+          const style = view.getComputedStyle(element);
+
           return {
             backgroundColor: style.backgroundColor,
             backgroundImage: style.backgroundImage,
@@ -1591,9 +1797,11 @@ export function Shell({
           };
         })
       : [];
+
     const visual = view
-      ? visualSample(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
+      ? visualSample<Element>(doc.body, (element, pseudo) => view.getComputedStyle(element, pseudo))
       : [];
+
     return renderedSignature(doc.body.innerText ?? "", tags, paint, visual);
   };
 
@@ -1608,6 +1816,7 @@ export function Shell({
     onRead: (signature: string | null | undefined) => void,
   ) => {
     let fonts: FontFaceSet | undefined;
+
     try {
       fonts = frame.contentDocument?.fonts;
     } catch {
@@ -1615,6 +1824,7 @@ export function Shell({
     }
 
     const fontDeadline = new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+
     const fontsReady =
       fonts?.status === "loading"
         ? Promise.race([fonts.ready.then(() => undefined), fontDeadline])
@@ -1625,7 +1835,8 @@ export function Shell({
         applyOverlayPref(frame, !st.prefs.showDevOverlays);
         onRead(readRendered(frame));
       };
-      if (typeof window.requestIdleCallback === "function") {
+
+      if (typeof window.requestIdleCallback !== "undefined") {
         window.requestIdleCallback(run, { timeout: 1_200 });
       } else {
         window.setTimeout(run, 0);
@@ -1644,11 +1855,13 @@ export function Shell({
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
 
     let doc: Document | null = null;
+
     try {
       doc = frame.contentDocument;
     } catch {
       // Cross-origin previews have no signature to invalidate.
     }
+
     if (doc === null || readyDocuments.current.has(doc)) return;
     readyDocuments.current.add(doc);
   };
@@ -1660,14 +1873,17 @@ export function Shell({
     const onPreviewMessage = (event: MessageEvent<unknown>) => {
       if (event.origin !== window.location.origin) return;
       const signal = previewMessageSignal(event.data);
+
       if (signal === null) return;
 
       const frame = previewFrameForSource(
         document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]"),
         event.source,
       );
+
       const title = frame?.dataset.preview;
       const identity = frame?.dataset.previewIdentity;
+
       if (frame === null || title === undefined || identity === undefined) return;
 
       if (signal === "ready") {
@@ -1678,6 +1894,7 @@ export function Shell({
     };
 
     window.addEventListener("message", onPreviewMessage);
+
     return () => window.removeEventListener("message", onPreviewMessage);
   }, []);
 
@@ -1703,6 +1920,7 @@ export function Shell({
         ? previews
         : previews.filter((preview) => !needsDevServer(preview))
       : [];
+
   const changingTitles = changingRequestTitles(requestSnapshot.requests);
   const changingTitlesKey = changingTitles.toSorted().join("\u0000");
   const scanBlocked = requestSnapshot.agent.running || changingTitles.length > 0;
@@ -1724,25 +1942,34 @@ export function Shell({
   const scansForDisplay = changingTitles.length > 0 ? forgetScans(scans, changingTitles) : scans;
   const signatures = scanSignatures(previews, scansForDisplay);
   const twins = twinsOf(signatures);
+
   const scanningPreview =
     !scanBlocked && visibleReady && pageVisible
       ? (scanQueue(scannable, scansForDisplay)[0] ?? null)
       : null;
+
   const scanning = scanningPreview?.title ?? null;
+
   const scanKey =
     scanningPreview === null ? null : `${scanningPreview.title}\u0000${scanningPreview.url}`;
+
   const activeScan = useRef(scanKey);
   activeScan.current = scanKey;
   const activeScanFrame = useRef<HTMLIFrameElement | null>(null);
+
   const currentPreviewUrls = useRef(
     new Map(previews.map((preview) => [preview.title, preview.url])),
   );
+
   currentPreviewUrls.current = new Map(previews.map((preview) => [preview.title, preview.url]));
 
   const finishScan = (preview: Preview, outcome: PreviewScanOutcome, frame: HTMLIFrameElement) => {
     const expected = `${preview.title}\u0000${preview.url}`;
+
     if (activeScan.current !== expected) return;
+
     if (activeScanFrame.current !== frame) return;
+
     if (currentPreviewUrls.current.get(preview.title) !== preview.url) return;
     setScans((current) => recordScan(current, preview, outcome));
   };
@@ -1751,10 +1978,13 @@ export function Shell({
   useEffect(() => {
     if (scanningPreview === null) return;
     const frame = activeScanFrame.current;
+
     if (frame === null) return;
+
     const timer = window.setTimeout(() => {
       finishScan(scanningPreview, { status: "failed" }, frame);
     }, LOAD_TIMEOUT_MS);
+
     return () => clearTimeout(timer);
   }, [scanKey]);
 
@@ -1767,6 +1997,7 @@ export function Shell({
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
       const expected = `${preview.title}\u0000${preview.url}`;
+
       if (activeScan.current !== expected) return;
       scheduleRenderedRead(frame, (signature) => {
         finishScan(
@@ -1780,12 +2011,16 @@ export function Shell({
 
   useEffect(() => {
     const stopWatching: Array<() => void> = [];
+
     for (const title of mounted) {
       const identity = mountedIdentities.get(title) ?? paneIdentityFor(title);
+
       if (st.isLoaded(title, identity) || errored[title]) continue;
+
       const frame = document.querySelector<HTMLIFrameElement>(
         `iframe[data-preview="${CSS.escape(title)}"]`,
       );
+
       if (frame === null) continue;
 
       // A known-down dev server needs no waiting, but a file preview is served
@@ -1801,6 +2036,7 @@ export function Shell({
         }),
       );
     }
+
     return () => {
       for (const stop of stopWatching) stop();
     };
@@ -1815,7 +2051,9 @@ export function Shell({
   const onRowPointerDown =
     (title: string, index: number) => (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+
       if (viewing || st.renaming || st.query.trim() || st.rows.length < 2) return;
+
       // Buttons keep their clicks, and anything marked selectable keeps its
       // selection outright. The note used to be marked that way, which took
       // the bottom half of every row out of the gesture: a press there could
@@ -1823,17 +2061,21 @@ export function Shell({
       // most of the surface a hand lands on. It is a drag candidate now, and
       // which gesture the press turns out to be is settled by the direction
       // it moves in rather than by where it started.
-      if ((event.target as HTMLElement).closest("button, [data-selectable]")) return;
+      if (event.target instanceof Element && event.target.closest("button, [data-selectable]"))
+        return;
       const list = listRef.current;
       const scroller = list?.parentElement;
+
       if (!list || !scroller) return;
       const items = [...list.querySelectorAll<HTMLLIElement>("li[data-title]")];
+
       const rows = items.map((item) => ({
         height: item.offsetHeight,
         mid: item.offsetTop + item.offsetHeight / 2,
         title: item.dataset.title ?? "",
         top: item.offsetTop,
       }));
+
       const view = scroller.getBoundingClientRect();
       const rowRect = items[index]?.getBoundingClientRect();
       // On a lineage rail a row is ordered among its siblings and nowhere
@@ -1842,6 +2084,7 @@ export function Shell({
       // row can say so the moment it is.
       const parent = st.railParents.get(title) ?? null;
       const siblings = parent === null ? st.railRoots : (st.railChildren.get(parent) ?? [title]);
+
       const reason =
         siblings.length < 2
           ? parent === null
@@ -1850,6 +2093,7 @@ export function Shell({
           : parent === null
             ? null
             : `Stays under ${st.displayName(parent)}`;
+
       dragMeta.current = {
         maxDy: rowRect ? view.bottom - rowRect.bottom : 0,
         minDy: rowRect ? view.top - rowRect.top : 0,
@@ -1884,8 +2128,11 @@ export function Shell({
   const shiftFor = (index: number): number => {
     if (!drag?.started) return 0;
     const pitch = drag.height + drag.gap;
+
     if (index < drag.from && index >= drag.to) return pitch;
+
     if (index > drag.from && index <= drag.to) return -pitch;
+
     return 0;
   };
 
@@ -1901,9 +2148,11 @@ export function Shell({
     // honest a sign that a request is coming as typing into the composer,
     // and without this that whole path started its agent cold.
     warmChosenAgent();
+
     return addNote(title, text, anchor)
       .then(() => {
         bumpRequests();
+
         return true;
       })
       .catch(() => {
@@ -1913,6 +2162,7 @@ export function Shell({
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
+
         return false;
       });
   };
@@ -1921,6 +2171,7 @@ export function Shell({
     updateNote(id, text)
       .then(() => {
         bumpRequests();
+
         return true;
       })
       .catch(() => {
@@ -1930,6 +2181,7 @@ export function Shell({
           tone: "danger",
           ttl: TOAST_TTL.action,
         });
+
         return false;
       });
 
@@ -2065,8 +2317,10 @@ export function Shell({
                   onToggleCompare={() => {
                     if (splitting && title === compare) {
                       setSplit(false);
+
                       return;
                     }
+
                     setComparePin(title);
                     setSplit(true);
                   }}
@@ -2215,6 +2469,7 @@ export function Shell({
                   event.preventDefault();
                   const value = intent.trim();
                   const title = st.active;
+
                   // A note carries its own words and its own address, so pins
                   // alone are a request. Nothing at all still is not.
                   if ((!value && activeNotes.length === 0) || !title || sending) return;
@@ -2223,6 +2478,7 @@ export function Shell({
                   // needs a decision, because sending without it would quietly
                   // drop the thing that was attached on purpose.
                   const blocker = sendBlocker(references);
+
                   if (blocker !== null) {
                     st.notify({
                       kind: "request",
@@ -2233,34 +2489,45 @@ export function Shell({
                       tone: "info",
                       ttl: TOAST_TTL.action,
                     });
+
                     return;
                   }
+
                   const attached = referenceIds(references);
+
+                  type RequestBody = {
+                    title: string;
+                    intent: string;
+                    mode: typeof mode;
+                    width?: number;
+                    compare?: string;
+                    references?: typeof attached;
+                  };
+
+                  const body: RequestBody = { title, intent: value, mode };
+
+                  // The width the design is drawn at, so the agent sees the
+                  // layout being judged rather than a default one.
+                  if (drawnWidth !== null) body.width = drawnWidth;
+
+                  // The other pane, when there is one: "the other one" in the
+                  // words typed means it, and the agent should see it too.
+                  if (splitting && compare !== null && compare !== title) body.compare = compare;
+
+                  if (attached.length > 0) body.references = attached;
                   setSending(true);
                   void fetch("/leglas/api/request", {
                     method: "POST",
                     headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      title,
-                      intent: value,
-                      mode,
-                      // The width the design is drawn at, so the agent sees the
-                      // layout being judged rather than a default one.
-                      ...(drawnWidth === null ? {} : { width: drawnWidth }),
-                      // The other pane, when there is one: "the other one" in the
-                      // words typed means it, and the agent should see it too.
-                      ...(splitting && compare !== null && compare !== title ? { compare } : {}),
-                      ...(attached.length === 0 ? {} : { references: attached }),
-                    }),
+                    body: JSON.stringify(body),
                   })
-                    .then(
-                      (response) =>
-                        response.json() as Promise<{
-                          ok: boolean;
-                          prompt?: string;
-                          duplicate?: boolean;
-                          error?: string;
-                        }>,
+                    .then((response) =>
+                      readJson<{
+                        ok: boolean;
+                        prompt?: string;
+                        duplicate?: boolean;
+                        error?: string;
+                      }>(response),
                     )
                     .then((result) => {
                       // The same words at the same direction, already waiting.
@@ -2275,12 +2542,14 @@ export function Shell({
                           tone: "info",
                           ttl: TOAST_TTL.action,
                         });
+
                         return;
                       }
+
                       // A refusal with a reason (an image pruned while the
                       // composer sat open) keeps the words and the thumbnails:
                       // the reason says what to do with them.
-                      if (!result.ok && typeof result.error === "string") {
+                      if (!result.ok && isString(result.error)) {
                         setSending(false);
                         st.notify({
                           kind: "request",
@@ -2288,8 +2557,10 @@ export function Shell({
                           tone: "danger",
                           ttl: TOAST_TTL.action,
                         });
+
                         return;
                       }
+
                       if (!result.ok || !result.prompt) throw new Error("refused");
                       setIntent("");
                       clearReferences();
@@ -2352,6 +2623,7 @@ export function Shell({
                   onDragLeave={(event) => {
                     if (!carriesFiles(event.dataTransfer.types)) return;
                     dropDepth.current = Math.max(0, dropDepth.current - 1);
+
                     if (dropDepth.current === 0) setDropping(false);
                   }}
                   onDragOver={(event) => {
@@ -2399,6 +2671,7 @@ export function Shell({
                     }}
                     onPaste={(event) => {
                       const files = Array.from(event.clipboardData.files);
+
                       if (files.length === 0) return;
                       // A pasted image is the request. The text a browser puts
                       // beside it is a filename nobody typed.
@@ -2684,8 +2957,10 @@ export function Shell({
                 onClick={() => {
                   if (widgetClickSuppressed.current) {
                     widgetClickSuppressed.current = false;
+
                     return;
                   }
+
                   setWidgetOpen((value) => !value);
                 }}
                 onPointerDown={onWidgetPointerDown}

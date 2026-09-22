@@ -13,6 +13,7 @@ import base from "./vite.config.ts";
  * a scratch project without another config.
  */
 const port = Number(process.env["LEGLAS_PORT"] ?? 5180);
+
 const api = process.env["LEGLAS_API"] ?? "http://localhost:4100";
 
 export default mergeConfig(

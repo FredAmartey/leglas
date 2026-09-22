@@ -30,30 +30,49 @@ import type { Project } from "./project.js";
  * One implementation of every operation, two faces on it.
  */
 
+/** A capture path is useful only when the CLI returned it as text. */
+function hasCaptureFile(value: unknown): value is { screenshot: { file: string } } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "screenshot" in value &&
+    typeof value.screenshot === "object" &&
+    value.screenshot !== null &&
+    "file" in value.screenshot &&
+    typeof value.screenshot.file === "string"
+  );
+}
+
 type CaptureDeps = { log(line: string): void; error(line: string): void };
 
 async function capture(
   invoke: (deps: CaptureDeps) => Promise<{ exitCode: number }> | { exitCode: number },
 ): Promise<CallToolResult> {
   const lines: string[] = [];
+
   const deps: CaptureDeps = {
     log: (line) => lines.push(line),
     error: (line) => lines.push(line),
   };
+
   const { exitCode } = await invoke(deps);
 
   // The envelope is the last JSON line. Anything else captured (there should
   // be nothing under --json) rides along so a surprise is visible, not lost.
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
+
     if (line === undefined || !line.startsWith("{")) continue;
+
     try {
       JSON.parse(line);
+
       return { content: [{ type: "text", text: line }], isError: exitCode !== 0 };
     } catch {
       // Not the envelope; keep looking.
     }
   }
+
   return { content: [{ type: "text", text: lines.join("\n") }], isError: exitCode !== 0 };
 }
 
@@ -67,6 +86,7 @@ async function inProject(
   invoke: (cwd: string, deps: CaptureDeps) => Promise<{ exitCode: number }> | { exitCode: number },
 ): Promise<CallToolResult> {
   const located = await project.locate();
+
   if (!located.ok) {
     // The CLI's shape for a failure, so a host parses this like any other.
     return {
@@ -74,6 +94,7 @@ async function inProject(
       isError: true,
     };
   }
+
   return capture((deps) => invoke(located.directory, deps));
 }
 
@@ -126,12 +147,15 @@ export function registerLeglasTools(
           ],
         };
       }
+
       return inProject(project, async (cwd, deps) => {
         const result = await run(
           { port, userPort: undefined, configPath: undefined, open: false, json: true, cwd },
           { open: async () => {}, log: deps.log },
         );
+
         viewer = result;
+
         return result;
       });
     },
@@ -218,6 +242,7 @@ export function registerLeglasTools(
     },
     async ({ title, screenshot, width }) => {
       const located = await project.locate();
+
       if (!located.ok) {
         return {
           content: [
@@ -226,6 +251,7 @@ export function registerLeglasTools(
           isError: true,
         };
       }
+
       const result = await capture((deps) =>
         runShow(
           {
@@ -239,19 +265,27 @@ export function registerLeglasTools(
           deps,
         ),
       );
+
       if (screenshot !== true || result.isError === true) return result;
       const text = result.content.find((entry) => entry.type === "text");
+
       if (text === undefined || text.type !== "text") return result;
+
       try {
-        const envelope = JSON.parse(text.text) as { screenshot?: { file?: unknown } };
-        const file = envelope.screenshot?.file;
+        const envelope: unknown = JSON.parse(text.text);
+
+        if (!hasCaptureFile(envelope)) return result;
+        const file = envelope.screenshot.file;
+
         // The path comes back over a loopback socket, which a stale record
         // can point at something that is not Leglas. Only a real file inside
         // this project's captures is read and handed to the host.
-        if (typeof file !== "string" || !(await isOwnCapture(located.directory, file))) {
+        if (!(await isOwnCapture(located.directory, file))) {
           return result;
         }
+
         const image = await readFile(resolve(located.directory, file));
+
         return {
           ...result,
           content: [
@@ -373,6 +407,7 @@ export function registerLeglasTools(
       // asking stops. Awaited before the queue is read so the runner has
       // backed off by the time this session could collect anything.
       await engagement.touch();
+
       return inProject(project, (cwd, deps) =>
         runRequests({ json: true, clear: clear ?? false, cwd }, deps),
       );

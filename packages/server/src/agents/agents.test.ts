@@ -74,6 +74,7 @@ describe("KNOWN_AGENTS", () => {
 
   test("puts every image before the Codex prompt on cold, resumed and terminal runs", () => {
     const images = ["/project/frame.png", "/project/note-1.png"];
+
     for (const argv of [
       KNOWN_AGENTS.codex.args("make it warmer", null, images),
       KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer", null, images),
@@ -87,6 +88,7 @@ describe("KNOWN_AGENTS", () => {
         "make it warmer",
       ]);
     }
+
     expect(KNOWN_AGENTS.claude.args("make it warmer", null, images)).not.toContain("-i");
     expect(KNOWN_AGENTS.cursor.args("make it warmer", null, images)).not.toContain("-i");
   });
@@ -112,6 +114,7 @@ test("codex is told it may run outside a git repository", () => {
   ]) {
     expect(argv).toContain("--skip-git-repo-check");
   }
+
   // The flag moves the repository precondition and nothing else: the sandbox
   // still confines writes to the workspace.
   expect(KNOWN_AGENTS.codex.args("make it warmer")).toContain("workspace-write");
@@ -132,6 +135,7 @@ test("adds an explicit effort only when the user chooses one", () => {
   expect(KNOWN_AGENTS.claude.args("make it warmer", "high")).toEqual(
     expect.arrayContaining(["--effort", "high"]),
   );
+
   for (const argv of [
     KNOWN_AGENTS.codex.args("make it warmer", "xhigh"),
     KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer", "xhigh"),
@@ -171,14 +175,18 @@ test("finds CLIs installed inside an NVM-managed Node version", () => {
 test("detectAgents probes binaries and logins through the injected hooks", async () => {
   const lookedUp: string[] = [];
   const probed: string[] = [];
+
   const agents = await detectAgents(
     async (binary) => {
       lookedUp.push(binary);
+
       return binary !== "cursor-agent";
     },
     async (binary, args) => {
       probed.push(`${binary} ${args.join(" ")}`);
+
       if (binary === "claude") return { code: 0, stdout: '{"loggedIn": true}' };
+
       return { code: 1, stdout: "Not logged in" };
     },
   );
@@ -305,6 +313,7 @@ describe("retryFrom", () => {
       error: "overloaded",
       session_id: "s_1",
     });
+
     expect(retryFrom("claude", line)).toEqual({
       attempt: 3,
       max: 10,
@@ -380,6 +389,7 @@ describe("activityFrom", () => {
     // and the tool that changes a file is `editToolCall`, not the documented
     // `writeToolCall`.
     const cwd = "/home/someone/app";
+
     const read = JSON.stringify({
       type: "tool_call",
       subtype: "started",
@@ -394,6 +404,7 @@ describe("activityFrom", () => {
       session_id: "de615cdb-cb4d-46ab-8b54-71cdeef22257",
       timestamp_ms: 1788791466511,
     });
+
     const edit = JSON.stringify({
       type: "tool_call",
       subtype: "started",
@@ -408,6 +419,7 @@ describe("activityFrom", () => {
       session_id: "de615cdb-cb4d-46ab-8b54-71cdeef22257",
       timestamp_ms: 1788791467322,
     });
+
     const completed = JSON.stringify({
       type: "tool_call",
       subtype: "completed",
@@ -430,12 +442,14 @@ describe("activityFrom", () => {
     expect(activityFrom("cursor", read, cwd)).toBe("reading hello.txt");
     expect(activityFrom("cursor", edit, cwd)).toBe("editing hello.txt");
     expect(activityFrom("cursor", completed, cwd)).toBe("editing hello.txt");
+
     // The documented name is still honoured, in case a version sends it.
     const write = JSON.stringify({
       type: "tool_call",
       subtype: "started",
       tool_call: { writeToolCall: { args: { path: "src/Hero.tsx", fileText: "…" } } },
     });
+
     expect(activityFrom("cursor", write)).toBe("editing src/Hero.tsx");
   });
 
@@ -448,12 +462,15 @@ describe("activityFrom", () => {
       subtype: "started",
       tool_call: { editToolCall: { args: {} }, toolCallId: "call-5" },
     });
+
     expect(activityFrom("cursor", noPath)).toBe("editing a file");
+
     const noArgs = JSON.stringify({
       type: "tool_call",
       subtype: "started",
       tool_call: { editToolCall: {}, toolCallId: "call-6" },
     });
+
     expect(activityFrom("cursor", noArgs)).toBe("editing a file");
   });
 
@@ -470,6 +487,7 @@ describe("activityFrom", () => {
         editToolCall: { args: { path: "src/Hero.tsx", streamContent: "…" } },
       },
     });
+
     expect(activityFrom("cursor", line)).toBe("editing src/Hero.tsx");
   });
 

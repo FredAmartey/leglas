@@ -8,6 +8,7 @@ import {
   scanSignatures,
   type PreviewScans,
 } from "./scan.js";
+import type { Preview } from "../types.js";
 
 const PREVIEWS = [
   { title: "Current", url: "/", tags: [] },
@@ -18,12 +19,11 @@ const PREVIEWS = [
 
 describe("scanQueue", () => {
   test("a branch preview that has not started has no url yet, and is skipped rather than thrown on", () => {
-    const idle = {
-      title: "Warm red",
-      url: undefined as unknown as string,
-      tags: [],
-      branch: "warm-red",
-    };
+    const unstarted: Partial<Preview> = { title: "Warm red", tags: [], branch: "warm-red" };
+    // SAFETY: a branch preview that has not started arrives without a url,
+    // which the type does not admit; that gap is what this test is about.
+    const idle = unstarted as Preview;
+
     expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain(
       "Warm red",
     );
@@ -55,6 +55,7 @@ describe("scanQueue", () => {
     const changed = PREVIEWS.map((preview) =>
       preview.title === "Aurora" ? { ...preview, url: "/?v-hero=changed" } : preview,
     );
+
     const scans: PreviewScans = {
       Current: { url: "/", status: "complete", signature: "current" },
       Aurora: { url: "/?v-hero=aurora", status: "complete", signature: "old" },
@@ -67,17 +68,13 @@ describe("scanQueue", () => {
 
   test("previews that appear mid-session join the queue", () => {
     const grown = [...PREVIEWS, { title: "New", url: "/?v-hero=new", tags: [] }];
-    const scans = PREVIEWS.reduce<
-      Record<string, { url: string; status: "complete"; signature: string }>
-    >(
-      (current, preview) =>
+
+    const scans = Object.fromEntries(
+      PREVIEWS.flatMap((preview) =>
         preview.url.startsWith("/")
-          ? {
-              ...current,
-              [preview.title]: { url: preview.url, status: "complete", signature: "sig" },
-            }
-          : current,
-      {},
+          ? [[preview.title, { url: preview.url, status: "complete", signature: "sig" }] as const]
+          : [],
+      ),
     );
 
     expect(scanQueue(grown, scans).map((preview) => preview.title)).toEqual(["New"]);
@@ -144,6 +141,7 @@ describe("replacedPanes", () => {
       ["Wave", identity("Wave", 0)],
       ["Dot grid", identity("Dot grid", 0)],
     ]);
+
     const current = new Map([
       ["Wave", identity("Wave", 0)],
       ["Dot grid", identity("Dot grid", 2)],
@@ -167,6 +165,7 @@ describe("replacedPanes across a dev-server recovery", () => {
       ["Dot grid", identity("Dot grid", 0)],
       ["Session", identity("Session", 0)],
     ]);
+
     const afterRecovery = new Map([
       ["Wave", identity("Wave", 1)],
       ["Dot grid", identity("Dot grid", 1)],
@@ -187,6 +186,7 @@ describe("replacedPanes across a dev-server recovery", () => {
       ["Wave", identity("Wave", 0)],
       ["Paper", identity("Paper", 0)],
     ]);
+
     const afterRecovery = new Map([
       ["Wave", identity("Wave", 1)],
       ["Paper", identity("Paper", 0)],

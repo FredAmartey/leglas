@@ -2,6 +2,8 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net from "node:net";
 import type { Duplex } from "node:stream";
 
+import { isString } from "./json.js";
+
 export type ProxyOptions = {
   /** Origin of the dev server being fronted, e.g. http://localhost:3000 */
   target: string;
@@ -31,10 +33,12 @@ export const SHARE_COOKIE = "leglas-share";
 /** The Cookie header without the share token, or undefined when nothing is left. */
 export function withoutShareCookie(cookie: string | string[] | undefined): string | undefined {
   if (cookie === undefined) return undefined;
+
   const kept = (Array.isArray(cookie) ? cookie.join("; ") : cookie)
     .split(";")
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "" && !entry.startsWith(`${SHARE_COOKIE}=`));
+
   return kept.length === 0 ? undefined : kept.join("; ");
 }
 
@@ -64,14 +68,16 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
    * origin, they would generate links pointing back at the proxy for routes
    * only the dev server knows about.
    */
-  function upstreamHeaders(req: IncomingMessage): Record<string, string | string[]> {
-    const headers = { ...req.headers, host: authority } as Record<string, string | string[]>;
+  function upstreamHeaders(req: IncomingMessage): IncomingMessage["headers"] {
+    const headers = { ...req.headers, host: authority };
     // The share cookie is the one credential a viewer holds, and the app
     // being previewed has no use for it: its logs, error reporters and
     // middleware are exactly where a token should not end up.
     const cookie = withoutShareCookie(headers.cookie);
+
     if (cookie === undefined) delete headers.cookie;
     else headers.cookie = cookie;
+
     return headers;
   }
 
@@ -82,12 +88,14 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
    */
   function rewriteLocation(location: string | undefined, publicOrigin: string): string | undefined {
     if (location === undefined) return undefined;
+
     for (const origin of [
       `${target.protocol}//${authority}`,
       `${target.protocol}//localhost:${port}`,
     ]) {
       if (location.startsWith(origin)) return publicOrigin + location.slice(origin.length);
     }
+
     return location;
   }
 
@@ -96,12 +104,14 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
       options.onActivity?.();
       options.onOpen?.();
       let open = true;
+
       const close = () => {
         if (!open) return;
         open = false;
         options.onActivity?.();
         options.onClose?.();
       };
+
       res.once("finish", close);
       res.once("close", close);
 
@@ -109,10 +119,12 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
         { host: dialHost, port, method: req.method, path: req.url, headers: upstreamHeaders(req) },
         (upstreamRes) => {
           const headers = { ...upstreamRes.headers };
+
           const location = rewriteLocation(
-            typeof headers.location === "string" ? headers.location : undefined,
+            isString(headers.location) ? headers.location : undefined,
             publicOrigin,
           );
+
           if (location !== undefined) headers.location = location;
 
           res.writeHead(upstreamRes.statusCode ?? 502, headers);
@@ -146,17 +158,21 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
       options.onActivity?.();
       options.onOpen?.();
       let open = true;
+
       const closeActivity = () => {
         if (!open) return;
         open = false;
         options.onActivity?.();
         options.onClose?.();
       };
+
       const upstream = net.connect(port, dialHost, () => {
         const headers = Object.entries(upstreamHeaders(req))
           .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}\r\n`)
           .join("");
+
         upstream.write(`${req.method} ${req.url} HTTP/1.1\r\n${headers}\r\n`);
+
         if (head.length > 0) upstream.write(head);
         upstream.pipe(socket);
         socket.pipe(upstream);
@@ -170,6 +186,7 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
         upstream.destroy();
         socket.destroy();
       };
+
       upstream.on("error", shutdown);
       upstream.on("close", shutdown);
       socket.on("error", shutdown);
@@ -189,6 +206,7 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
 export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
   return new Promise((resolve, reject) => {
     let open = 0;
+
     const handler = createProxyHandler({
       ...options,
       onOpen: () => {
@@ -200,11 +218,13 @@ export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
         options.onClose?.();
       },
     });
+
     const server = http.createServer((req, res) => {
       const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port = address !== null && !isString(address) ? address.port : 0;
       handler.request(req, res, `http://127.0.0.1:${port}`);
     });
+
     const sockets = new Set<Duplex>();
     server.on("connection", (socket) => {
       sockets.add(socket);
@@ -216,10 +236,11 @@ export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
       server.removeListener("listening", onListening);
       reject(error);
     };
+
     const onListening = () => {
       server.removeListener("error", onError);
       const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port = address !== null && !isString(address) ? address.port : 0;
       let closed: Promise<void> | null = null;
       resolve({
         active: () => open > 0,
@@ -231,11 +252,13 @@ export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
             server.closeAllConnections();
             server.close(() => done());
           });
+
           return closed;
         },
         url: `http://127.0.0.1:${port}`,
       });
     };
+
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(0, "127.0.0.1");

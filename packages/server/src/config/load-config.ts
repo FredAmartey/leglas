@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { normalizeConfig, type LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
+import { isJsonRecord } from "../json.js";
 
 export type LoadResult = {
   config: LeglasConfig | null;
@@ -29,23 +30,32 @@ export async function loadConfig(cwd: string): Promise<LoadResult> {
   const label = relative(cwd, path) || path;
 
   let exported: unknown;
+
   try {
     if (path.endsWith(".json")) {
       exported = JSON.parse(await readFile(path, "utf8"));
     } else {
       // Node imports TypeScript natively, so a .ts config needs no transform.
       const module: { default?: unknown } = await import(pathToFileURL(path).href);
+
       if (!("default" in module)) {
         return { config: null, errors: [`${label} has no default export.`], path };
       }
+
       exported = module.default;
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+
     return { config: null, errors: [`${label} could not be loaded: ${message}`], path };
   }
 
-  const result = normalizeConfig(exported);
+  // A .ts config can export anything; only an object, or nothing, is a config.
+  const result =
+    isJsonRecord(exported) || exported === undefined || exported === null
+      ? normalizeConfig(exported ?? undefined)
+      : { config: null, errors: ["Config must export an object."] };
+
   return {
     config: result.config,
     errors: result.errors.map((error) => `${label}: ${error}`),

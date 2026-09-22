@@ -31,7 +31,10 @@
  *   returns the socket rather than holding it for the life of the page.
  */
 
-export type PollTask = (signal: AbortSignal) => Promise<unknown>;
+import type { TimerHandle } from "./timers.js";
+
+/** One read. What it resolves with is its own business; the loop only waits for it. */
+export type PollTask = (signal: AbortSignal) => Promise<void>;
 
 /**
  * Whether a read ended because this module abandoned it.
@@ -42,24 +45,16 @@ export type PollTask = (signal: AbortSignal) => Promise<unknown>;
  * from something the server actually said, or it quotes our plumbing at the
  * user.
  */
-export function wasAborted(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { name?: unknown }).name === "AbortError"
-  );
+export function wasAborted(error: unknown): error is Error & { name: "AbortError" } {
+  return error instanceof Error && error.name === "AbortError";
 }
 
-/**
- * Injected so tests can run an hour of polling instantly. Handles stay
- * `unknown` because the browser hands back numbers and Node hands back
- * objects, and this needs to hold either without caring.
- */
+/** Injected so tests can run an hour of polling instantly. */
 export type PollTimers = {
-  setInterval: (callback: () => void, ms: number) => unknown;
-  clearInterval: (handle: unknown) => void;
-  setTimeout: (callback: () => void, ms: number) => unknown;
-  clearTimeout: (handle: unknown) => void;
+  setInterval: (callback: () => void, ms: number) => TimerHandle;
+  clearInterval: (handle: TimerHandle) => void;
+  setTimeout: (callback: () => void, ms: number) => TimerHandle;
+  clearTimeout: (handle: TimerHandle) => void;
 };
 
 export type PollOptions = {
@@ -96,12 +91,12 @@ export const POLL_TIMEOUT_MS = 10_000;
 
 const realTimers: PollTimers = {
   setInterval: (callback, ms) => globalThis.setInterval(callback, ms),
-  clearInterval: (handle) => globalThis.clearInterval(handle as never),
+  clearInterval: (handle) => globalThis.clearInterval(handle),
   setTimeout: (callback, ms) => globalThis.setTimeout(callback, ms),
-  clearTimeout: (handle) => globalThis.clearTimeout(handle as never),
+  clearTimeout: (handle) => globalThis.clearTimeout(handle),
 };
 
-type Run = { controller: AbortController; deadline: unknown };
+type Run = { controller: AbortController; deadline: TimerHandle };
 
 /**
  * Start reading now and keep reading, returning the stop. The stop clears the
@@ -119,13 +114,16 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     if (stopped || active !== null) return;
 
     const controller = new AbortController();
+
     const deadline = timers.setTimeout(() => {
       controller.abort();
+
       // Clearing the slot as well as aborting matters for a task that does
       // not honour its signal: the abort alone would free the socket and
       // still leave this loop shut for the life of the page.
       if (active?.controller === controller) active = null;
     }, timeoutMs);
+
     const current: Run = { controller, deadline };
     active = current;
 
@@ -136,6 +134,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
       timers.clearTimeout(deadline);
       active = null;
     };
+
     void task(controller.signal).then(settle, settle);
   };
 
@@ -149,6 +148,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     stopped = true;
     unsubscribe?.();
     timers.clearInterval(timer);
+
     if (active === null) return;
     timers.clearTimeout(active.deadline);
     active.controller.abort();

@@ -25,7 +25,6 @@ import {
   pruneReferences,
   rehomeCaptures,
   rehomeText,
-  removeCaptures,
   sniffImage,
 } from "./requests/attachments.js";
 import {
@@ -91,6 +90,16 @@ import {
 } from "./share/tunnel.js";
 import type { UpdateService } from "./update.js";
 
+import {
+  isBoolean,
+  isNumber,
+  isString,
+  isJsonRecord,
+  parseJson,
+  type JsonRecord,
+  type JsonValue,
+} from "./json.js";
+
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
 
@@ -98,6 +107,7 @@ export const DEFAULT_PORT = 4100;
 
 /** Ports tried before giving up, so a few stale instances do not block startup. */
 const PORT_ATTEMPTS = 20;
+
 const REFERENCE_MAX_BYTES = 10_000_000;
 
 /**
@@ -107,7 +117,7 @@ const REFERENCE_MAX_BYTES = 10_000_000;
  */
 const ATTACHED_WINDOW_MS = 6000;
 
-const CONTENT_TYPES: Record<string, string> = {
+const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".gif": "image/gif",
   ".html": "text/html; charset=utf-8",
@@ -124,6 +134,10 @@ const CONTENT_TYPES: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
+
+function isContentExtension(extension: string): extension is keyof typeof CONTENT_TYPES {
+  return Object.hasOwn(CONTENT_TYPES, extension);
+}
 
 /** Where file-backed previews are served from, under the Leglas prefix. */
 export const FILES_PREFIX = `${LEGLAS_PREFIX}/files`;
@@ -188,7 +202,7 @@ export type RunningServer = {
   close(): Promise<void>;
 };
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+function sendJson<T>(res: http.ServerResponse, status: number, body: T): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -200,27 +214,32 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 function etagMatches(value: string | string[] | undefined, etag: string): boolean {
   if (value === undefined) return false;
   const values = Array.isArray(value) ? value : [value];
+
   return values.some((header) =>
     header.split(",").some((candidate) => {
       const tag = candidate.trim();
+
       return tag === "*" || tag === etag || tag === `W/${etag}`;
     }),
   );
 }
 
 /** Serialize once, then derive and answer from those exact bytes. */
-function sendConditionalJson(
+function sendConditionalJson<T>(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: unknown,
+  body: T,
 ): void {
   const payload = JSON.stringify(body);
   const etag = `"${createHash("sha256").update(payload).digest("base64url")}"`;
+
   if (etagMatches(req.headers["if-none-match"], etag)) {
     res.writeHead(304, { etag, "cache-control": "private, no-cache" });
     res.end();
+
     return;
   }
+
   res.writeHead(200, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "private, no-cache",
@@ -231,6 +250,7 @@ function sendConditionalJson(
 
 /** How long one `show --screenshot` may take, and how much of that the load may use. */
 const CAPTURE_DEADLINE_MS = 15_000;
+
 const CAPTURE_LOAD_MS = Math.floor(CAPTURE_DEADLINE_MS * LOAD_SHARE);
 
 function captureSlug(title: string): string {
@@ -245,19 +265,28 @@ function captureSlug(title: string): string {
 
 function referenceName(value: string | string[] | undefined): string {
   const raw = Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+
   const safe = [...raw]
     .filter((character) => {
       const code = character.charCodeAt(0);
+
       return code >= 0x20 && code <= 0x7e && character !== "/" && character !== "\\";
     })
     .join("")
     .trim()
     .slice(0, 80);
+
   return safe || "image";
 }
 
+function isAddressInUse(cause: unknown): cause is { code: "EADDRINUSE" } {
+  return (
+    typeof cause === "object" && cause !== null && "code" in cause && cause.code === "EADDRINUSE"
+  );
+}
+
 function isKnownAgent(value: unknown): value is KnownAgentId {
-  return typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value);
+  return isString(value) && Object.hasOwn(KNOWN_AGENTS, value);
 }
 
 /**
@@ -278,11 +307,15 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
 function isAllowedMutationHost(hostname: string): boolean {
   const bare =
     hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+
   if (bare === "localhost" || bare === "127.0.0.1" || bare === "::1") return true;
+
   if (bare.endsWith(".local")) return true;
+
   if (!net.isIPv4(bare)) return false;
 
   const [first, second] = bare.split(".").map(Number);
+
   return (
     first === 10 ||
     (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
@@ -292,6 +325,7 @@ function isAllowedMutationHost(hostname: string): boolean {
 
 export function isLoopbackAddress(address: string | undefined): boolean {
   if (address === undefined) return false;
+
   return (
     address === "127.0.0.1" ||
     address === "::1" ||
@@ -302,20 +336,26 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 
 export function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
-  if (typeof req.headers.host !== "string") return false;
+
+  if (!isString(req.headers.host)) return false;
 
   let host: URL;
+
   try {
     host = new URL(`http://${req.headers.host}`);
   } catch {
     return false;
   }
+
   if (!isAllowedMutationHost(host.hostname)) return false;
 
   const rawOrigin = req.headers.origin;
+
   if (rawOrigin === undefined) return true;
+
   try {
     const origin = new URL(rawOrigin);
+
     return origin.protocol === "http:" && origin.host === host.host;
   } catch {
     return false;
@@ -344,26 +384,31 @@ function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean
  * was under way, by sending four characters. An array or a bare number are
  * equally valid JSON and equally not what any of this is written for.
  *
- * The cast is the one every route was making by hand. It says what the route
- * expects to find rather than what arrived, and every field is still checked
- * after this returns.
+ * The container is decoded once here. Each route checks the fields it uses
+ * before passing them to its domain operations.
  */
-function jsonBody<T>(body: string): T | null {
-  let parsed: unknown;
+function jsonBody(body: string): JsonRecord | null {
   try {
-    parsed = JSON.parse(body || "{}");
+    const parsed = parseJson(body || "{}");
+
+    return isJsonRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as T)
-    : null;
+}
+
+/** The words of a request, trimmed; null when the body sent something that is not text. */
+function requestIntent(value: JsonValue | undefined): string | null {
+  if (value === null || value === undefined) return "";
+
+  return isString(value) ? value.trim() : null;
 }
 
 function hasJsonBody(req: http.IncomingMessage): boolean {
   const contentType = req.headers["content-type"];
+
   return (
-    typeof contentType === "string" &&
+    isString(contentType) &&
     contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json"
   );
 }
@@ -376,6 +421,7 @@ function hasJsonBody(req: http.IncomingMessage): boolean {
 export function probe(target: string, timeoutMs = 1000): Promise<boolean> {
   return new Promise((resolve) => {
     let url: URL;
+
     try {
       url = new URL(target);
     } catch {
@@ -384,6 +430,7 @@ export function probe(target: string, timeoutMs = 1000): Promise<boolean> {
 
     const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
     const socket = net.connect(port, url.hostname);
+
     const settle = (reachable: boolean) => {
       socket.destroy();
       resolve(reachable);
@@ -402,13 +449,18 @@ function serveFrom(res: http.ServerResponse, dir: string, relativePath: string):
   const candidate = join(dir, relative);
 
   if (!candidate.startsWith(dir)) return false;
+
   if (!existsSync(candidate) || !statSync(candidate).isFile()) return false;
 
+  const extension = extname(candidate);
   res.writeHead(200, {
-    "content-type": CONTENT_TYPES[extname(candidate)] ?? "application/octet-stream",
+    "content-type": isContentExtension(extension)
+      ? CONTENT_TYPES[extension]
+      : "application/octet-stream",
     "cache-control": "no-store",
   });
   createReadStream(candidate).pipe(res);
+
   return true;
 }
 
@@ -418,6 +470,7 @@ function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: str
   // normalize("") is ".", and a bare "/leglas" or "/leglas/" both mean the root
   // document, so all three resolve to index.html.
   const isRoot = relative === "" || relative === "." || relative === "/";
+
   return serveFrom(res, shellDir, isRoot ? "index.html" : relative);
 }
 
@@ -437,6 +490,7 @@ type WatchedTarget = {
 function fileStamp(path: string): string | null {
   try {
     const stat = statSync(path);
+
     return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
   } catch {
     return null;
@@ -452,11 +506,13 @@ function fileStamp(path: string): string | null {
  */
 function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): LiveFiles {
   const leglasDir = join(cwd, ".leglas");
+
   const targets = [
     { path: join(cwd, LOCAL_PREVIEWS_PATH), change: "config" },
     { path: join(cwd, REQUESTS_PATH), change: "requests" },
     { path: join(cwd, ANNOTATIONS_PATH), change: "requests" },
   ] satisfies WatchedTarget[];
+
   const byName = new Map(targets.map((target) => [basename(target.path), target]));
   const known = new Map(targets.map((target) => [target.path, fileStamp(target.path)]));
   const coalescer = createCoalescer((change) => live.nudge(change));
@@ -471,8 +527,10 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
   const scanLeglas = (notify: boolean): void => {
     for (const target of targets) {
       const next = fileStamp(target.path);
+
       if (next === known.get(target.path)) continue;
       known.set(target.path, next);
+
       if (notify) nudgeSoon(target.change);
     }
   };
@@ -499,12 +557,15 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
    */
   const fallbackWatch = (target: WatchedTarget): void => {
     if (closed || fallback.has(target.path)) return;
+
     const listener = (): void => {
       const next = fileStamp(target.path);
+
       if (next === known.get(target.path)) return;
       known.set(target.path, next);
       nudgeSoon(target.change);
     };
+
     fallback.set(target.path, listener);
     watchFile(target.path, { persistent: false, interval: 250 }, listener);
   };
@@ -526,6 +587,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     if (closed) return;
     scanLeglas(notify);
     let directory = false;
+
     try {
       directory = statSync(leglasDir).isDirectory();
     } catch {
@@ -538,6 +600,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
         leglasWatcher.close();
         leglasWatcher = null;
       }
+
       // Look again shortly. Until this returns, the only thing that would
       // ever notice `.leglas` being created is the watcher on the parent
       // directory, and a single missed event there used to mean the state
@@ -547,22 +610,28 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       // server writes its own rendezvous file into `.leglas` on listen, so
       // this costs a couple of stats rather than a standing poll.
       retryLeglas();
+
       return;
     }
+
     if (leglasWatcher !== null) return;
 
     try {
       const watcher = watchFs(leglasDir, { persistent: false }, (_event, filename) => {
         if (filename === null) {
           scanLeglas(true);
+
           return;
         }
+
         const name = Buffer.isBuffer(filename) ? filename.toString() : filename;
         const target = byName.get(name);
+
         if (target === undefined) return;
         known.set(target.path, fileStamp(target.path));
         nudgeSoon(target.change);
       });
+
       watcher.on("error", () => {
         if (leglasWatcher !== watcher) return;
         watchers.delete(watcher);
@@ -586,8 +655,10 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     const watcher = watchFs(cwd, { persistent: false }, (_event, filename) => {
       const name =
         filename === null ? null : Buffer.isBuffer(filename) ? filename.toString() : filename;
+
       if (name === null || name === ".leglas") armLeglas(true);
     });
+
     watcher.on("error", () => {
       watchers.delete(watcher);
       watcher.close();
@@ -605,11 +676,14 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       const name = basename(configPath);
       const target = { path: configPath, change: "config" } satisfies WatchedTarget;
       known.set(configPath, fileStamp(configPath));
+
       const watcher = watchFs(directory, { persistent: false }, (_event, filename) => {
         const changed =
           filename === null ? null : Buffer.isBuffer(filename) ? filename.toString() : filename;
+
         if (changed === null || changed === name) nudgeSoon("config");
       });
+
       watcher.on("error", () => {
         watchers.delete(watcher);
         watcher.close();
@@ -628,10 +702,13 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     close: () => {
       if (closed) return;
       closed = true;
+
       if (retry !== null) clearTimeout(retry);
       coalescer.close();
+
       for (const watcher of watchers) watcher.close();
       watchers.clear();
+
       for (const [path, listener] of fallback) unwatchFile(path, listener);
       fallback.clear();
       leglasWatcher = null;
@@ -648,19 +725,24 @@ function watchHealth(target: string, live: LiveHub): HealthWatch {
   let previous: boolean | null = null;
   let probing = false;
   let closed = false;
+
   const timer = setInterval(() => {
     if (live.listening === 0) {
       previous = null;
+
       return;
     }
+
     if (probing) return;
     probing = true;
     void probe(target)
       .then((reachable) => {
         if (closed || live.listening === 0) {
           previous = null;
+
           return;
         }
+
         if (previous !== null && previous !== reachable) live.nudge("health");
         previous = reachable;
       })
@@ -668,6 +750,7 @@ function watchHealth(target: string, live: LiveHub): HealthWatch {
         probing = false;
       });
   }, HEALTH_PROBE_MS);
+
   timer.unref?.();
 
   return {
@@ -681,7 +764,9 @@ function watchHealth(target: string, live: LiveHub): HealthWatch {
 
 function snapshotConfig(cwd: string): ConfigSnapshot {
   const path = findConfigFile(cwd);
+
   if (path === null) return null;
+
   try {
     return { path, mtimeMs: statSync(path).mtimeMs };
   } catch {
@@ -695,22 +780,29 @@ function configStalenessNotice(
   current: ConfigSnapshot,
 ): string | null {
   if (boot === null && current === null) return null;
+
   if (boot === null && current !== null) {
     const label = relative(cwd, current.path) || current.path;
+
     return `${label} appeared after Leglas started. Restart leglas to pick it up.`;
   }
+
   if (boot !== null && current === null) {
     const label = relative(cwd, boot.path) || boot.path;
+
     return `${label} was removed after Leglas started. Restart leglas to run without it.`;
   }
+
   if (
     boot !== null &&
     current !== null &&
     (boot.path !== current.path || boot.mtimeMs !== current.mtimeMs)
   ) {
     const label = relative(cwd, current.path) || current.path;
+
     return `${label} changed after Leglas started. Restart leglas to pick it up.`;
   }
+
   return null;
 }
 
@@ -732,11 +824,13 @@ function listen(server: http.Server, port: number): Promise<number> {
       server.removeListener("listening", onListening);
       reject(error);
     };
+
     const onListening = () => {
       server.removeListener("error", onError);
       const address = server.address();
-      resolve(typeof address === "object" && address !== null ? address.port : port);
+      resolve(address !== null && !isString(address) ? address.port : port);
     };
+
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(port, "127.0.0.1");
@@ -754,9 +848,10 @@ async function bind(server: http.Server, requested: number): Promise<number> {
     try {
       return await listen(server, requested + attempt);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      if (!isAddressInUse(error)) throw error;
     }
   }
+
   throw new Error(`No free port between ${requested} and ${requested + PORT_ATTEMPTS - 1}.`);
 }
 
@@ -772,11 +867,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
   } = options;
+
   const browserPool = options.pool ?? createBrowserPool();
   let shares: ReturnType<typeof createShareManager> | null = null;
   let liveHealth: HealthWatch | null = null;
   const live: LiveHub = options.live ?? createLiveHub();
-  const branches = createBranchRegistry({
+
+  const branchOptions: Parameters<typeof createBranchRegistry>[0] = {
     cwd,
     previews: (config?.previews ?? []).flatMap((preview) =>
       preview.branch === undefined ? [] : [{ title: preview.title, branch: preview.branch }],
@@ -784,8 +881,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     installCommand: config?.installCommand ?? DEFAULT_INSTALL_COMMAND,
     devCommand: config?.devCommand,
     onChange: () => live.nudge("config"),
-    ...(options.startWorktree === undefined ? {} : { startWorktree: options.startWorktree }),
-  });
+  };
+
+  if (options.startWorktree !== undefined) branchOptions.startWorktree = options.startWorktree;
+  const branches = createBranchRegistry(branchOptions);
 
   type ConfigPreview =
     | Preview
@@ -799,6 +898,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const state = branches.state(preview.title) ?? { status: "idle" as const };
     const { url: route, ...withoutUrl } = preview;
     const branchUrl = branches.url(preview.title);
+
     return state.status === "ready"
       ? {
           ...withoutUrl,
@@ -807,15 +907,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
       : { ...withoutUrl, state: publicBranchState(state) };
   };
+
   const previewsForConfig = (previews: readonly Preview[]) => previews.map(previewForConfig);
 
   const readyPreview = (preview: Preview): Preview | null => {
     if (preview.branch === undefined) return preview;
     const state = branches.state(preview.title);
+
     return state?.status === "ready"
       ? { ...preview, url: `${branches.url(preview.title) ?? state.worktree.url}${preview.url}` }
       : null;
   };
+
   // Sweep up browsers left by a Leglas that was killed outright or crashed,
   // which no shutdown handler can reach. Deliberately not awaited: it is
   // tidying, and a slow temp directory must not hold up the interface. A
@@ -824,6 +927,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (options.pool === undefined) {
     void reapOrphanedBrowsers().catch(() => {});
   }
+
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
   // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
@@ -850,17 +954,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let agentsCache: { at: number; agents: DetectedAgent[] } | null = null;
   let agentsInflight: Promise<DetectedAgent[]> | null = null;
   const AGENTS_FRESH_MS = 30_000;
+
   const probeAgents = (): Promise<DetectedAgent[]> => {
     agentsInflight ??= detect()
       .then((agents) => {
         agentsCache = { at: Date.now(), agents };
+
         return agents;
       })
       .finally(() => {
         agentsInflight = null;
       });
+
     return agentsInflight;
   };
+
   const currentAgents = (refresh = false): Promise<DetectedAgent[]> => {
     if (refresh || agentsCache === null) {
       return probeAgents();
@@ -876,6 +984,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // A failed refresh leaves the last successful answer intact.
       });
     }
+
     return Promise.resolve(agentsCache.agents);
   };
 
@@ -894,16 +1003,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const local = localRead?.errors.length === 0 ? localRead.previews : [];
     const localTitles = new Set(local.map((entry) => entry.title));
     const bootConfig = config?.previews ?? [];
+
     const boot =
       localRead === null || localRead.errors.length > 0
         ? bootConfig
         : bootConfig.filter((entry) => entry.local !== true || localTitles.has(entry.title));
+
     const known = new Set(boot.map((entry) => entry.title));
+
     const fresh = local.filter(
       (entry) => !known.has(entry.title) && entry.branch === undefined && entry.file === undefined,
     );
+
     return [...boot, ...fresh];
   };
+
   const livePreviews = async (): Promise<Preview[]> =>
     (await livePreviewDefinitions()).map(readyPreview).filter((preview) => preview !== null);
 
@@ -922,17 +1036,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const readShareBody = (
     req: http.IncomingMessage,
     res: http.ServerResponse,
-    run: (body: Record<string, unknown>) => ShareResult | Promise<ShareResult> | undefined,
+    run: (body: JsonRecord) => ShareResult | Promise<ShareResult> | undefined,
   ): void => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      const parsed = jsonBody<Record<string, unknown>>(body);
+      const parsed = jsonBody(body);
+
       if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
       void Promise.resolve(run(parsed)).then((result) => {
         if (result === undefined) {
           return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
         }
+
         return result.ok
           ? sendJson(res, 200, result)
           : sendJson(res, result.status, { ok: false, error: result.error });
@@ -963,6 +1079,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (payload === null) {
           return sendJson(res, 403, { ok: false, error: "This link isn't active." });
         }
+
         sendConditionalJson(req, res, payload);
       });
     }
@@ -975,6 +1092,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       // machine can tell one server from another, and a viewer has no
       // business with either the directory or the dev server's address.
       const known = liveHealth?.reachable() ?? null;
+
       return void (known === null ? probe(target) : Promise.resolve(known)).then((reachable) =>
         sendConditionalJson(req, res, { reachable }),
       );
@@ -992,38 +1110,47 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ))
     ) {
       const updates = options.updates;
+
       if (updates === undefined) {
         return sendJson(res, 404, { ok: false, error: "Updates are not available here." });
       }
+
       if (req.method === "GET") return sendJson(res, 200, updates.status());
+
       if (path.endsWith("/check")) {
         return void updates.check({ force: true }).then((status) => sendJson(res, 200, status));
       }
+
       if (path.endsWith("/install")) {
         return void updates.update().then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) =>
+          (cause: unknown) =>
             sendJson(res, 409, {
               ok: false,
-              error: error instanceof Error ? error.message : String(error),
+              error: cause instanceof Error ? cause.message : String(cause),
             }),
         );
       }
+
       if (!hasJsonBody(req)) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", () => {
-        const parsed = jsonBody<{ version?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
-        if (typeof parsed.version !== "string" || parsed.version.trim() === "") {
+
+        if (!isString(parsed.version) || parsed.version.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs a version." });
         }
+
         void updates.skip(parsed.version).then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) =>
+          (cause: unknown) =>
             sendJson(res, 400, {
               ok: false,
-              error: error instanceof Error ? error.message : String(error),
+              error: cause instanceof Error ? cause.message : String(cause),
             }),
         );
       });
@@ -1039,23 +1166,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Share details must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<Record<string, unknown>>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        const result = await shares?.create(parsed).catch((error: unknown) => ({
+
+        const result = await shares?.create(parsed).catch((cause: unknown) => ({
           ok: false as const,
           status: 500 as const,
           error: `Leglas could not start the share (${
-            error instanceof Error ? error.message : String(error)
+            cause instanceof Error ? cause.message : String(cause)
           }).`,
         }));
+
         if (result === undefined) {
           return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
         }
+
         return result.ok
           ? sendJson(res, 200, result)
           : sendJson(res, result.status, { ok: false, error: result.error });
@@ -1066,17 +1199,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Share details must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<Record<string, unknown>>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
+
         const result = await shares?.update(parsed);
+
         if (result === undefined) {
           return sendJson(res, 500, { ok: false, error: "Sharing is not available." });
         }
+
         return result.ok
           ? sendJson(res, 200, result)
           : sendJson(res, result.status, { ok: false, error: result.error });
@@ -1130,7 +1269,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const boot = config?.previews ?? [];
       const errors = [...configErrors];
       const notice = configStalenessNotice(cwd, bootConfigSnapshot, snapshotConfig(cwd));
+
       if (notice !== null) errors.push(notice);
+
       return void readLocalPreviews(cwd)
         .then(({ previews: local, errors: localErrors }) => {
           if (localErrors.length > 0) {
@@ -1143,7 +1284,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               warnings: configWarnings,
             });
           }
+
           const localTitles = new Set(local.map((preview) => preview.title));
+
           // Local directions that were present at boot stay fully resolved,
           // including their file mounts and branch servers. Once deleted from
           // the registry they leave this payload immediately instead of
@@ -1151,13 +1294,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           const currentBoot = boot.filter(
             (preview) => preview.local !== true || localTitles.has(preview.title),
           );
+
           const known = new Set(currentBoot.map((preview) => preview.title));
+
           const fresh = local.filter(
             (preview) =>
               !known.has(preview.title) &&
               preview.branch === undefined &&
               preview.file === undefined,
           );
+
           sendConditionalJson(req, res, {
             project,
             devServer: target,
@@ -1182,27 +1328,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/previews/start` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+
+        if (!isString(parsed.title) || parsed.title.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs a direction title." });
         }
 
         const preview = (await livePreviewDefinitions()).find(
           (entry) => entry.title === parsed.title,
         );
+
         if (preview === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such direction." });
         }
+
         if (preview.branch === undefined) {
           return sendJson(res, 400, {
             ok: false,
             error: `"${preview.title}" is not a branch preview.`,
           });
         }
+
         if (config?.devCommand === undefined) {
           return sendJson(res, 400, {
             ok: false,
@@ -1212,9 +1364,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         void branches.start(preview.title);
         const state = branches.state(preview.title);
+
         if (state === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such branch preview." });
         }
+
         return sendJson(res, 200, { ok: true, state: publicBranchState(state) });
       });
     }
@@ -1222,17 +1376,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/previews/delete` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ titles?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
         const titles = parsed.titles;
+
         if (
           !Array.isArray(titles) ||
           titles.length === 0 ||
-          titles.some((title) => typeof title !== "string" || title.trim() === "")
+          !titles.every((title): title is string => isString(title) && title.trim() !== "")
         ) {
           return sendJson(res, 400, {
             ok: false,
@@ -1240,14 +1397,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const unique = [...new Set(titles as string[])];
+        const unique = [...new Set(titles)];
+
         try {
           const local = await readLocalPreviews(cwd);
+
           if (local.errors.length > 0) {
             return sendJson(res, 409, { ok: false, error: local.errors.join(" ") });
           }
+
           const localTitles = new Set(local.previews.map((preview) => preview.title));
           const unknown = unique.filter((title) => !localTitles.has(title));
+
           if (unknown.length > 0) {
             return sendJson(res, 400, {
               ok: false,
@@ -1256,6 +1417,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           }
 
           const deleted = await dropLocalPreviews(cwd, unique);
+
           return sendJson(res, 200, { ok: true, deleted });
         } catch {
           return sendJson(res, 500, {
@@ -1268,7 +1430,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (path === `${LEGLAS_PREFIX}/api/references` && req.method === "POST") {
       const declaredLength = req.headers["content-length"];
-      if (typeof declaredLength === "string" && Number(declaredLength) > REFERENCE_MAX_BYTES) {
+
+      if (isString(declaredLength) && Number(declaredLength) > REFERENCE_MAX_BYTES) {
         return sendJson(res, 413, { ok: false, error: "That image is over 10MB." });
       }
 
@@ -1279,23 +1442,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (refused) return;
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         bytes += buffer.length;
+
         if (bytes > REFERENCE_MAX_BYTES) {
           refused = true;
           req.pause();
           res.once("finish", () => req.socket.destroy());
           sendJson(res, 413, { ok: false, error: "That image is over 10MB." });
+
           return;
         }
+
         chunks.push(buffer);
       });
+
       return void req.once("end", async () => {
         if (refused) return;
+
         if (bytes === 0) {
           return sendJson(res, 400, { ok: false, error: "The upload was empty." });
         }
 
         const body = Buffer.concat(chunks, bytes);
         const image = sniffImage(body);
+
         if (image === null) {
           return sendJson(res, 415, {
             ok: false,
@@ -1305,12 +1474,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         const id = newRequestId();
         const file = `${REFERENCES_DIR}/${id}.${image.kind}`;
+
         try {
           await mkdir(join(cwd, REFERENCES_DIR), { recursive: true });
           await writeFile(join(cwd, file), body);
           // The moment something new arrives is the moment to let go of what
           // was pasted an hour ago and never sent.
           void pruneReferences(cwd).catch(() => {});
+
           return sendJson(res, 200, {
             ok: true,
             reference: {
@@ -1334,18 +1505,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/request` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{
-          title?: string;
-          intent?: string;
-          mode?: unknown;
-          width?: unknown;
-          compare?: unknown;
-          references?: unknown;
-        }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
+
         // Variant unless the caller says otherwise: a change that overwrites
         // the direction it came from destroys the comparison the tool exists
         // for, so the safe half of the pair is the one a missing field gets.
@@ -1357,28 +1524,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             error: 'mode must be "variant" or "replace".',
           });
         }
+
         const mode: RequestMode = parsed.mode === "replace" ? "replace" : "variant";
+
         if (
           parsed.references !== undefined &&
           (!Array.isArray(parsed.references) ||
-            parsed.references.some(
-              (reference) =>
-                typeof reference !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(reference),
+            !parsed.references.every(
+              (reference): reference is string =>
+                isString(reference) && /^[A-Za-z0-9_-]{1,32}$/.test(reference),
             ))
         ) {
           return sendJson(res, 400, { ok: false, error: "references must be uploaded image ids." });
         }
-        const references = (parsed.references ?? []) as string[];
+
+        const references = parsed.references ?? [];
+
         // A reference that is no longer there was pasted over an hour ago and
         // pruned. Dropping it silently would send the agent a request the
         // user did not make, and clear a thumbnail that never travelled.
         if (references.length > 0) {
           const present = new Set(
-            (await readdir(join(cwd, REFERENCES_DIR)).catch(() => [] as string[])).map((name) =>
+            (await readdir(join(cwd, REFERENCES_DIR)).catch((): string[] => [])).map((name) =>
               name.slice(0, name.indexOf(".") === -1 ? name.length : name.indexOf(".")),
             ),
           );
+
           const gone = references.filter((id) => !present.has(id));
+
           if (gone.length > 0) {
             return sendJson(res, 410, {
               ok: false,
@@ -1389,34 +1562,46 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           }
         }
+
         const width =
-          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+          isNumber(parsed.width) && Number.isFinite(parsed.width)
             ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
             : 1440;
+
         // Same live lookup as /api/config: a direction registered after boot
         // is on the rail, so a change request against it has to resolve.
         const previews = await livePreviews();
         const preview = previews.find((entry) => entry.title === parsed.title);
+
         if (!preview) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
+
         // A note carries its own address and its own words, so pins alone are
         // a complete request and the composer is allowed to be empty. Nothing
         // at all still is not a request.
         const notes = annotationsFor(await readAnnotations(cwd).catch(() => []), preview.title);
-        if (!parsed.intent?.trim() && notes.length === 0) {
+
+        const intent = requestIntent(parsed.intent);
+
+        if (intent === null) {
+          return sendJson(res, 400, { ok: false, error: "A request's words must be text." });
+        }
+
+        if (!intent && notes.length === 0) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
+
         // The composer stays open during a run on purpose: queueing the next
         // change while one is in flight is the point of a queue. Sending the
         // same words at the same direction twice is not: it is a second copy
         // of work already waiting, and it costs a whole provider turn. The
         // usual way in is a stop followed by retyping the same request, which
         // reads as a retry and behaves as a duplicate.
-        const intent = (parsed.intent ?? "").trim();
         const live = (await readRequests(cwd).catch(() => [])).filter(
           (entry) => entry.status === "queued" || entry.status === "picked-up",
         );
+
         // Pins stay on a direction after a fork, so the same send can be made
         // twice by pressing the button twice. That is the same request, and
         // the notes it answers are part of what makes it the same one: the
@@ -1424,6 +1609,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // not.
         const sameNotes = (entry: PendingRequest) => {
           const before = [...(entry.notes ?? [])].sort().join(",");
+
           return (
             before ===
             notes
@@ -1432,10 +1618,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               .join(",")
           );
         };
+
         const compare =
-          typeof parsed.compare === "string" && parsed.compare !== preview.title
+          isString(parsed.compare) && parsed.compare !== preview.title
             ? (previews.find((entry) => entry.title === parsed.compare) ?? null)
             : null;
+
         // The images are part of what was asked. "Make it like the other
         // one" against a different other one, or with a different picture
         // attached, is a different request wearing the same words. Judged
@@ -1444,6 +1632,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const sameContext = (entry: PendingRequest) =>
           (entry.compare ?? null) === (compare?.title ?? null) &&
           [...(entry.references ?? [])].sort().join(",") === [...references].sort().join(",");
+
         if (
           live.some(
             (entry) =>
@@ -1465,11 +1654,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
 
         const address = server.address();
+
         const requestPort =
-          typeof address === "object" && address !== null
-            ? address.port
-            : (options.port ?? DEFAULT_PORT);
+          address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
+
         const id = newRequestId();
+
         const captured = await attachRequest(
           cwd,
           id,
@@ -1483,29 +1673,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           },
           { pool: browserPool },
         );
+
         const composed = composeRequest(preview, intent, mode, notes, leglasCommand, captured);
+
         try {
-          await appendRequest(
-            cwd,
-            {
-              title: preview.title,
-              url: preview.url,
-              intent,
-              // The ids travel with the request so a change made in place can
-              // forget the notes it answered. A fork leaves them where they are:
-              // the direction they point at was not touched.
-              ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
-              ...(captured.attachments.length === 0 ? {} : { attachments: captured.attachments }),
-              ...(captured.skipped === null ? {} : { captureNote: captured.skipped }),
-              ...(compare === null ? {} : { compare: compare.title }),
-              ...(references.length === 0 ? {} : { references }),
-              ...composed,
-            },
-            id,
-          );
+          const queued: Parameters<typeof appendRequest>[1] = {
+            title: preview.title,
+            url: preview.url,
+            intent,
+            // The ids travel with the request so a change made in place can
+            // forget the notes it answered. A fork leaves them where they are:
+            // the direction they point at was not touched.
+            ...composed,
+          };
+
+          if (notes.length > 0) queued.notes = notes.map((entry) => entry.id);
+
+          if (captured.attachments.length > 0) queued.attachments = captured.attachments;
+
+          if (captured.skipped !== null) queued.captureNote = captured.skipped;
+
+          if (compare !== null) queued.compare = compare.title;
+
+          if (references.length > 0) queued.references = references;
+          await appendRequest(cwd, queued, id);
           // The runner polls every two seconds, but the queue just grew in
           // this very process: no reason to make the user watch that gap.
           runner?.nudge();
+
           return sendJson(res, 200, {
             ok: true,
             ...composed,
@@ -1530,89 +1725,115 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Capture must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown; width?: unknown; note?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.title !== "string" || parsed.title === "") {
+
+        if (!isString(parsed.title) || parsed.title === "") {
           return sendJson(res, 400, { ok: false, error: "Capture needs a direction title." });
         }
-        if (parsed.note !== undefined && typeof parsed.note !== "string") {
+
+        if (parsed.note !== undefined && !isString(parsed.note)) {
           return sendJson(res, 400, { ok: false, error: "The note id must be a string." });
         }
+
         const preview = (await livePreviews()).find((entry) => entry.title === parsed.title);
+
         if (preview === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such direction." });
         }
+
         const width =
-          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+          isNumber(parsed.width) && Number.isFinite(parsed.width)
             ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
             : 1440;
+
         const browser = await browserPool.acquire();
+
         if (browser === null) {
           return sendJson(res, 503, {
             ok: false,
             error: browserPool.reason() ?? NO_BROWSER,
           });
         }
-        const annotations =
-          typeof parsed.note === "string"
-            ? (await readAnnotations(cwd).catch(() => [])).filter(
-                (entry) => entry.id === parsed.note && entry.title === preview.title,
-              )
-            : [];
+
+        const annotations = isString(parsed.note)
+          ? (await readAnnotations(cwd).catch(() => [])).filter(
+              (entry) => entry.id === parsed.note && entry.title === preview.title,
+            )
+          : [];
+
         const address = server.address();
+
         const capturePort =
-          typeof address === "object" && address !== null
-            ? address.port
-            : (options.port ?? DEFAULT_PORT);
+          address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
+
         const controller = new AbortController();
         const timeoutMarker = Symbol("capture timeout");
         let timedOut!: () => void;
+
         const timeout = new Promise<typeof timeoutMarker>((resolve) => {
           timedOut = () => resolve(timeoutMarker);
         });
+
         const timer = setTimeout(() => {
           timedOut();
           controller.abort();
         }, CAPTURE_DEADLINE_MS);
+
         timer.unref?.();
+
         try {
-          const work = capturePage(browser, {
+          const captureInput: Parameters<typeof capturePage>[1] & { signal: AbortSignal } = {
             url: previewUrl(`http://127.0.0.1:${capturePort}`, preview),
             width,
-            ...(annotations.length === 0
-              ? {}
-              : {
-                  focuses: annotations.map((entry) => ({
-                    selector: entry.anchor.selector,
-                    text: entry.anchor.text,
-                    tag: entry.anchor.tag,
-                    ...(entry.anchor.region === undefined ? {} : { region: entry.anchor.region }),
-                    rect: entry.anchor.rect,
-                  })),
-                }),
             timeoutMs: CAPTURE_LOAD_MS,
             signal: controller.signal,
-          } as Parameters<typeof capturePage>[1] & { signal: AbortSignal });
+          };
+
+          if (annotations.length > 0) {
+            captureInput.focuses = annotations.map((entry) => {
+              const focus: NonNullable<typeof captureInput.focuses>[number] = {
+                selector: entry.anchor.selector,
+                text: entry.anchor.text,
+                tag: entry.anchor.tag,
+                rect: entry.anchor.rect,
+              };
+
+              if (entry.anchor.region !== undefined) focus.region = entry.anchor.region;
+
+              return focus;
+            });
+          }
+
+          const work = capturePage(browser, captureInput);
+
           const result = await Promise.race([work, timeout]);
+
           if (result === timeoutMarker) {
             return sendJson(res, 504, { ok: false, error: "The page did not load in time." });
           }
+
           clearTimeout(timer);
           const crop = annotations.length > 0 ? result.crops[0] : null;
           const shot = crop?.shot ?? result.frame;
-          const noteSuffix =
-            typeof parsed.note === "string"
-              ? `-${parsed.note.replace(/[^A-Za-z0-9_-]+/g, "-")}`
-              : "";
+
+          const noteSuffix = isString(parsed.note)
+            ? `-${parsed.note.replace(/[^A-Za-z0-9_-]+/g, "-")}`
+            : "";
+
           const name = `${captureSlug(preview.title)}-${result.frame.width}${noteSuffix}.png`;
           const relativeFile = `${CAPTURES_DIR}/show/${name}`;
           await mkdir(join(cwd, CAPTURES_DIR, "show"), { recursive: true });
           await writeFile(join(cwd, relativeFile), shot.png);
+
           return sendJson(res, 200, {
             ok: true,
             file: relativeFile,
@@ -1625,6 +1846,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         } catch (error) {
           clearTimeout(timer);
+
           return sendJson(res, 502, {
             ok: false,
             error: error instanceof Error ? error.message : String(error),
@@ -1672,13 +1894,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           error: "The agent choice can only be made from the machine running Leglas.",
         });
       }
+
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Agent choice must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", () => {
-        const parsed = jsonBody<{ agent?: unknown; effort?: unknown; run?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
@@ -1686,14 +1912,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (!isKnownAgent(parsed.agent) && parsed.agent !== "custom") {
           return sendJson(res, 400, { ok: false, error: "Body needs a known agent." });
         }
-        if (parsed.run !== undefined && typeof parsed.run !== "string") {
+
+        if (parsed.run !== undefined && !isString(parsed.run)) {
           return sendJson(res, 400, {
             ok: false,
             error: "The custom run command must be a string.",
           });
         }
+
         const effort =
           parsed.effort === null || isAgentEffort(parsed.effort) ? parsed.effort : undefined;
+
         if (parsed.effort !== undefined && effort === undefined) {
           return sendJson(res, 400, {
             ok: false,
@@ -1708,11 +1937,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               error: "Custom agents manage effort in their own command.",
             });
           }
-          if (typeof parsed.run !== "string") {
+
+          if (!isString(parsed.run)) {
             return sendJson(res, 400, { ok: false, error: "A custom agent needs a run command." });
           }
+
           const template = parseTemplate(parsed.run);
+
           if (!template.ok) return sendJson(res, 400, { ok: false, error: template.error });
+
           return void saveAgentChoice(cwd, { agent: "custom", run: parsed.run }).then(
             () => sendJson(res, 200, { ok: true }),
             () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
@@ -1722,7 +1955,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (
           effort !== undefined &&
           effort !== null &&
-          !(KNOWN_AGENTS[parsed.agent].efforts as readonly string[]).includes(effort)
+          !KNOWN_AGENTS[parsed.agent].efforts.some((supported) => supported === effort)
         ) {
           return sendJson(res, 400, {
             ok: false,
@@ -1730,12 +1963,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        return void saveAgentChoice(cwd, {
-          agent: parsed.agent,
-          ...(effort === undefined ? {} : { effort }),
-        }).then(
+        const agent = parsed.agent;
+        const choice: Parameters<typeof saveAgentChoice>[1] = { agent };
+
+        if (effort !== undefined) choice.effort = effort;
+
+        return void saveAgentChoice(cwd, choice).then(
           () => {
-            runner?.prepare(parsed.agent as KnownAgentId);
+            runner?.prepare(agent);
             sendJson(res, 200, { ok: true });
           },
           () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
@@ -1749,14 +1984,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/watch` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", () => {
-        const parsed = jsonBody<{ watching?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.watching !== "boolean") {
+
+        if (!isBoolean(parsed.watching)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a watching boolean." });
         }
+
         // A watcher shutting down clears the mark rather than letting it age
         // out, so the hint stops promising an agent the moment it is gone.
         lastSeen = parsed.watching ? Date.now() : null;
@@ -1777,6 +2016,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         waiting: null,
         failedIds: [],
       };
+
       return void readRequests(cwd).then((requests) =>
         sendConditionalJson(req, res, {
           requests: requests.map(({ id, title, intent, mode, status, failure, notes }) => ({
@@ -1826,16 +2066,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (parsed.id !== undefined && typeof parsed.id !== "string") {
+
+        if (parsed.id !== undefined && !isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "The request id must be a string." });
         }
+
         return sendJson(res, 200, { ok: true, cancelled: runner?.cancel(parsed.id) ?? false });
       });
     }
@@ -1844,21 +2089,27 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Retry must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.id !== "string") {
+
+        if (!isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
 
         const request = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+
         if (request === undefined) {
           return sendJson(res, 404, { ok: false, error: "No such request." });
         }
+
         // Either record will do: the process-local set for a run this server
         // saw, or the queue's own verdict for one it inherited from an earlier
         // process. Without the second, a restart left the request unactionable.
@@ -1871,43 +2122,50 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         try {
           const retryId = newRequestId();
+
           const attachments = await rehomeCaptures(
             cwd,
             request.id,
             retryId,
             request.attachments ?? [],
           ).catch(() => []);
+
           if (!(await removeRequest(cwd, request.id))) {
             return sendJson(res, 404, { ok: false, error: "No such request." });
           }
-          await appendRequest(
-            cwd,
-            {
-              title: request.title,
-              url: request.url,
-              intent: request.intent,
-              target: request.target,
-              // The prompt names the captures by path, and the embedded pipes
-              // are not its only readers: watch, a custom command and
-              // `requests --json` all hand the text over as it stands.
-              prompt:
-                attachments.length === 0
-                  ? request.prompt
-                  : rehomeText(request.prompt, request.id, retryId),
-              // The stored prompt already carries the mode's instructions;
-              // its notes and visual context travel with the retry too.
-              ...(request.mode === undefined ? {} : { mode: request.mode }),
-              ...(request.notes === undefined ? {} : { notes: request.notes }),
-              ...(attachments.length === 0 ? {} : { attachments }),
-              ...(request.captureNote === undefined ? {} : { captureNote: request.captureNote }),
-              ...(request.compare === undefined ? {} : { compare: request.compare }),
-              ...(request.references === undefined ? {} : { references: request.references }),
-            },
-            retryId,
-          );
+
+          const retry: Parameters<typeof appendRequest>[1] = {
+            title: request.title,
+            url: request.url,
+            intent: request.intent,
+            target: request.target,
+            // The prompt names the captures by path, and the embedded pipes
+            // are not its only readers: watch, a custom command and
+            // `requests --json` all hand the text over as it stands.
+            prompt:
+              attachments.length === 0
+                ? request.prompt
+                : rehomeText(request.prompt, request.id, retryId),
+            // The stored prompt already carries the mode's instructions;
+            // its notes and visual context travel with the retry too.
+          };
+
+          if (request.mode !== undefined) retry.mode = request.mode;
+
+          if (request.notes !== undefined) retry.notes = request.notes;
+
+          if (attachments.length > 0) retry.attachments = attachments;
+
+          if (request.captureNote !== undefined) retry.captureNote = request.captureNote;
+
+          if (request.compare !== undefined) retry.compare = request.compare;
+
+          if (request.references !== undefined) retry.references = request.references;
+          await appendRequest(cwd, retry, retryId);
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.
           runner?.nudge();
+
           return sendJson(res, 200, { ok: true });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The request could not be retried." });
@@ -1931,26 +2189,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown; note?: unknown; anchor?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+
+        if (!isString(parsed.title) || parsed.title.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "A note needs a direction." });
         }
+
         const anchor = anchorFrom(parsed.anchor);
+
         if (anchor === null) {
           return sendJson(res, 400, { ok: false, error: "A note needs something to point at." });
         }
+
         try {
           const annotation = await addAnnotation(cwd, {
             anchor,
-            note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+            note: isString(parsed.note) ? parsed.note.trim() : "",
             title: parsed.title,
           });
+
           return sendJson(res, 200, { ok: true, annotation });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The note could not be kept." });
@@ -1965,30 +2231,38 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown; note?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.id !== "string" || parsed.id === "") {
+
+        if (!isString(parsed.id) || parsed.id === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs the note to reword." });
         }
+
         // Words that did not arrive are refused rather than read as an empty
         // string. Everywhere else here coerces a bad field and keeps going,
         // because the worst case is a note recorded roughly; here the worst
         // case is a request that forgot to say anything wiping the sentence
         // it meant to correct. Clearing a note is still allowed, by sending
         // an empty one on purpose.
-        if (typeof parsed.note !== "string") {
+        if (!isString(parsed.note)) {
           return sendJson(res, 400, { ok: false, error: "A reworded note needs its words." });
         }
+
         try {
           const annotation = await updateAnnotation(cwd, parsed.id, parsed.note);
+
           if (annotation === null) {
             return sendJson(res, 404, { ok: false, error: "That note has gone." });
           }
+
           return sendJson(res, 200, { ok: true, annotation });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The note could not be reworded." });
@@ -2000,19 +2274,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Delete must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ ids?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
+
         const ids = Array.isArray(parsed.ids)
-          ? parsed.ids.filter((entry): entry is string => typeof entry === "string")
+          ? parsed.ids.filter((entry): entry is string => isString(entry))
           : [];
+
         if (ids.length === 0) {
           return sendJson(res, 400, { ok: false, error: "Body needs the notes to forget." });
         }
+
         try {
           return sendJson(res, 200, { ok: true, deleted: await removeAnnotations(cwd, ids) });
         } catch {
@@ -2025,17 +2305,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });
       }
+
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (typeof parsed.id !== "string") {
+
+        if (!isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
+
         const target = (await readRequests(cwd)).find((entry) => entry.id === parsed.id);
+
         if (target === undefined || !isEnded(target, runner?.snapshot().failedIds ?? [])) {
           return sendJson(res, 400, {
             ok: false,
@@ -2047,6 +2333,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           if (!(await removeRequest(cwd, parsed.id))) {
             return sendJson(res, 404, { ok: false, error: "No such request." });
           }
+
           return sendJson(res, 200, { ok: true });
         } catch {
           return sendJson(res, 500, { ok: false, error: "The request could not be dismissed." });
@@ -2061,19 +2348,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/renames` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return void req.on("end", () => {
-        const parsed = jsonBody<{ renames?: unknown }>(body);
+        const parsed = jsonBody(body);
+
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
-        if (parsed.renames === null || typeof parsed.renames !== "object") {
+
+        if (!isJsonRecord(parsed.renames) && !Array.isArray(parsed.renames)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a renames object." });
         }
+
         const renames = Object.fromEntries(
-          Object.entries(parsed.renames as Record<string, unknown>).filter(
+          Object.entries(parsed.renames).filter(
             (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
           ),
         );
+
         // A rename that cannot be persisted is not worth failing over: the rail
         // still shows it, and the CLI keeps working on config titles.
         void writeRenames(cwd, renames).then(
@@ -2097,12 +2389,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const slash = rest.indexOf("/");
       const slug = slash === -1 ? rest : rest.slice(0, slash);
       let relative = slash === -1 ? "" : rest.slice(slash + 1);
+
       try {
         relative = decodeURIComponent(relative);
       } catch {
         relative = "";
       }
+
       const dir = fileMounts.get(slug);
+
       const serveMount = (): void => {
         if (dir !== undefined && relative !== "" && serveFrom(res, dir, relative)) return;
         res.writeHead(404, {
@@ -2111,7 +2406,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         });
         res.end("Leglas: no such preview file.");
       };
+
       if (!context.remote) return serveMount();
+
       // A mount is the preview's whole directory, keyed by a slug made from
       // its title, so the share's own manifest decides which mounts a viewer
       // may read, and nothing that starts with a dot is served there: a file
@@ -2119,6 +2416,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (relative.split("/").some((segment) => segment.startsWith("."))) {
         return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
       }
+
       return void (
         shares?.fileSlugAllowed(slug, context.grantId ?? "") ?? Promise.resolve(false)
       ).then((allowed) => {
@@ -2133,19 +2431,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (path === LEGLAS_PREFIX || path.startsWith(`${LEGLAS_PREFIX}/`)) {
       if (shellDir !== null && serveShellFile(res, shellDir, path)) return;
+
       if (shellDir !== null) {
         res.writeHead(404, {
           "content-type": "text/plain; charset=utf-8",
           "cache-control": "no-store",
         });
         res.end("Leglas: no such path.");
+
         return;
       }
+
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
       res.end(PLACEHOLDER);
+
       return;
     }
 
@@ -2153,6 +2455,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   let port = 0;
+
   const server = http.createServer((req, res) =>
     handleRequest(req, res, {
       remote: false,
@@ -2179,15 +2482,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const liveUpgrade = context.remote
       ? live.upgrade(req, socket, head, { viewer: true })
       : live.upgrade(req, socket, head);
+
     if (liveUpgrade) return true;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
+
     // The live hub owns one shell upgrade. Other Leglas upgrades are refused;
     // everything outside the prefix still belongs to the app.
     if (path.startsWith(`${LEGLAS_PREFIX}/`)) {
       socket.destroy();
+
       return false;
     }
+
     proxy.upgrade(req, socket, head);
+
     return false;
   };
 
@@ -2195,7 +2503,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     handleUpgrade(req, socket, head, { remote: false });
   });
 
-  shares = createShareManager({
+  const shareOptions: Parameters<typeof createShareManager>[0] = {
     live,
     previews: livePreviewDefinitions,
     previewsForConfig,
@@ -2211,9 +2519,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         grantId: context.grantId,
       }),
     upgrade: (req, socket, head) => handleUpgrade(req, socket, head, { remote: true }),
-    ...(options.detectTunnels === undefined ? {} : { detectTunnels: options.detectTunnels }),
-    ...(options.startTunnel === undefined ? {} : { startTunnel: options.startTunnel }),
-  });
+  };
+
+  if (options.detectTunnels !== undefined) shareOptions.detectTunnels = options.detectTunnels;
+
+  if (options.startTunnel !== undefined) shareOptions.startTunnel = options.startTunnel;
+  shares = createShareManager(shareOptions);
 
   port = await bind(server, options.port ?? DEFAULT_PORT);
   options.updates?.setPort(port);
@@ -2228,16 +2539,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://localhost:${port}`,
     pid: process.pid,
   }).catch(() => {});
-  runner = startRunner({
+
+  const runnerOptions: Parameters<typeof startRunner>[0] = {
     cwd,
     externallyAttached,
     onChange: () => live.nudge("requests"),
     leglasCommand,
-    ...(options.codexAppServer === undefined ? {} : { codexAppServer: options.codexAppServer }),
-    ...(options.claudeAgentSession === undefined
-      ? {}
-      : { claudeAgentSession: options.claudeAgentSession }),
-  });
+  };
+
+  if (options.codexAppServer !== undefined) runnerOptions.codexAppServer = options.codexAppServer;
+
+  if (options.claudeAgentSession !== undefined)
+    runnerOptions.claudeAgentSession = options.claudeAgentSession;
+  runner = startRunner(runnerOptions);
   options.updates?.onBusy(() => runner?.snapshot().running ?? false);
   options.updates?.onChange(() => live.nudge("update"));
 
@@ -2270,6 +2584,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         });
         await removeServerInfo(cwd, { port, pid: process.pid }).catch(() => {});
       })();
+
       return closePromise;
     },
   };

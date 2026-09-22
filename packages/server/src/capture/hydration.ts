@@ -11,9 +11,11 @@ export type HydrationEvidence = { framework: string; message: string };
 export function hydrationEvidence(messages: readonly string[]): HydrationEvidence | null {
   for (const raw of messages) {
     const message = raw.split("\n", 1)[0]?.trim() ?? "";
+
     if (/Minified React error #(418|419|422|423|425)\b/.test(message)) {
       return { framework: "React", message };
     }
+
     if (
       /Hydration failed because/.test(message) ||
       /error while hydrating/i.test(message) ||
@@ -23,18 +25,22 @@ export function hydrationEvidence(messages: readonly string[]): HydrationEvidenc
     ) {
       return { framework: "React", message };
     }
+
     if (
       /Hydration (node|text|children|class|style|attribute) mismatch/i.test(message) ||
       /Hydration completed but contains mismatches/i.test(message)
     ) {
       return { framework: "Vue", message };
     }
+
     if (/hydration_mismatch/.test(message)) {
       return { framework: "Svelte", message };
     }
+
     if (/Hydration Mismatch\. Unable to find DOM nodes/.test(message)) {
       return { framework: "Solid", message };
     }
+
     // Anything else has to say hydration and describe the markup it disagreed
     // with: what it expected against what it found, or a mismatch on a named
     // part of the document. A cache or a store also "rehydrates", and a
@@ -48,5 +54,6 @@ export function hydrationEvidence(messages: readonly string[]): HydrationEvidenc
       return { framework: "the app", message };
     }
   }
+
   return null;
 }

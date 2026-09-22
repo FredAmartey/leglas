@@ -31,6 +31,7 @@ export function useShare(enabled: boolean): SharePayload {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+
     const stop = startPoll(
       (signal) =>
         readShare(signal)
@@ -48,6 +49,7 @@ export function useShare(enabled: boolean): SharePayload {
         subscribe: (run) => liveConnection().on("share", run),
       },
     );
+
     return () => {
       cancelled = true;
       stop();

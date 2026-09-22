@@ -1,3 +1,4 @@
+import { required } from "../test-helpers.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,10 +54,11 @@ describe("findConfigFile", () => {
 
   test("resolves extensions in a stable order when several exist", () => {
     const dir = scratch();
+
     for (const basename of CONFIG_BASENAMES) {
       writeFileSync(join(dir, basename), "export default {}");
     }
 
-    expect(findConfigFile(dir)).toBe(join(dir, CONFIG_BASENAMES[0] as string));
+    expect(findConfigFile(dir)).toBe(join(dir, required(CONFIG_BASENAMES[0])));
   });
 });

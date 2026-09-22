@@ -47,10 +47,12 @@ export function referenceText({ displayName, preview, previewUrl, title }: Refer
   const tags = preview?.tags.length ? ` [${preview.tags.join(", ")}]` : "";
 
   const lines = [`Leglas direction ${JSON.stringify(title)}${shownAs}${note}${tags}`];
+
   if (preview?.file) lines.push(`Source: ${preview.file}`);
   else if (preview?.branch) lines.push(`Branch: ${preview.branch}`);
   else if (preview) lines.push(`Route: ${preview.url}`);
   lines.push(`Preview: ${previewUrl}`);
+
   if (preview?.basedOn) lines.push(`A variant of: ${preview.basedOn}`);
 
   // What the block cannot carry: the source file behind the direction, and the
@@ -65,5 +67,6 @@ export function referenceText({ displayName, preview, previewUrl, title }: Refer
     "Inspect this direction in full:",
     `  npx leglas show ${JSON.stringify(title)} --json`,
   );
+
   return lines.join("\n");
 }

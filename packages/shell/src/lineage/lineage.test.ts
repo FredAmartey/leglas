@@ -25,7 +25,9 @@ const CHAIN = basedOn([
   ["Ferry", "Harbour"],
   ["Lantern", "Quay"],
 ]);
+
 const CHAIN_WITH_TIDE = new Map([...CHAIN, ["Tide", "Quay"]]);
+
 const SAVED_WITH_TIDE = [
   "Current",
   "Ledger",
@@ -38,6 +40,7 @@ const SAVED_WITH_TIDE = [
   "Lantern",
   "Tide",
 ];
+
 const SAVED = [
   "Current",
   "Ledger",
@@ -232,12 +235,14 @@ describe("collapseChain", () => {
 
 describe("tracedSegments", () => {
   const rail = lineageRail(SAVED_WITH_TIDE, CHAIN_WITH_TIDE, new Set());
+
   const lit = (target: string) => {
     const traced = tracedSegments(
       rail.rows,
       rail.meta,
       tracedTree(rail.parents, rail.children, target),
     );
+
     return Object.fromEntries([...traced].map(([title, set]) => [title, [...set].sort()]));
   };
 
@@ -323,6 +328,7 @@ describe("reorderAmongSiblings", () => {
       "Ledger",
       "Meridian",
     ]);
+
     const { rows } = lineageRail(order, CHAIN, new Set());
 
     expect(rows.slice(0, 3)).toEqual(["Meridian", "Dusk", "Sea"]);
@@ -390,14 +396,16 @@ describe("trailPath", () => {
       { x: 4, y: 10 },
       { x: 14, y: 80 },
     ]);
+
     const cut = trailPath([
       { x: 4, y: 10, clear: 5 },
       { x: 14, y: 80 },
     ]);
+
     expect(whole.endsWith("14 24 L 14 80")).toBe(true);
     expect(cut.endsWith("14 24 L 14 80")).toBe(true);
     // Five pixels of arc: the four-pixel drop, then one pixel into the turn.
-    const [, sx, sy] = cut.match(/^M ([\d.]+) ([\d.]+)/) as RegExpMatchArray;
+    const [, sx, sy] = cut.match(/^M ([\d.]+) ([\d.]+)/) ?? [];
     expect(Number(sx)).toBeGreaterThanOrEqual(4);
     expect(Number(sx)).toBeLessThan(4.3);
     expect(Number(sy)).toBeGreaterThan(14.9);

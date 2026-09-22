@@ -40,6 +40,7 @@ export function Search({
           onChange={(event) => onQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
+
             if (query) onQuery("");
             else event.currentTarget.blur();
           }}

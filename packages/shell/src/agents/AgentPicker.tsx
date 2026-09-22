@@ -64,6 +64,7 @@ function AgentMenu({
         .filter((agent) => agent.available)
         .map((agent) => {
           const active = chip.kind === "chosen" && agent.id === chip.id;
+
           return (
             <button
               className={ROW_BUTTON}
@@ -113,7 +114,7 @@ function AgentMenu({
               disabled={savingEffort || pickingAgent !== null}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                onPickEffort(value === "" ? null : (value as AgentEffort));
+                onPickEffort(selectedAgent.efforts.find((effort) => effort === value) ?? null);
               }}
               value={selectedEffort ?? ""}
             >

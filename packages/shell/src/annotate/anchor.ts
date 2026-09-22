@@ -1,3 +1,5 @@
+import { isString } from "../json.js";
+
 /**
  * How a note finds its way back to the thing it was left on.
  *
@@ -20,7 +22,7 @@
 export type ElementLike = {
   tagName: string;
   id?: string | null;
-  className?: unknown;
+  className?: string | SVGAnimatedString | undefined;
   textContent?: string | null;
   parentElement: ElementLike | null;
   children: ArrayLike<ElementLike>;
@@ -78,19 +80,22 @@ const DEPTH_CAP = 8;
  * per render. An id that cannot survive a reload is worse than no id, because
  * it truncates the path that would have worked.
  */
-function stableId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+function stableId(value: string | null | undefined): string | null {
+  if (value == null) return null;
   const id = value.trim();
+
   return /^[A-Za-z][\w-]*$/.test(id) ? id : null;
 }
 
-function classList(value: unknown): string[] {
-  if (typeof value !== "string") return [];
+function classList(value: ElementLike["className"]): string[] {
+  if (!isString(value)) return [];
+
   return value.trim().split(/\s+/).filter(Boolean).slice(0, CLASS_CAP);
 }
 
 export function elementText(value: string | null | undefined): string {
   const text = (value ?? "").replace(/\s+/g, " ").trim();
+
   return text.length > TEXT_CAP ? `${text.slice(0, TEXT_CAP - 1)}…` : text;
 }
 
@@ -108,24 +113,31 @@ export function selectorFor(element: ElementLike): string {
 
   while (current !== null && parts.length < DEPTH_CAP) {
     const tag = current.tagName.toLowerCase();
+
     if (tag === "body" || tag === "html") break;
 
     const id = stableId(current.id);
+
     if (id !== null) {
       parts.unshift(`#${id}`);
+
       return parts.join(" > ");
     }
 
     const parent: ElementLike | null = current.parentElement;
+
     if (parent === null) {
       parts.unshift(tag);
       break;
     }
 
     let index = 1;
+
     for (let at = 0; at < parent.children.length; at += 1) {
       const sibling = parent.children[at];
+
       if (sibling === current) break;
+
       if (sibling?.tagName === current.tagName) index += 1;
     }
 
@@ -139,6 +151,7 @@ export function selectorFor(element: ElementLike): string {
 /** Keep a fraction inside its box, whatever the pointer reported. */
 function fraction(value: number, size: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(size) || size <= 0) return 0.5;
+
   return Math.round(Math.min(1, Math.max(0, value / size)) * 1000) / 1000;
 }
 

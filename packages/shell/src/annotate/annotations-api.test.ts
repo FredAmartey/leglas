@@ -1,16 +1,20 @@
 import { describe, expect, test } from "vitest";
 
 import { updateNote, type NoteFetcher } from "./annotations-api.js";
+import type { JsonValue } from "../json.js";
 
-function recorder(body: unknown = { ok: true }, status = 200) {
+function recorder(body: JsonValue = { ok: true }, status = 200) {
   const calls: { input: string; init?: RequestInit }[] = [];
+
   const fetcher: NoteFetcher = async (input, init) => {
     calls.push(init === undefined ? { input } : { input, init });
+
     return new Response(JSON.stringify(body), {
       headers: { "content-type": "application/json" },
       status,
     });
   };
+
   return { calls, fetcher };
 }
 

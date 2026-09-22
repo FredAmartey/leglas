@@ -44,7 +44,9 @@ export type McpCopyState = "blocked" | "copied" | "copying" | "idle";
 
 export function copyActionLabel(option: McpConnectOption, state: McpCopyState): string {
   if (state === "copying") return "Copying…";
+
   if (state === "copied") return "Copied";
+
   return option.copyLabel;
 }
 

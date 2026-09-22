@@ -2,13 +2,17 @@ import { describe, expect, test } from "vitest";
 
 import { normalizeConfig } from "./config.js";
 
-const ok = (raw: unknown) => {
+import { type JsonValue } from "../json.js";
+
+const ok = (raw: JsonValue) => {
   const result = normalizeConfig(raw);
+
   if (result.config === null) throw new Error(`expected valid, got: ${result.errors.join(", ")}`);
+
   return result.config;
 };
 
-const errors = (raw: unknown) => normalizeConfig(raw).errors.join(" ");
+const errors = (raw: JsonValue) => normalizeConfig(raw).errors.join(" ");
 
 describe("previews backed by a branch", () => {
   test("accepts a preview that names a branch", () => {

@@ -5,13 +5,17 @@ import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
 
 function template(raw: string) {
   const parsed = parseTemplate(raw);
+
   if (!parsed.ok) throw new Error(`expected a usable template, got ${parsed.error}`);
+
   return parsed.template;
 }
 
 function refusal(raw: string): string {
   const parsed = parseTemplate(raw);
+
   if (parsed.ok) throw new Error(`expected a refusal for ${JSON.stringify(raw)}`);
+
   return parsed.error;
 }
 

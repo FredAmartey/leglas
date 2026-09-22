@@ -7,6 +7,8 @@ import type { AgentsPayload } from "./agents/agent-api.js";
 import type { AgentStatus, RequestStatus } from "./agents/request-status.js";
 import { Shell } from "./Shell.js";
 import type { Preview, ViewerInfo } from "./types.js";
+import type { JsonValue } from "./json.js";
+import { must } from "./must.js";
 
 /**
  * The shell, mounted whole against a server that answers from a table.
@@ -50,36 +52,46 @@ type Sent = { path: string; body: unknown };
 /** Answer the interface's reads from a table and remember what it wrote. */
 function serve(requests: RequestStatus[] = []): Sent[] {
   const sent: Sent[] = [];
-  const reads: Record<string, unknown> = {
-    agents: AGENTS,
-    annotations: { annotations: [] },
-    health: { devServer: "http://localhost:3000", reachable: true, cwd: "" },
-    requests: { requests, agent: IDLE },
-    share: { share: null, tunnels: [] },
-    update: {
-      version: "1.0.0",
-      install: { kind: "source", manager: "npm", command: null },
-      latest: null,
-      checkedAt: null,
-      checkError: null,
-      skipped: null,
-      available: false,
-      phase: { status: "idle" },
-      busy: false,
-    },
-  };
+
+  const reads = new Map<string, JsonValue>([
+    ["agents", AGENTS],
+    ["annotations", { annotations: [] }],
+    ["health", { devServer: "http://localhost:3000", reachable: true, cwd: "" }],
+    ["requests", { requests, agent: IDLE }],
+    ["share", { share: null, tunnels: [] }],
+    [
+      "update",
+      {
+        version: "1.0.0",
+        install: { kind: "source", manager: "npm", command: null },
+        latest: null,
+        checkedAt: null,
+        checkError: null,
+        skipped: null,
+        available: false,
+        phase: { status: "idle" },
+        busy: false,
+      },
+    ],
+  ]);
+
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input)
-      .replace(/^https?:\/\/[^/]+/, "")
-      .split("?")[0] as string;
+    const path =
+      String(input)
+        .replace(/^https?:\/\/[^/]+/, "")
+        .split("?")[0] ?? "";
+
     const name = path.replace("/leglas/api/", "");
+
     if ((init?.method ?? "GET") !== "GET") {
       sent.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
       const answer = name === "request" ? { ok: true, prompt: "the prompt" } : { ok: true };
+
       return new Response(JSON.stringify(answer), { status: 200 });
     }
-    return new Response(JSON.stringify(reads[name] ?? {}), {
-      status: name in reads ? 200 : 404,
+
+    return new Response(JSON.stringify(reads.get(name) ?? {}), {
+      status: reads.has(name) ? 200 : 404,
     });
   });
   vi.stubGlobal(
@@ -89,6 +101,7 @@ function serve(requests: RequestStatus[] = []): Sent[] {
       close(): void {}
     },
   );
+
   return sent;
 }
 
@@ -97,13 +110,14 @@ let root: Root;
 async function mount(props: { requests?: RequestStatus[]; viewer?: ViewerInfo }): Promise<Sent[]> {
   const sent = serve(props.requests);
   document.body.innerHTML = `<div id="root"></div>`;
-  root = createRoot(document.getElementById("root") as HTMLElement);
+  root = createRoot(must(document.getElementById("root"), "the root"));
   await act(async () => {
     root.render(
       <Shell previews={PREVIEWS} project="a-project" scanPreviews={false} viewer={props.viewer} />,
     );
     await vi.advanceTimersByTimeAsync(1500);
   });
+
   return sent;
 }
 
@@ -116,24 +130,36 @@ async function after(action: () => void, wait = 450): Promise<void> {
 
 const key = (k: string) =>
   window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: k }));
+
 const click = (el: Element) => el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
 const find = <T extends Element>(selector: string): T => {
   const found = document.querySelector<T>(selector);
+
   if (found === null) throw new Error(`nothing matches ${selector}`);
+
   return found;
 };
+
 const row = (title: string) => find<HTMLElement>(`li[data-title="${title}"] [role="button"]`);
+
 const type = (el: HTMLTextAreaElement, value: string) => {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
   el.dispatchEvent(new Event("input", { bubbles: true }));
 };
+
 const tools = () => find<HTMLElement>('[role="dialog"][aria-label="Leglas tools"]');
 
 beforeEach(() => {
+  // SAFETY: React reads its act flag off the global, which has no type for it.
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers({ now: 1_790_000_000_000 });
+
   // The previews are frames onto a dev server that is not running here.
-  const happy = (window as { happyDOM?: { settings: Record<string, unknown> } }).happyDOM;
+  // SAFETY: happy-dom hangs its settings off the window it makes, and nothing types that.
+  const happy = (window as { happyDOM?: { settings: { disableIframePageLoading?: boolean } } })
+    .happyDOM;
+
   if (happy) happy.settings.disableIframePageLoading = true;
   const memory = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -166,9 +192,11 @@ describe("the rail and the stage", () => {
 
     expect(row("Menu").getAttribute("aria-pressed")).toBe("true");
     expect(row("Table").getAttribute("aria-pressed")).toBe("false");
+
     const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
       (frame) => frame.closest(".hidden") === null,
     );
+
     expect(shown.map((frame) => frame.dataset.preview)).toEqual(["Menu"]);
   });
 
@@ -180,6 +208,7 @@ describe("the rail and the stage", () => {
     const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
       (frame) => frame.closest(".hidden") === null,
     );
+
     expect(shown.map((frame) => frame.dataset.preview).sort()).toEqual(["Menu", "Table"]);
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
@@ -194,7 +223,7 @@ describe("the keys", () => {
     expect(tools().getAttribute("aria-hidden")).toBe("false");
 
     const outfit = [...tools().querySelectorAll("button")].find((b) => b.textContent === "Outfit");
-    await after(() => click(outfit as Element));
+    await after(() => click(must(outfit, "the Outfit button")));
     expect(outfit?.getAttribute("aria-pressed")).toBe("true");
     expect(find<HTMLElement>("main").style.fontFamily).toContain("--font-outfit");
   });
@@ -274,7 +303,8 @@ describe("asking for a change", () => {
     const codex = [...menu.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("Codex"),
     );
-    await after(() => click(codex as Element), 900);
+
+    await after(() => click(must(codex, "the Codex button")), 900);
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
   });
 });

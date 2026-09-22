@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 
 import { isOwnCapture } from "../requests/attachments.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
@@ -20,7 +20,7 @@ import {
   type AgentEffort,
   type SavedAgentChoice,
 } from "./agents.js";
-import { classifyFailure, sessionShaped, type Failure, type RetryNotice } from "./failure.js";
+import { classifyFailure, conversationFailure, type Failure, type RetryNotice } from "./failure.js";
 import {
   markFailed,
   markPickedUp,
@@ -29,8 +29,10 @@ import {
   removeRequest,
   type PendingRequest,
 } from "../requests/requests.js";
+import type { TimerHandle } from "../timers.js";
 
 const POLL_MS = 2000;
+
 const OUTPUT_LINES = 20;
 
 /**
@@ -80,6 +82,12 @@ export type RunnerState = {
 
 type ActiveRunnerState = Omit<RunnerState, "failedIds">;
 
+function isStateUpdater(
+  value: ActiveRunnerState | ((state: ActiveRunnerState) => ActiveRunnerState),
+): value is (state: ActiveRunnerState) => ActiveRunnerState {
+  return typeof value === "function";
+}
+
 export type RunnerChild = {
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -107,8 +115,8 @@ export type RunnerOptions = {
   codexAppServer?: CodexTurnRunner | null;
   /** Injected by Agent SDK tests; null keeps the legacy Claude CLI path. */
   claudeAgentSession?: ClaudeTurnRunner | null;
-  setInterval?: (callback: () => void, milliseconds: number) => unknown;
-  clearInterval?: (handle: unknown) => void;
+  setInterval?: (callback: () => void, milliseconds: number) => TimerHandle;
+  clearInterval?: (handle: TimerHandle) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
   setTimeout?: (callback: () => void, milliseconds: number) => void;
   /**
@@ -143,6 +151,8 @@ type ResolvedCommand = {
   images: readonly string[];
 };
 
+type ObservedTurn = { sessionId: string | null; edited: boolean; retry: RetryNotice | null };
+
 type ChildOutcome = { ok: true; code: number } | { ok: false; error: string };
 
 /**
@@ -167,7 +177,9 @@ function resolveCommand(
   if (choice.agent === "custom") {
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
+
     if (!parsed.ok) return null;
+
     return {
       agent: "custom",
       name: "Custom",
@@ -181,8 +193,10 @@ function resolveCommand(
   }
 
   const adapter = KNOWN_AGENTS[choice.agent];
+
   const allow =
     allowedCommands.length > 0 && "allowArgs" in adapter ? adapter.allowArgs(allowedCommands) : [];
+
   if (sessionId !== null && "resumeArgs" in adapter) {
     return {
       agent: choice.agent,
@@ -196,6 +210,7 @@ function resolveCommand(
       images,
     };
   }
+
   return {
     agent: choice.agent,
     name: adapter.name,
@@ -211,6 +226,7 @@ function resolveCommand(
 
 function lineReader(stream: NodeJS.ReadableStream, onLine: (line: string) => void): () => void {
   let buffered = "";
+
   const flush = () => {
     if (buffered === "") return;
     onLine(buffered.replace(/\r$/, ""));
@@ -221,9 +237,11 @@ function lineReader(stream: NodeJS.ReadableStream, onLine: (line: string) => voi
     buffered += chunk.toString();
     const lines = buffered.split("\n");
     buffered = lines.pop() ?? "";
+
     for (const line of lines) onLine(line.replace(/\r$/, ""));
   });
   stream.on("end", flush);
+
   return flush;
 }
 
@@ -232,7 +250,7 @@ function defaultSpawn(
   args: string[],
   options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"] },
 ): RunnerChild {
-  return nodeSpawn(command, args, { ...options, env: agentEnvironment() }) as RunnerChild;
+  return nodeSpawn(command, args, { ...options, env: agentEnvironment() });
 }
 
 /**
@@ -244,12 +262,14 @@ function defaultSpawn(
  */
 export function startRunner(options: RunnerOptions): RunningAgent {
   const spawn = options.spawn ?? defaultSpawn;
+
   const codexAppServer =
     options.codexAppServer === undefined
       ? options.spawn === undefined
         ? createCodexAppServer(options.cwd)
         : null
       : options.codexAppServer;
+
   const claudeAgentSession =
     options.claudeAgentSession === undefined
       ? options.spawn === undefined
@@ -261,10 +281,17 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           )
         : null
       : options.claudeAgentSession;
+
   const setEvery =
     options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
+
   const clearEvery =
-    options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+    options.clearInterval ??
+    ((handle) => {
+      // SAFETY: The default interval comes from Node; injected clocks provide the corresponding clear operation.
+      clearInterval(handle);
+    });
+
   const failed = new Set<string>();
 
   const setLater =
@@ -284,12 +311,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     stopping: false,
     waiting: null,
   };
+
   const setState = (
     next: ActiveRunnerState | ((current: ActiveRunnerState) => ActiveRunnerState),
   ): void => {
-    state = typeof next === "function" ? next(state) : next;
+    state = isStateUpdater(next) ? next(state) : next;
     options.onChange?.();
   };
+
   let stopped = false;
   let ticking: Promise<void> | null = null;
   // Requests can land while the previous tick is removing its completed queue
@@ -298,6 +327,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   // ever overlapping the active agent.
   let pendingNudges = 0;
   let stopPromise: Promise<void> | null = null;
+
   let active: {
     child: RunnerChild | null;
     requestId: string;
@@ -306,6 +336,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     /** Settle the run as stopped without waiting for the child's streams. */
     abandon: () => void;
   } | null = null;
+
   /** Which vendor the run in flight is on, so a switch never tears it down. */
   let activeAgent: AgentChoice | null = null;
   /** The vendor last asked for, which is the one worth keeping warm. */
@@ -318,6 +349,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const releaseAllBut = (keep: AgentChoice | null) => {
     for (const other of ["codex", "claude"] as const) {
       if (other === keep) continue;
+
       if (active !== null && activeAgent === other) continue;
       void transportFor(other)
         ?.release()
@@ -332,16 +364,20 @@ export function startRunner(options: RunnerOptions): RunningAgent {
    * let fire and ignore.
    */
   let idleGeneration = 0;
+
   const armIdleRelease = () => {
     if (stopped) return;
     const generation = ++idleGeneration;
     setLater(() => {
       if (generation !== idleGeneration || stopped) return;
+
       // A run in flight is exactly what the process is for; look again later.
       if (active !== null) {
         armIdleRelease();
+
         return;
       }
+
       for (const transport of [codexAppServer, claudeAgentSession]) {
         void transport?.release().catch(() => {});
       }
@@ -381,6 +417,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   /** The session the next request on this vendor continues, if any. */
   const resumable = (agent: AgentChoice): string | null => {
     const session = sessions.get(agent);
+
     return session !== undefined && session.turns < SESSION_TURNS_CAP ? session.id : null;
   };
 
@@ -398,6 +435,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
   const rememberLine = (lines: string[], line: string) => {
     lines.push(line);
+
     if (lines.length > OUTPUT_LINES) lines.splice(0, lines.length - OUTPUT_LINES);
   };
 
@@ -422,11 +460,15 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // Do not expose the in-memory verdict before the durable one. Consumers
     // use failedIds as the signal that the queue is ready to read.
     failed.add(request.id);
+
     if (failure.code === "cancelled") {
       console.error(`Leglas stopped the run for ${request.title}.`);
+
       return;
     }
+
     console.error(`Leglas agent failed for ${request.title}: ${failure.message}`);
+
     for (const line of lines) console.error(`  ${line}`);
   };
 
@@ -434,7 +476,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
-    observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
+    observed: ObservedTurn,
   ): Promise<ChildOutcome> => {
     const persistent =
       resolved.agent === "codex"
@@ -442,14 +484,17 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         : resolved.agent === "claude"
           ? claudeAgentSession
           : null;
+
     const controller = new AbortController();
-    const current = {
-      child: null as RunnerChild | null,
+
+    const current: NonNullable<typeof active> = {
+      child: null,
       requestId: request.id,
       cancelled: false,
       controller,
       abandon: () => {},
     };
+
     // Cancellation has to exist before an embedded transport starts. Warming,
     // thread creation and turn startup all await vendor work before there is a
     // synthetic child to signal, which previously made Stop a no-op here.
@@ -457,8 +502,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     activeAgent = resolved.agent;
 
     const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
+
     const startPersistent = async (): Promise<RunnerChild> => {
       if (persistent === null) throw new Error("No persistent transport.");
+
       const starting = persistent.run(
         {
           prompt: resolved.prompt,
@@ -468,6 +515,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         },
         controller.signal,
       );
+
       return new Promise<RunnerChild>((resolve, reject) => {
         // A compliant transport rejects only after its startup cleanup ends.
         // The grace path tears down the process of a transport that ignores
@@ -481,6 +529,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
             .catch(() => {})
             .then(() => reject(new Error("cancelled")));
         };
+
         void starting.then(
           (child) => {
             if (controller.signal.aborted) {
@@ -489,18 +538,22 @@ export function startRunner(options: RunnerOptions): RunningAgent {
               } catch {
                 // The transport already finished its own cancellation.
               }
+
               reject(new Error("cancelled"));
+
               return;
             }
+
             resolve(child);
           },
-          (error: unknown) => reject(error),
+          (cause: unknown) => reject(cause),
         );
       });
     };
 
     try {
       let child: RunnerChild;
+
       try {
         child =
           persistent !== null
@@ -512,6 +565,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
               });
       } catch (error) {
         if (current.cancelled || stopped || controller.signal.aborted) return cancelled();
+
         // A missing SDK, older Codex build or failed persistent handshake keeps
         // the exact vendor CLI behavior Leglas shipped before this optimization.
         if (persistent !== null) {
@@ -536,27 +590,35 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       }
 
       current.child = child;
+
       if (current.cancelled || stopped || controller.signal.aborted) {
         try {
           child.kill("SIGTERM");
         } catch {
           // The run is already classified as cancelled below.
         }
+
         return cancelled();
       }
 
       const stdoutFlush = lineReader(child.stdout, (line) => {
         rememberLine(lines, line);
         const sessionId = sessionFrom(resolved.agent, line);
+
         if (sessionId !== null) observed.sessionId = sessionId;
         const retry = retryFrom(resolved.agent, line);
+
         if (retry !== null) {
           observed.retry = retry;
+
           if (active === current) setState((value) => ({ ...value, waiting: retry }));
         }
+
         const activity = activityFrom(resolved.agent, line, options.cwd);
+
         if (activity !== null) {
           if (activity.startsWith("editing")) observed.edited = true;
+
           // Work resuming ends the wait: the backoff is over the moment the
           // agent says anything else.
           if (active === current) {
@@ -564,10 +626,12 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           }
         }
       });
+
       const stderrFlush = lineReader(child.stderr, (line) => rememberLine(lines, line));
 
       return await new Promise<ChildOutcome>((resolve) => {
         let settled = false;
+
         const settle = (outcome: ChildOutcome) => {
           if (settled) return;
           settled = true;
@@ -575,11 +639,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           stderrFlush();
           resolve(outcome);
         };
+
         current.abandon = () => settle(cancelled());
 
         child.once("error", (error) => settle({ ok: false, error: error.message }));
         child.once("close", (code, signal) => {
           if (current.cancelled) return settle(cancelled());
+
           if (signal !== null) return settle({ ok: false, error: `stopped by ${signal}` });
           settle({ ok: true, code: code ?? 0 });
         });
@@ -601,6 +667,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
             `${options.leglasCommand} show`,
             ...(request.mode === "variant" ? [registrationCommand(options.leglasCommand)] : []),
           ];
+
     // The queue read already keeps attachments inside the request's own
     // directory by name. This is the same fence with the links resolved, at
     // the point the path leaves Leglas for a transport that will read it.
@@ -613,6 +680,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         ),
       )
     ).filter((image): image is string => image !== null);
+
     let resolved = resolveCommand(
       choice,
       request.prompt,
@@ -620,6 +688,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       allowedCommands,
       images,
     );
+
     if (resolved === null) return;
 
     const lines: string[] = [];
@@ -628,6 +697,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // If an external collector won the race after the queue read, it owns
       // this request. The false return is the lock we get from the queue file.
       if (!(await markPickedUp(options.cwd, request.id))) return;
+
       // Stop may have landed while the queue write was in flight, before a
       // child existed for cancel() to signal. Record the handoff as ended by
       // the shutdown instead of starting new work, and instead of leaving a
@@ -638,8 +708,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           classifyFailure({ agent: resolved.name, error: "stopped by shutdown" }),
           [],
         );
+
         return;
       }
+
       // Wall-clock rather than injected time: the value only feeds the elapsed
       // counter in the shell, which reads it against its own Date.now anyway.
       setState({
@@ -651,11 +723,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         stopping: false,
         waiting: null,
       });
-      const observed = {
-        sessionId: null as string | null,
+
+      const observed: ObservedTurn = {
+        sessionId: null,
         edited: false,
-        retry: null as RetryNotice | null,
+        retry: null,
       };
+
       // A fork's one observable outcome is the previews file gaining its
       // entry, so the file as it stood before the run is what exit 0 gets
       // judged against.
@@ -664,6 +738,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       // closure over the mutable binding would only be harder to read.
       const agent = resolved.name;
       let outcome = await runChild(request, resolved, lines, observed);
+
       const verdict = (): Failure =>
         classifyFailure({
           agent,
@@ -676,6 +751,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           lines,
           retry: observed.retry,
         });
+
       let failure = verdict();
 
       // A resume that died without touching a file is a session problem, not
@@ -702,7 +778,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         // to edit", and rerunning on that is how a half-applied change gets
         // applied twice. Such a vendor keeps the failure card and its Retry.
         activityVerified(resolved.agent) &&
-        sessionShaped(failure.code) &&
+        conversationFailure(failure.code) &&
         // Not redundant with the verdict: a stop that lands between the first
         // child settling and the retry starting finds no child to cancel, so
         // nothing says "cancelled". Stopped still means stopped.
@@ -710,6 +786,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       ) {
         sessions.delete(resolved.agent);
         const cold = resolveCommand(choice, request.prompt, null, allowedCommands, images);
+
         if (cold !== null) {
           resolved = cold;
           observed.sessionId = null;
@@ -730,8 +807,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (request.mode === "variant" && (await registered()) === before) {
           sessions.delete(resolved.agent);
           await reportFailure(request, classifyFailure({ agent, error: "not-registered" }), lines);
+
           return;
         }
+
         if (observed.sessionId !== null) {
           const previous = sessions.get(resolved.agent);
           sessions.set(resolved.agent, {
@@ -739,6 +818,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
             turns: resolved.resumed && previous?.id === observed.sessionId ? previous.turns + 1 : 1,
           });
         }
+
         // A change made in place answered its notes by rewriting the design
         // they were left on, so keeping them would leave pins pointing at
         // something that no longer exists. A fork leaves them alone: the
@@ -746,7 +826,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (request.mode === "replace" && request.notes !== undefined) {
           await removeAnnotations(options.cwd, request.notes).catch(() => 0);
         }
+
         await removeRequest(options.cwd, request.id);
+
         return;
       }
 
@@ -767,19 +849,25 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const tick = async (): Promise<void> => {
     if (stopped) return;
     const choice = await readAgentChoice(options.cwd);
+
     if (choice.agent === null || stopped) return;
+
     if (options.externallyAttached()) return;
 
     const request = nextRequest(await readRequests(options.cwd), failed);
+
     if (request !== null && !stopped) await handle(request, choice);
   };
 
   const schedule = (remember = false) => {
     if (stopped) return;
+
     if (ticking !== null) {
       if (remember) pendingNudges += 1;
+
       return;
     }
+
     const task = tick();
     ticking = task;
     void task
@@ -788,6 +876,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       )
       .finally(() => {
         if (ticking === task) ticking = null;
+
         if (pendingNudges > 0 && !stopped) {
           pendingNudges -= 1;
           schedule();
@@ -800,6 +889,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
   const cancel = (id?: string): boolean => {
     if (active === null || active.cancelled) return false;
+
     // A stop aimed at a specific request must not land on its successor: in
     // the gap between one run ending and the next starting, the card the user
     // clicked may describe a run that no longer exists. Refusing the mismatch
@@ -812,21 +902,26 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     // for, rather than whenever the child gets around to going.
     setState((value) => ({ ...value, stopping: true, waiting: null }));
     current.controller.abort();
+
     try {
       current.child?.kill("SIGTERM");
     } catch {
       // The close or error event still settles the run if the process raced us.
     }
+
     setLater(() => {
       // Already settled: the child went, and this run is somebody else's now.
       if (active !== current) return;
+
       try {
         current.child?.kill("SIGKILL");
       } catch {
         // Nothing left to signal; the run is settled below either way.
       }
+
       current.abandon();
     }, CANCEL_GRACE_MS);
+
     return true;
   };
 
@@ -839,6 +934,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       .catch(() => {})
       .then(() => Promise.all([codexAppServer?.close(), claudeAgentSession?.close()]))
       .then(() => {});
+
     return stopPromise;
   };
 

@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
+import type { TimerHandle } from "./timers.js";
+
 import {
   FIRST_RETRY_MS,
   MAX_RETRY_MS,
@@ -33,21 +35,24 @@ class FakeSocket implements LiveSocket {
 
 /** Timers a test advances itself, so backoff costs no wall clock. */
 function manualTimers() {
-  const pending = new Map<number, { at: number; callback: () => void }>();
+  const pending = new Map<TimerHandle, { at: number; callback: () => void }>();
   let now = 0;
   let next = 1;
+
   return {
     setTimeout: (callback: () => void, ms: number) => {
       const handle = next;
       next += 1;
       pending.set(handle, { at: now + ms, callback });
+
       return handle;
     },
-    clearTimeout: (handle: unknown) => {
-      pending.delete(handle as number);
+    clearTimeout: (handle: TimerHandle) => {
+      pending.delete(handle);
     },
     advance(ms: number) {
       now += ms;
+
       for (const [handle, entry] of [...pending]) {
         if (entry.at <= now) {
           pending.delete(handle);
@@ -75,7 +80,6 @@ describe("what a frame can say", () => {
     expect(changeFrom("not json")).toBeNull();
     expect(changeFrom(JSON.stringify(["config"]))).toBeNull();
     expect(changeFrom(JSON.stringify({ changed: 3 }))).toBeNull();
-    expect(changeFrom(null)).toBeNull();
   });
 });
 
@@ -137,10 +141,12 @@ describe("startLive", () => {
   test("redials on a backoff when the socket goes, and resets once one opens", () => {
     const sockets: FakeSocket[] = [];
     const timers = manualTimers();
+
     const live = startLive({
       connect: () => {
         const socket = new FakeSocket();
         sockets.push(socket);
+
         return socket;
       },
       url: "ws://x/live",
@@ -182,10 +188,13 @@ describe("startLive", () => {
     const timers = manualTimers();
     let attempts = 0;
     const socket = new FakeSocket();
+
     const live = startLive({
       connect: () => {
         attempts += 1;
+
         if (attempts === 1) throw new Error("refused");
+
         return socket;
       },
       url: "ws://x/live",
@@ -203,10 +212,12 @@ describe("startLive", () => {
   test("an error is a close: it redials once, not twice", () => {
     const sockets: FakeSocket[] = [];
     const timers = manualTimers();
+
     const live = startLive({
       connect: () => {
         const socket = new FakeSocket();
         sockets.push(socket);
+
         return socket;
       },
       url: "ws://x/live",
@@ -226,16 +237,19 @@ describe("startLive", () => {
   test("stopping closes the socket and cancels a pending redial", () => {
     const sockets: FakeSocket[] = [];
     const timers = manualTimers();
+
     const live = startLive({
       connect: () => {
         const socket = new FakeSocket();
         sockets.push(socket);
+
         return socket;
       },
       url: "ws://x/live",
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
     });
+
     const heard = vi.fn();
     live.on("config", heard);
     sockets[0]?.emit("open");

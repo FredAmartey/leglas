@@ -8,6 +8,7 @@ export type LogDeps = { log(line: string): void; error(line: string): void };
 /** An entry's own first line, which is its title, without opening the whole file. */
 function headline(markdown: string): string {
   const first = markdown.split("\n", 1)[0] ?? "";
+
   return first.replace(/^#\s*/, "").trim();
 }
 
@@ -28,6 +29,7 @@ export async function runLog(
   const dir = loaded.config?.logDir ?? DEFAULT_LOG_DIR;
 
   let names: string[];
+
   try {
     names = (await readdir(join(options.cwd, dir)))
       .filter((name) => name.endsWith(".md"))
@@ -41,15 +43,21 @@ export async function runLog(
   if (options.entry !== null) {
     const wanted = options.entry.replace(/\.md$/, "");
     const found = names.find((name) => name === `${wanted}.md`);
+
     if (found === undefined) {
       const error = `No entry called ${JSON.stringify(options.entry)} in ${dir}.`;
+
       if (options.json) deps.log(JSON.stringify({ ok: false, error }));
       else deps.error(error);
+
       return { exitCode: 1 };
     }
+
     const markdown = await readFile(join(options.cwd, dir, found), "utf8");
+
     if (options.json) deps.log(JSON.stringify({ ok: true, entry: wanted, markdown }));
     else deps.log(markdown.trimEnd());
+
     return { exitCode: 0 };
   }
 
@@ -63,15 +71,19 @@ export async function runLog(
 
   if (options.json) {
     deps.log(JSON.stringify({ ok: true, dir, entries }));
+
     return { exitCode: 0 };
   }
 
   if (entries.length === 0) {
     deps.log(`  No decisions recorded yet. One is written each time you run leglas keep.`);
+
     return { exitCode: 0 };
   }
 
   const width = Math.max(...entries.map((entry) => entry.entry.length));
+
   for (const entry of entries) deps.log(`  ${entry.entry.padEnd(width)}  ${entry.title}`);
+
   return { exitCode: 0 };
 }

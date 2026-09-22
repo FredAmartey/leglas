@@ -52,19 +52,25 @@ export type ParseResult =
   | { kind: "error"; message: string };
 
 const VALUE_FLAGS = new Set(["--port", "--user-port", "--config"]);
+
 const BOOLEAN_FLAGS = new Set(["--no-open", "--json"]);
+
 const MIN_SHOW_WIDTH = 320;
+
 const MAX_SHOW_WIDTH = 3840;
 
-function parsePort(flag: string, raw: string): number | { error: string } {
+function parsePort(flag: string, raw: string): { port: number } | { error: string } {
   if (!/^\d+$/.test(raw)) {
     return { error: `${flag} needs a number, received ${JSON.stringify(raw)}.` };
   }
+
   const port = Number(raw);
+
   if (port < 1 || port > 65535) {
     return { error: `${flag} must be between 1 and 65535, received ${port}.` };
   }
-  return port;
+
+  return { port };
 }
 
 /**
@@ -79,32 +85,41 @@ function parseNew(rest: string[]): ParseResult {
   let from: string | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
+
     if (argument === "--from" || argument.startsWith("--from=")) {
       from = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
+
       if (from === undefined || from === "") {
         return { kind: "error", message: "--from needs a path, for example --from src/Hero.tsx" };
       }
+
       continue;
     }
+
     if (argument === "--print") {
       print = true;
       continue;
     }
+
     if (argument === "--json") {
       json = true;
       continue;
     }
+
     if (argument === "--help" || argument === "-h") return { kind: "help" };
+
     if (argument.startsWith("-")) {
       return { kind: "error", message: `leglas new does not take ${argument}.` };
     }
+
     if (surface !== undefined) {
       return {
         kind: "error",
         message: `leglas new takes one surface name, received ${JSON.stringify(argument)} as well.`,
       };
     }
+
     surface = argument;
   }
 
@@ -114,6 +129,7 @@ function parseNew(rest: string[]): ParseResult {
       message: "leglas new needs a surface name, for example: npx leglas new hero",
     };
   }
+
   return { kind: "new", surface, print, json, from };
 }
 
@@ -129,16 +145,19 @@ function parseAdd(rest: string[]): ParseResult {
   let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
+
     if (argument === "--json") {
       json = true;
       continue;
     }
+
     if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
     let value: string | undefined;
+
     if (equals === -1) {
       value = rest[index + 1];
       index += 1;
@@ -160,6 +179,7 @@ function parseAdd(rest: string[]): ParseResult {
     ) {
       return { kind: "error", message: `leglas add does not take ${flag}.` };
     }
+
     if (value === undefined || value === "") {
       return { kind: "error", message: `${flag} needs a value.` };
     }
@@ -180,6 +200,7 @@ function parseAdd(rest: string[]): ParseResult {
       message: "leglas add needs --title, which is how the preview is identified.",
     };
   }
+
   if (url === undefined && file === undefined) {
     return {
       kind: "error",
@@ -215,23 +236,28 @@ function parseClassify(rest: string[]): ParseResult {
   let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
+
     if (argument === "--json") {
       json = true;
       continue;
     }
+
     if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
+
     if (flag !== "--change" && flag !== "--rewrite") {
       return { kind: "error", message: `leglas classify does not take ${argument}.` };
     }
 
     const value = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
     if (value === undefined || value === "") {
       return { kind: "error", message: `${flag} needs a path, for example ${flag} package.json` };
     }
+
     changes.push({ path: value, kind: flag === "--change" ? "change" : "rewrite" });
   }
 
@@ -243,6 +269,7 @@ function parseClassify(rest: string[]): ParseResult {
         "npx leglas classify --change package.json --rewrite src/theme.css",
     };
   }
+
   return { kind: "classify", changes, json };
 }
 
@@ -257,16 +284,19 @@ function parseWatch(rest: string[]): ParseResult {
   let port: number | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
-    const argument = rest[index] as string;
+    const argument = rest[index]!;
+
     if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
+
     if (flag !== "--run" && flag !== "--port") {
       return { kind: "error", message: `leglas watch does not take ${argument}.` };
     }
 
     const value = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
     if (value === undefined || value === "") {
       return {
         kind: "error",
@@ -281,9 +311,11 @@ function parseWatch(rest: string[]): ParseResult {
       run = value;
       continue;
     }
+
     const parsed = parsePort(flag, value);
-    if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
-    port = parsed;
+
+    if ("error" in parsed) return { kind: "error", message: parsed.error };
+    port = parsed.port;
   }
 
   return { kind: "watch", run, port };
@@ -291,46 +323,62 @@ function parseWatch(rest: string[]): ParseResult {
 
 export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "new") return parseNew(argv.slice(1));
+
   if (argv[0] === "watch") return parseWatch(argv.slice(1));
+
   if (argv[0] === "add") return parseAdd(argv.slice(1));
+
   if (argv[0] === "classify") return parseClassify(argv.slice(1));
+
   if (argv[0] === "init") {
     const rest = argv.slice(1);
     const unknown = rest.find((argument) => argument !== "--force" && argument !== "--json");
+
     if (unknown !== undefined) {
       return { kind: "error", message: `leglas init does not take ${unknown}.` };
     }
+
     return { kind: "init", force: rest.includes("--force"), json: rest.includes("--json") };
   }
+
   if (argv[0] === "keep") {
     const rest = argv.slice(1);
     let title: string | undefined;
     let to: string | undefined;
     let json = false;
+
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
+
       if (argument === "--json") {
         json = true;
         continue;
       }
+
       if (argument === "--to" || argument.startsWith("--to=")) {
         to = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
+
         if (to === undefined || to === "") {
           return {
             kind: "error",
             message: "--to needs a path, for example --to src/components/hero.tsx",
           };
         }
+
         continue;
       }
+
       if (argument.startsWith("-")) {
         return { kind: "error", message: `leglas keep does not take ${argument}.` };
       }
+
       if (title !== undefined) {
         return { kind: "error", message: "leglas keep takes one direction title." };
       }
+
       title = argument;
     }
+
     if (title === undefined) {
       return {
         kind: "error",
@@ -338,53 +386,68 @@ export function parseArgs(argv: string[]): ParseResult {
           'leglas keep needs a direction title, for example: npx leglas keep "Aurora" --to src/components/hero.tsx',
       };
     }
+
     if (to === undefined) {
       return {
         kind: "error",
         message: "leglas keep needs --to, the path the winner should live at.",
       };
     }
+
     return { kind: "keep", title, to, json };
   }
+
   if (argv[0] === "explore") {
     const rest = argv.slice(1);
     let surface: string | undefined;
     let count = 3;
     let basedOn: string | null = null;
     let json = false;
+
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
+
       if (argument === "--json") {
         json = true;
         continue;
       }
+
       if (argument === "--count" || argument.startsWith("--count=")) {
         const raw = argument.includes("=") ? argument.split("=")[1] : rest[(index += 1)];
+
         if (raw === undefined || !/^\d+$/.test(raw)) {
           return { kind: "error", message: "--count needs a number, for example --count 6." };
         }
+
         count = Number(raw);
         continue;
       }
+
       if (argument === "--based-on" || argument.startsWith("--based-on=")) {
         const raw = argument.includes("=") ? argument.split("=")[1] : rest[(index += 1)];
+
         if (raw === undefined || raw === "") {
           return {
             kind: "error",
             message: '--based-on needs a direction title, for example --based-on "Aurora".',
           };
         }
+
         basedOn = raw;
         continue;
       }
+
       if (argument.startsWith("-")) {
         return { kind: "error", message: `leglas explore does not take ${argument}.` };
       }
+
       if (surface !== undefined) {
         return { kind: "error", message: "leglas explore takes one surface name." };
       }
+
       surface = argument;
     }
+
     if (surface === undefined) {
       return {
         kind: "error",
@@ -392,37 +455,50 @@ export function parseArgs(argv: string[]): ParseResult {
           "leglas explore needs a surface name, for example: npx leglas explore hero --count 6",
       };
     }
+
     return { kind: "explore", surface, count, basedOn, json };
   }
+
   if (argv[0] === "requests") {
     const rest = argv.slice(1);
     const unknown = rest.find((argument) => argument !== "--json" && argument !== "--clear");
+
     if (unknown !== undefined) {
       return { kind: "error", message: `leglas requests does not take ${unknown}.` };
     }
+
     return { kind: "requests", json: rest.includes("--json"), clear: rest.includes("--clear") };
   }
+
   if (argv[0] === "log") {
     const rest = argv.slice(1);
     const flags = rest.filter((argument) => argument.startsWith("--"));
     const unknown = flags.find((flag) => flag !== "--json");
+
     if (unknown !== undefined) {
       return { kind: "error", message: `leglas log does not take ${unknown}.` };
     }
+
     const names = rest.filter((argument) => !argument.startsWith("--"));
+
     if (names.length > 1) {
       return { kind: "error", message: "leglas log takes one entry at most." };
     }
+
     return { kind: "log", entry: names[0] ?? null, json: flags.includes("--json") };
   }
+
   if (argv[0] === "list") {
     const rest = argv.slice(1);
     const unknown = rest.find((argument) => argument !== "--json");
+
     if (unknown !== undefined) {
       return { kind: "error", message: `leglas list does not take ${unknown}.` };
     }
+
     return { kind: "list", json: rest.includes("--json") };
   }
+
   // Deliberately no "variant" alias: a variant is a version of a direction
   // here, so `leglas variant "Aurora"` would read as "the variant of Aurora"
   // while doing "show me Aurora", and teach the wrong shape of the vocabulary.
@@ -433,16 +509,20 @@ export function parseArgs(argv: string[]): ParseResult {
     let screenshot = false;
     let width: number | null = null;
     let port: number | null = null;
+
     for (let index = 0; index < rest.length; index += 1) {
-      const argument = rest[index] as string;
+      const argument = rest[index]!;
+
       if (argument === "--json") {
         json = true;
         continue;
       }
+
       if (argument === "--screenshot") {
         screenshot = true;
         continue;
       }
+
       if (
         argument === "--width" ||
         argument.startsWith("--width=") ||
@@ -452,38 +532,49 @@ export function parseArgs(argv: string[]): ParseResult {
         const equals = argument.indexOf("=");
         const flag = equals === -1 ? argument : argument.slice(0, equals);
         const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
         if (raw === undefined || raw === "") {
           return { kind: "error", message: `${flag} needs a value.` };
         }
+
         if (flag === "--port") {
           const parsed = parsePort(flag, raw);
-          if (typeof parsed !== "number") return { kind: "error", message: parsed.error };
-          port = parsed;
+
+          if ("error" in parsed) return { kind: "error", message: parsed.error };
+          port = parsed.port;
           continue;
         }
+
         if (!/^\d+$/.test(raw)) {
           return {
             kind: "error",
             message: `--width needs a number, received ${JSON.stringify(raw)}.`,
           };
         }
+
         width = Number(raw);
+
         if (width < MIN_SHOW_WIDTH || width > MAX_SHOW_WIDTH) {
           return {
             kind: "error",
             message: `--width must be between ${MIN_SHOW_WIDTH} and ${MAX_SHOW_WIDTH}, received ${width}.`,
           };
         }
+
         continue;
       }
+
       if (argument.startsWith("-")) {
         return { kind: "error", message: `leglas show does not take ${argument}.` };
       }
+
       if (title !== undefined) {
         return { kind: "error", message: "leglas show takes one direction title." };
       }
+
       title = argument;
     }
+
     if (title === undefined) {
       return {
         kind: "error",
@@ -491,12 +582,15 @@ export function parseArgs(argv: string[]): ParseResult {
           'leglas show needs a direction title, for example: npx leglas show "Aurora" --json',
       };
     }
+
     if (width !== null && !screenshot) {
       return { kind: "error", message: "leglas show --width needs --screenshot." };
     }
+
     if (port !== null && !screenshot) {
       return { kind: "error", message: "leglas show --port needs --screenshot." };
     }
+
     return { kind: "show", title, json, screenshot, width, port };
   }
 
@@ -509,13 +603,15 @@ export function parseArgs(argv: string[]): ParseResult {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index] as string;
+    const argument = argv[index]!;
 
     if (argument === "--help" || argument === "-h") return { kind: "help" };
+
     if (argument === "--version" || argument === "-v") return { kind: "version" };
 
     if (BOOLEAN_FLAGS.has(argument)) {
       if (argument === "--no-open") options.open = false;
+
       if (argument === "--json") options.json = true;
       continue;
     }
@@ -533,6 +629,7 @@ export function parseArgs(argv: string[]): ParseResult {
     }
 
     let value: string | undefined;
+
     if (equals === -1) {
       value = argv[index + 1];
       index += 1;
@@ -550,9 +647,11 @@ export function parseArgs(argv: string[]): ParseResult {
     }
 
     const port = parsePort(flag, value);
-    if (typeof port !== "number") return { kind: "error", message: port.error };
-    if (flag === "--port") options.port = port;
-    else options.userPort = port;
+
+    if ("error" in port) return { kind: "error", message: port.error };
+
+    if (flag === "--port") options.port = port.port;
+    else options.userPort = port.port;
   }
 
   return { kind: "run", options };

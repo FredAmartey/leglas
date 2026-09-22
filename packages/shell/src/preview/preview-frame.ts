@@ -23,18 +23,15 @@ export function previewIsLoaded(loaded: LoadedPreviews, title: string, identity:
   return loaded[title] === identity;
 }
 
-export function markPreviewLoaded(
-  loaded: LoadedPreviews,
-  title: string,
-  identity: string,
-): Record<string, string> {
+export function markPreviewLoaded(loaded: LoadedPreviews, title: string, identity: string) {
   return loaded[title] === identity ? loaded : { ...loaded, [title]: identity };
 }
 
-export function resetPreviewLoaded(loaded: LoadedPreviews, title: string): Record<string, string> {
+export function resetPreviewLoaded(loaded: LoadedPreviews, title: string) {
   if (!(title in loaded)) return loaded;
   const next = { ...loaded };
   delete next[title];
+
   return next;
 }
 
@@ -45,6 +42,7 @@ export function resetPreviewLoaded(loaded: LoadedPreviews, title: string): Recor
 export function previewFrameIsReady(frame: HTMLIFrameElement): boolean {
   try {
     const doc = frame.contentDocument;
+
     return doc !== null && doc.location.href !== "about:blank" && doc.readyState !== "loading";
   } catch {
     return false;
@@ -71,6 +69,7 @@ export function watchPreviewFrame({
   const cleanup = () => {
     frame.removeEventListener("load", onLoad);
     frame.removeEventListener("error", onError);
+
     if (timer !== null) {
       globalThis.clearTimeout(timer);
       timer = null;
@@ -79,17 +78,21 @@ export function watchPreviewFrame({
 
   const ready = (allowOpaqueDocument: boolean) => {
     if (settled) return false;
+
     if (sameOrigin ? !previewFrameIsReady(frame) : !allowOpaqueDocument) {
       return false;
     }
+
     settled = true;
     cleanup();
     onReady();
+
     return true;
   };
 
   const fail = (checkDocumentFirst: boolean) => {
     if (settled) return;
+
     if (checkDocumentFirst && sameOrigin && ready(false)) return;
     settled = true;
     cleanup();

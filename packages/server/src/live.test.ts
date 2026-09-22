@@ -1,8 +1,11 @@
-import type { IncomingMessage } from "node:http";
+import { IncomingMessage } from "node:http";
+import { Socket } from "node:net";
 import { Duplex } from "node:stream";
 import { describe, expect, test, vi } from "vitest";
 
 import { LIVE_DEBOUNCE_MS, createCoalescer, createLiveHub, encodeFrame } from "./live.js";
+
+import { isString } from "./json.js";
 
 class RecordingSocket extends Duplex {
   readonly writes: Buffer[] = [];
@@ -20,22 +23,21 @@ class RecordingSocket extends Duplex {
 }
 
 function request(key: string | undefined = "dGhlIHNhbXBsZSBub25jZQ=="): IncomingMessage {
-  return {
-    method: "GET",
-    url: "/leglas/api/live",
-    headers: {
-      upgrade: "websocket",
-      ...(key === undefined ? {} : { "sec-websocket-key": key }),
-    },
-  } as IncomingMessage;
+  const message = new IncomingMessage(new Socket());
+  message.method = "GET";
+  message.url = "/leglas/api/live";
+  message.headers = { upgrade: "websocket" };
+
+  if (key !== undefined) message.headers["sec-websocket-key"] = key;
+
+  return message;
 }
 
 function requestWithoutKey(): IncomingMessage {
-  return {
-    method: "GET",
-    url: "/leglas/api/live",
-    headers: { upgrade: "websocket" },
-  } as IncomingMessage;
+  const message = request();
+  delete message.headers["sec-websocket-key"];
+
+  return message;
 }
 
 function listen(
@@ -45,19 +47,22 @@ function listen(
   const socket = new RecordingSocket();
   expect(hub.upgrade(request(), socket, Buffer.alloc(0), options)).toBe(true);
   socket.writes.length = 0;
+
   return socket;
 }
 
 function clientFrame(opcode: number, payload: Buffer | string = Buffer.alloc(0)): Buffer {
-  const body = typeof payload === "string" ? Buffer.from(payload) : payload;
+  const body = isString(payload) ? Buffer.from(payload) : payload;
   const mask = Buffer.from([0x12, 0x34, 0x56, 0x78]);
   const frame = Buffer.alloc(2 + 4 + body.length);
   frame[0] = 0x80 | opcode;
   frame[1] = 0x80 | body.length;
   mask.copy(frame, 2);
+
   for (let index = 0; index < body.length; index += 1) {
     frame[6 + index] = (body[index] ?? 0) ^ (mask[index % 4] ?? 0);
   }
+
   return frame;
 }
 
@@ -101,7 +106,9 @@ describe("createLiveHub", () => {
     expect(frame[0]).toBe(0x81);
     expect(frame[1]).toBe(marker);
     expect(frame).toHaveLength(header + length);
+
     if (length === 126) expect(frame.readUInt16BE(2)).toBe(126);
+
     if (length === 65_536) expect(frame.readBigUInt64BE(2)).toBe(65_536n);
   });
 
@@ -168,16 +175,19 @@ describe("createCoalescer", () => {
     const pending = new Map<number, { at: number; run: () => void }>();
     let now = 0;
     let next = 1;
+
     return {
       setTimeout: (run: () => void, ms: number) => {
         const handle = next++;
         pending.set(handle, { at: now + ms, run });
+
         return handle;
       },
-      clearTimeout: (handle: unknown) => void pending.delete(handle as number),
+      clearTimeout: (handle: number) => void pending.delete(handle),
       advance(ms: number) {
         now += ms;
-        for (const [handle, entry] of [...pending]) {
+
+        for (const [handle, entry] of Array.from(pending)) {
           if (entry.at <= now) {
             pending.delete(handle);
             entry.run();
@@ -193,6 +203,7 @@ describe("createCoalescer", () => {
   test("two changes inside the window are one nudge; outside it, two", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
@@ -216,6 +227,7 @@ describe("createCoalescer", () => {
   test("each kind waits on its own timer", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
@@ -234,6 +246,7 @@ describe("createCoalescer", () => {
   test("closing drops what is pending and refuses anything after", () => {
     const emitted: string[] = [];
     const timers = clock();
+
     const coalescer = createCoalescer((change) => emitted.push(change), {
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,

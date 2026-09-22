@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import type { AddPreview } from "./args.js";
+
 import { runAdd, runRequests } from "./run-previews.js";
 
 function scratch(): string {
@@ -12,6 +14,7 @@ function scratch(): string {
 function collect() {
   const lines: string[] = [];
   const errors: string[] = [];
+
   return {
     deps: { log: (line: string) => lines.push(line), error: (line: string) => errors.push(line) },
     lines,
@@ -19,7 +22,7 @@ function collect() {
   };
 }
 
-const preview = (over: Record<string, unknown>) => ({
+const preview = (over: Partial<AddPreview>) => ({
   title: "X",
   url: "/?v-hero=x",
   note: undefined,
@@ -63,9 +66,11 @@ describe("runAdd with --based-on", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
-    const written = JSON.parse(readFileSync(join(cwd, ".leglas/previews.json"), "utf8")) as {
-      previews: { title: string; basedOn?: string }[];
-    };
+
+    const written: { previews: { title: string; basedOn?: string }[] } = JSON.parse(
+      readFileSync(join(cwd, ".leglas/previews.json"), "utf8"),
+    );
+
     expect(written.previews.find((entry) => entry.title === "Dusk")?.basedOn).toBe("Meridian");
   });
 });

@@ -20,6 +20,7 @@ export function buildSite(root: string, out: string): string[] {
   mkdirSync(join(out, "changelog"), { recursive: true });
   mkdirSync(join(out, "assets"), { recursive: true });
   const written: string[] = [];
+
   const write = (path: string, text: string): void => {
     writeFileSync(join(out, path), text);
     written.push(join(out, path));
@@ -29,11 +30,13 @@ export function buildSite(root: string, out: string): string[] {
   write(join("changelog", "index.html"), renderPage(changelog, assets));
   write("releases.json", `${JSON.stringify(releasesIndex(markdown), null, 2)}\n`);
   const pages = loadDocs(root);
+
   for (const page of pages) {
     const path = docsPath(page.slug);
     mkdirSync(join(out, dirname(path)), { recursive: true });
     write(path, renderDoc(page, pages, assets));
   }
+
   // The homepage shows the README's captures, which stay in the tree because
   // they ship with the documentation.
   for (const capture of CAPTURES) {
@@ -43,11 +46,13 @@ export function buildSite(root: string, out: string): string[] {
     );
     written.push(join(out, "assets", capture));
   }
+
   return written;
 }
 
 if (import.meta.main) {
   const root = join(import.meta.dirname, "..");
+
   for (const path of buildSite(root, join(root, "dist", "site"))) {
     process.stdout.write(`${path}\n`);
   }

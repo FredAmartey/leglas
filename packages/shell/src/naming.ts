@@ -32,10 +32,12 @@ export function checkName(
   if (value === "" || value === title) {
     return current === title ? { kind: "same" } : { kind: "reset", value: title };
   }
+
   if (value === current) return { kind: "same" };
 
   for (const [other, name] of names) {
     if (other !== title && fold(name) === fold(value)) return { kind: "taken", by: name };
   }
+
   return { kind: "set", value };
 }

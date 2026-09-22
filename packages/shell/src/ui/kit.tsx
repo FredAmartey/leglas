@@ -7,6 +7,7 @@ import { EASE } from "../prefs.js";
 import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
 import type { BranchPreviewState } from "../types.js";
+import { isString } from "../json.js";
 
 /**
  * The Leglas mark in its brand colours, the lockup's dark variant: the one
@@ -302,6 +303,7 @@ export function Tip({
   const layerRef = useRef<Element | null>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [tip, setTip] = useState<{
     at: Placement;
     out: boolean;
@@ -326,7 +328,9 @@ export function Tip({
   useLayoutEffect(() => {
     const bubble = bubbleRef.current;
     const control = anchorRef.current?.firstElementChild;
+
     if (!tip || tip.out || !bubble || !control) return;
+
     // Layout size, not the painted rect: the label enters at scale(0.8), so
     // measuring the rect mid-animation reads it narrower than it lands and
     // under-corrects. Transforms do not touch offsetWidth.
@@ -336,6 +340,7 @@ export function Tip({
       control.getBoundingClientRect(),
       { height: window.innerHeight, width: window.innerWidth },
     );
+
     if (corrected) {
       setTip((current) => (current ? { ...current, ...corrected } : current));
     }
@@ -344,6 +349,7 @@ export function Tip({
   useEffect(
     () => () => {
       if (showTimer.current) clearTimeout(showTimer.current);
+
       if (hideTimer.current) clearTimeout(hideTimer.current);
     },
     [],
@@ -351,8 +357,10 @@ export function Tip({
 
   const open = () => {
     const control = anchorRef.current?.firstElementChild;
+
     if (!control) return;
     const rect = control.getBoundingClientRect();
+
     if (hideTimer.current) clearTimeout(hideTimer.current);
     layerRef.current = control.closest("dialog, [data-leglas-shell]") ?? document.body;
     setTip(
@@ -361,14 +369,17 @@ export function Tip({
         : { at: "right", out: false, shift: 0, x: rect.right + 8, y: rect.top + rect.height / 2 },
     );
   };
+
   const enter = () => {
     if (showTimer.current) clearTimeout(showTimer.current);
     showTimer.current = setTimeout(open, Date.now() < tipWarmUntil ? 0 : 300);
   };
+
   const close = () => {
     if (showTimer.current) clearTimeout(showTimer.current);
     tipWarmUntil = Date.now() + 300;
     setTip((current) => (current && !current.out ? { ...current, out: true } : current));
+
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setTip(null), 120);
   };
@@ -378,7 +389,7 @@ export function Tip({
       className="contents"
       onBlur={close}
       onFocus={(event) => {
-        if ((event.target as HTMLElement).matches(":focus-visible")) open();
+        if (event.target instanceof Element && event.target.matches(":focus-visible")) open();
       }}
       onPointerDown={close}
       onPointerEnter={enter}
@@ -458,7 +469,7 @@ export function RenameForm({
         event.preventDefault();
         const value = new FormData(event.currentTarget).get("name");
         cancelled.current = true;
-        onCommit(typeof value === "string" ? value.trim() : "", "submit");
+        onCommit(isString(value) ? value.trim() : "", "submit");
       }}
     >
       <input
@@ -517,8 +528,10 @@ function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }
     if (out || paused || remaining.current === null) return;
     const startedAt = Date.now();
     const timer = setTimeout(leave, remaining.current);
+
     return () => {
       clearTimeout(timer);
+
       if (remaining.current !== null) {
         remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt));
       }
@@ -692,6 +705,7 @@ export function BranchOverlay({
   if (state.status === "failed") {
     return <ErrorOverlay onReload={onStart} reason={state.reason} />;
   }
+
   // `ready` never reaches here, because the pane renders the design instead.
   // Saying so in the narrowing rather than assuming it keeps this honest if
   // that ever stops being true.
@@ -703,6 +717,7 @@ export function BranchOverlay({
           starting: "Starting its dev server",
         }[state.phase]
       : `Opening ${branch}`;
+
   return (
     <div
       aria-live="polite"
@@ -749,6 +764,7 @@ export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reaso
  */
 export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
   const gid = useId();
+
   if (id === "claude") {
     return (
       <svg aria-hidden="true" fill="#D97757" height={size} viewBox="0 0 24 24" width={size}>
@@ -756,6 +772,7 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
       </svg>
     );
   }
+
   if (id === "cursor") {
     return (
       <svg aria-hidden="true" fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
@@ -763,6 +780,7 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
       </svg>
     );
   }
+
   if (id === "codex") {
     return (
       <svg aria-hidden="true" height={size} viewBox="0 0 24 24" width={size}>
@@ -784,6 +802,7 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
       </svg>
     );
   }
+
   if (id === "custom") {
     // No vendor to borrow a mark from: a terminal prompt in the text's own
     // colour says "your command" without pretending to be a brand.
@@ -803,5 +822,6 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
       </svg>
     );
   }
+
   return null;
 }

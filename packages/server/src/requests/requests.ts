@@ -7,6 +7,8 @@ import { capturedViewport, removeCaptures, type Attachment, type Captured } from
 import type { Preview } from "../config/config.js";
 import type { Failure, FailureCode } from "../agents/failure.js";
 
+import { isString, isJsonRecord, parseJson, type JsonValue, type JsonRecord } from "../json.js";
+
 /**
  * What a change does to the direction it was sent at.
  *
@@ -39,19 +41,26 @@ export type VariantSlot = { surface: string; option: string };
  */
 export function variantSlot(url: string): VariantSlot | null {
   if (!url.startsWith("/")) return null;
+
   if (!url.includes("?")) return null;
 
   const query = url.slice(url.indexOf("?") + 1);
+
   for (const pair of query.split("&")) {
     const [rawKey, rawValue] = pair.split("=");
+
     if (rawKey === undefined || rawValue === undefined) continue;
+
     if (!rawKey.startsWith("v-")) continue;
 
     const surface = rawKey.slice(2);
     const option = decodeURIComponent(rawValue);
+
     if (!SAFE_SEGMENT.test(surface) || !SAFE_SEGMENT.test(option)) return null;
+
     return { surface, option };
   }
+
   return null;
 }
 
@@ -66,6 +75,7 @@ export function variantSlot(url: string): VariantSlot | null {
  */
 export function targetFor(url: string): string | null {
   const slot = variantSlot(url);
+
   return slot === null ? null : `.leglas/variants/${slot.surface}/${slot.option}.tsx`;
 }
 
@@ -91,16 +101,14 @@ export function composeRequest(
   const target = preview.file ?? targetFor(preview.url);
   const cleaned = intent.trim();
   const asked = changeBlock(cleaned, notes);
+
   // What the new direction will record as the request behind it. Typed words
   // when there are any; otherwise the notes are the request, and a variant
   // that recorded an empty string would be the one thing on the rail nobody
   // can account for.
   const recorded =
     cleaned === ""
-      ? notes
-          .map((entry) => entry.note)
-          .filter((entry) => entry !== "")
-          .join("; ")
+      ? notes.flatMap((entry) => (entry.note !== "" ? [entry.note] : [])).join("; ")
       : cleaned;
 
   const prompt =
@@ -136,6 +144,7 @@ function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
   if (notes.length === 0) return `What to change: ${cleaned}`;
 
   const many = notes.length === 1 ? "a note" : `${notes.length} notes`;
+
   const lead =
     cleaned === ""
       ? `What to change, left as ${many} on the design itself:`
@@ -164,6 +173,7 @@ function scope(leglasCommand: string, quotedTitle: string | null): string {
       : `When the change is made, look at it once: run \`${leglasCommand} show ` +
         `${quotedTitle} --screenshot\` and read the PNG it writes. Fix anything visibly ` +
         `broken, then finish.`;
+
   return (
     `This request came from the running Leglas interface. Request collection, ` +
     `direction discovery and the live-server check are already complete. Do not ` +
@@ -195,19 +205,24 @@ function capturedBlock(captured: Captured | null): string {
     return "";
 
   const lines: string[] = [];
+
   const frames = captured.attachments.filter(
     (attachment) => attachment.kind === "frame" || attachment.kind === "note",
   );
+
   const frame = frames.find((attachment) => attachment.kind === "frame");
+
   if (frames.length > 0) {
     const viewport =
       frame?.viewport ??
       frames.find((attachment) => attachment.viewport !== undefined)?.viewport ??
       capturedViewport(captured) ??
       1440;
+
     lines.push(
       `What it looks like, from a fresh load at ${viewport}px wide with nothing interacted with:`,
     );
+
     for (const attachment of frames) {
       if (attachment.kind === "frame") {
         lines.push(
@@ -215,12 +230,14 @@ function capturedBlock(captured: Captured | null): string {
         );
         continue;
       }
+
       const number = /note-(\d+)\.png$/.exec(attachment.file)?.[1] ?? attachment.note ?? "?";
       lines.push(`  ${attachment.file}  what note ${number} points at, with room around it`);
     }
   }
 
   const comparison = captured.attachments.find((attachment) => attachment.kind === "compare");
+
   if (comparison !== undefined) {
     lines.push(
       `Alongside it on screen is ${JSON.stringify(comparison.title ?? "the other direction")}, ` +
@@ -230,16 +247,21 @@ function capturedBlock(captured: Captured | null): string {
   }
 
   const references = captured.attachments.filter((attachment) => attachment.kind === "reference");
+
   if (references.length > 0) {
     lines.push("Reference images the user attached, which show what they mean:");
+
     for (const reference of references) lines.push(`  ${reference.file}`);
   }
+
   if (captured.errors.length > 0) {
     lines.push(
       `On load it logged ${captured.errors.length} console ${captured.errors.length === 1 ? "error" : "errors"}:`,
     );
+
     for (const error of captured.errors) lines.push(`  - ${error}`);
   }
+
   if (captured.hydration !== null) {
     lines.push(
       `After load, ${captured.hydration.framework} rebuilt this page in the browser from the app's own ` +
@@ -249,9 +271,11 @@ function capturedBlock(captured: Captured | null): string {
         `original as its default. Look at the result a few seconds after load, not at first paint.`,
     );
   }
+
   if (captured.skipped !== null) {
     lines.push(`(${captured.skipped} Use the live preview instead.)`);
   }
+
   if (captured.attachments.length > 0) {
     // Last, so the block ends on the thing to do rather than on evidence.
     //
@@ -266,6 +290,7 @@ function capturedBlock(captured: Captured | null): string {
       "Each path above is a file in this project. Open every one and look at it before changing anything.",
     );
   }
+
   return `\n\n${lines.join("\n")}`;
 }
 
@@ -306,6 +331,7 @@ function replacePrompt(
     target === null
       ? `The direction is titled "${preview.title}" and renders at ${preview.url}. Find what produces it.`
       : `It lives at ${target}.`;
+
   const pace =
     target === null
       ? `Once found, make the change and finish. `
@@ -469,24 +495,34 @@ const FAILURE_CODES: readonly FailureCode[] = [
   "agent-error",
 ];
 
-function failureOf(value: unknown): Failure | null {
-  if (typeof value !== "object" || value === null) return null;
-  const entry = value as Partial<Failure>;
-  if (typeof entry.message !== "string" || entry.message === "") return null;
-  if (entry.code === undefined || !FAILURE_CODES.includes(entry.code)) return null;
+function isFailureCode(value: unknown): value is FailureCode {
+  return FAILURE_CODES.some((code) => code === value);
+}
+
+function failureOf(entry: JsonValue | undefined): Failure | null {
+  if (!isJsonRecord(entry)) return null;
+
+  if (!isString(entry.message) || entry.message === "") return null;
+
+  if (!isFailureCode(entry.code)) return null;
+
   return { code: entry.code, message: entry.message };
 }
 
 export async function readRequests(cwd: string): Promise<PendingRequest[]> {
   try {
     const raw = await readFile(join(cwd, REQUESTS_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { requests?: unknown };
-    if (!Array.isArray(parsed.requests)) return [];
+    const parsed = parseJson(raw);
+
+    if (!isJsonRecord(parsed) || !Array.isArray(parsed.requests)) return [];
+
     return parsed.requests.map((request, index) => {
-      const source =
-        typeof request === "object" && request !== null
-          ? (request as Partial<PendingRequest> & { attachments?: unknown; captureNote?: unknown })
+      const source = isJsonRecord(request)
+        ? request
+        : Array.isArray(request)
+          ? Object.fromEntries(Object.entries(request))
           : {};
+
       const {
         failure: rawFailure,
         attachments: rawAttachments,
@@ -495,49 +531,60 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
         references: rawReferences,
         ...entry
       } = source;
+
       const status: RequestStatus =
         entry.status === "picked-up" || entry.status === "failed" || entry.status === "cancelled"
           ? entry.status
           : "queued";
+
       // A verdict is only read back in the shape it was written, and only on a
       // request that ended. Anything else in that slot is a hand-edited file,
       // and a request with no reason reads better than one carrying a reason
       // nobody can trust.
       const failure = isTerminal(status) ? failureOf(rawFailure) : null;
-      const id =
-        typeof entry.id === "string" && REQUEST_ID.test(entry.id) ? entry.id : String(index);
+
+      const id = isString(entry.id) && REQUEST_ID.test(entry.id) ? entry.id : String(index);
+
       // An attachment is read into a transport and sent to a model, so a
       // path from the queue file is trusted only when it is the one Leglas
       // would have written: inside this request's own capture directory,
       // one plain file name, nothing that could climb out.
       const ownFile = new RegExp(`^\\.leglas/captures/${id}/[A-Za-z0-9][A-Za-z0-9_.-]*$`);
+
       const attachments = Array.isArray(rawAttachments)
-        ? (rawAttachments.filter(
+        ? rawAttachments.filter(
             (attachment) =>
-              typeof attachment === "object" &&
-              attachment !== null &&
-              !Array.isArray(attachment) &&
-              typeof (attachment as Partial<Attachment>).file === "string" &&
-              ownFile.test((attachment as Attachment).file) &&
-              !(attachment as Attachment).file.includes("..") &&
-              ["frame", "note", "compare", "reference"].includes(
-                String((attachment as Partial<Attachment>).kind),
-              ),
-          ) as Attachment[])
+              isJsonRecord(attachment) &&
+              isString(attachment.file) &&
+              ownFile.test(attachment.file) &&
+              !attachment.file.includes("..") &&
+              ["frame", "note", "compare", "reference"].includes(String(attachment.kind)),
+          )
         : null;
-      return {
+
+      const loaded = {
         ...entry,
         id,
         status,
-        mode: entry.mode === "variant" ? "variant" : "replace",
-        ...(failure === null ? {} : { failure }),
-        ...(attachments === null || attachments.length === 0 ? {} : { attachments }),
-        ...(typeof rawCaptureNote === "string" ? { captureNote: rawCaptureNote } : {}),
-        ...(typeof rawCompare === "string" ? { compare: rawCompare } : {}),
-        ...(Array.isArray(rawReferences) && rawReferences.every((id) => typeof id === "string")
-          ? { references: rawReferences as string[] }
-          : {}),
-      } as PendingRequest;
+        mode: entry.mode === "variant" ? ("variant" as const) : ("replace" as const),
+      };
+
+      const optional: JsonRecord = {};
+
+      if (failure !== null) optional.failure = failure;
+
+      if (attachments !== null && attachments.length > 0) optional.attachments = attachments;
+
+      if (isString(rawCaptureNote)) optional.captureNote = rawCaptureNote;
+
+      if (isString(rawCompare)) optional.compare = rawCompare;
+
+      if (Array.isArray(rawReferences) && rawReferences.every(isString))
+        optional.references = rawReferences;
+
+      // SAFETY: The queue writer owns the remaining request and image metadata; this reader
+      // preserves those legacy fields while normalizing identity, status and owned file paths.
+      return { ...loaded, ...optional } as PendingRequest;
     });
   } catch {
     // No queue yet, or an unreadable one. Either way nothing is pending, and a
@@ -566,16 +613,19 @@ export function newRequestId(): string {
 
 export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
   const requests = await readRequests(cwd);
+
   // A request that already ended is not work: handing a cancelled one to an
   // agent would ask for the change the user just stopped, and handing over a
   // failed one spends a turn on the thing that already broke.
   const collected = requests.map((request) =>
     isTerminal(request.status) ? request : { ...request, status: "picked-up" as const },
   );
+
   // Collecting an empty queue writes nothing: this is the one command agents
   // run speculatively, and a probe must not materialise .leglas/ in a project
   // that never used the interface.
   if (requests.some((request) => request.status === "queued")) await writeQueue(cwd, collected);
+
   return collected.filter((request) => !isTerminal(request.status));
 }
 
@@ -589,6 +639,7 @@ export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
  */
 export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
   const requests = await readRequests(cwd);
+
   if (!requests.some((request) => request.id === id && request.status !== "picked-up"))
     return false;
   await writeQueue(
@@ -597,6 +648,7 @@ export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
       request.id === id ? { ...request, status: "picked-up" as const } : request,
     ),
   );
+
   return true;
 }
 
@@ -610,6 +662,7 @@ export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
  */
 export async function markFailed(cwd: string, id: string, failure: Failure): Promise<boolean> {
   const requests = await readRequests(cwd);
+
   if (!requests.some((request) => request.id === id)) return false;
   await writeQueue(
     cwd,
@@ -623,6 +676,7 @@ export async function markFailed(cwd: string, id: string, failure: Failure): Pro
         : request,
     ),
   );
+
   return true;
 }
 
@@ -637,9 +691,11 @@ export async function markFailed(cwd: string, id: string, failure: Failure): Pro
 export async function removeRequest(cwd: string, id: string): Promise<boolean> {
   const requests = await readRequests(cwd);
   const remaining = requests.filter((request) => request.id !== id);
+
   if (remaining.length === requests.length) return false;
   await writeQueue(cwd, remaining);
   await removeCaptures(cwd, id).catch(() => {});
+
   return true;
 }
 
@@ -659,6 +715,7 @@ export async function clearRequests(cwd: string): Promise<{ cleared: number; pen
   // collected ones rather than reporting it as outstanding work.
   const pending = requests.filter((request) => request.status === "queued");
   const cleared = requests.length - pending.length;
+
   // Same reason collecting an empty queue writes nothing: acknowledging work
   // that was never there must not materialise .leglas/ in a fresh project.
   if (cleared > 0) {
@@ -669,5 +726,6 @@ export async function clearRequests(cwd: string): Promise<{ cleared: number; pen
         .map((request) => removeCaptures(cwd, request.id).catch(() => {})),
     );
   }
+
   return { cleared, pending: pending.length };
 }

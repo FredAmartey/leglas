@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
+import { isString } from "./json.js";
+import type { TimerHandle } from "./timers.js";
+
 export const LIVE_PATH = "/leglas/api/live";
+
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /**
@@ -39,7 +43,7 @@ type Listener = {
 
 /** Encode one unmasked server frame, including all three payload length forms. */
 export function encodeFrame(opcode: number, payload: Buffer | string): Buffer {
-  const body = typeof payload === "string" ? Buffer.from(payload) : payload;
+  const body = isString(payload) ? Buffer.from(payload) : payload;
   let header: Buffer;
 
   if (body.length < 126) {
@@ -56,6 +60,7 @@ export function encodeFrame(opcode: number, payload: Buffer | string): Buffer {
   }
 
   header[0] = 0x80 | (opcode & 0x0f);
+
   return Buffer.concat([header, body], header.length + body.length);
 }
 
@@ -83,43 +88,52 @@ export function createCoalescer(
   emit: (change: LiveChange) => void,
   options: {
     windowMs?: number;
-    setTimeout?: (callback: () => void, ms: number) => unknown;
-    clearTimeout?: (handle: unknown) => void;
+    setTimeout?: (callback: () => void, ms: number) => TimerHandle;
+    clearTimeout?: (handle: TimerHandle) => void;
   } = {},
 ): Coalescer {
   const windowMs = options.windowMs ?? LIVE_DEBOUNCE_MS;
+
   const setLater =
     options.setTimeout ??
     ((callback: () => void, ms: number) => {
       const timer = setTimeout(callback, ms);
       timer.unref?.();
+
       return timer;
     });
-  const clearLater =
+
+  const clearLater: NonNullable<typeof options.clearTimeout> =
     options.clearTimeout ??
-    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    ((handle) => {
+      // SAFETY: Native scheduling and clearing are paired; injected clocks provide both operations.
+      clearTimeout(handle);
+    });
 
   // One pending nudge per kind, so a burst of config changes cannot delay a
   // requests nudge that arrived in the middle of it.
-  const pending = new Map<LiveChange, unknown>();
+  const pending = new Map<LiveChange, () => void>();
   let closed = false;
 
   return {
     schedule(change) {
       if (closed) return;
       const waiting = pending.get(change);
-      if (waiting !== undefined) clearLater(waiting);
-      pending.set(
-        change,
-        setLater(() => {
-          pending.delete(change);
-          if (!closed) emit(change);
-        }, windowMs),
-      );
+
+      if (waiting !== undefined) waiting();
+
+      const handle = setLater(() => {
+        pending.delete(change);
+
+        if (!closed) emit(change);
+      }, windowMs);
+
+      pending.set(change, () => clearLater(handle));
     },
     close() {
       closed = true;
-      for (const handle of pending.values()) clearLater(handle);
+
+      for (const cancel of pending.values()) cancel();
       pending.clear();
     },
   };
@@ -140,14 +154,18 @@ export function createLiveHub(
   const write = (listener: Listener, opcode: number, payload: Buffer | string): boolean => {
     if (listener.socket.destroyed || !listener.socket.writable) {
       drop(listener);
+
       return false;
     }
+
     try {
       listener.socket.write(encodeFrame(opcode, payload));
+
       return true;
     } catch {
       drop(listener);
       listener.socket.destroy();
+
       return false;
     }
   };
@@ -170,38 +188,49 @@ export function createLiveHub(
       } else if (length === 127) {
         if (listener.buffered.length < 10) return;
         const wide = listener.buffered.readBigUInt64BE(2);
+
         if (wide > BigInt(Number.MAX_SAFE_INTEGER)) {
           drop(listener);
           listener.socket.destroy();
+
           return;
         }
+
         length = Number(wide);
         offset = 10;
       }
 
       const masked = (second & 0x80) !== 0;
+
       if (!masked) {
         drop(listener);
         listener.socket.destroy();
+
         return;
       }
+
       if (listener.buffered.length < offset + 4 + length) return;
 
       const mask = listener.buffered.subarray(offset, offset + 4);
       offset += 4;
       const payload = Buffer.from(listener.buffered.subarray(offset, offset + length));
+
       for (let index = 0; index < payload.length; index += 1) {
         payload[index] = (payload[index] ?? 0) ^ (mask[index % 4] ?? 0);
       }
+
       listener.buffered = listener.buffered.subarray(offset + length);
 
       const opcode = first & 0x0f;
+
       if (opcode === 0x8) {
         write(listener, 0x8, payload);
         drop(listener);
         listener.socket.destroy();
+
         return;
       }
+
       if (opcode === 0x9) write(listener, 0xa, payload);
       // Text, binary, continuation and pong frames from the client carry no
       // protocol information for this one-way channel and are ignored.
@@ -212,11 +241,13 @@ export function createLiveHub(
     nudge: (change) => {
       if (listeners.size === 0) return;
       const frame = encodeFrame(0x1, JSON.stringify({ changed: change }));
-      for (const listener of [...listeners]) {
+
+      for (const listener of Array.from(listeners)) {
         if (listener.socket.destroyed || !listener.socket.writable) {
           drop(listener);
           continue;
         }
+
         try {
           listener.socket.write(frame);
         } catch {
@@ -227,23 +258,27 @@ export function createLiveHub(
     },
     upgrade: (req, socket, head, upgradeOptions = {}) => {
       const path = (req.url ?? "/").split("?")[0] ?? "/";
+
       if (req.method !== "GET" || path !== LIVE_PATH) return false;
 
       const upgrade = req.headers.upgrade;
       const key = req.headers["sec-websocket-key"];
+
       if (
-        typeof upgrade !== "string" ||
+        !isString(upgrade) ||
         upgrade.toLowerCase() !== "websocket" ||
-        typeof key !== "string" ||
+        !isString(key) ||
         key.trim() === ""
       ) {
         socket.destroy();
+
         return false;
       }
 
       const accept = createHash("sha1")
         .update(key + WEBSOCKET_GUID)
         .digest("base64");
+
       try {
         socket.write(
           "HTTP/1.1 101 Switching Protocols\r\n" +
@@ -253,6 +288,7 @@ export function createLiveHub(
         );
       } catch {
         socket.destroy();
+
         return false;
       }
 
@@ -261,20 +297,25 @@ export function createLiveHub(
         buffered: Buffer.alloc(0),
         viewer: upgradeOptions.viewer === true,
       };
+
       listeners.add(listener);
+
       if (listener.viewer) {
         viewers += 1;
         options.onViewers?.(viewers);
       }
+
       socket.on("data", (chunk: Buffer | string) => read(listener, chunk));
       socket.once("error", () => drop(listener));
       socket.once("end", () => drop(listener));
       socket.once("close", () => drop(listener));
+
       if (head.length > 0) read(listener, head);
+
       return true;
     },
     close: async () => {
-      for (const listener of [...listeners]) {
+      for (const listener of Array.from(listeners)) {
         write(listener, 0x8, Buffer.alloc(0));
         drop(listener);
         listener.socket.destroy();

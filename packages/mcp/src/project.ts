@@ -44,6 +44,7 @@ export type Project = {
 /** A project fixed to one directory: what an embedder or a test already knows. */
 export function fixedProject(directory: string): Project {
   const located: Located = { ok: true, directory };
+
   return { locate: async () => located };
 }
 
@@ -83,37 +84,47 @@ export const UNRESOLVED_PROJECT =
 
 export function hostProject(host: RootsHost, options: HostProjectOptions): Project {
   let pending: Promise<Located> | null = null;
+
   return { locate: () => (pending ??= discover(host, options)) };
 }
 
 async function discover(host: RootsHost, options: HostProjectOptions): Promise<Located> {
   const override = options.override?.trim();
+
   if (override !== undefined && override !== "") {
     return { ok: true, directory: resolve(override) };
   }
 
   const cwd = canonical(options.cwd);
   const roots = await declaredRoots(host);
+
   if (roots.some((root) => contains(canonical(root), cwd))) {
     return { ok: true, directory: options.cwd };
   }
+
   const first = roots[0];
+
   if (first !== undefined) return { ok: true, directory: first };
 
   const pluginRoot = options.pluginRoot?.trim();
+
   // A client that does not expand ${PLUGIN_ROOT} leaves the literal behind; it
   // matches no real directory, so the check simply does not fire.
   if (pluginRoot !== undefined && pluginRoot !== "" && contains(canonical(pluginRoot), cwd)) {
     return { ok: false, reason: UNRESOLVED_PROJECT };
   }
+
   return { ok: true, directory: options.cwd };
 }
 
 async function declaredRoots(host: RootsHost): Promise<string[]> {
   await initialized(host);
+
   if (host.getClientCapabilities()?.roots === undefined) return [];
+
   try {
     const { roots } = await host.listRoots();
+
     return roots
       .map((root) => toDirectory(root.uri))
       .filter((directory): directory is string => directory !== null);
@@ -132,6 +143,7 @@ async function declaredRoots(host: RootsHost): Promise<string[]> {
  */
 function initialized(host: RootsHost): Promise<void> {
   if (host.getClientCapabilities() !== undefined) return Promise.resolve();
+
   return new Promise((ready) => {
     const previous = host.oninitialized;
     host.oninitialized = () => {
@@ -150,17 +162,20 @@ function toDirectory(uri: string): string | null {
       return null;
     }
   }
+
   return isAbsolute(uri) ? uri : null;
 }
 
 function contains(parent: string, child: string): boolean {
   if (child === parent) return true;
+
   return child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
 /** Compared paths are real paths: /tmp is a symlink on macOS, among others. */
 function canonical(directory: string): string {
   const absolute = resolve(directory);
+
   try {
     return realpathSync(absolute);
   } catch {

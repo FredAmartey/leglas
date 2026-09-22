@@ -17,6 +17,7 @@ describe("the site", () => {
     const html = renderHome(loadAssets(root));
     expect(html).toContain('data-copy="npx leglas"');
     expect(html).toContain('href="./changelog/"');
+
     for (const capture of CAPTURES) {
       expect(html).toContain(`src="assets/${capture}"`);
       expect(
@@ -24,6 +25,7 @@ describe("the site", () => {
         `${capture} is missing`,
       ).toBe(true);
     }
+
     // Self-contained apart from its own captures: nothing fetched from elsewhere.
     expect(html).not.toMatch(/src="https?:/);
   });
@@ -58,16 +60,19 @@ describe("the site", () => {
   test("the bar carries a star on both pages", () => {
     const assets = loadAssets(root);
     const home = renderHome(assets);
+
     const changelog = renderPage(
       parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8")),
       assets,
     );
+
     for (const html of [home, changelog]) {
       // A plain link to the repository, so it works without a script, ahead of the command and the switch.
       expect(html).toMatch(
         /<div class="bar-end">\n<a class="star" href="https:\/\/github\.com\/FredAmartey\/leglas">[\s\S]*?<span class="label">Star on GitHub<\/span><\/a>\n<button class="install"/,
       );
     }
+
     // The swap rides a spring, with a bezier before it for browsers that drop linear().
     expect(home).toMatch(
       /transition-timing-function:cubic-bezier\([^)]*\),ease;transition-timing-function:linear\(/,

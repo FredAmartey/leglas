@@ -29,6 +29,58 @@ type Screenshot = {
   cut: boolean;
 };
 
+type CaptureResponse = Pick<Screenshot, "file" | "width" | "height" | "viewport"> & {
+  errors?: unknown;
+  hydration?: unknown;
+  cut?: unknown;
+};
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function hasDirectory(value: unknown): value is { cwd: string } {
+  return (
+    typeof value === "object" && value !== null && "cwd" in value && typeof value.cwd === "string"
+  );
+}
+
+function hasCaptureError(value: unknown): value is { error: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    typeof value.error === "string"
+  );
+}
+
+/** Captures need a file and dimensions before the optional diagnostics matter. */
+function hasCaptureSize(value: unknown): value is CaptureResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "file" in value &&
+    typeof value.file === "string" &&
+    "width" in value &&
+    typeof value.width === "number" &&
+    "height" in value &&
+    typeof value.height === "number" &&
+    "viewport" in value &&
+    typeof value.viewport === "number"
+  );
+}
+
+function isHydration(value: unknown): value is NonNullable<Screenshot["hydration"]> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "framework" in value &&
+    typeof value.framework === "string" &&
+    "message" in value &&
+    typeof value.message === "string"
+  );
+}
+
 const NOT_RUNNING = "Leglas is not running here. Start it with npx leglas, then try again.";
 
 /**
@@ -43,6 +95,7 @@ async function sameDirectory(left: string, right: string): Promise<boolean> {
     realpath(left).catch(() => left),
     realpath(right).catch(() => right),
   ]);
+
   return a === b;
 }
 
@@ -80,9 +133,11 @@ export async function runShow(
     previews.map((preview) => preview.title),
     await readRenames(options.cwd),
   );
+
   if (!resolved.ok) {
     if (options.json) deps.log(JSON.stringify({ ok: false, error: resolved.error }));
     else deps.error(resolved.error);
+
     return { exitCode: 1 };
   }
 
@@ -91,17 +146,20 @@ export async function runShow(
   if (!plan.ok) {
     if (options.json) deps.log(JSON.stringify({ ok: false, error: plan.error }));
     else deps.error(plan.error);
+
     return { exitCode: 1 };
   }
 
-  const envelope: {
+  type ShowEnvelope = {
     ok: true;
     direction: typeof plan.direction;
     variants: typeof plan.variants;
     comparedWith: typeof plan.comparedWith;
     requests: typeof plan.requests;
     screenshot?: Screenshot;
-  } = {
+  };
+
+  const envelope: ShowEnvelope = {
     ok: true,
     direction: plan.direction,
     variants: plan.variants,
@@ -116,23 +174,30 @@ export async function runShow(
     // below is what decides, whichever way the port was found.
     const server = options.port === null ? await readServerInfo(options.cwd) : null;
     const port = options.port ?? server?.port ?? DEFAULT_PORT;
+
     const fail = (error: string) => {
       if (options.json) deps.log(JSON.stringify({ ok: false, error }));
       else deps.error(error);
+
       return { exitCode: 1 };
     };
 
     const request = deps.fetch ?? fetch;
+
     try {
       const health = await request(`http://127.0.0.1:${port}/leglas/api/health`, {
         signal: AbortSignal.timeout(2_000),
       });
+
       if (health.status !== 200) return fail(NOT_RUNNING);
       // A stale record, or a port named by hand, can reach a Leglas that
       // serves another project. It would capture a direction of the same
       // name there and report a file that does not exist here.
-      const answered = (await health.json().catch(() => ({}))) as { cwd?: unknown };
-      if (typeof answered.cwd === "string" && !(await sameDirectory(answered.cwd, options.cwd))) {
+      const answered: unknown = await health.json().catch(() => ({}));
+
+      if (answered === null) return fail(NOT_RUNNING);
+
+      if (hasDirectory(answered) && !(await sameDirectory(answered.cwd, options.cwd))) {
         return fail(
           `The Leglas on port ${port} serves another project. Start one here with npx leglas, or name the right one with --port.`,
         );
@@ -142,6 +207,7 @@ export async function runShow(
     }
 
     let response: Response;
+
     try {
       response = await request(`http://127.0.0.1:${port}/leglas/api/capture`, {
         method: "POST",
@@ -156,79 +222,79 @@ export async function runShow(
           : NOT_RUNNING,
       );
     }
-    const captured = (await response.json().catch(() => ({}))) as Partial<Screenshot> & {
-      error?: unknown;
-    };
+
+    const captured: unknown = await response.json().catch(() => ({}));
+
     if (!response.ok) {
       return fail(
-        typeof captured.error === "string"
-          ? captured.error
-          : "The direction could not be captured.",
+        hasCaptureError(captured) ? captured.error : "The direction could not be captured.",
       );
     }
-    if (
-      typeof captured.file !== "string" ||
-      typeof captured.width !== "number" ||
-      typeof captured.height !== "number" ||
-      typeof captured.viewport !== "number"
-    )
-      return fail("The direction could not be captured.");
+
+    if (!hasCaptureSize(captured)) return fail("The direction could not be captured.");
     envelope.screenshot = {
       file: captured.file,
       width: captured.width,
       height: captured.height,
       viewport: captured.viewport,
-      errors: Array.isArray(captured.errors)
-        ? captured.errors.filter((error): error is string => typeof error === "string")
-        : [],
-      hydration:
-        typeof captured.hydration === "object" &&
-        captured.hydration !== null &&
-        typeof captured.hydration.framework === "string" &&
-        typeof captured.hydration.message === "string"
-          ? {
-              framework: captured.hydration.framework,
-              message: captured.hydration.message,
-            }
-          : null,
+      errors: Array.isArray(captured.errors) ? captured.errors.filter(isString) : [],
+      hydration: isHydration(captured.hydration)
+        ? {
+            framework: captured.hydration.framework,
+            message: captured.hydration.message,
+          }
+        : null,
       cut: captured.cut === true,
     };
   }
 
   if (options.json) {
     deps.log(JSON.stringify(envelope));
+
     return { exitCode: 0 };
   }
 
   const { direction } = plan;
   deps.log(`  ${direction.title}${direction.local ? "  (local)" : ""}`);
+
   if (direction.note !== null) deps.log(`  ${direction.note}`);
   deps.log("");
+
   if (direction.target !== null) deps.log(`  file        ${direction.target}`);
+
   if (direction.branch !== null) deps.log(`  branch      ${direction.branch}`);
   deps.log(`  url         ${direction.url}`);
+
   if (direction.tags.length > 0) deps.log(`  tags        ${direction.tags.join(", ")}`);
+
   if (direction.basedOn !== null) deps.log(`  variant of  ${direction.basedOn}`);
+
   if (plan.variants.length > 0) {
     deps.log(`  variants    ${plan.variants.map((variant) => variant.title).join(", ")}`);
   }
+
   if (plan.comparedWith.length > 0) {
     deps.log(`  against     ${plan.comparedWith.join(", ")}`);
   }
+
   if (envelope.screenshot !== undefined) {
     deps.log(`  screenshot  ${envelope.screenshot.file}`);
+
     if (envelope.screenshot.cut) {
       deps.log("              the top of the page only; it is taller than one capture");
     }
+
     if (envelope.screenshot.hydration !== null) {
       deps.log(
         `  hydration   ${envelope.screenshot.hydration.framework} rebuilt the page in the browser after load; the served markup is not what is on screen`,
       );
       deps.log(`              ${envelope.screenshot.hydration.message}`);
     }
+
     if (envelope.screenshot.errors.length > 0) {
       const count = envelope.screenshot.errors.length;
       deps.log(`  console     ${count} ${count === 1 ? "error" : "errors"} on load`);
+
       for (const error of envelope.screenshot.errors) deps.log(`    ${error}`);
     }
   }
@@ -236,9 +302,11 @@ export async function runShow(
   if (plan.requests.length > 0) {
     deps.log("");
     deps.log(`  Pending, not yet done (${plan.requests.length}):`);
+
     for (const request of plan.requests) deps.log(`    ${request.status}  ${request.intent}`);
     deps.log("");
     deps.log("  Run npx leglas requests --json for the full prompts.");
   }
+
   return { exitCode: 0 };
 }

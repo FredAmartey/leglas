@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 
 import type { RestartCommand } from "@leglas/server";
@@ -15,19 +15,23 @@ const command: RestartCommand = {
 
 function harness() {
   const target = new EventEmitter();
-  const child = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) });
-  const spawn = vi.fn(
-    () => child as unknown as ChildProcess,
-  ) as unknown as typeof import("node:child_process").spawn;
+  const child = new ChildProcess();
+  vi.spyOn(child, "kill").mockReturnValue(true);
+
+  const spawn = vi.fn(() => child);
+
   const exit = vi.fn();
+
   return { child, target, spawn, exit };
 }
 
 function deferred() {
   let resolve!: () => void;
+
   const promise = new Promise<void>((done) => {
     resolve = done;
   });
+
   return { resolve, promise };
 }
 
@@ -77,6 +81,7 @@ describe("handOff", () => {
       await handoff;
       expect(deps.spawn).not.toHaveBeenCalled();
       expect(deps.exit).toHaveBeenCalledExactlyOnceWith(0);
+
       for (const name of SHUTDOWN_SIGNALS) expect(deps.target.listenerCount(name)).toBe(0);
     },
   );
@@ -111,6 +116,7 @@ describe("handOff", () => {
     await handOff(command, async () => {}, deps);
     deps.child.emit("exit", code, signal);
     expect(deps.exit).toHaveBeenCalledExactlyOnceWith(expected);
+
     for (const name of SHUTDOWN_SIGNALS) expect(deps.target.listenerCount(name)).toBe(0);
   });
 
@@ -121,11 +127,13 @@ describe("handOff", () => {
       const { handOff } = createHandoff();
       const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const error = new Error("npx could not be found.");
+
       if (kind === "throw")
         vi.mocked(deps.spawn).mockImplementation(() => {
           throw error;
         });
       await handOff(command, async () => {}, deps);
+
       if (kind === "event") deps.child.emit("error", error);
       deps.child.emit("exit", 1);
       expect(stderr).toHaveBeenCalledWith(
@@ -150,17 +158,20 @@ describe("handOff", () => {
     expect(deps.spawn).not.toHaveBeenCalled();
     expect(deps.exit).not.toHaveBeenCalled();
     expect(handedOff()).toBe(false);
+
     for (const name of SHUTDOWN_SIGNALS) expect(deps.target.listenerCount(name)).toBe(0);
   });
 
   test("passes through the Windows shell setting", async () => {
     const deps = harness();
     const { handOff } = createHandoff();
+
     const windows = {
       file: 'npx -y leglas@1.1.0 --config "C:\\my app\\config.json"',
       args: [],
       shell: true,
     };
+
     await handOff(windows, async () => {}, deps);
     expect(deps.spawn).toHaveBeenCalledWith(windows.file, [], { stdio: "inherit", shell: true });
     deps.child.emit("exit", 0);

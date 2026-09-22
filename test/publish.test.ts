@@ -10,15 +10,18 @@ const workflow = readFileSync(new URL("../.github/workflows/publish.yml", import
 function script(name: string): string {
   const step = workflow.split(`      - name: ${name}\n`)[1];
   const block = step?.split("        run: |\n")[1]?.match(/^(?:          .*\n|\n)+/)?.[0];
+
   if (block === undefined) throw new Error(`No run block for ${name}.`);
+
   return block
     .split("\n")
     .map((line) => line.slice(10))
     .join("\n");
 }
 
-function runStep(name: string, version: string): { args: string[]; notes: string | null } {
+function runStep(name: string, version: string) {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-publish-"));
+
   try {
     // Functions intercept every external command in these steps, so the real
     // workflow logic runs without publishing packages or creating a release.
@@ -27,13 +30,16 @@ function runStep(name: string, version: string): { args: string[]; notes: string
       gh() { if [ "$2" = view ]; then return 1; fi; printf '%s\\n' "$@"; }
       node() { if [ "\${3:-}" = --title ]; then printf 'A release'; else printf 'Release body.\\n'; fi; }
     `;
+
     const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", stubs + script(name)], {
       cwd,
       encoding: "utf8",
       env: { ...process.env, GITHUB_REF_NAME: `v${version}` },
     });
+
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toBe("");
+
     return {
       args: result.stdout.trim().split("\n"),
       notes: name.startsWith("Create") ? readFileSync(join(cwd, "notes.md"), "utf8") : null,

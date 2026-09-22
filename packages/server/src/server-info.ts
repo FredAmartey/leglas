@@ -1,6 +1,8 @@
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isNumber, isString, isJsonRecord, parseJson } from "./json.js";
+
 /** The running server's small rendezvous record for commands in another process. */
 export const SERVER_INFO_PATH = ".leglas/server.json";
 
@@ -19,8 +21,10 @@ export async function writeServerInfo(cwd: string, info: ServerInfo): Promise<vo
   const path = join(cwd, SERVER_INFO_PATH);
   const directory = dirname(path);
   await mkdir(directory, { recursive: true });
+
   if (!(await lstat(directory)).isDirectory()) return;
   const existing = await lstat(path).catch(() => null);
+
   if (existing !== null && !existing.isFile()) return;
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(
@@ -28,28 +32,29 @@ export async function writeServerInfo(cwd: string, info: ServerInfo): Promise<vo
     `${JSON.stringify({ ...info, startedAt: new Date().toISOString() }, null, 2)}\n`,
     "utf8",
   );
-  await rename(temporary, path).catch(async (error: unknown) => {
+  await rename(temporary, path).catch(async (cause: unknown) => {
     await rm(temporary, { force: true }).catch(() => {});
-    throw error;
+    throw cause;
   });
 }
 
 export async function readServerInfo(cwd: string): Promise<ServerInfo | null> {
   try {
-    const value = JSON.parse(
-      await readFile(join(cwd, SERVER_INFO_PATH), "utf8"),
-    ) as Partial<ServerInfo>;
+    const value = parseJson(await readFile(join(cwd, SERVER_INFO_PATH), "utf8"));
+
     if (
-      typeof value.port !== "number" ||
+      !isJsonRecord(value) ||
+      !isNumber(value.port) ||
       !Number.isInteger(value.port) ||
       value.port < 1 ||
       value.port > 65535 ||
-      typeof value.url !== "string" ||
+      !isString(value.url) ||
       value.url === "" ||
-      typeof value.pid !== "number" ||
+      !isNumber(value.pid) ||
       !Number.isInteger(value.pid)
     )
       return null;
+
     return { port: value.port, url: value.url, pid: value.pid };
   } catch {
     return null;
@@ -70,8 +75,10 @@ export async function removeServerInfo(
 ): Promise<void> {
   if (expected !== undefined) {
     const current = await readServerInfo(cwd);
+
     if (current !== null && (current.port !== expected.port || current.pid !== expected.pid))
       return;
   }
+
   await rm(join(cwd, SERVER_INFO_PATH), { force: true });
 }

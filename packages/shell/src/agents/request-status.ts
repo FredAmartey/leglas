@@ -68,15 +68,14 @@ export type AgentOption = {
 export function changingRequestTitles(requests: readonly RequestStatus[]): string[] {
   return [
     ...new Set(
-      requests
-        .filter(
-          (request) =>
-            request.mode !== "variant" &&
-            (request.status === "queued" ||
-              request.status === "picked-up" ||
-              request.status === "running"),
-        )
-        .map((request) => request.title),
+      requests.flatMap((request) =>
+        request.mode !== "variant" &&
+        (request.status === "queued" ||
+          request.status === "picked-up" ||
+          request.status === "running")
+          ? [request.title]
+          : [],
+      ),
     ),
   ];
 }
@@ -109,9 +108,9 @@ export function notesAwaitingChange(requests: readonly RequestStatus[]): Set<str
 /** Directions an agent has actually picked up, excluding work still queued. */
 export function workingRequestTitles(requests: readonly RequestStatus[]): Set<string> {
   return new Set(
-    requests
-      .filter((request) => request.status === "picked-up" || request.status === "running")
-      .map((request) => request.title),
+    requests.flatMap((request) =>
+      request.status === "picked-up" || request.status === "running" ? [request.title] : [],
+    ),
   );
 }
 
@@ -138,15 +137,18 @@ export function composerAgent(
     // "Custom" ever will, and the command's first word is its name.
     const word = customRun?.trim().split(/\s+/)[0] ?? "";
     const name = word === "" ? "Custom" : (word.split("/").pop() ?? "Custom");
+
     return { kind: "chosen", id: "custom", name };
   }
 
   const selected = choice === null ? undefined : available.find((option) => option.id === choice);
+
   // A chosen binary that has left the PATH cannot run anything, so the chip
   // must not keep wearing its name.
   if (selected?.available) return { kind: "chosen", id: selected.id, name: selected.name };
 
   if (!available.some((option) => option.available)) return { kind: "none" };
+
   return { kind: "choose" };
 }
 
@@ -191,13 +193,18 @@ export function waitingLabel(waiting: AgentWaiting): string {
     waiting.max === null
       ? `retry ${waiting.attempt}`
       : `retry ${waiting.attempt} of ${waiting.max}`;
+
   const status = waiting.status;
   const reason = waiting.reason ?? "";
+
   if (status === 429 || reason.includes("rate")) return `provider is rate limiting · ${of}`;
+
   if (status === 401 || status === 403 || reason.includes("auth"))
     return `provider refused the login · ${of}`;
+
   if (status === 529 || status === 503 || reason.includes("overload"))
     return `provider is overloaded · ${of}`;
+
   return `provider returned an error · ${of}`;
 }
 
@@ -248,7 +255,9 @@ export function cardDetail(card: RequestCard): string | null {
  */
 export function formatElapsed(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+
   if (seconds < 60) return `${seconds}s`;
+
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
@@ -258,6 +267,7 @@ export function requestCard(
   attended: boolean,
 ): RequestCard | null {
   const running = requests.find((request) => request.status === "running");
+
   if (agent.running || running !== undefined) {
     return {
       kind: "running",
@@ -273,6 +283,7 @@ export function requestCard(
   }
 
   const queued = requests.filter((request) => request.status === "queued").length;
+
   if (queued > 0) return { kind: "queued", count: queued, attended };
 
   if (requests.some((request) => request.status === "picked-up")) return { kind: "picked-up" };
@@ -280,8 +291,11 @@ export function requestCard(
   const ended = requests.findLast(
     (request) => request.status === "failed" || request.status === "cancelled",
   );
+
   if (ended === undefined) return null;
+
   if (ended.status === "cancelled") return { kind: "stopped", id: ended.id, title: ended.title };
+
   return {
     kind: "failed",
     id: ended.id,

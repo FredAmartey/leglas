@@ -25,19 +25,25 @@ export function DeleteRemovedDialog({
 
   useEffect(() => {
     const dialog = dialogRef.current;
+
     if (dialog === null) return;
-    const returnTo = document.activeElement as HTMLElement | null;
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
     const onDialogCancel = (event: Event) => {
       event.preventDefault();
       onCancelRef.current();
     };
+
     const onDialogKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
+
       const controls = Array.from(
         dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
       );
+
       const first = controls[0];
       const last = controls.at(-1);
+
       if (first === undefined || last === undefined) {
         event.preventDefault();
         dialog.focus();
@@ -49,13 +55,17 @@ export function DeleteRemovedDialog({
         first.focus();
       }
     };
+
     dialog.addEventListener("cancel", onDialogCancel);
     dialog.addEventListener("keydown", onDialogKeyDown);
+
     if (!dialog.open) dialog.showModal();
     cancelRef.current?.focus();
+
     return () => {
       dialog.removeEventListener("cancel", onDialogCancel);
       dialog.removeEventListener("keydown", onDialogKeyDown);
+
       if (dialog.open) dialog.close();
       (returnTo?.isConnected ? returnTo : fallbackFocusRef.current)?.focus();
     };
@@ -63,6 +73,7 @@ export function DeleteRemovedDialog({
 
   const single = count === 1;
   const title = single ? "Delete removed direction?" : "Clear removed directions?";
+
   const description = single
     ? `This permanently removes “${name ?? "this direction"}” from Leglas.`
     : `This permanently removes all ${count} directions from Leglas.`;

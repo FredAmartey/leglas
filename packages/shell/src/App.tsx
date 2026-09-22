@@ -5,6 +5,7 @@ import { FALLBACK_MS, liveConnection } from "./net/live.js";
 import { startPoll, wasAborted } from "./net/poll.js";
 import { Shell } from "./Shell.js";
 import type { ConfigPayload } from "./types.js";
+import { readJson } from "./net/api.js";
 
 type Load =
   | { status: "loading" }
@@ -31,6 +32,13 @@ function Notice({ children, title }: { children: React.ReactNode; title: string 
   );
 }
 
+/** The server answered, and said no. */
+class Refused extends Error {
+  constructor(readonly status: number) {
+    super(`the server answered ${status}`);
+  }
+}
+
 export function App() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   /** A viewer asking again, after the share went quiet. */
@@ -44,14 +52,14 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
+
     const read = (signal: AbortSignal) =>
       fetch("/leglas/api/config", { signal }).then((response) => {
         if (!response.ok) {
-          throw Object.assign(new Error(`the server answered ${response.status}`), {
-            status: response.status,
-          });
+          throw new Refused(response.status);
         }
-        return response.json() as Promise<ConfigPayload>;
+
+        return readJson<ConfigPayload>(response);
       });
 
     // An agent registers directions while this is open, so new previews have
@@ -78,18 +86,19 @@ export function App() {
                 : { status: "ready", config },
             );
           })
-          .catch((error: unknown) => {
+          .catch((cause: unknown) => {
             if (cancelled) return;
-            if (!wasAborted(error)) misses.current += 1;
+
+            if (!wasAborted(cause)) misses.current += 1;
             // The share listener refusing the cookie is the sharer having
             // stopped: final, and a new link is the only way back. Anything
             // else is the tunnel or the network, and two misses in a row is
             // what it takes to call it.
-            const refused = (error as { status?: unknown }).status === 403;
+            const refused = cause instanceof Refused && cause.status === 403;
             setLoad((current) =>
               (current.status === "ready" || current.status === "ended") &&
               current.config.viewer !== undefined
-                ? wasAborted(error) || (!refused && misses.current < 2)
+                ? wasAborted(cause) || (!refused && misses.current < 2)
                   ? current
                   : { status: "ended", config: current.config, final: refused }
                 : current.status === "ready"
@@ -98,11 +107,11 @@ export function App() {
                       status: "failed",
                       // An abandoned read is the poll's own deadline, not
                       // anything the server said, and its wording is internal.
-                      message: wasAborted(error)
+                      message: wasAborted(cause)
                         ? "it did not answer in time"
-                        : error instanceof Error
-                          ? error.message
-                          : String(error),
+                        : cause instanceof Error
+                          ? cause.message
+                          : String(cause),
                     },
             );
           }),

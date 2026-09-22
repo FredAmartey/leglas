@@ -8,7 +8,9 @@
  */
 
 export type Box = { x: number; y: number; width: number; height: number };
+
 export type Point = { x: number; y: number };
+
 export type Size = { width: number; height: number };
 
 /**
@@ -58,6 +60,7 @@ export function fractionsIn(outer: Box, inner: Box): Box {
   const width = outer.width > 0 ? outer.width : 1;
   const height = outer.height > 0 ? outer.height : 1;
   const round = (value: number) => Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
+
   return {
     height: round(inner.height / height),
     width: round(inner.width / width),
@@ -86,13 +89,15 @@ export function boxFromFractions(outer: Box, fractions: Box): Box {
  * card taller or wider than the viewport is pinned to the top left, which is
  * the only honest answer when there is no room at all.
  */
+export type CardPlacement = { left: number; top: number; flipped: boolean };
+
 export function placeCard(options: {
   /** The element or region the card is about, in the preview's coordinates. */
   anchor: Box;
   card: Size;
   bounds: Size;
   gap?: number;
-}): { left: number; top: number; flipped: boolean } {
+}): CardPlacement {
   const gap = options.gap ?? 8;
   const { anchor, bounds, card } = options;
 
@@ -105,6 +110,7 @@ export function placeCard(options: {
   const top = flipped ? above : below;
 
   let left = anchor.x;
+
   if (left + card.width > bounds.width) left = bounds.width - card.width;
 
   return {
@@ -124,6 +130,7 @@ export function placeCard(options: {
  */
 export function cardWidth(viewport: number): number {
   if (!Number.isFinite(viewport) || viewport <= 0) return 256;
+
   return Math.round(Math.min(256, Math.max(180, viewport - 48)));
 }
 
@@ -142,6 +149,7 @@ export function unionOf(boxes: readonly Box[]): Box | null {
   const top = Math.min(...boxes.map((box) => box.y));
   const right = Math.max(...boxes.map((box) => box.x + box.width));
   const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+
   return { height: bottom - top, width: right - left, x: left, y: top };
 }
 
@@ -162,12 +170,16 @@ const COVERS_CAP = 8;
 export function coversFrom(entries: readonly Covered[]): Covered[] {
   const seen = new Set<string>();
   const kept: Covered[] = [];
+
   for (const entry of entries) {
     const key = `${entry.tag}:${entry.text}`;
+
     if (seen.has(key)) continue;
     seen.add(key);
     kept.push(entry);
+
     if (kept.length === COVERS_CAP) break;
   }
+
   return kept;
 }

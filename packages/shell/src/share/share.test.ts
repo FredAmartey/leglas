@@ -18,6 +18,7 @@ import {
   viewersLine,
 } from "./share.js";
 import type { Preview } from "../types.js";
+import type { RouteFrame } from "./share.js";
 
 const previews: Preview[] = [
   { title: "Aurora", url: "/?v=aurora", tags: [] },
@@ -125,6 +126,7 @@ describe("viewerPrefsRaw", () => {
 
   test("adopting a pushed layout takes its fields and keeps the viewer's own", () => {
     const { request } = railShare({ ...prefs, hidden: [] }, previews);
+
     const mine: Prefs = {
       ...DEFAULT_PREFS,
       width: 300,
@@ -132,6 +134,7 @@ describe("viewerPrefsRaw", () => {
       collapsed: true,
       viewport: 390,
     };
+
     const adopted = adoptLayout(mine, request.layout, previews);
     expect(adopted.order).toEqual(["Wave", "Aurora", "Ember", "Old"]);
     expect(adopted.renames).toEqual({ Wave: "Tide" });
@@ -144,19 +147,20 @@ describe("viewerPrefsRaw", () => {
 });
 
 describe("observedRoutes", () => {
-  const frameFor = (title: string, names: string[], readable = true): HTMLIFrameElement =>
-    ({
-      dataset: { preview: title },
-      get contentWindow() {
-        if (!readable) throw new Error("cross-origin");
-        return {
-          performance: { getEntriesByType: () => names.map((name) => ({ name })) },
-        } as unknown as Window;
-      },
-    }) as unknown as HTMLIFrameElement;
+  const frameFor = (title: string, names: string[], readable = true): RouteFrame => ({
+    dataset: { preview: title },
+    get contentWindow() {
+      if (!readable) throw new Error("cross-origin");
+
+      return {
+        performance: { getEntriesByType: () => names.map((name) => ({ name })) },
+      };
+    },
+  });
 
   test("takes the paths a shared direction loaded, from this origin only", () => {
     const origin = "http://localhost:4100";
+
     const routes = observedRoutes(
       [
         frameFor("Table", [
@@ -170,6 +174,7 @@ describe("observedRoutes", () => {
       ["Table"],
       origin,
     );
+
     // Sorted, deduplicated, this origin only, and nothing from a direction
     // the share does not carry.
     expect(routes).toEqual(["/@vite/client", "/src/main.tsx"]);
@@ -177,11 +182,13 @@ describe("observedRoutes", () => {
 
   test("a frame it cannot read costs nothing", () => {
     const origin = "http://localhost:4100";
+
     const routes = observedRoutes(
       [frameFor("Table", [], false), frameFor("Menu", [`${origin}/menu.js`])],
       ["Table", "Menu"],
       origin,
     );
+
     expect(routes).toEqual(["/menu.js"]);
   });
 });

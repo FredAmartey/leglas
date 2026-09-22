@@ -21,7 +21,7 @@ export const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 export type ShutdownSignal = (typeof SHUTDOWN_SIGNALS)[number];
 
 export type SignalTarget = {
-  on(signal: ShutdownSignal, listener: () => void): unknown;
+  on(signal: ShutdownSignal, listener: () => void): void;
 };
 
 /**
@@ -37,10 +37,14 @@ export function installShutdown(
   target: SignalTarget = process,
 ): () => Promise<void> {
   let stopping: Promise<void> | null = null;
+
   const shutdown = (): Promise<void> => {
     stopping ??= stop();
+
     return stopping;
   };
+
   for (const signal of SHUTDOWN_SIGNALS) target.on(signal, () => void shutdown());
+
   return shutdown;
 }

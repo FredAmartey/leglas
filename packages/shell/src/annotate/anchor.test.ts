@@ -2,14 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import { anchorFor, elementText, selectorFor, type ElementLike } from "./anchor.js";
 
+type Spec = { tag: string; id?: string; className?: string; text?: string; children?: Spec[] };
+
 /** A tree the selector walk can climb, shaped like the DOM's own. */
-function tree(spec: {
-  tag: string;
-  id?: string;
-  className?: string;
-  text?: string;
-  children?: (typeof spec)[];
-}): ElementLike {
+function tree(spec: Spec): ElementLike {
   const node: ElementLike = {
     children: [],
     className: spec.className,
@@ -18,27 +14,38 @@ function tree(spec: {
     tagName: spec.tag.toUpperCase(),
     textContent: spec.text ?? null,
   };
+
   const children = (spec.children ?? []).map((child) => tree(child));
+
   for (const child of children) child.parentElement = node;
-  (node as unknown as { children: ElementLike[] }).children = children;
+  node.children = children;
+
   return node;
 }
 
 const find = (root: ElementLike, tag: string, nth = 1): ElementLike => {
   let seen = 0;
+
   const walk = (node: ElementLike): ElementLike | null => {
     if (node.tagName === tag.toUpperCase()) {
       seen += 1;
+
       if (seen === nth) return node;
     }
-    for (let at = 0; at < node.children.length; at += 1) {
-      const hit = walk(node.children[at] as ElementLike);
+
+    for (const child of Array.from(node.children)) {
+      const hit = walk(child);
+
       if (hit) return hit;
     }
+
     return null;
   };
+
   const found = walk(root);
+
   if (!found) throw new Error(`no ${tag} in the tree`);
+
   return found;
 };
 
@@ -59,6 +66,7 @@ describe("selectorFor", () => {
   // numbering renumbers on that; type numbering does not.
   test("survives a sibling of another type being inserted above", () => {
     const before = tree({ children: [{ children: [{ tag: "p" }], tag: "main" }], tag: "body" });
+
     const after = tree({
       children: [{ children: [{ tag: "h2" }, { tag: "p" }], tag: "main" }],
       tag: "body",
@@ -92,9 +100,10 @@ describe("selectorFor", () => {
   });
 
   test("gives up at a depth that still describes an element, not a skeleton", () => {
-    let spec: { tag: string; children?: unknown[] } = { tag: "span" };
+    let spec: Spec = { tag: "span" };
+
     for (let depth = 0; depth < 14; depth += 1) spec = { children: [spec], tag: "div" };
-    const root = tree({ children: [spec], tag: "body" } as Parameters<typeof tree>[0]);
+    const root = tree({ children: [spec], tag: "body" });
 
     expect(selectorFor(find(root, "span")).split(" > ")).toHaveLength(8);
   });

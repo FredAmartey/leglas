@@ -88,6 +88,7 @@ export function startChannel(
     // the same request goes out twice.
     if (busy) return;
     busy = true;
+
     try {
       await push();
     } finally {
@@ -100,14 +101,19 @@ export function startChannel(
     // makes the queue this reads the project's rather than whatever directory
     // the process happened to start in.
     const located = await options.project.locate();
+
     if (!located.ok) {
       // Settled for the life of the process, so there is no queue coming.
       clearInterval(timer);
+
       return;
     }
+
     const fresh = unpushed(await read(located.directory), pushed);
+
     for (const request of fresh) {
       pushed.add(request.id);
+
       try {
         await server.server.notification({
           method: "notifications/claude/channel",
@@ -123,5 +129,6 @@ export function startChannel(
 
   const timer = setInterval(() => void poll(), options.pollMs ?? CHANNEL_POLL_MS);
   void poll();
+
   return { stop: () => clearInterval(timer) };
 }

@@ -97,6 +97,7 @@ describe("paint in the signature", () => {
     const dawn = renderedSignature(TEXT, TAGS, [
       "rgba(0,0,0,0);linear-gradient(#0E1B3A,#F2A65A);#fff",
     ]);
+
     const dusk = renderedSignature(TEXT, TAGS, [
       "rgba(0,0,0,0);linear-gradient(#0B1026,#E0623A);#fff",
     ]);
@@ -118,9 +119,11 @@ describe("paint in the signature", () => {
 
   test("the same copy and paint in a different layout is not a duplicate", () => {
     const sharedPaint = ["rgb(13,13,13);none;rgb(240,240,240)"];
+
     const capsule = renderedSignature(TEXT, TAGS, sharedPaint, [
       "NAV{rect:120,20,650,64;display:grid}",
     ]);
+
     const satellite = renderedSignature(TEXT, TAGS, sharedPaint, [
       "NAV{rect:940,20,260,340;display:block}",
     ]);
@@ -142,6 +145,7 @@ describe("paint in the signature", () => {
       [],
       ["BODY{::before{content:'';width:10px}}", "PATH{d:M0 0L1 1}", "IMG{src:a.webp}"],
     );
+
     const changed = renderedSignature(
       TEXT,
       TAGS,
@@ -182,6 +186,7 @@ describe("visualSample", () => {
     const ownerDocument = {
       defaultView: { getComputedStyle: () => ({ position: "static" }), scrollX: 0, scrollY: 0 },
     };
+
     const rect = (left: number, width: number) => ({
       bottom: 40,
       height: 20,
@@ -190,6 +195,7 @@ describe("visualSample", () => {
       top: 20,
       width,
     });
+
     const child: FakeElement = {
       getAttribute: (name) => (name === "d" ? path : null),
       getBoundingClientRect: () => rect(childLeft, 100),
@@ -200,6 +206,7 @@ describe("visualSample", () => {
       querySelectorAll: () => [],
       tagName: "PATH",
     };
+
     const body: FakeElement = {
       getAttribute: () => null,
       getBoundingClientRect: () => rect(0, 1280),
@@ -210,15 +217,20 @@ describe("visualSample", () => {
       querySelectorAll: () => [child],
       tagName: "BODY",
     };
+
     child.parentElement = body;
-    return body as unknown as HTMLElement;
+
+    return body;
   };
 
-  const styleOf = (_element: Element, pseudo?: string) => ({
+  const styleOf = (_element: FakeElement, pseudo?: string) => ({
     getPropertyValue: (property: string) => {
       if (property === "content") return pseudo ? "none" : "";
+
       if (property === "animation-name") return "none";
+
       if (property === "display") return "block";
+
       return "";
     },
   });
@@ -245,12 +257,14 @@ describe("paintSample", () => {
     tagName: string;
     paint: { backgroundColor: string; backgroundImage: string; color: string };
   };
+
   const node = (bg: string, children: Node[] = [], tagName = "DIV"): Node => ({
     children,
     tagName,
     paint: { backgroundColor: bg, backgroundImage: "none", color: "#111" },
   });
-  const styleOf = (element: unknown) => (element as Node).paint;
+
+  const styleOf = (element: Node) => element.paint;
 
   test("a script beside the root is not a branch", () => {
     // Vite injects its module script into body, so body has two element
@@ -285,6 +299,7 @@ describe("paintSample", () => {
 
   test("caps the descent so a deep chain stays cheap", () => {
     let tree = node("#0");
+
     for (let depth = 0; depth < 20; depth += 1) tree = node(`#${depth}`, [tree]);
 
     expect(paintSample(tree, styleOf).length).toBeLessThanOrEqual(4);
@@ -303,6 +318,7 @@ describe("signature size", () => {
       { length: 720 },
       (_, index) => `DIV{rect:${index},${index * 2},1280,64;${"display:block;".repeat(120)}}`,
     );
+
     const read = () =>
       renderedSignature(
         "Every incident, one timeline. Start free",

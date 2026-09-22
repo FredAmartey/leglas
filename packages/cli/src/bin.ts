@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-
-import { createUpdateService } from "@leglas/server";
 
 import { parseArgs } from "./args.js";
 import { runClassify } from "./run-classify.js";
@@ -16,9 +13,7 @@ import { runLog } from "./run-log.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
 import { runShow } from "./run-show.js";
 import { runWatch } from "./run-watch.js";
-import { run } from "./run.js";
-import { installShutdown } from "./shutdown.js";
-import { createHandoff } from "./restart.js";
+import { startViewer } from "./bin-start.js";
 
 const HELP = `leglas - compare design directions inside your own running app
 
@@ -78,7 +73,9 @@ Options for show
 
 function version(): string {
   const require = createRequire(import.meta.url);
+  // SAFETY: The CLI ships its own `package.json`, whose version is required for publishing.
   const pkg = require("../package.json") as { version: string };
+
   return pkg.version;
 }
 
@@ -86,6 +83,7 @@ function version(): string {
 async function openBrowser(url: string): Promise<void> {
   const command =
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+
   try {
     spawn(command, [url], { detached: true, stdio: "ignore" }).unref();
   } catch {
@@ -104,7 +102,8 @@ function quietModuleTypeWarning(): void {
   const listeners = process.listeners("warning");
   process.removeAllListeners("warning");
   process.on("warning", (warning) => {
-    if ((warning as NodeJS.ErrnoException).code === "MODULE_TYPELESS_PACKAGE_JSON") return;
+    if ("code" in warning && warning.code === "MODULE_TYPELESS_PACKAGE_JSON") return;
+
     for (const listener of listeners) listener(warning);
   });
 }
@@ -138,6 +137,7 @@ if (parsed.kind === "init") {
     { cwd: process.cwd(), force: parsed.force, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -146,6 +146,7 @@ if (parsed.kind === "classify") {
     { changes: parsed.changes, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -154,6 +155,7 @@ if (parsed.kind === "add") {
     { preview: parsed.preview, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -162,6 +164,7 @@ if (parsed.kind === "keep") {
     { title: parsed.title, to: parsed.to, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -170,6 +173,7 @@ if (parsed.kind === "explore") {
     { surface: parsed.surface, count: parsed.count, basedOn: parsed.basedOn, json: parsed.json },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -178,6 +182,7 @@ if (parsed.kind === "requests") {
     { json: parsed.json, clear: parsed.clear, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -188,6 +193,7 @@ if (parsed.kind === "watch") {
     { run: parsed.run, port: parsed.port, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -196,6 +202,7 @@ if (parsed.kind === "log") {
     { entry: parsed.entry, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -216,6 +223,7 @@ if (parsed.kind === "show") {
     },
     previewDeps,
   );
+
   process.exit(outcome.exitCode);
 }
 
@@ -230,41 +238,11 @@ if (parsed.kind === "new") {
     },
     { log: (line) => process.stdout.write(`${line}\n`) },
   );
+
   process.exit(outcome.exitCode);
 }
 
-let entry = fileURLToPath(import.meta.url);
-try {
-  entry = realpathSync(entry);
-} catch {
-  // A removed cache entry must not prevent startup from the unresolved path.
-}
-const updates = createUpdateService({
-  version: version(),
-  entry,
-  argv: process.argv,
-  cwd: process.cwd(),
-  deps: {
-    log: (line) => (parsed.options.json ? process.stderr : process.stdout).write(`${line}\n`),
-  },
-});
-
-const result = await run(
+await startViewer(
   { ...parsed.options, cwd: process.cwd() },
-  { open: openBrowser, log: (line) => process.stdout.write(`${line}\n`), updates },
+  { entry: fileURLToPath(import.meta.url), version: version(), open: openBrowser },
 );
-
-const { handOff, handedOff } = createHandoff();
-updates.onRestart((command) =>
-  handOff(command, result.stop, {
-    spawn,
-    exit: (code) => process.exit(code),
-    target: process,
-  }),
-);
-
-installShutdown(async () => {
-  if (handedOff()) return;
-  await result.stop();
-  process.exit(0);
-});

@@ -80,7 +80,7 @@ describe("anchorFrom", () => {
   // Notes written before the spot existed sat at the middle of the element,
   // which is where they still belong.
   test("a note with no spot recorded lands in the middle", () => {
-    const { spot, ...without } = anchor();
+    const { spot: _spot, ...without } = anchor();
     expect(anchorFrom(without)?.spot).toEqual({ x: 0.5, y: 0.5 });
   });
 

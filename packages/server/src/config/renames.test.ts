@@ -32,8 +32,10 @@ describe("resolveTitle", () => {
     const resolution = resolveTitle("Calm", titles, { Cool: "Calm", Aurora: "Calm" });
 
     expect(resolution.ok).toBe(false);
+
     if (resolution.ok) return;
     expect(resolution.reason).toBe("ambiguous");
+
     if (resolution.reason !== "ambiguous") return;
     expect(resolution.matches).toEqual(["Cool", "Aurora"]);
   });

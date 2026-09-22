@@ -17,6 +17,7 @@ import {
 } from "@leglas/server";
 
 import { WATCH_PATH, commandFor, nextRequest, parseTemplate, type WatchTemplate } from "./watch.js";
+import { isJsonObject, type JsonValue } from "./json.js";
 
 export type WatchDeps = { log(line: string): void; error(line: string): void };
 
@@ -37,15 +38,16 @@ async function saveTemplate(cwd: string, run: string): Promise<void> {
   // The file also carries the interface's agent choice. Writing only the
   // template here would silently erase that choice and switch the embedded
   // runner off, so the template joins the file instead of becoming it.
-  let config: Record<string, unknown> = {};
+  let config: { [key: string]: JsonValue } = {};
+
   try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      config = parsed as Record<string, unknown>;
-    }
+    const parsed: JsonValue = JSON.parse(await readFile(path, "utf8"));
+
+    if (isJsonObject(parsed)) config = parsed;
   } catch {
     // Never watched here before; an empty config is the whole story.
   }
+
   config.run = run;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -62,6 +64,7 @@ async function saveTemplate(cwd: string, run: string): Promise<void> {
 function spawnAgent(command: string, args: string[], cwd: string): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
     let settled = false;
+
     const settle = (outcome: SpawnOutcome) => {
       if (settled) return;
       settled = true;
@@ -97,6 +100,7 @@ export async function runWatch(
 ): Promise<{ exitCode: number }> {
   const saved =
     options.run === undefined ? await readAgentChoice(options.cwd) : { agent: null, run: null };
+
   const raw = options.run ?? saved.run;
   let template: WatchTemplate;
   let shownCommand: string;
@@ -104,10 +108,13 @@ export async function runWatch(
 
   if (raw !== null) {
     const parsed = parseTemplate(raw);
+
     if (!parsed.ok) {
       deps.error(parsed.error);
+
       return { exitCode: 1 };
     }
+
     template = parsed.template;
     shownCommand = raw;
   } else if (saved.agent !== null && saved.agent !== "custom") {
@@ -122,6 +129,7 @@ export async function runWatch(
     deps.error(
       'Watch needs an agent command the first time: pick an agent in the interface, or pass --run "claude -p {prompt}".',
     );
+
     return { exitCode: 1 };
   }
 
@@ -131,6 +139,7 @@ export async function runWatch(
   if (options.run !== undefined) await saveTemplate(options.cwd, options.run).catch(() => {});
 
   const base = `http://localhost:${options.port ?? DEFAULT_PORT}`;
+
   const heartbeat = async (watching: boolean): Promise<void> => {
     try {
       await fetch(`${base}${LEGLAS_PREFIX}/api/watch`, {
@@ -149,6 +158,7 @@ export async function runWatch(
   if (synthesizedAgent !== null) {
     deps.log(`Using ${synthesizedAgent}, chosen in the interface.`);
   }
+
   deps.log(`Watching for change requests. Each one runs: ${shownCommand}`);
   deps.log("Stop with Ctrl-C.");
 
@@ -162,6 +172,7 @@ export async function runWatch(
   const handle = async (request: PendingRequest): Promise<void> => {
     deps.log("");
     deps.log(`  ${request.title}: ${request.intent}`);
+
     if (request.target !== null) deps.log(`    ${request.target}`);
 
     // Persisted before the agent starts, so the interface stops saying the
@@ -174,6 +185,7 @@ export async function runWatch(
     if (outcome.ok && outcome.code === 0) {
       await removeRequest(options.cwd, request.id);
       deps.log(`  done    ${request.title}`);
+
       return;
     }
 
@@ -185,11 +197,13 @@ export async function runWatch(
     // owns this terminal, so the reason is whatever the outcome itself says:
     // its output went straight to the screen above and was never captured.
     failed.add(request.id);
+
     const failure = classifyFailure({
       agent: (shownCommand.split(/\s+/)[0] ?? command).split("/").pop() ?? command,
       error: outcome.ok ? null : outcome.error,
       exitCode: outcome.ok ? outcome.code : null,
     });
+
     await markFailed(options.cwd, request.id, failure);
     deps.error(`  failed  ${request.title}: ${failure.message}`);
     deps.error("  Left in the queue and not retried.");
@@ -197,6 +211,7 @@ export async function runWatch(
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
+
     // The first beat is awaited: the embedded runner backs off the moment the
     // server registers a watcher, so the queue must not be read before that
     // registration has had its chance. Otherwise both executors can pass the
@@ -209,12 +224,15 @@ export async function runWatch(
       await heartbeat(true);
       announced = true;
     }
+
     // One agent at a time, in queue order. Two of them editing one tree would
     // produce a conflict the user has to untangle by hand.
     if (busy) return;
     busy = true;
+
     try {
       const request = nextRequest(await readRequests(options.cwd), failed);
+
       if (request !== null && !stopped) {
         inflight = handle(request);
         await inflight;
@@ -229,6 +247,7 @@ export async function runWatch(
 
   return new Promise((resolve) => {
     const timer = setInterval(() => void tick(), POLL_MS);
+
     const stop = () => {
       if (stopped) return;
       stopped = true;
@@ -251,6 +270,7 @@ export async function runWatch(
     process.on("SIGTERM", stop);
     // The signal is the programmatic Ctrl-C, and tests are its main caller.
     options.signal?.addEventListener("abort", stop, { once: true });
+
     // A signal that fired before this listener existed is still a stop.
     //
     // Everything above this promise is awaited work: resolving the agent,

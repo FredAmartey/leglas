@@ -6,6 +6,15 @@ import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 import { WATCH_PATH } from "./agent-command.js";
 import type { RetryNotice } from "./failure.js";
 
+import {
+  isNumber,
+  isString,
+  isJsonRecord,
+  parseJson,
+  type JsonValue,
+  type JsonRecord,
+} from "../json.js";
+
 /**
  * Whether a CLI's saved login will actually carry a run. "ok" and
  * "signed-out" are the CLI's own answer; "unknown" is everything else: no
@@ -18,10 +27,12 @@ export type AgentAuth = "ok" | "signed-out" | "unknown";
 type ProbeResult = { code: number; stdout: string };
 
 export const AGENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
 export type AgentEffort = (typeof AGENT_EFFORTS)[number];
 
 const effortFlag = (effort: AgentEffort | null): string[] =>
   effort === null ? [] : ["--effort", effort];
+
 const codexEffortConfig = (effort: AgentEffort | null): string[] =>
   effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`];
 
@@ -93,19 +104,22 @@ export const KNOWN_AGENTS = {
     ],
     activityVerified: true,
     // Every stream-json event names its session.
-    sessionFrom: (event: Record<string, unknown>): string | null =>
-      typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
+    sessionFrom: (event: JsonRecord): string | null =>
+      isString(event.session_id) && event.session_id !== "" ? event.session_id : null,
     authArgs: ["auth", "status"],
     // `claude auth status` prints JSON with a loggedIn boolean. Only that
     // field decides; any other shape stays unknown.
     authVerdict: (result: ProbeResult): AgentAuth => {
       try {
         const parsed = record(JSON.parse(result.stdout));
+
         if (parsed?.loggedIn === true) return "ok";
+
         if (parsed?.loggedIn === false) return "signed-out";
       } catch {
         // Older CLIs may not know the subcommand or may print prose.
       }
+
       return "unknown";
     },
   },
@@ -169,10 +183,8 @@ export const KNOWN_AGENTS = {
       ...images.flatMap((image) => ["-i", image]),
       prompt,
     ],
-    sessionFrom: (event: Record<string, unknown>): string | null =>
-      event.type === "thread.started" && typeof event.thread_id === "string"
-        ? event.thread_id
-        : null,
+    sessionFrom: (event: JsonRecord): string | null =>
+      event.type === "thread.started" && isString(event.thread_id) ? event.thread_id : null,
     activityVerified: true,
     authArgs: ["login", "status"],
     // `codex login status` exits 0 when logged in and nonzero when not.
@@ -181,7 +193,7 @@ export const KNOWN_AGENTS = {
   cursor: {
     name: "Cursor",
     binary: "cursor-agent",
-    efforts: [] as readonly AgentEffort[],
+    efforts: [],
     // `--trust` on every invocation. Without it, print mode stops at a
     // "Workspace Trust Required" prompt nothing can answer and exits 1 with
     // no events, in any directory Cursor has not been trusted for by hand:
@@ -223,8 +235,8 @@ export const KNOWN_AGENTS = {
       "stream-json",
       "--trust",
     ],
-    sessionFrom: (event: Record<string, unknown>): string | null =>
-      typeof event.session_id === "string" && event.session_id !== "" ? event.session_id : null,
+    sessionFrom: (event: JsonRecord): string | null =>
+      isString(event.session_id) && event.session_id !== "" ? event.session_id : null,
     // Read against cursor-agent 2026.09.02: every event carries the id, a
     // resume in this argument order answers under the same id and remembers
     // the earlier turn.
@@ -235,15 +247,19 @@ export const KNOWN_AGENTS = {
     // stays loose, and anything ambiguous stays unknown.
     authVerdict: (result: ProbeResult): AgentAuth => {
       if (/logged in|signed in/i.test(result.stdout)) return "ok";
+
       if (result.code !== 0 || /not logged in|log in|sign in/i.test(result.stdout))
         return "signed-out";
+
       return "unknown";
     },
   },
 } as const;
 
 export type KnownAgentId = keyof typeof KNOWN_AGENTS;
+
 export type AgentChoice = KnownAgentId | "custom";
+
 /**
  * Whether Leglas can tell from a vendor's output that it edited a file.
  *
@@ -255,6 +271,7 @@ export type AgentChoice = KnownAgentId | "custom";
 export function activityVerified(agent: AgentChoice): boolean {
   if (agent === "custom") return false;
   const adapter = KNOWN_AGENTS[agent];
+
   return "activityVerified" in adapter && adapter.activityVerified === true;
 }
 
@@ -304,6 +321,7 @@ export function execProbe(
 ): Promise<ProbeResult | null> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
+
     try {
       child = spawn(binary, [...args], {
         env: agentEnvironment(),
@@ -318,10 +336,12 @@ export function execProbe(
     child.stdout?.on("data", (chunk: Buffer) => {
       if (stdout.length < 4096) stdout += chunk.toString();
     });
+
     const deadline = setTimeout(() => {
       child.kill("SIGKILL");
       resolve(null);
     }, timeoutMs);
+
     child.once("error", () => {
       clearTimeout(deadline);
       resolve(null);
@@ -348,6 +368,7 @@ export function agentSearchPath(
 ): string {
   const home = env.HOME ?? env.USERPROFILE ?? "";
   const npmPrefix = env.NPM_CONFIG_PREFIX;
+
   const versionBins = (root: string, suffix: readonly string[]): string[] => {
     try {
       return readdirSync(root, { withFileTypes: true })
@@ -357,6 +378,7 @@ export function agentSearchPath(
       return [];
     }
   };
+
   const candidates = [
     ...(env.PATH ?? "").split(delimiter),
     env.PNPM_HOME,
@@ -385,7 +407,7 @@ export function agentSearchPath(
     platform === "darwin" ? "/usr/local/bin" : undefined,
     platform === "darwin" ? "/Applications/Codex.app/Contents/Resources" : undefined,
     platform === "darwin" ? "/Applications/Codex++.app/Contents/Resources" : undefined,
-  ].filter((entry): entry is string => typeof entry === "string" && entry !== "");
+  ].filter((entry): entry is string => isString(entry) && entry !== "");
 
   return [...new Set(candidates)].join(delimiter);
 }
@@ -402,6 +424,7 @@ export async function pathLookup(
   const entries = agentSearchPath(env, platform)
     .split(delimiter)
     .filter((entry) => entry !== "");
+
   const extensions =
     platform === "win32"
       ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((entry) => entry !== "")
@@ -411,12 +434,14 @@ export async function pathLookup(
     for (const extension of extensions) {
       try {
         await access(join(entry, `${binary}${extension}`), constants.X_OK);
+
         return true;
       } catch {
         // Another PATH entry may still contain the binary.
       }
     }
   }
+
   return false;
 }
 
@@ -430,13 +455,16 @@ export async function detectAgents(
   lookup: BinaryLookup = pathLookup,
   probe: AuthProbe = execProbe,
 ): Promise<DetectedAgent[]> {
+  // SAFETY: `KNOWN_AGENTS` is the closed adapter literal declared in this module.
   const entries = Object.entries(KNOWN_AGENTS) as [
     KnownAgentId,
     (typeof KNOWN_AGENTS)[KnownAgentId],
   ][];
+
   return Promise.all(
     entries.map(async ([id, adapter]) => {
       const available = await lookup(adapter.binary).catch(() => false);
+
       if (!available) {
         return {
           id,
@@ -446,7 +474,9 @@ export async function detectAgents(
           efforts: adapter.efforts,
         };
       }
+
       const result = await probe(adapter.binary, adapter.authArgs).catch(() => null);
+
       return {
         id,
         name: adapter.name,
@@ -458,15 +488,15 @@ export async function detectAgents(
   );
 }
 
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+function record(value: JsonValue | undefined): JsonRecord | null {
+  return isJsonRecord(value) ? value : null;
 }
 
-function shownPath(value: unknown, cwd: string): string | null {
-  if (typeof value !== "string" || value === "") return null;
+function shownPath(value: JsonValue | undefined, cwd: string): string | null {
+  if (!isString(value) || value === "") return null;
+
   if (!isAbsolute(value)) return value;
+
   return relative(cwd, value) || ".";
 }
 
@@ -477,69 +507,89 @@ function shownPath(value: unknown, cwd: string): string | null {
  * command" was the label before, and it managed to be true of every command
  * while describing none of them.
  */
-function shownCommand(value: unknown): string | null {
+function shownCommand(value: JsonValue | undefined): string | null {
   let command = Array.isArray(value)
-    ? value.filter((part) => typeof part === "string").join(" ")
-    : typeof value === "string"
+    ? value.filter((part) => isString(part)).join(" ")
+    : isString(value)
       ? value
       : "";
+
   command = command.trim();
 
   const wrapped = /^(?:\S*\/)?(?:bash|sh|zsh)\s+-l?c\s+([\s\S]*)$/.exec(command);
+
   if (wrapped?.[1] !== undefined) {
     command = wrapped[1].trim();
     const quote = command[0];
+
     if ((quote === "'" || quote === '"') && command.endsWith(quote) && command.length > 1) {
       command = command.slice(1, -1);
     }
   }
 
   command = (command.split("\n")[0] ?? "").replace(/\s+/g, " ").trim();
+
   if (command === "") return null;
+
   return command.length > 48 ? `${command.slice(0, 47)}…` : command;
 }
 
-function claudeActivity(event: Record<string, unknown>, cwd: string): string | null {
+function claudeActivity(event: JsonRecord, cwd: string): string | null {
   if (event.type !== "assistant") return null;
   const message = record(event.message);
+
   if (message === null || !Array.isArray(message.content)) return null;
 
   for (const rawBlock of message.content) {
     const block = record(rawBlock);
-    if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
+
+    if (block?.type !== "tool_use" || !isString(block.name)) continue;
 
     const input = record(block.input);
+
     if (["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(block.name)) {
       const path = shownPath(input?.file_path ?? input?.notebook_path, cwd);
+
       return path === null ? `using ${block.name}` : `editing ${path}`;
     }
+
     if (block.name === "Read") {
       const path = shownPath(input?.file_path ?? input?.path, cwd);
+
       return path === null ? "using Read" : `reading ${path}`;
     }
+
     if (block.name === "Bash") {
       const command = shownCommand(input?.command);
+
       return command === null ? "running a command" : `running ${command}`;
     }
+
     if (block.name === "Grep" || block.name === "Glob") return "searching the project";
+
     return `using ${block.name}`;
   }
+
   return null;
 }
 
-function codexActivity(event: Record<string, unknown>, cwd: string): string | null {
+function codexActivity(event: JsonRecord, cwd: string): string | null {
   if (event.type !== "item.started" && event.type !== "item.completed") return null;
   const item = record(event.item);
+
   if (item === null) return null;
 
   if (item.type === "command_execution") {
     const command = shownCommand(item.command);
+
     return command === null ? "running a command" : `running ${command}`;
   }
+
   if (item.type !== "file_change") return null;
 
   const first = Array.isArray(item.changes) ? record(item.changes[0]) : null;
   const path = shownPath(first?.path ?? item.path, cwd);
+
   return path === null ? null : `editing ${path}`;
 }
 
@@ -559,12 +609,14 @@ function codexActivity(event: Record<string, unknown>, cwd: string): string | nu
  * `shellToolCall`, with `args.path` and `args.command`. Anything else is
  * named without guessing what it did.
  */
-function cursorActivity(event: Record<string, unknown>, cwd: string): string | null {
+function cursorActivity(event: JsonRecord, cwd: string): string | null {
   if (event.type !== "tool_call") return null;
   const wrapper = record(event.tool_call);
+
   if (wrapper === null) return null;
 
   const key = Object.keys(wrapper).find((name) => name.endsWith("ToolCall"));
+
   if (key === undefined) return null;
   const call = record(wrapper[key]);
   const args = record(call?.args);
@@ -576,31 +628,42 @@ function cursorActivity(event: Record<string, unknown>, cwd: string): string | n
     // file. A label that said anything else here would let a run that had
     // edited be rerun on top of its own change.
     const path = shownPath(args?.path, cwd);
+
     return path === null ? "editing a file" : `editing ${path}`;
   }
+
   if (tool === "read") {
     const path = shownPath(args?.path, cwd);
+
     return path === null ? "using read" : `reading ${path}`;
   }
+
   const command = shownCommand(args?.command);
+
   if (command !== null) return `running ${command}`;
   const path = shownPath(args?.path, cwd);
+
   return path === null ? `using ${tool}` : `using ${tool} on ${path}`;
 }
 
 /** Reduce one agent JSONL event to a short, user-facing activity label. */
 export function activityFrom(agent: AgentChoice, line: string, cwd = process.cwd()): string | null {
-  let event: Record<string, unknown> | null;
+  let event: JsonRecord | null;
+
   try {
-    event = record(JSON.parse(line));
+    event = record(parseJson(line));
   } catch {
     return null;
   }
+
   if (event === null) return null;
 
   if (agent === "claude") return claudeActivity(event, cwd);
+
   if (agent === "codex") return codexActivity(event, cwd);
+
   if (agent === "cursor") return cursorActivity(event, cwd);
+
   return null;
 }
 
@@ -611,13 +674,16 @@ export function activityFrom(agent: AgentChoice, line: string, cwd = process.cwd
  */
 export function sessionFrom(agent: AgentChoice, line: string): string | null {
   if (agent === "custom") return null;
-  let event: Record<string, unknown> | null;
+  let event: JsonRecord | null;
+
   try {
-    event = record(JSON.parse(line));
+    event = record(parseJson(line));
   } catch {
     return null;
   }
+
   if (event === null) return null;
+
   return KNOWN_AGENTS[agent].sessionFrom(event);
 }
 
@@ -637,35 +703,38 @@ export function sessionFrom(agent: AgentChoice, line: string): string | null {
  */
 export function retryFrom(agent: AgentChoice, line: string): RetryNotice | null {
   if (agent !== "claude" && agent !== "cursor") return null;
-  let event: Record<string, unknown> | null;
+  let event: JsonRecord | null;
+
   try {
-    event = record(JSON.parse(line));
+    event = record(parseJson(line));
   } catch {
     return null;
   }
+
   if (event === null || event.type !== "system" || event.subtype !== "api_retry") return null;
 
-  const attempt = typeof event.attempt === "number" ? event.attempt : 1;
+  const attempt = isNumber(event.attempt) ? event.attempt : 1;
+
   return {
     attempt,
-    max: typeof event.max_retries === "number" ? event.max_retries : null,
-    status: typeof event.error_status === "number" ? event.error_status : null,
-    reason:
-      typeof event.error === "string" && event.error !== "" ? event.error.toLowerCase() : null,
+    max: isNumber(event.max_retries) ? event.max_retries : null,
+    status: isNumber(event.error_status) ? event.error_status : null,
+    reason: isString(event.error) && event.error !== "" ? event.error.toLowerCase() : null,
   };
 }
 
 function isAgentChoice(value: unknown): value is AgentChoice {
-  return value === "custom" || (typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value));
+  return value === "custom" || (isString(value) && Object.hasOwn(KNOWN_AGENTS, value));
 }
 
 export function isAgentEffort(value: unknown): value is AgentEffort {
-  return typeof value === "string" && (AGENT_EFFORTS as readonly string[]).includes(value);
+  return isString(value) && AGENT_EFFORTS.some((effort) => effort === value);
 }
 
-async function readWatchConfig(cwd: string): Promise<Record<string, unknown>> {
+async function readWatchConfig(cwd: string): Promise<JsonRecord> {
   try {
-    const parsed = JSON.parse(await readFile(join(cwd, WATCH_PATH), "utf8")) as unknown;
+    const parsed = parseJson(await readFile(join(cwd, WATCH_PATH), "utf8"));
+
     return record(parsed) ?? {};
   } catch {
     return {};
@@ -676,13 +745,14 @@ export async function readAgentChoice(cwd: string): Promise<SavedAgentChoice> {
   const config = await readWatchConfig(cwd);
   const agent = isAgentChoice(config.agent) ? config.agent : null;
   const efforts = record(config.efforts);
+
   return {
     agent,
     effort:
       agent !== null && agent !== "custom" && isAgentEffort(efforts?.[agent])
         ? efforts[agent]
         : null,
-    run: typeof config.run === "string" && config.run !== "" ? config.run : null,
+    run: isString(config.run) && config.run !== "" ? config.run : null,
   };
 }
 
@@ -690,13 +760,17 @@ export async function readAgentChoice(cwd: string): Promise<SavedAgentChoice> {
 export async function saveAgentChoice(cwd: string, choice: AgentChoiceInput): Promise<void> {
   const config = await readWatchConfig(cwd);
   config.agent = choice.agent;
+
   if (choice.agent !== "custom" && choice.effort !== undefined) {
     const efforts = record(config.efforts) ?? {};
+
     if (choice.effort === null) delete efforts[choice.agent];
     else efforts[choice.agent] = choice.effort;
+
     if (Object.keys(efforts).length === 0) delete config.efforts;
     else config.efforts = efforts;
   }
+
   if (choice.run !== undefined) config.run = choice.run;
 
   const path = join(cwd, WATCH_PATH);

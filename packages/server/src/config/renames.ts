@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isJsonRecord, parseJson } from "../json.js";
+
 /**
  * What a direction is called on this machine, when that differs from its title
  * in the config.
@@ -23,12 +25,15 @@ export type Renames = Record<string, string>;
 export async function readRenames(cwd: string): Promise<Renames> {
   try {
     const raw = await readFile(join(cwd, RENAMES_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { renames?: unknown };
-    if (parsed.renames === null || typeof parsed.renames !== "object") return {};
+    const parsed = parseJson(raw);
+
+    if (!isJsonRecord(parsed) || (!isJsonRecord(parsed.renames) && !Array.isArray(parsed.renames)))
+      return {};
+
     // Anything not a string pair is dropped rather than trusted: this file is
     // written by a browser and read by commands that act on real source.
     return Object.fromEntries(
-      Object.entries(parsed.renames as Record<string, unknown>).filter(
+      Object.entries(parsed.renames).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
       ),
     );
@@ -68,7 +73,10 @@ export function resolveTitle(
   if (titles.includes(input)) return { ok: true, title: input };
 
   const matches = titles.filter((title) => renames[title] === input);
+
   if (matches.length === 1 && matches[0] !== undefined) return { ok: true, title: matches[0] };
+
   if (matches.length > 1) return { ok: false, reason: "ambiguous", matches };
+
   return { ok: false, reason: "unknown" };
 }

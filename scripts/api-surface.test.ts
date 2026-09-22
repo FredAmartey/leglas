@@ -100,9 +100,11 @@ describe("reading declarations", () => {
 describe("resolving a name through re-exports", () => {
   const dist = (files: Record<string, string>): string => {
     const directory = mkdtempSync(join(tmpdir(), "leglas-surface-"));
+
     for (const [name, contents] of Object.entries(files)) {
       writeFileSync(join(directory, name), contents);
     }
+
     return directory;
   };
 

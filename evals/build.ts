@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
+
 const manifest = JSON.parse(readFileSync(join(root, "evals/manifest.json"), "utf8"));
 
 /**
@@ -34,6 +35,7 @@ const GUARDED_ROOT = [
   ".npmrc",
   ".pnpmfile.cjs",
 ];
+
 const GUARDED_IN_PACKAGES =
   /^packages\/[^/]+\/(package\.json|tsconfig[^/]*\.json|tsup\.config\.ts|vite[^/]*\.config\.ts|vitest[^/]*\.config\.ts)$/;
 
@@ -45,6 +47,7 @@ for (const task of manifest.tasks) {
   const parent = git("rev-parse", `${task.fix}^`).trim();
   const changed = git("diff", "--name-only", parent, task.fix).trim().split("\n");
   const tests = changed.filter((f) => f.endsWith(".test.ts"));
+
   if (tests.length === 0) throw new Error(`${task.name}: the fix touched no test files`);
 
   // Hidden tests: the fix commit's version of every test file it touched.
@@ -53,6 +56,7 @@ for (const task of manifest.tasks) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, git("show", `${task.fix}:${f}`));
   }
+
   writeFileSync(join(dir, "tests/files.txt"), tests.join("\n") + "\n");
 
   // Baseline copies of the files the verifier refuses changes to. They sit
@@ -71,11 +75,13 @@ for (const task of manifest.tasks) {
       .split("\n")
       .filter((f) => GUARDED_IN_PACKAGES.test(f)),
   ];
+
   for (const f of guarded) {
     const target = join(dir, "tests/baseline", `${f}.snapshot`);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, git("show", `${parent}:${f}`));
   }
+
   writeFileSync(join(dir, "tests/baseline.txt"), guarded.join("\n") + "\n");
   writeFileSync(
     join(dir, "tests/test.sh"),
@@ -97,6 +103,7 @@ for (const task of manifest.tasks) {
     ":(exclude)*.test.ts",
     ":(exclude)CHANGELOG.md",
   );
+
   mkdirSync(join(dir, "solution"), { recursive: true });
   writeFileSync(join(dir, "solution/fix.patch"), patch);
   writeFileSync(
@@ -107,10 +114,12 @@ for (const task of manifest.tasks) {
 
   // Environment: the repo at the parent commit, installed and built.
   mkdirSync(join(dir, "environment"), { recursive: true });
+
   const dockerfile = readFileSync(join(root, "evals/templates/Dockerfile"), "utf8")
     .replaceAll("{{REPO}}", manifest.repo)
     .replaceAll("{{SHA}}", parent)
     .replaceAll("{{PNPM}}", manifest.pnpm);
+
   writeFileSync(join(dir, "environment/Dockerfile"), dockerfile);
 
   if (!existsSync(join(dir, "task.toml"))) {
@@ -122,9 +131,11 @@ for (const task of manifest.tasks) {
         .replaceAll("{{AREA}}", task.area),
     );
   }
+
   if (!existsSync(join(dir, "instruction.md"))) {
     writeFileSync(join(dir, "instruction.md"), "TODO: write the instruction for this task.\n");
   }
+
   console.log(
     `${task.name}: parent ${parent.slice(0, 7)}, ${tests.length} hidden test file(s), patch ${patch.split("\n").length} lines`,
   );

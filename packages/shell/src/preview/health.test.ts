@@ -4,6 +4,7 @@ import { needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import type { Preview } from "../types.js";
 
 const up: HealthState = { reachable: true, wasDown: false };
+
 const down: HealthState = { reachable: false, wasDown: true };
 
 describe("nextHealthState", () => {

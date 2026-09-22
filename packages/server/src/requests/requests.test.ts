@@ -162,6 +162,7 @@ describe("composeRequest, as a variant", () => {
       cut: true,
       skipped: "The design could not be captured in time.",
     };
+
     const prompt = composeRequest(
       preview("Poster", "/?v-hero=poster"),
       "make it warmer",
@@ -193,6 +194,7 @@ describe("composeRequest, as a variant", () => {
 
   test("explains hydration evidence and the additive shared-script exception", () => {
     const message = "Uncaught Error: Minified React error #418; visit https://react.dev/errors/418";
+
     const captured: Captured = {
       attachments: [],
       errors: [],
@@ -200,6 +202,7 @@ describe("composeRequest, as a variant", () => {
       cut: false,
       skipped: null,
     };
+
     const variant = composeRequest(
       preview("Poster", "/?v-hero=poster"),
       "make it warmer",
@@ -208,6 +211,7 @@ describe("composeRequest, as a variant", () => {
       "npx -y leglas",
       captured,
     ).prompt;
+
     const replace = composeRequest(
       preview("Poster", "/?v-hero=poster"),
       "make it warmer",
@@ -222,6 +226,7 @@ describe("composeRequest, as a variant", () => {
       expect(prompt).toContain(message);
       expect(prompt).toContain("counts as additive");
     }
+
     expect(variant.indexOf("What to change")).toBeLessThan(variant.indexOf("After load"));
     expect(variant.indexOf("After load")).toBeLessThan(variant.indexOf("Then register it"));
 
@@ -231,6 +236,7 @@ describe("composeRequest, as a variant", () => {
         "make it warmer",
         mode,
       ).prompt;
+
       expect(withoutEvidence).not.toContain("rebuilt this page");
       expect(withoutEvidence).toContain("counts as additive");
     }
@@ -340,6 +346,7 @@ describe("composeRequest", () => {
 
   test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
     const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace").prompt;
+
     const unknown = composeRequest(
       preview("Pricing v2", "/pricing-v2"),
       "warmer",
@@ -350,10 +357,12 @@ describe("composeRequest", () => {
     // runs and repo searches per request, not seconds.
     expect(known).toContain("Make the change in that file and finish.");
     expect(unknown).toContain("Once found, make the change and finish.");
+
     for (const prompt of [known, unknown]) {
       expect(prompt).toContain("no test run, no build");
       expect(prompt).toContain("checked visually in a live preview");
     }
+
     expect(known).toContain('show "Aurora" --screenshot');
     expect(unknown).toContain('show "Pricing v2" --screenshot');
   });
@@ -522,6 +531,7 @@ describe("request lifecycle", () => {
     const root = cwd();
     await appendRequest(root, input, "first");
     await appendRequest(root, { ...input, title: "Ledger" }, "second");
+
     for (const id of ["first", "second"]) {
       mkdirSync(join(root, ".leglas/captures", id), { recursive: true });
       writeFileSync(join(root, ".leglas/captures", id, "frame.png"), id);
@@ -550,6 +560,7 @@ describe("request lifecycle", () => {
 
 describe("terminal requests", () => {
   const cwd = () => mkdtempSync(join(tmpdir(), "leglas-terminal-"));
+
   const input = (title: string) => ({
     title,
     url: "/",
@@ -655,6 +666,7 @@ describe("the look-once instruction", () => {
       [],
       "npx -y leglas",
     );
+
     expect(prompt).toContain('npx -y leglas show "Say \\"hi\\"" --screenshot');
   });
 });
@@ -668,6 +680,7 @@ describe("what the agent is told to run", () => {
       [],
       "npx -y leglas",
     );
+
     expect(prompt).toContain('npx -y leglas show "Say \\$(whoami) \\`now\\`" --screenshot');
   });
 
@@ -677,6 +690,7 @@ describe("what the agent is told to run", () => {
       "add a `code` sample",
       "variant",
     );
+
     expect(prompt).toContain('--based-on "Cost \\$5"');
     expect(prompt).toContain('--asked-for "add a \\`code\\` sample"');
   });
@@ -720,6 +734,7 @@ describe("a variant of a file direction", () => {
       "warmer",
       "variant",
     );
+
     expect(prompt).toContain("Registering it is the last step; finish there.");
     expect(prompt).toContain("joins the rail after Leglas restarts");
     expect(prompt).not.toContain("--screenshot");
@@ -730,6 +745,7 @@ describe("attachments read back from the queue", () => {
   test("only files inside the request's own capture directory survive the read", async () => {
     const root = mkdtempSync(join(tmpdir(), "leglas-request-attachments-"));
     mkdirSync(join(root, ".leglas"));
+
     const entry = {
       title: "Poster",
       url: "/",
@@ -738,6 +754,7 @@ describe("attachments read back from the queue", () => {
       prompt: "x",
       id: "abc123",
     };
+
     const attachment = (file: string, kind = "frame") => ({ kind, file, width: 1, height: 1 });
     writeFileSync(
       join(root, ".leglas/requests.json"),
@@ -784,6 +801,7 @@ describe("agents that receive paths rather than attachments", () => {
       cut: false,
       skipped: null,
     };
+
     const { prompt } = composeRequest(
       preview("Poster", "/?v-hero=poster"),
       "warmer",

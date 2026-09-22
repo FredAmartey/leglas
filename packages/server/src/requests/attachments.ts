@@ -28,6 +28,7 @@ import type { HydrationEvidence } from "../capture/hydration.js";
  */
 
 export const CAPTURES_DIR = ".leglas/captures";
+
 export const REFERENCES_DIR = ".leglas/references";
 
 /**
@@ -39,9 +40,11 @@ export const REFERENCES_DIR = ".leglas/references";
  * a settle and the screenshots themselves.
  */
 export const LOAD_SHARE = 0.6;
+
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 export type AttachmentKind = "frame" | "note" | "compare" | "reference";
+
 export type Attachment = {
   kind: AttachmentKind;
   file: string;
@@ -79,6 +82,7 @@ export function capturedViewport(captured: Captured): number | null {
 /** Resolve a direction against the Leglas origin without changing absolute URLs. */
 export function previewUrl(origin: string, preview: Preview): string {
   if (/^https?:\/\//i.test(preview.url)) return preview.url;
+
   return new URL(preview.url, origin).href;
 }
 
@@ -86,6 +90,7 @@ function pngSize(bytes: Buffer): { width: number; height: number } | null {
   if (bytes.length >= 24 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
   }
+
   return null;
 }
 
@@ -93,24 +98,31 @@ function gifSize(bytes: Buffer): { width: number; height: number } | null {
   if (bytes.length < 10 || !["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) {
     return null;
   }
+
   return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
 }
 
 function jpegSize(bytes: Buffer): { width: number; height: number } | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   let offset = 2;
+
   while (offset + 8 < bytes.length) {
     if (bytes[offset] !== 0xff) {
       offset += 1;
       continue;
     }
+
     const marker = bytes[offset + 1] ?? 0;
+
     if (marker === 0xd8 || marker === 0xd9) {
       offset += 2;
       continue;
     }
+
     const length = bytes.readUInt16BE(offset + 2);
+
     if (length < 2 || offset + length + 2 > bytes.length) return null;
+
     if (
       [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(
         marker,
@@ -118,8 +130,10 @@ function jpegSize(bytes: Buffer): { width: number; height: number } | null {
     ) {
       return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) };
     }
+
     offset += length + 2;
   }
+
   return null;
 }
 
@@ -131,22 +145,27 @@ function webpSize(bytes: Buffer): { width: number; height: number } | null {
   )
     return null;
   const kind = bytes.subarray(12, 16).toString("ascii");
+
   if (kind === "VP8X") {
     return {
       width: 1 + bytes.readUIntLE(24, 3),
       height: 1 + bytes.readUIntLE(27, 3),
     };
   }
+
   if (kind === "VP8L" && bytes.length >= 25) {
     const bits = bytes.readUInt32LE(21);
+
     return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
   }
+
   if (kind === "VP8 " && bytes.length >= 30) {
     return {
       width: bytes.readUInt16LE(26) & 0x3fff,
       height: bytes.readUInt16LE(28) & 0x3fff,
     };
   }
+
   return null;
 }
 
@@ -157,15 +176,19 @@ export function sniffImage(bytes: Buffer): {
   height: number;
 } | null {
   const unknown = { width: 0, height: 0 };
+
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     return { kind: "png", ...(pngSize(bytes) ?? unknown) };
   }
+
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return { kind: "jpg", ...(jpegSize(bytes) ?? unknown) };
   }
+
   if (bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) {
     return { kind: "gif", ...(gifSize(bytes) ?? unknown) };
   }
+
   if (
     bytes.length >= 12 &&
     bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
@@ -173,6 +196,7 @@ export function sniffImage(bytes: Buffer): {
   ) {
     return { kind: "webp", ...(webpSize(bytes) ?? unknown) };
   }
+
   return null;
 }
 
@@ -183,25 +207,31 @@ async function moveReference(
   index: number,
 ): Promise<Attachment | null> {
   let names: string[];
+
   try {
     names = await readdir(join(cwd, REFERENCES_DIR));
   } catch {
     return null;
   }
+
   const sourceName = names.find((name) => name.startsWith(`${id}.`));
+
   if (sourceName === undefined) return null;
   const extension = extname(sourceName).toLowerCase();
   const destinationName = `reference-${index}${extension}`;
   const source = join(cwd, REFERENCES_DIR, sourceName);
   const destination = join(destinationDir, destinationName);
   await mkdir(destinationDir, { recursive: true });
+
   try {
     await rename(source, destination);
   } catch {
     await copyFile(source, destination);
     await unlink(source).catch(() => {});
   }
+
   const sniffed = sniffImage(await readFile(destination));
+
   return {
     kind: "reference",
     file: `${CAPTURES_DIR}/${basename(destinationDir)}/${destinationName}`,
@@ -210,14 +240,17 @@ async function moveReference(
   };
 }
 
-function focusOf(note: Annotation) {
-  return {
+function focusOf(note: Annotation): import("../capture/capture.js").Focus {
+  const focus: import("../capture/capture.js").Focus = {
     selector: note.anchor.selector,
     text: note.anchor.text,
     tag: note.anchor.tag,
-    ...(note.anchor.region === undefined ? {} : { region: note.anchor.region }),
     rect: note.anchor.rect,
   };
+
+  if (note.anchor.region !== undefined) focus.region = note.anchor.region;
+
+  return focus;
 }
 
 /** Capture everything one request can carry, returning partial work on failure. */
@@ -230,6 +263,7 @@ export async function attachRequest(
   const capture = deps.capture ?? capturePage;
   const deadlineMs = deps.deadlineMs ?? 12_000;
   const destination = join(cwd, CAPTURES_DIR, requestId);
+
   const captured: Captured = {
     attachments: [],
     errors: [],
@@ -237,40 +271,46 @@ export async function attachRequest(
     cut: false,
     skipped: null,
   };
+
   const references: Attachment[] = [];
   requestedWidths.set(captured, Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(input.width))));
 
   const controller = new AbortController();
   let expired = false;
   let finishDeadline!: () => void;
+
   const deadline = new Promise<void>((resolve) => {
     finishDeadline = resolve;
   });
+
   const timer = setTimeout(() => {
     expired = true;
     controller.abort();
     finishDeadline();
   }, deadlineMs);
+
   timer.unref?.();
 
-  for (let index = 0; index < input.references.length; index += 1) {
-    const reference = await moveReference(
-      cwd,
-      input.references[index] as string,
-      destination,
-      index + 1,
-    ).catch(() => null);
+  for (const [index, referenceId] of input.references.entries()) {
+    const reference = await moveReference(cwd, referenceId, destination, index + 1).catch(
+      () => null,
+    );
+
     if (reference !== null) references.push(reference);
   }
 
   const work = (async () => {
     try {
       const browser = await deps.pool.acquire();
+
       if (expired) return;
+
       if (browser === null) {
         captured.skipped = deps.pool.reason() ?? NO_BROWSER;
+
         return;
       }
+
       const directionInput: CaptureInput & { signal: AbortSignal } = {
         url: previewUrl(input.origin, input.preview),
         width: input.width,
@@ -278,7 +318,9 @@ export async function attachRequest(
         timeoutMs: Math.max(1, Math.floor(deadlineMs * LOAD_SHARE)),
         signal: controller.signal,
       };
+
       const direction = await capture(browser, directionInput);
+
       if (expired) return;
       await mkdir(destination, { recursive: true });
       await writeFile(join(destination, "frame.png"), direction.frame.png);
@@ -297,6 +339,7 @@ export async function attachRequest(
       for (let index = 0; index < direction.crops.length; index += 1) {
         const crop = direction.crops[index];
         const note = input.notes[index];
+
         if (crop === null || crop === undefined || note === undefined || expired) continue;
         const name = `note-${index + 1}.png`;
         await writeFile(join(destination, name), crop.shot.png);
@@ -318,7 +361,9 @@ export async function attachRequest(
           timeoutMs: Math.max(1, Math.floor(deadlineMs * LOAD_SHARE)),
           signal: controller.signal,
         };
+
         const comparison = await capture(browser, compareInput);
+
         if (expired) return;
         await writeFile(join(destination, "compare.png"), comparison.frame.png);
         captured.attachments.push({
@@ -340,8 +385,10 @@ export async function attachRequest(
 
   await Promise.race([work, deadline]);
   clearTimeout(timer);
+
   if (expired) captured.skipped = "The design could not be captured in time.";
   captured.attachments.push(...references);
+
   return captured;
 }
 
@@ -359,6 +406,7 @@ function captureDirectory(cwd: string, requestId: string): string | null {
 /** Remove the directory belonging to one request, without failing its caller. */
 export async function removeCaptures(cwd: string, requestId: string): Promise<void> {
   const directory = captureDirectory(cwd, requestId);
+
   if (directory === null) return;
   await rm(directory, { recursive: true, force: true });
 }
@@ -373,10 +421,12 @@ export async function rehomeCaptures(
   if (attachments.length === 0) return [];
   const source = captureDirectory(cwd, from);
   const destination = captureDirectory(cwd, to);
+
   if (source === null || destination === null) return [...attachments];
   await mkdir(join(cwd, CAPTURES_DIR), { recursive: true });
   await rename(source, destination);
   const prefix = `${CAPTURES_DIR}/${from}/`;
+
   return attachments.map((attachment) => ({
     ...attachment,
     file: attachment.file.startsWith(prefix)
@@ -400,8 +450,10 @@ export function rehomeText(text: string, from: string, to: string): string {
  */
 async function ownCapturesRoot(cwd: string): Promise<string | null> {
   const root = join(cwd, CAPTURES_DIR);
+
   try {
     const entry = await lstat(root);
+
     return entry.isDirectory() ? root : null;
   } catch {
     return null;
@@ -418,9 +470,12 @@ async function ownCapturesRoot(cwd: string): Promise<string | null> {
  */
 export async function isOwnCapture(cwd: string, file: string): Promise<boolean> {
   const root = await realpath(join(cwd, CAPTURES_DIR)).catch(() => null);
+
   if (root === null) return false;
   const real = await realpath(resolve(cwd, file)).catch(() => null);
+
   if (real === null || !real.startsWith(root + sep)) return false;
+
   return (await stat(real).catch(() => null))?.isFile() === true;
 }
 
@@ -428,7 +483,9 @@ export async function isOwnCapture(cwd: string, file: string): Promise<boolean> 
 export async function pruneCaptures(cwd: string, keep: readonly string[]): Promise<void> {
   const kept = new Set([...keep, "show"]);
   const root = await ownCapturesRoot(cwd);
+
   if (root === null) return void (await pruneReferences(cwd));
+
   try {
     const entries = await readdir(root, { withFileTypes: true });
     await Promise.all(
@@ -455,6 +512,7 @@ export async function pruneCaptures(cwd: string, keep: readonly string[]): Promi
  */
 export async function pruneReferences(cwd: string): Promise<void> {
   const references = join(cwd, REFERENCES_DIR);
+
   try {
     if (!(await lstat(references)).isDirectory()) return;
     const entries = await readdir(references, { withFileTypes: true });
@@ -464,6 +522,7 @@ export async function pruneReferences(cwd: string): Promise<void> {
         .filter((entry) => entry.isFile())
         .map(async (entry) => {
           const file = join(references, entry.name);
+
           if ((await stat(file)).mtimeMs < old) await unlink(file).catch(() => {});
         }),
     );

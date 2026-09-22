@@ -16,7 +16,9 @@ import { registerLeglasTools } from "./tools.js";
 
 function version(): string {
   const require = createRequire(import.meta.url);
+  // SAFETY: The MCP package includes its own manifest with the published version.
   const pkg = require("../package.json") as { version: string };
+
   return pkg.version;
 }
 
@@ -27,15 +29,19 @@ const server = new McpServer(
   // interface arrive in the open session as events.
   { capabilities: { experimental: CHANNEL_CAPABILITY }, instructions: CHANNEL_INSTRUCTIONS },
 );
+
 const project = hostProject(server.server, {
   cwd: process.cwd(),
   override: process.env["LEGLAS_PROJECT_DIR"],
   pluginRoot: process.env["LEGLAS_PLUGIN_ROOT"],
 });
+
 const tools = registerLeglasTools(server, { project });
+
 let channel: { stop(): void } | null = null;
 
 let stopping = false;
+
 const shutdown = async () => {
   if (stopping) return;
   stopping = true;
@@ -47,13 +53,16 @@ const shutdown = async () => {
 // The host closing stdin is the ordinary way a stdio server ends; signals
 // cover a host that kills instead. Either way the viewer stops with us.
 process.on("SIGINT", shutdown);
+
 process.on("SIGTERM", shutdown);
 
 const transport = new StdioServerTransport();
+
 transport.onclose = () => {
   void shutdown();
 };
 
 await server.connect(transport);
+
 // Only after connect: a notification with no transport throws.
 channel = startChannel(server, { project });

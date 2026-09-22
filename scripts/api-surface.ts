@@ -30,9 +30,13 @@ const ENTRIES = [
 ] as const;
 
 /** Workspace packages are re-exported by name, and resolve to a sibling. */
-const WORKSPACE: Record<string, string> = {
+const WORKSPACE = {
   "@leglas/server": "packages/server",
-};
+} as const;
+
+function isWorkspace(specifier: string): specifier is keyof typeof WORKSPACE {
+  return Object.hasOwn(WORKSPACE, specifier);
+}
 
 export const SNAPSHOT = "api-surface.txt";
 
@@ -92,16 +96,20 @@ function maskNonCode(source: string): string {
     }
 
     const quote = source[index];
+
     if (quote === '"' || quote === "'" || quote === "`") {
       let at = index + 1;
+
       while (at < source.length) {
         if (source[at] === "\\") {
           at += 2;
           continue;
         }
+
         if (source[at] === quote) break;
         at += 1;
       }
+
       // Blank the interior only; the quotes themselves are not brackets.
       blank(index + 1, at);
       index = at + 1;
@@ -144,14 +152,17 @@ export function topLevelDeclarations(source: string): Map<string, string> {
         /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/.exec(
           bare,
         );
+
       if (start === null) continue;
       current = [];
       name = start[1] ?? null;
     }
 
     current.push(line);
+
     for (const character of bare) {
       if (character === "{" || character === "(" || character === "[") depth += 1;
+
       if (character === "}" || character === ")" || character === "]") depth -= 1;
     }
 
@@ -183,8 +194,10 @@ function reexports(source: string): Reexport[] {
       .split(",")
       .map((entry) => (entry.split(/\s+as\s+/).pop() ?? "").trim())
       .filter((entry) => entry !== "");
+
     found.push({ names, from: match[2] ?? "" });
   }
+
   return found;
 }
 
@@ -199,7 +212,9 @@ function moduleFile(root: string, from: string, specifier: string): string | nul
   if (specifier.startsWith(".")) {
     return join(from, `${specifier.replace(/^\.\//, "").replace(/\.js$/, "")}.d.ts`);
   }
-  const workspace = WORKSPACE[specifier];
+
+  const workspace = isWorkspace(specifier) ? WORKSPACE[specifier] : undefined;
+
   return workspace === undefined ? null : join(root, workspace, "dist", "index.d.ts");
 }
 
@@ -209,11 +224,13 @@ const parsedFiles = new Map<string, Parsed>();
 
 function parse(file: string): Parsed {
   const already = parsedFiles.get(file);
+
   if (already !== undefined) return already;
 
   const source = declarations(file);
   const result = { declarations: topLevelDeclarations(source), reexports: reexports(source) };
   parsedFiles.set(file, result);
+
   return result;
 }
 
@@ -241,16 +258,20 @@ export function resolve(root: string, file: string, name: string, seen: Set<stri
 
   const { declarations: own, reexports: onward } = parse(file);
   const text = own.get(name);
+
   if (text !== undefined) return { kind: "found", text };
 
   const directory = file.slice(0, file.lastIndexOf("/"));
+
   for (const { names, from } of onward) {
     if (!names.includes(name)) continue;
 
     const next = moduleFile(root, directory, from);
+
     if (next === null) return { kind: "external", from };
 
     const found = resolve(root, next, name, seen);
+
     if (found.kind !== "missing") return found;
   }
 
@@ -278,6 +299,7 @@ export function publicSurface(root: string): string {
           const found = resolve(root, entryFile, name, new Set());
 
           if (found.kind === "found") return { name, text: found.text };
+
           if (found.kind === "external") {
             return { name, text: `export ${name}; // from ${found.from}, not resolved` };
           }

@@ -7,16 +7,20 @@ import { runLog } from "./run-log.js";
 
 function project(entries: Record<string, string>): string {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-log-"));
+
   if (Object.keys(entries).length > 0) mkdirSync(join(cwd, "design-log"), { recursive: true });
+
   for (const [name, body] of Object.entries(entries)) {
     writeFileSync(join(cwd, "design-log", name), body);
   }
+
   return cwd;
 }
 
 function collect() {
   const lines: string[] = [];
   const errors: string[] = [];
+
   return {
     deps: { log: (line: string) => lines.push(line), error: (line: string) => errors.push(line) },
     lines,
@@ -30,6 +34,7 @@ describe("runLog", () => {
       "2026-08-01-hero.md": "# hero, 2026-08-01\n",
       "2026-08-27-pricing.md": "# pricing, 2026-08-27\n",
     });
+
     const { deps, lines } = collect();
 
     const outcome = await runLog({ entry: null, json: false, cwd }, deps);

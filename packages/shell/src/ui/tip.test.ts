@@ -78,6 +78,7 @@ describe("placeTip", () => {
       ...above,
       ...placeTip(above, { height: 26, width: 150 }, anchor, VIEWPORT),
     };
+
     expect(placeTip(corrected, { height: 26, width: 150 }, anchor, VIEWPORT)).toBeNull();
   });
 

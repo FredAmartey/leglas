@@ -11,9 +11,11 @@ export const IGNORED = ".leglas/";
  */
 export function ignoreEntry(current: string | null): string | null {
   const lines = (current ?? "").split("\n").map((line) => line.trim());
+
   if (lines.some((line) => line === IGNORED || line === ".leglas")) return null;
 
   const body = (current ?? "").replace(/\n*$/, "");
   const preamble = body === "" ? "" : `${body}\n\n`;
+
   return `${preamble}# Leglas exploration: variant code, caches, logs.\n${IGNORED}\n`;
 }

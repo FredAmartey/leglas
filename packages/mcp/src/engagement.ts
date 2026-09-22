@@ -23,8 +23,8 @@ const POST_TIMEOUT_MS = 1000;
 
 export type EngagementDeps = {
   post?: (watching: boolean) => Promise<void>;
-  setInterval?: (callback: () => void, milliseconds: number) => unknown;
-  clearInterval?: (handle: unknown) => void;
+  setInterval?: (callback: () => void, milliseconds: number) => ReturnType<typeof setInterval>;
+  clearInterval?: (handle: ReturnType<typeof setInterval>) => void;
   now?: () => number;
 };
 
@@ -33,6 +33,7 @@ function defaultPost(watching: boolean): Promise<void> {
   // without the server, so a beat that lands nowhere costs nothing. LEGLAS_PORT
   // covers the server that had to bind elsewhere.
   const port = Number(process.env.LEGLAS_PORT ?? "") || DEFAULT_PORT;
+
   return fetch(`http://localhost:${port}${LEGLAS_PREFIX}/api/watch`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -59,13 +60,15 @@ export type Engagement = {
 
 export function createEngagement(deps: EngagementDeps = {}): Engagement {
   const post = deps.post ?? defaultPost;
+
   const setEvery =
     deps.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
-  const clearEvery =
-    deps.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+
+  const clearEvery = deps.clearInterval ?? ((handle) => clearInterval(handle));
+
   const now = deps.now ?? (() => Date.now());
 
-  let timer: unknown = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
   let lastTouch = 0;
 
   const quiet = () => {
@@ -78,22 +81,27 @@ export function createEngagement(deps: EngagementDeps = {}): Engagement {
     if (now() - lastTouch > ENGAGEMENT_MS) {
       quiet();
       void post(false);
+
       return;
     }
+
     void post(true);
   };
 
   return {
     touch() {
       lastTouch = now();
+
       // Mid-cycle the server already knows: nothing to wait for.
       if (timer !== null) return Promise.resolve();
       timer = setEvery(beat, BEAT_MS);
+
       return post(true).catch(() => {});
     },
     async stop() {
       const wasBeating = timer !== null;
       quiet();
+
       if (wasBeating) await post(false);
     },
   };

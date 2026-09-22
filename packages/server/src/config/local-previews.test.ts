@@ -6,6 +6,8 @@ import { describe, expect, test } from "vitest";
 import { LOCAL_PREVIEWS_PATH, addLocalPreview, readLocalPreviews } from "./local-previews.js";
 import type { Preview } from "./config.js";
 
+import { type JsonRecord } from "../json.js";
+
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-local-"));
 }
@@ -31,6 +33,7 @@ describe("a variant's origin", () => {
       },
       shared,
     );
+
     expect(outcome.ok).toBe(true);
 
     const result = await readLocalPreviews(dir);
@@ -45,9 +48,10 @@ describe("a variant's origin", () => {
     const dir = scratch();
     await addLocalPreview(dir, { title: "Ledger", url: "/?v-hero=ledger" }, shared);
 
-    const stored = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8")) as {
-      previews: Record<string, unknown>[];
-    };
+    const stored: {
+      previews: JsonRecord[];
+    } = JSON.parse(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8"));
+
     expect(stored.previews[0]).not.toHaveProperty("askedFor");
     expect(stored.previews[0]).not.toHaveProperty("basedOn");
   });

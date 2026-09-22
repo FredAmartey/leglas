@@ -1,4 +1,6 @@
-import { EventEmitter } from "node:events";
+import { ChildProcess } from "node:child_process";
+import { required, unusedPage } from "../test-helpers.js";
+
 import { PassThrough } from "node:stream";
 
 import { describe, expect, test, vi } from "vitest";
@@ -14,6 +16,8 @@ import {
   type CdpPage,
   type CdpSocket,
 } from "./browser.js";
+
+import { type JsonRecord } from "../json.js";
 
 /**
  * A live test's ceiling, derived rather than chosen.
@@ -120,6 +124,7 @@ describe("findBrowser", () => {
   test("uses the newest Playwright and Puppeteer cache entries", () => {
     const playwright =
       "/Users/u/Library/Caches/ms-playwright/chromium-1200/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium";
+
     expect(
       findBrowser({
         env: {},
@@ -151,6 +156,7 @@ describe("findBrowser", () => {
     const testing =
       "/Users/u/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/" +
       "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+
     expect(
       findBrowser({
         env: {},
@@ -166,6 +172,7 @@ describe("findBrowser", () => {
     const shell =
       "/home/u/.cache/ms-playwright/chromium_headless_shell-1234/" +
       "chrome-headless-shell-linux64/chrome-headless-shell";
+
     expect(
       findBrowser({
         env: {},
@@ -180,6 +187,7 @@ describe("findBrowser", () => {
     const puppeteerShell =
       "/home/u/.cache/puppeteer/chrome-headless-shell/130/" +
       "chrome-headless-shell-linux64/chrome-headless-shell";
+
     expect(
       findBrowser({
         env: {},
@@ -227,6 +235,7 @@ describe("findBrowser", () => {
     const shell =
       "/Users/u/Library/Caches/ms-playwright/chromium_headless_shell-1234/" +
       "chrome-headless-shell-mac-arm64/chrome-headless-shell";
+
     const desktop = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     // Same engine, same picture, a fraction of the weight, so the shell wins
     // when the machine happens to have one.
@@ -267,13 +276,13 @@ describe("findBrowser", () => {
 });
 
 class FakeSocket implements CdpSocket {
-  readonly sent: Record<string, unknown>[] = [];
+  readonly sent: JsonRecord[] = [];
   private messageListeners: Array<(text: string) => void> = [];
   private closeListeners: Array<() => void> = [];
-  onSend: (message: Record<string, unknown>) => void = () => {};
+  onSend: (message: JsonRecord) => void = () => {};
 
   send(text: string): void {
-    const message = JSON.parse(text) as Record<string, unknown>;
+    const message: JsonRecord = JSON.parse(text);
     this.sent.push(message);
     this.onSend(message);
   }
@@ -288,7 +297,7 @@ class FakeSocket implements CdpSocket {
 
   close(): void {}
 
-  answer(message: Record<string, unknown>): void {
+  answer(message: JsonRecord): void {
     for (const listener of this.messageListeners) listener(JSON.stringify(message));
   }
 
@@ -298,19 +307,18 @@ class FakeSocket implements CdpSocket {
 }
 
 function fakeProcess(endpoint = true) {
-  const process = new EventEmitter() as EventEmitter & {
-    stdout: PassThrough;
-    stderr: PassThrough;
-    kill: ReturnType<typeof vi.fn>;
-  };
-  process.stdout = new PassThrough();
-  process.stderr = new PassThrough();
-  process.kill = vi.fn(() => true);
+  const process = Object.assign(new ChildProcess(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+
   if (endpoint) {
     queueMicrotask(() =>
       process.stderr.write("DevTools listening on ws://browser.test/devtools\n"),
     );
   }
+
   return process;
 }
 
@@ -319,7 +327,8 @@ function launchHarness() {
   const socket = new FakeSocket();
   let target = 0;
   socket.onSend = (message) => {
-    const id = message.id as number;
+    const id = required(message.id);
+
     if (message.method === "Target.createTarget") {
       target += 1;
       queueMicrotask(() => socket.answer({ id, result: { targetId: `target-${target}` } }));
@@ -336,25 +345,28 @@ function launchHarness() {
       });
     }
   };
+
   return { process, socket };
 }
 
 describe("launchBrowser", () => {
   test("uses the required argv and frames page commands with their session", async () => {
     const harness = launchHarness();
-    const spawn = vi.fn(
-      () => harness.process,
-    ) as unknown as typeof import("node:child_process").spawn;
+
+    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => harness.process);
+
     const browser = await launchBrowser("/browser", {
       spawn,
       connect: async (url) => {
         expect(url).toBe("ws://browser.test/devtools");
+
         return harness.socket;
       },
       tmpdir: "/tmp",
     });
 
     const event = vi.fn();
+
     const value = await browser.withPage(async (page) => {
       const off = page.on("Runtime.consoleAPICalled", event);
       harness.socket.answer({
@@ -362,17 +374,22 @@ describe("launchBrowser", () => {
         sessionId: "session-1",
         params: { type: "error" },
       });
+
       const result = await page.send<{ result: { value: number } }>("Runtime.evaluate", {
         expression: "1 + 1",
       });
+
       off();
+
       return result.result.value;
     });
 
     expect(value).toBe(2);
     expect(event).toHaveBeenCalledWith({ type: "error" });
     expect(spawn).toHaveBeenCalledOnce();
-    const args = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as string[];
+    const args = required(spawn.mock.calls[0]?.[1]);
+
+    if (!Array.isArray(args)) throw new Error("Expected browser arguments.");
     expect(args).toEqual(
       expect.arrayContaining([
         "--headless=new",
@@ -396,14 +413,18 @@ describe("launchBrowser", () => {
 
   test("serializes tabs and closes each target after work", async () => {
     const harness = launchHarness();
+
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
     });
+
     let release!: () => void;
+
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const first = browser.withPage(async () => held);
     const second = browser.withPage(async () => "second");
     await vi.waitFor(() =>
@@ -423,7 +444,8 @@ describe("launchBrowser", () => {
   test("rejects pending commands when the socket closes", async () => {
     const harness = launchHarness();
     harness.socket.onSend = (message) => {
-      const id = message.id as number;
+      const id = required(message.id);
+
       if (message.method === "Target.createTarget") {
         queueMicrotask(() => harness.socket.answer({ id, result: { targetId: "target" } }));
       } else if (message.method === "Target.attachToTarget") {
@@ -432,8 +454,9 @@ describe("launchBrowser", () => {
         queueMicrotask(() => harness.socket.gone());
       }
     };
+
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
     });
 
@@ -452,7 +475,8 @@ describe("launchBrowser", () => {
     // timeout in turn.
     const harness = launchHarness();
     harness.socket.onSend = (message) => {
-      const id = message.id as number;
+      const id = required(message.id);
+
       if (message.method === "Target.createTarget") {
         queueMicrotask(() => harness.socket.answer({ id, result: { targetId: "target" } }));
       } else if (message.method === "Target.attachToTarget") {
@@ -460,8 +484,9 @@ describe("launchBrowser", () => {
       }
       // Anything else is swallowed: the socket is alive and says nothing.
     };
+
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
       commandTimeoutMs: 10,
     });
@@ -479,7 +504,7 @@ describe("launchBrowser", () => {
     const process = fakeProcess(false);
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
         startTimeoutMs: 5,
       }),
@@ -499,7 +524,7 @@ describe("launchBrowser", () => {
     });
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
       }),
     ).rejects.toThrow("No usable sandbox");
@@ -510,25 +535,30 @@ describe("launchBrowser", () => {
     queueMicrotask(() => process.emit("close", 17, null));
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
       }),
     ).rejects.toThrow("exit code 17");
   });
 });
 
-function fakeBrowser(): Browser & { pages: number; closes: number } {
+function fakeBrowser(): Omit<Browser, "closed"> & {
+  closed: boolean;
+  pages: number;
+  closes: number;
+} {
   return {
     pages: 0,
     closes: 0,
     closed: false,
     withPage: async function <T>(work: (page: CdpPage) => Promise<T>) {
       this.pages += 1;
-      return work({ send: async () => ({}) as never, on: () => () => {} });
+
+      return work(unusedPage);
     },
     close: async function () {
       this.closes += 1;
-      (this as { closed: boolean }).closed = true;
+      this.closed = true;
     },
   };
 }
@@ -538,6 +568,7 @@ describe("createBrowserPool", () => {
     const browser = fakeBrowser();
     let idle: (() => void) | null = null;
     const launch = vi.fn(async () => browser);
+
     const pool = createBrowserPool({
       find: () => "/browser",
       launch,
@@ -545,6 +576,7 @@ describe("createBrowserPool", () => {
       setTimeout: (callback, ms) => {
         expect(ms).toBe(60);
         idle = callback;
+
         return "idle";
       },
       clearTimeout: vi.fn(),
@@ -568,20 +600,23 @@ describe("createBrowserPool", () => {
     const dead = {
       closed: false,
       closes: 0,
-      withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+      withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work(unusedPage),
       close: async () => {
         dead.closes += 1;
       },
     };
+
     const fresh = fakeBrowser();
+
     const launch = vi
       .fn<() => Promise<Browser>>()
       .mockResolvedValueOnce(dead)
       .mockResolvedValueOnce(fresh);
+
     const pool = createBrowserPool({
       find: () => "/browser",
       launch,
-      setTimeout: () => "idle",
+      setTimeout: () => 0,
       clearTimeout: vi.fn(),
     });
 
@@ -603,28 +638,35 @@ describe("createBrowserPool", () => {
     // five rejected before this, and six fulfilled after.
     let idle: (() => void) | null = null;
     const launched = fakeBrowser();
+
     const pool = createBrowserPool({
       find: () => "/browser",
       launch: async () => launched,
       idleMs: 1,
       setTimeout: (callback) => {
         idle = callback;
+
         return "idle";
       },
       clearTimeout: () => {
         idle = null;
       },
     });
+
     const browser = await pool.acquire();
 
     let release!: () => void;
+
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const outstanding = browser?.withPage(async () => {
       await held;
+
       return "slow";
     });
+
     await expect(browser?.withPage(async () => "quick")).resolves.toBe("quick");
 
     // One call has finished and another has not, so nothing may be armed.
@@ -644,13 +686,16 @@ describe("createBrowserPool", () => {
     // than by close(). Correct, and subtle enough to be worth pinning.
     const launched = fakeBrowser();
     let finishLaunch!: () => void;
+
     const pending = new Promise<void>((resolve) => {
       finishLaunch = resolve;
     });
+
     const pool = createBrowserPool({
       find: () => "/browser",
       launch: async () => {
         await pending;
+
         return launched;
       },
     });
@@ -673,10 +718,12 @@ describe("createBrowserPool", () => {
     expect(missing.reason()).toBe(NO_BROWSER);
 
     const browser = fakeBrowser();
+
     const launch = vi
       .fn<() => Promise<Browser>>()
       .mockRejectedValueOnce(new Error("could not launch"))
       .mockResolvedValueOnce(browser);
+
     const retrying = createBrowserPool({ find: () => "/browser", launch });
     expect(await retrying.acquire()).toBeNull();
     expect(retrying.reason()).toBe("could not launch");
@@ -692,7 +739,8 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "evaluates JavaScript over CDP",
     async () => {
-      const browser = await launchBrowser(liveExecutable as string);
+      const browser = await launchBrowser(required(liveExecutable));
+
       try {
         const response = await browser.withPage((page) =>
           page.send<{ result: { value: number } }>("Runtime.evaluate", {
@@ -700,6 +748,7 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
             returnByValue: true,
           }),
         );
+
         expect(response.result.value).toBe(2);
       } finally {
         await browser.close();
@@ -710,7 +759,7 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
 });
 
 describe("reapOrphanedBrowsers", () => {
-  const record = (fields: Record<string, unknown>) => JSON.stringify(fields);
+  const record = (fields: JsonRecord) => JSON.stringify(fields);
   const now = 1_000_000;
   /** A profile old enough that the grace period for a pending record is over. */
   const old = now - 600_000;
@@ -734,6 +783,7 @@ describe("reapOrphanedBrowsers", () => {
   const socket = () => {
     const sent: string[] = [];
     let closed = false;
+
     return {
       sent,
       get closed() {
@@ -761,6 +811,7 @@ describe("reapOrphanedBrowsers", () => {
     // would put a SIGKILL on whatever inherited the number.
     const live = socket();
     const removed: string[] = [];
+
     const reaped = await reap({
       list: async () => ["leglas-browser-dead", "unrelated"],
       read: async () =>
@@ -768,6 +819,7 @@ describe("reapOrphanedBrowsers", () => {
       alive: (pid) => pid !== 4242,
       connect: async (url) => {
         expect(url).toBe("ws://127.0.0.1:51000/devtools/browser/tok");
+
         return live.handle;
       },
       remove: async (path) => void removed.push(path),
@@ -783,6 +835,7 @@ describe("reapOrphanedBrowsers", () => {
     // Two Leglas instances on one machine is ordinary. Reaping on the
     // directory name alone would close the other one's browser mid-capture.
     const removed: string[] = [];
+
     const reaped = await reap({
       list: async () => ["leglas-browser-live"],
       read: async () => record({ owner: 777, browser: 9002, ws: "ws://127.0.0.1:51001/x" }),
@@ -796,6 +849,7 @@ describe("reapOrphanedBrowsers", () => {
 
   test("a dead endpoint costs nothing and still clears the directory", async () => {
     const removed: string[] = [];
+
     const reaped = await reap({
       list: async () => ["leglas-browser-gone"],
       read: async () => record({ owner: 4242, ws: "ws://127.0.0.1:51002/x" }),
@@ -815,6 +869,7 @@ describe("reapOrphanedBrowsers", () => {
     // filled. Treating that as proof of an orphan let one Leglas delete the
     // profile of another one's browser mid-launch.
     const removed: string[] = [];
+
     const reaped = await reap({
       list: async () => ["leglas-browser-newborn"],
       read: async () => {
@@ -861,6 +916,7 @@ describe("reapOrphanedBrowsers", () => {
     // machine. A profile belonging to someone else is not ours to close, and
     // the record inside it is not ours to read.
     const removed: string[] = [];
+
     const reaped = await reap({
       list: async () => ["leglas-browser-someone-else"],
       read: async () => {

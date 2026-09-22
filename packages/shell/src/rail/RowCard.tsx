@@ -32,6 +32,7 @@ export function RowCard({
   quiet: boolean;
 }) {
   const origin = quiet ? null : provenanceOf(preview);
+
   if (origin === null) return <>{children}</>;
 
   return (

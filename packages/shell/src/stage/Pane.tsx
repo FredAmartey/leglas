@@ -169,6 +169,7 @@ export function Pane({
               onError={onError}
               onLoad={(event) => {
                 const stamped = event.currentTarget.dataset.previewIdentity;
+
                 // Cross-origin previews expose only the event. Same-origin
                 // previews must have left about:blank and produced a real
                 // readable document before they are considered loaded.

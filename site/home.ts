@@ -1,4 +1,4 @@
-import { REPO, bar, document, foot, type Assets } from "./chrome.ts";
+import { bar, document, foot, type Assets } from "./chrome.ts";
 
 /**
  * The homepage. Everything on it is in the README and docs at greater length; this is
@@ -120,6 +120,7 @@ ${bar(assets, { home: "./", docs: "./docs/", changelog: "./changelog/", active: 
 </section>
 </main>
 ${foot(`The <a href="./docs/">docs</a> say all of this at length.`)}`;
+
   return document({
     title: "Leglas",
     description: "Compare design directions inside your own running app.",

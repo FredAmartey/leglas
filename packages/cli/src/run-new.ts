@@ -36,14 +36,19 @@ export async function runNew(
   deps: NewDeps,
 ): Promise<NewResult> {
   let from: { path: string; contents: string } | undefined;
+
   if (options.from !== undefined) {
     const contents = await readIfPresent(join(options.cwd, options.from));
+
     if (contents === null) {
       const message = `${options.from} does not exist, so there is nothing to use as the baseline.`;
+
       if (options.json) deps.log(JSON.stringify({ ok: false, error: message }));
       else deps.log(message);
+
       return { exitCode: 1, written: [] };
     }
+
     from = { path: options.from, contents };
   }
 
@@ -57,6 +62,7 @@ export async function runNew(
   const fail = (error: string) => {
     if (options.json) deps.log(JSON.stringify({ ok: false, error }));
     else deps.log(error);
+
     return { exitCode: 1, written: [] };
   };
 
@@ -74,17 +80,22 @@ export async function runNew(
           previews: plan.previews,
         }),
       );
+
       return { exitCode: 0, written: [] };
     }
+
     for (const write of plan.writes) {
       deps.log(`--- ${write.path}`);
       deps.log(write.contents);
     }
+
     deps.log(plan.instructions);
+
     return { exitCode: 0, written: [] };
   }
 
   const existing = plan.writes.filter((write) => existsSync(join(options.cwd, write.path)));
+
   if (existing.length > 0) {
     return fail(
       `${existing[0]?.path} already exists. Delete it first, or pick another surface name.`,
@@ -92,6 +103,7 @@ export async function runNew(
   }
 
   const written: string[] = [];
+
   for (const write of plan.writes) {
     const target = join(options.cwd, write.path);
     await mkdir(dirname(target), { recursive: true });
@@ -113,6 +125,7 @@ export async function runNew(
         previews: plan.previews,
       }),
     );
+
     return { exitCode: 0, written };
   }
 
@@ -121,6 +134,7 @@ export async function runNew(
   deps.log(plan.instructions);
   deps.log("Then register them so they appear in the interface:");
   deps.log("");
+
   for (const preview of plan.previews) {
     deps.log(
       `  npx leglas add --title ${JSON.stringify(preview.title)} --url ${JSON.stringify(preview.url)}`,

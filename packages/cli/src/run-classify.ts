@@ -38,6 +38,7 @@ export async function runClassify(
         steps: placement.steps,
       }),
     );
+
     return { exitCode: 0 };
   }
 
@@ -45,5 +46,6 @@ export async function runClassify(
   deps.log(`  ${placement.reason}`);
   deps.log("");
   placement.steps.forEach((step, index) => deps.log(`  ${index + 1}. ${step}`));
+
   return { exitCode: 0 };
 }

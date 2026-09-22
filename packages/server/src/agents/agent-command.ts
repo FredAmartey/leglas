@@ -39,17 +39,20 @@ export function tokenize(
       else current += character;
       continue;
     }
+
     if (character === '"' || character === "'") {
       quote = character;
       started = true;
       continue;
     }
+
     if (/\s/.test(character)) {
       if (started) tokens.push(current);
       current = "";
       started = false;
       continue;
     }
+
     current += character;
     started = true;
   }
@@ -57,7 +60,9 @@ export function tokenize(
   if (quote !== null) {
     return { ok: false, error: `The agent command has an unclosed ${quote} quote.` };
   }
+
   if (started) tokens.push(current);
+
   return { ok: true, tokens };
 }
 
@@ -74,10 +79,12 @@ export function tokenize(
  */
 export function parseTemplate(raw: string): TemplateResult {
   const tokenized = tokenize(raw);
+
   if (!tokenized.ok) return tokenized;
 
   const { tokens } = tokenized;
   const [command, ...args] = tokens;
+
   if (command === undefined) {
     return { ok: false, error: `Watch needs an agent command, for example: ${EXAMPLE}` };
   }
@@ -88,13 +95,16 @@ export function parseTemplate(raw: string): TemplateResult {
       error: `${PROMPT_TOKEN} must stand as a word of its own, for example: ${EXAMPLE}`,
     };
   }
+
   const placeholders = tokens.filter((token) => token === PROMPT_TOKEN).length;
+
   if (placeholders > 1) {
     return {
       ok: false,
       error: `The agent command takes ${PROMPT_TOKEN} once, for example: ${EXAMPLE}`,
     };
   }
+
   if (command === PROMPT_TOKEN) {
     return {
       ok: false,
@@ -111,13 +121,11 @@ export function parseTemplate(raw: string): TemplateResult {
  * pasted together as a string. With no placeholder it goes last, the seat
  * almost every agent CLI keeps for it.
  */
-export function commandFor(
-  template: WatchTemplate,
-  prompt: string,
-): { command: string; args: string[] } {
+export function commandFor(template: WatchTemplate, prompt: string) {
   if (!template.args.includes(PROMPT_TOKEN)) {
     return { command: template.command, args: [...template.args, prompt] };
   }
+
   return {
     command: template.command,
     args: template.args.map((argument) => (argument === PROMPT_TOKEN ? prompt : argument)),

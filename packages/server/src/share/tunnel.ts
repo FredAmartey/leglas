@@ -5,6 +5,8 @@ import https from "node:https";
 
 import { agentEnvironment, pathLookup } from "../agents/agents.js";
 
+import { isString, isJsonRecord, parseJson } from "../json.js";
+
 export type TunnelProviderId = "cloudflared" | "ngrok";
 
 export type TunnelState =
@@ -44,14 +46,21 @@ export type TunnelDeps = {
 };
 
 const URL_DEADLINE_MS = 30_000;
+
 const PROBE_DEADLINE_MS = 30_000;
+
 const PROBE_INTERVAL_MS = 1500;
+
 /** Past the deadline the link is asked about less often, for as long as it takes. */
 /** After the deadline the asks back off, doubling from here to the cap. */
 const SLOW_PROBE_INTERVAL_MS = 4000;
+
 const SLOW_PROBE_CAP_MS = 30_000;
+
 const STOP_GRACE_MS = 3000;
+
 const STOP_LIMIT_MS = STOP_GRACE_MS + 2000;
+
 const PROBE_TIMEOUT_MS = 3000;
 
 /**
@@ -68,15 +77,18 @@ const PROBE_TIMEOUT_MS = 3000;
  */
 async function askLink(resolver: Resolver, url: string, entryPath: string): Promise<boolean> {
   let target: URL;
+
   try {
     target = new URL(url);
   } catch {
     return false;
   }
+
   // The direct ask first, because it forgets a miss; the system's own lookup
   // second, because a VPN or a scoped resolver may be the only thing that
   // knows the name at all.
   let address: string | undefined;
+
   try {
     [address] = await resolver.resolve4(target.hostname);
   } catch {
@@ -86,25 +98,28 @@ async function askLink(resolver: Resolver, url: string, entryPath: string): Prom
       return false;
     }
   }
+
   if (address === undefined) return false;
   const secure = target.protocol === "https:";
+
   return new Promise((resolve) => {
-    const request = (secure ? https : http).request(
-      {
-        host: address,
-        port: Number(target.port || (secure ? 443 : 80)),
-        path: entryPath,
-        method: "GET",
-        headers: { host: target.host },
-        ...(secure ? { servername: target.hostname } : {}),
-        timeout: PROBE_TIMEOUT_MS,
-      },
-      (response) => {
-        response.resume();
-        const status = response.statusCode ?? 0;
-        resolve(status >= 200 && status < 400);
-      },
-    );
+    const requestOptions: https.RequestOptions = {
+      host: address,
+      port: Number(target.port || (secure ? 443 : 80)),
+      path: entryPath,
+      method: "GET",
+      headers: { host: target.host },
+      timeout: PROBE_TIMEOUT_MS,
+    };
+
+    if (secure) requestOptions.servername = target.hostname;
+
+    const request = (secure ? https : http).request(requestOptions, (response) => {
+      response.resume();
+      const status = response.statusCode ?? 0;
+      resolve(status >= 200 && status < 400);
+    });
+
     request.once("timeout", () => request.destroy());
     request.once("error", () => resolve(false));
     request.end();
@@ -116,9 +131,11 @@ export async function detectTunnels(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<TunnelProviderId[]> {
   const providers = ["cloudflared", "ngrok"] as const;
+
   const found = await Promise.all(
     providers.map((provider) => pathLookup(provider, env).catch(() => false)),
   );
+
   return providers.filter((_provider, index) => found[index] === true);
 }
 
@@ -129,6 +146,7 @@ function duration(ms: number): string {
 function withOutput(sentence: string, output: string): string {
   if (output === "") return sentence;
   const stem = sentence.endsWith(".") ? sentence.slice(0, -1) : sentence;
+
   return `${stem} (${output.slice(0, 160)}).`;
 }
 
@@ -155,19 +173,28 @@ export function startTunnel(
   // nameservers that forgets nothing between asks, made once rather than per
   // probe.
   const resolver = deps.probe === undefined ? new Resolver() : null;
+
   const probe =
-    deps.probe ?? ((url: string) => askLink(resolver as Resolver, url, options.entryPath));
+    deps.probe ??
+    ((url: string) => {
+      // SAFETY: Only the default probe is selected when this tunnel constructed a resolver.
+      return askLink(resolver as Resolver, url, options.entryPath);
+    });
 
   const timers = new Set<ReturnType<typeof setTimeout>>();
+
   const later = (callback: () => void, ms: number): ReturnType<typeof setTimeout> => {
     const timer = setTimeout(() => {
       timers.delete(timer);
       callback();
     }, ms);
+
     timer.unref?.();
     timers.add(timer);
+
     return timer;
   };
+
   const clearTimers = (): void => {
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
@@ -188,21 +215,21 @@ export function startTunnel(
 
   const report = (next: TunnelState): void => {
     const serialized = JSON.stringify(next);
+
     if (serialized === lastState) return;
     lastState = serialized;
     state = next;
     options.onState(next);
   };
+
   const fail = (reason: string): void => {
     if (terminal) return;
     terminal = true;
     clearTimers();
-    report({
-      status: "failed",
-      provider: options.provider,
-      reason,
-      ...(url === null ? {} : { url }),
-    });
+    const failure: TunnelState = { status: "failed", provider: options.provider, reason };
+
+    if (url !== null) failure.url = url;
+    report(failure);
   };
 
   report(state);
@@ -213,6 +240,7 @@ export function startTunnel(
       : ["http", String(options.port), "--log", "stdout", "--log-format", "json"];
 
   let child: ReturnType<typeof spawnChild>;
+
   try {
     child = spawn(options.provider, args, {
       env: agentEnvironment(),
@@ -221,6 +249,7 @@ export function startTunnel(
     });
   } catch {
     fail(`${options.provider} exited before the tunnel came up.`);
+
     return { settle: () => {}, stop: async () => {} };
   }
 
@@ -228,11 +257,13 @@ export function startTunnel(
     if (url !== null || terminal || stopping) return;
     url = found;
     urlAt = now();
+
     if (urlTimer !== null) {
       clearTimeout(urlTimer);
       timers.delete(urlTimer);
       urlTimer = null;
     }
+
     report({ status: "starting", provider: options.provider, url });
 
     // The deadline changes the wording, not the verdict. The link keeps
@@ -245,48 +276,67 @@ export function startTunnel(
     }, probeDeadlineMs);
 
     let slowWait = SLOW_PROBE_INTERVAL_MS;
+
     const again = (): void => {
       if (terminal || stopping || url === null) return;
+
       if (now() - urlAt < probeDeadlineMs) {
         later(poll, PROBE_INTERVAL_MS);
+
         return;
       }
+
       later(poll, slowWait);
       slowWait = Math.min(SLOW_PROBE_CAP_MS, slowWait * 2);
     };
+
     const poll = (): void => {
       if (terminal || stopping || url === null) return;
       void probe(url).then((reachable) => {
         if (terminal || stopping || url === null) return;
+
         if (reachable) {
           terminal = true;
           clearTimers();
           report({ status: "ready", provider: options.provider, url });
+
           return;
         }
+
         again();
       }, again);
     };
+
     poll();
   };
 
   const inspect = (stream: "stdout" | "stderr", line: string): void => {
     const trimmed = line.trim();
+
     if (trimmed !== "") lastLine = trimmed;
+
     if (url !== null || trimmed === "") return;
 
     if (options.provider === "cloudflared") {
       // Never the API host: a failed quick-tunnel request names it in the
       // error, and that is not a link to hand anyone.
       const found = /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/.exec(trimmed)?.[0];
+
       if (found !== undefined) beginProbe(found);
+
       return;
     }
+
     if (stream !== "stdout") return;
+
     try {
-      const event = JSON.parse(trimmed) as Record<string, unknown>;
+      const event = parseJson(trimmed);
+
       const candidate =
-        typeof event.url === "string" && event.url.startsWith("https://") ? event.url : null;
+        isJsonRecord(event) && isString(event.url) && event.url.startsWith("https://")
+          ? event.url
+          : null;
+
       if (candidate !== null) beginProbe(candidate);
     } catch {
       // ngrok's structured line may arrive in a later chunk.
@@ -297,9 +347,12 @@ export function startTunnel(
     const combined = partial[stream] + (Buffer.isBuffer(chunk) ? chunk.toString() : chunk);
     const lines = combined.split(/\r?\n/);
     partial[stream] = lines.pop() ?? "";
+
     for (const line of lines) inspect(stream, line);
+
     if (partial[stream] !== "") inspect(stream, partial[stream]);
   };
+
   child.stdout?.on("data", (chunk: Buffer | string) => read("stdout", chunk));
   child.stderr?.on("data", (chunk: Buffer | string) => read("stderr", chunk));
 
@@ -309,7 +362,9 @@ export function startTunnel(
     clearTimers();
     settleStop?.();
     settleStop = null;
+
     if (stopping) return;
+
     if (state.status === "ready") {
       terminal = true;
       report({
@@ -318,10 +373,13 @@ export function startTunnel(
         url: state.url,
         reason: "The tunnel process exited.",
       });
+
       return;
     }
+
     fail(withOutput(`${options.provider} exited before the tunnel came up.`, lastLine));
   };
+
   child.once("error", onExit);
   child.once("exit", onExit);
 
@@ -347,10 +405,12 @@ export function startTunnel(
       if (stopPromise !== null) return stopPromise;
       stopping = true;
       clearTimers();
+
       if (exited) return Promise.resolve();
 
       stopPromise = new Promise<void>((resolve) => {
         let settled = false;
+
         const done = (): void => {
           if (settled) return;
           settled = true;
@@ -358,15 +418,20 @@ export function startTunnel(
           settleStop = null;
           resolve();
         };
+
         settleStop = done;
+
         try {
           child.kill("SIGTERM");
         } catch {
           done();
+
           return;
         }
+
         later(() => {
           if (exited) return done();
+
           try {
             child.kill("SIGKILL");
           } catch {
@@ -375,6 +440,7 @@ export function startTunnel(
         }, STOP_GRACE_MS);
         later(done, STOP_LIMIT_MS);
       });
+
       return stopPromise;
     },
   };

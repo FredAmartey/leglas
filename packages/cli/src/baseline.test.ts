@@ -22,6 +22,7 @@ describe("baselineFrom", () => {
 
   test("drops the extension from the import specifier, as bundlers expect", () => {
     const result = baselineFrom("hero", "src/Hero.tsx", "export function Hero() {}");
+
     const importLine = (result?.contents ?? "")
       .split("\n")
       .find((line) => line.startsWith("import"));

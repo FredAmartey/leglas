@@ -67,18 +67,25 @@ export type FailureInput = {
 
 /** codex-cli refuses a directory it neither trusts nor finds a git repo in. */
 const NEEDS_TRUST = /not inside a trusted directory|--skip-git-repo-check/i;
+
 /** Node's own spawn failures, which never reach the vendor at all. */
 const MISSING_BINARY = /\b(ENOENT|EACCES|ENOTDIR)\b/;
+
 const NOT_SIGNED_IN =
   /not logged in|not signed in|please (?:re-?)?(?:run|sign|log)\s*in|\/login\b|invalid api key|unauthorized|authentication_failed|\b401\b/i;
+
 const LIMIT = /\b429\b|rate limit|usage limit|quota exceeded|too many requests/i;
+
 const OVERLOADED = /\b(?:503|529)\b|overloaded|service unavailable/i;
 
 function fromStatus(status: number | null, reason: string | null): FailureCode | null {
   if (status === 401 || status === 403 || reason === "authentication_failed")
     return "not-signed-in";
+
   if (status === 429 || reason === "rate_limit") return "provider-limit";
+
   if (status === 529 || status === 503 || reason === "overloaded") return "provider-overloaded";
+
   return null;
 }
 
@@ -87,21 +94,27 @@ function fromLines(lines: readonly string[]): FailureCode | null {
   // it stopped for. An early warning must not outrank a later refusal.
   for (const line of [...lines].reverse()) {
     if (NEEDS_TRUST.test(line)) return "needs-trust";
+
     if (NOT_SIGNED_IN.test(line)) return "not-signed-in";
+
     if (LIMIT.test(line)) return "provider-limit";
+
     if (OVERLOADED.test(line)) return "provider-overloaded";
   }
+
   return null;
 }
 
 function attempts(retry: RetryNotice | null | undefined): string {
   if (retry === null || retry === undefined) return "";
   const total = retry.max === null ? retry.attempt : Math.max(retry.attempt, retry.max);
+
   return ` It retried ${total} times first.`;
 }
 
 function message(code: FailureCode, input: FailureInput): string {
   const agent = input.agent;
+
   switch (code) {
     case "cancelled":
       return "You stopped this run.";
@@ -144,7 +157,7 @@ export function classifyFailure(input: FailureInput): Failure {
       ? "cancelled"
       : error === "not-registered"
         ? "not-registered"
-        : error !== null && /^stopped by /.test(error)
+        : error !== null && error.startsWith("stopped by ")
           ? "stopped"
           : error !== null && MISSING_BINARY.test(error)
             ? "missing-agent"
@@ -159,13 +172,13 @@ export function classifyFailure(input: FailureInput): Failure {
 /**
  * Whether a failure is about the conversation rather than the world.
  *
- * Only this shape earns the runner's one cold rerun. A dead session is
+ * Only this kind earns the runner's one cold rerun. A dead session is
  * invisible to the user and costs a turn to recover; an overloaded provider,
  * a spent limit, a missing login or a refused directory will answer a second
  * run exactly as it answered the first, and the user pays for both. During an
  * outage that second run is another full vendor retry ladder aimed at a
  * provider that is already down.
  */
-export function sessionShaped(code: FailureCode): boolean {
+export function conversationFailure(code: FailureCode): boolean {
   return code === "agent-error";
 }

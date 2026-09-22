@@ -16,6 +16,7 @@ import {
 } from "./references.js";
 
 const png = (name = "shot.png", size = 1024) => ({ name, type: "image/png", size });
+
 const draft = (overrides: Partial<ReferenceDraft> = {}): ReferenceDraft => ({
   key: "k",
   name: "shot.png",
@@ -35,6 +36,7 @@ describe("imageFilesFrom", () => {
       null,
       png("b.jpg"),
     ];
+
     files[3] = { name: "b.jpg", type: "image/jpeg", size: 2 };
     expect(imageFilesFrom(files).map((file) => file.name)).toEqual(["a.png", "b.jpg"]);
   });
@@ -45,6 +47,7 @@ describe("imageFilesFrom", () => {
       0: png("a.png"),
       1: { name: "x.svg", type: "image/svg+xml", size: 1 },
     };
+
     expect(imageFilesFrom(list).map((file) => file.name)).toEqual(["a.png"]);
   });
 });
@@ -110,6 +113,7 @@ describe("refusalMessage", () => {
       { file: png("big.png", REFERENCE_BYTES_CAP + 1), why: "too-big" },
       { file: png(), why: "too-many" },
     ]);
+
     expect(message).toContain("over 10MB");
   });
 });
@@ -142,6 +146,7 @@ describe("what a request names", () => {
       draft({ key: "3", status: "failed", id: null }),
       draft({ key: "4", id: "d" }),
     ];
+
     expect(referenceIds(drafts)).toEqual(["a", "d"]);
   });
 

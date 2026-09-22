@@ -1,6 +1,7 @@
+import { boundPort } from "./test-helpers.js";
 import http from "node:http";
 import net from "node:net";
-import type { AddressInfo } from "node:net";
+
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { createProxyHandler, startProxyServer } from "./proxy.js";
@@ -28,44 +29,58 @@ function trackSockets(server: http.Server): Set<net.Socket> {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
   });
+
   return sockets;
 }
 
 /** A stand-in dev server, so proxy behaviour is tested against real HTTP. */
 function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen: Request[] }> {
   const seen: Request[] = [];
+
   const server = http.createServer((req, res) => {
-    seen.push({ url: req.url ?? "", headers: req.headers as Record<string, string> });
+    seen.push({ url: req.url ?? "", headers: req.headers });
 
     if (req.url === "/redirect-absolute") {
-      const port = (server.address() as AddressInfo).port;
+      const port = boundPort(server);
       res.writeHead(302, { location: `http://127.0.0.1:${port}/landed` });
+
       return res.end();
     }
+
     if (req.url === "/redirect-relative") {
       res.writeHead(302, { location: "/landed" });
+
       return res.end();
     }
+
     if (req.url === "/set-cookie") {
       res.writeHead(200, { "set-cookie": ["session=abc; Path=/; HttpOnly"] });
+
       return res.end("ok");
     }
+
     if (req.url === "/echo-host") {
       res.writeHead(200, { "content-type": "text/plain" });
+
       return res.end(req.headers.host ?? "");
     }
+
     if (req.url === "/echo-cookie") {
       res.writeHead(200, { "content-type": "text/plain" });
+
       return res.end(req.headers.cookie ?? "(none)");
     }
+
     if (req.url === "/echo-method") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
+
       return req.on("end", () => {
         res.writeHead(200, { "content-type": "text/plain" });
         res.end(`${req.method}:${body}`);
       });
     }
+
     if (req.url === "/slow") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.write("first");
@@ -74,11 +89,14 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
       res.on("close", () => {
         slowClosed[slot] = true;
       });
+
       // Held open on purpose: the test is about who ends it.
       return;
     }
+
     if (req.url === "/status-418") {
       res.writeHead(418, { "content-type": "text/plain" });
+
       return res.end("teapot");
     }
 
@@ -99,7 +117,7 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       resolve({
-        port: (server.address() as AddressInfo).port,
+        port: boundPort(server),
         close: () => shutdown(server, sockets),
         seen,
       });
@@ -107,23 +125,25 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
   });
 }
 
-type Request = { url: string; headers: Record<string, string> };
+type Request = { url: string; headers: http.IncomingMessage["headers"] };
 
 /** One entry per /slow request, flipped to true when the origin sees it close. */
 const slowClosed: boolean[] = [];
 
 function startProxy(targetPort: number): Promise<{ port: number; close: () => Promise<void> }> {
   const handler = createProxyHandler({ target: `http://127.0.0.1:${targetPort}` });
+
   const server = http.createServer((req, res) => {
-    handler.request(req, res, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    handler.request(req, res, `http://127.0.0.1:${boundPort(server)}`);
   });
+
   server.on("upgrade", (req, socket, head) => handler.upgrade(req, socket, head));
   const sockets = trackSockets(server);
 
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       resolve({
-        port: (server.address() as AddressInfo).port,
+        port: boundPort(server),
         close: () => shutdown(server, sockets),
       });
     });
@@ -131,6 +151,7 @@ function startProxy(targetPort: number): Promise<{ port: number; close: () => Pr
 }
 
 let origin: Awaited<ReturnType<typeof startOrigin>>;
+
 let proxy: Awaited<ReturnType<typeof startProxy>>;
 
 beforeAll(async () => {
@@ -156,15 +177,18 @@ describe("proxy", () => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("six");
     });
+
     await new Promise<void>((resolve) => upstream.listen(0, "::1", () => resolve()));
-    const port = (upstream.address() as AddressInfo).port;
+    const port = boundPort(upstream);
 
     const handler = createProxyHandler({ target: `http://[::1]:${port}` });
+
     const front: http.Server = http.createServer((req, res) => {
-      handler.request(req, res, `http://127.0.0.1:${(front.address() as AddressInfo).port}`);
+      handler.request(req, res, `http://127.0.0.1:${boundPort(front)}`);
     });
+
     await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", () => resolve()));
-    const frontPort = (front.address() as AddressInfo).port;
+    const frontPort = boundPort(front);
 
     try {
       const answer = await fetch(`http://127.0.0.1:${frontPort}/`);
@@ -178,12 +202,14 @@ describe("proxy", () => {
 
   test("a branch proxy exposes activity and owns its loopback origin", async () => {
     let activity = 0;
+
     const branchProxy = await startProxyServer({
       target: `http://127.0.0.1:${origin.port}`,
       onActivity: () => {
         activity += 1;
       },
     });
+
     const response = await fetch(`${branchProxy.url}/slow`);
 
     expect(branchProxy.active()).toBe(true);
@@ -211,10 +237,13 @@ describe("proxy", () => {
     const stripped = await fetch(`http://127.0.0.1:${proxy.port}/echo-cookie`, {
       headers: { cookie: "session=abc; leglas-share=secret-token; theme=dark" },
     });
+
     expect(await stripped.text()).toBe("session=abc; theme=dark");
+
     const only = await fetch(`http://127.0.0.1:${proxy.port}/echo-cookie`, {
       headers: { cookie: "leglas-share=secret-token" },
     });
+
     expect(await only.text()).toBe("(none)");
   });
 
@@ -273,9 +302,11 @@ describe("proxy", () => {
             `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`,
         );
       });
+
       let buffer = "";
       socket.on("data", (chunk) => {
         buffer += chunk.toString();
+
         if (buffer.includes("upgraded:")) {
           socket.destroy();
           resolve(buffer);
@@ -301,6 +332,7 @@ describe("proxy", () => {
       const socket = net.connect(proxy.port, "127.0.0.1", () => {
         socket.write(`GET /slow HTTP/1.1\r\nHost: 127.0.0.1:${proxy.port}\r\n\r\n`);
       });
+
       socket.once("data", () => {
         socket.destroy();
         resolve();
@@ -309,10 +341,12 @@ describe("proxy", () => {
     });
 
     const deadline = Date.now() + EVENTUALLY_MS;
+
     while (!slowClosed.at(-1)) {
       if (Date.now() > deadline) throw new Error("the origin never saw the request close");
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+
     expect(slowClosed.at(-1)).toBe(true);
   });
 

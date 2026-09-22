@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { Tip } from "./kit.js";
+import { must } from "../must.js";
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -41,8 +42,8 @@ function hover(control: Element): void {
  */
 test("a tip's label mounts on the shell, outside whatever clips its control", () => {
   document.body.innerHTML = `<main data-leglas-shell=""><div id="masked-list"></div></main>`;
-  const shell = document.querySelector("main") as HTMLElement;
-  const list = document.getElementById("masked-list") as HTMLElement;
+  const shell = must(document.querySelector("main"), "main");
+  const list = must(document.getElementById("masked-list"), "the list");
   root = createRoot(list);
   act(() =>
     root.render(
@@ -52,7 +53,7 @@ test("a tip's label mounts on the shell, outside whatever clips its control", ()
     ),
   );
 
-  hover(list.querySelector("button") as Element);
+  hover(must(list.querySelector("button"), "the button"));
 
   const label = document.querySelector(".leglas-tip");
   expect(label?.textContent).toBe("Variant of Counter");
@@ -64,8 +65,8 @@ test("a tip's label mounts on the shell, outside whatever clips its control", ()
 
 test("inside a modal dialog the label stays in the dialog, which is the top layer", () => {
   document.body.innerHTML = `<main data-leglas-shell=""><dialog open><div id="body"></div></dialog></main>`;
-  const dialog = document.querySelector("dialog") as HTMLElement;
-  root = createRoot(document.getElementById("body") as HTMLElement);
+  const dialog = must(document.querySelector("dialog"), "the dialog");
+  root = createRoot(must(document.getElementById("body"), "the body"));
   act(() =>
     root.render(
       <Tip label="Copy the link">
@@ -74,7 +75,7 @@ test("inside a modal dialog the label stays in the dialog, which is the top laye
     ),
   );
 
-  hover(dialog.querySelector("button") as Element);
+  hover(must(dialog.querySelector("button"), "the button"));
 
   const label = document.querySelector(".leglas-tip");
   expect(label).not.toBeNull();
@@ -84,7 +85,7 @@ test("inside a modal dialog the label stays in the dialog, which is the top laye
 
 test("with no shell around it the label goes to the body, and leaves when the pointer does", () => {
   document.body.innerHTML = `<div id="app"></div>`;
-  const app = document.getElementById("app") as HTMLElement;
+  const app = must(document.getElementById("app"), "the app");
   root = createRoot(app);
   act(() =>
     root.render(
@@ -93,7 +94,7 @@ test("with no shell around it the label goes to the body, and leaves when the po
       </Tip>,
     ),
   );
-  const control = app.querySelector("button") as Element;
+  const control = must(app.querySelector("button"), "the button");
 
   hover(control);
   const label = document.querySelector(".leglas-tip");

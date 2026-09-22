@@ -90,6 +90,7 @@ describe("startWorktree", () => {
       installCommand: "true",
       devCommand: "node serve.mjs {port}",
     });
+
     cleanups.push(worktree.stop);
 
     expect(worktree.port).toBeGreaterThan(0);
@@ -107,6 +108,7 @@ describe("startWorktree", () => {
       installCommand: "true",
       devCommand: "node serve.mjs {port}",
     });
+
     cleanups.push(worktree.stop);
 
     expect(worktree.path).toContain(WORKTREES_DIR);
@@ -148,6 +150,7 @@ describe("startWorktree", () => {
       installCommand: "true",
       devCommand: "node serve.mjs {port}",
     });
+
     await worktree.stop();
 
     const { stdout } = await run("git", ["worktree", "list"], { cwd });
@@ -183,6 +186,7 @@ describe("startAppProcess", () => {
       label: "an IPv6-only app",
       readyTimeoutMs: 15_000,
     });
+
     cleanups.push(app.stop);
 
     expect(app.url).toContain("[::1]");
@@ -209,6 +213,7 @@ describe("startAppProcess", () => {
       label: "an IPv4-only app",
       readyTimeoutMs: 15_000,
     });
+
     cleanups.push(app.stop);
 
     expect(app.url).toContain("127.0.0.1");

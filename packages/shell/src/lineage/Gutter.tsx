@@ -38,23 +38,35 @@ import { forkCurve, forkKnee, type LineageRow, type RowMeta, type Segment } from
 
 /** Lanes sit this far apart. */
 const LANE = 10;
+
 /** The first lane sits this far in from the row's edge, clear of the fold control beside a root's name. */
 const PAD = 4;
+
 /** The indent a variant already has; the lanes live inside it and the titles never move. */
 const INDENT = 44;
+
 /** The row's vertical padding, which the slice has to cover to meet its neighbours. */
 const ROW_PAD = 8;
+
 /** Half the title line: the mark sits on the name, not on the note. */
 const HALF_LINE = 10;
+
 /** Past the row into the gap between rows, so one stroke reads across both. */
 const REACH = 4;
+
 const LINE = "#4A4A54";
+
 /** A branch sits a shade behind the trunk it left. */
 const LINE_BRANCH = "#41414A";
+
 const LINE_LIT = "#8E8E98";
+
 const MARK = "#7C7C85";
+
 const MARK_LIT = "#D1D5DB";
+
 const MARK_ACTIVE = "#E8E8EA";
+
 const EASE = "160ms cubic-bezier(0.2, 0.7, 0.2, 1)";
 
 /** The gutter's width for the widest lane any row touches; zero when none does. */
@@ -64,10 +76,13 @@ export function gutterWidth(lanes: number): number {
 
 /** A root's card starts here once anything is drawn in the gutter: past its mark and a fork to the next lane. */
 const ROOT_INSET = 16;
+
 /** A variant's card starts here, so its title keeps the indent it always had. */
 const VARIANT_INSET = INDENT - 12;
+
 /** A line or a fork's knee keeps this much dark between itself and a card's edge. */
 const LINE_CLEAR = 2;
+
 /** A ring around a mark keeps this much: the ring's own radius and a little more. */
 const RING_CLEAR = 8;
 
@@ -77,12 +92,17 @@ const RING_CLEAR = 8;
  * family opens more lanes than usual, and both are zero on a rail that draws
  * nothing, where a card fills its row as it always did.
  */
-export function railInsets(meta: ReadonlyMap<string, RowMeta>): { root: number; variant: number } {
+export type RailInsets = { root: number; variant: number };
+
+export function railInsets(meta: ReadonlyMap<string, RowMeta>): RailInsets {
   let root = 0;
   let variant = 0;
+
   for (const { descendants, graph } of meta.values()) {
     if (graph === null) continue;
+
     if (!(graph.fromAbove || graph.toBelow || graph.forks.length > 0 || descendants > 0)) continue;
+
     if (graph.depth === 0) {
       // A root sits on lane 0; only the forks leaving it reach further right.
       root = Math.max(root, ROOT_INSET, PAD + Math.max(0, ...graph.forks) * LANE + LINE_CLEAR);
@@ -91,8 +111,10 @@ export function railInsets(meta: ReadonlyMap<string, RowMeta>): { root: number; 
       variant = Math.max(variant, VARIANT_INSET, PAD + reach * LANE + RING_CLEAR);
     }
   }
+
   // A family anywhere puts every root past the trunk column, lone ones too.
   if (variant > 0) root = Math.max(root, ROOT_INSET);
+
   return { root, variant };
 }
 
@@ -101,12 +123,12 @@ type Piece =
       key: string;
       lane: number;
       segment: Segment;
-      shape: "line";
+      kind: "line";
       x: number;
       y1: number;
       y2: number | string;
     }
-  | { key: string; lane: number; segment: Segment; shape: "path"; d: string };
+  | { key: string; lane: number; segment: Segment; kind: "path"; d: string };
 
 export function Gutter({
   active,
@@ -166,59 +188,65 @@ export function Gutter({
   // rather than showing through it; a filled dot hides the line by itself.
   const clear = active ? markRadius + 5 : 0;
   const pieces: Piece[] = [];
+
   for (const lane of row.through) {
     pieces.push({
       key: `t${lane}`,
       lane,
       segment: `through:${lane}`,
-      shape: "line",
+      kind: "line",
       x: x(lane),
       y1: 0,
       y2: "100%",
     });
   }
+
   if (row.fromAbove)
     pieces.push({
       key: "a",
       lane: row.lane,
       segment: "above",
-      shape: "line",
+      kind: "line",
       x: cx,
       y1: 0,
       y2: cy - clear,
     });
+
   if (row.toBelow)
     pieces.push({
       key: "b",
       lane: row.lane,
       segment: "below",
-      shape: "line",
+      kind: "line",
       x: cx,
       y1: cy + clear,
       y2: "100%",
     });
+
   for (const lane of row.forks) {
     // The curve always leaves the mark's centre; on the row on stage its
     // first stretch is cut so it starts outside the ring.
     const knee = forkKnee(cx, cy, x(lane));
     const curve = forkCurve(cx, cy, x(lane), clear);
+
     if (curve !== "")
-      pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, shape: "path", d: curve });
+      pieces.push({ key: `fc${lane}`, lane, segment: `fork:${lane}`, kind: "path", d: curve });
     pieces.push({
       key: `ft${lane}`,
       lane,
       segment: `fork:${lane}`,
-      shape: "line",
+      kind: "line",
       x: x(lane),
       y1: knee,
       y2: "100%",
     });
   }
+
   const draw = (
     piece: Piece,
     extra: React.SVGProps<SVGLineElement> & React.SVGProps<SVGPathElement>,
   ) =>
-    piece.shape === "line" ? (
+    piece.kind === "line" ? (
       <line
         key={piece.key}
         pathLength={1}
@@ -231,6 +259,7 @@ export function Gutter({
     ) : (
       <path d={piece.d} key={piece.key} pathLength={1} {...extra} />
     );
+
   const strokeOf = (piece: Piece) => ({
     className: fresh?.has(piece.segment) ? "leglas-draw" : undefined,
     style: {
@@ -239,6 +268,7 @@ export function Gutter({
       transition: `stroke ${EASE}`,
     },
   });
+
   const landed = arriving;
 
   // Laid over the row's left padding, which railInsets sizes so that the card
@@ -247,9 +277,8 @@ export function Gutter({
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
       <svg
-        className="absolute left-0 overflow-visible"
+        className="absolute left-0 overflow-visible [shape-rendering:geometricPrecision]"
         fill="none"
-        shapeRendering="geometricPrecision"
         strokeWidth={1.25}
         style={{ height: `calc(100% + ${overflow * 2}px)`, top: -overflow, width }}
       >

@@ -20,6 +20,7 @@ function Glyph({ kind }: { kind: RequestCard["kind"] }) {
       </span>
     );
   }
+
   if (kind === "failed") {
     return (
       <svg
@@ -40,6 +41,7 @@ function Glyph({ kind }: { kind: RequestCard["kind"] }) {
       </svg>
     );
   }
+
   if (kind === "queued") {
     return (
       <span aria-hidden="true" className="flex size-3.5 shrink-0 items-center justify-center">
@@ -47,6 +49,7 @@ function Glyph({ kind }: { kind: RequestCard["kind"] }) {
       </span>
     );
   }
+
   return (
     <span
       aria-hidden="true"
@@ -138,6 +141,7 @@ export function StatusCard({
     if (runStartedAt === null) return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
+
     return () => window.clearInterval(timer);
   }, [runStartedAt]);
 
