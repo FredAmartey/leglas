@@ -65,6 +65,15 @@ describe("framingFor", () => {
     expect(csp("localhost:4100", "http://example.com/")).toBe(true);
     // No port means the scheme's default, which the shell is not on.
     expect(csp("http://localhost")).toBe(false);
+
+    // An IPv6 host is written in brackets, and the shell can be reached at one.
+    expect(
+      framingFor(
+        new Headers({ "content-security-policy": "frame-ancestors http://[::1]:4100" }),
+        "https://example.com/",
+        "http://[::1]:4100/leglas/",
+      ),
+    ).toEqual({ framable: true });
   });
 
   test("every enforced policy has to admit the shell, and report-only ones are not enforced", () => {

@@ -50,7 +50,9 @@ function schemeAdmits(scheme: string, url: URL): boolean {
   return url.protocol === scheme || (scheme === "http:" && url.protocol === "https:");
 }
 
-const HOST_SOURCE = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|\*\.[^:/]+|[^:/*]+)(?::(\*|\d+))?(\/.*)?$/i;
+// An IPv6 host is written in brackets, which URL keeps in its hostname too.
+const HOST_SOURCE =
+  /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|\*\.[^:/]+|\[[0-9a-f:.]+\]|[^:/*[\]]+)(?::(\*|\d+))?(\/.*)?$/i;
 
 /** One source expression from a frame-ancestors list, matched against the embedding page. */
 function sourceAdmits(source: string, embedder: URL, target: URL): boolean {

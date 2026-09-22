@@ -1327,6 +1327,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/previews/framing` && req.method === "GET") {
+      // Only the interface or a terminal asks. A page elsewhere in the same
+      // browser could not read the answer, but could still make Leglas go and
+      // fetch, so a cross-site caller is turned away before that happens.
+      const site = req.headers["sec-fetch-site"];
+
+      if (site !== undefined && site !== "same-origin" && site !== "none") {
+        return sendJson(res, 403, { ok: false, error: "Only the interface can ask this." });
+      }
+
       const title = query.get("title");
 
       return void livePreviewDefinitions().then(async (previews) => {

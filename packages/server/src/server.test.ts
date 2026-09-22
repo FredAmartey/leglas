@@ -482,6 +482,13 @@ describe("startServer", () => {
     // A direction served through Leglas is never framed from its own address.
     expect(await (await framing("Aurora")).json()).toEqual({ framable: true });
     expect((await framing("Nobody")).status).toBe(404);
+
+    // A page elsewhere in the same browser cannot make Leglas go and fetch.
+    const elsewhere = await fetch(`${server.url}/leglas/api/previews/framing?title=Docs`, {
+      headers: { "sec-fetch-site": "cross-site" },
+    });
+
+    expect(elsewhere.status).toBe(403);
   });
 
   test("POST then GET exposes queued request state without collecting it", async () => {
