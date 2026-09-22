@@ -121,10 +121,7 @@ export function parseTemplate(raw: string): TemplateResult {
  * pasted together as a string. With no placeholder it goes last, the seat
  * almost every agent CLI keeps for it.
  */
-export function commandFor(
-  template: WatchTemplate,
-  prompt: string,
-): { command: string; args: string[] } {
+export function commandFor(template: WatchTemplate, prompt: string) {
   if (!template.args.includes(PROMPT_TOKEN)) {
     return { command: template.command, args: [...template.args, prompt] };
   }

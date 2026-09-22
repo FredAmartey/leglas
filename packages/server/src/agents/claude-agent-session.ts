@@ -6,11 +6,14 @@ import { PassThrough } from "node:stream";
 import { agentEnvironment, type AgentEffort } from "./agents.js";
 import type { RunnerChild } from "./runner.js";
 
-type ClaudeMessage = Record<string, unknown> & {
-  type?: unknown;
-  subtype?: unknown;
-  session_id?: unknown;
-  is_error?: unknown;
+import { isString } from "../json.js";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+type ClaudeMessage = {
+  type?: string;
+  subtype?: string;
+  session_id?: string;
+  is_error?: boolean;
 };
 
 export type ClaudeSdkOptions = {
@@ -27,12 +30,13 @@ export type ClaudeSdkOptions = {
 
 export type ClaudeSdkQuery = AsyncIterable<ClaudeMessage> & {
   applyFlagSettings(settings: { effortLevel: AgentEffort | null }): Promise<void>;
-  interrupt(): Promise<unknown>;
+  /** Resolves when the SDK has sent the interrupt; the answer is not read. */
+  interrupt(): Promise<object | undefined>;
   close(): void;
 };
 
 export type ClaudeWarmQuery = {
-  query(prompt: AsyncIterable<ClaudeMessage>): ClaudeSdkQuery;
+  query(prompt: AsyncIterable<SDKUserMessage>): ClaudeSdkQuery;
   close(): void;
 };
 
@@ -67,7 +71,9 @@ const INITIALIZE_TIMEOUT_MS = 30_000;
 
 const IMAGE_MAX_BYTES = 5_000_000;
 
-function imageMediaType(path: string): string | null {
+function imageMediaType(
+  path: string,
+): "image/png" | "image/jpeg" | "image/webp" | "image/gif" | null {
   const extension = extname(path).toLowerCase();
 
   if (extension === ".png") return "image/png";
@@ -82,9 +88,15 @@ function imageMediaType(path: string): string | null {
 }
 
 /** Read only image shapes the Agent SDK accepts, bounded before loading bytes. */
-async function claudeContent(prompt: string, images: readonly string[]): Promise<unknown> {
+async function claudeContent(
+  prompt: string,
+  images: readonly string[],
+): Promise<SDKUserMessage["message"]["content"]> {
   if (images.length === 0) return prompt;
-  const blocks: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+
+  const blocks: Exclude<SDKUserMessage["message"]["content"], string> = [
+    { type: "text", text: prompt },
+  ];
 
   for (const path of images) {
     const mediaType = imageMediaType(path);
@@ -123,9 +135,9 @@ function waitForAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
         signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        reject(cause);
       },
     );
   });
@@ -137,15 +149,15 @@ const defaultStartup: ClaudeSdkStartup = async (params) => {
   // of making the whole Leglas server fail at module import time.
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
-  return sdk.startup(params) as unknown as ClaudeWarmQuery;
+  return sdk.startup(params);
 };
 
-class InputQueue implements AsyncIterable<ClaudeMessage> {
-  private readonly queued: ClaudeMessage[] = [];
-  private readonly readers: Array<(result: IteratorResult<ClaudeMessage>) => void> = [];
+class InputQueue implements AsyncIterable<SDKUserMessage> {
+  private readonly queued: SDKUserMessage[] = [];
+  private readonly readers: Array<(result: IteratorResult<SDKUserMessage>) => void> = [];
   private ended = false;
 
-  push(message: ClaudeMessage): void {
+  push(message: SDKUserMessage): void {
     if (this.ended) throw new Error("Claude input is closed.");
     const reader = this.readers.shift();
 
@@ -162,7 +174,7 @@ class InputQueue implements AsyncIterable<ClaudeMessage> {
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {
+  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
     return {
       next: () => {
         const message = this.queued.shift();
@@ -204,6 +216,7 @@ class ClaudeTurnChild implements RunnerChild {
     if (event === "close" && this.terminal !== null) {
       const terminal = this.terminal;
       queueMicrotask(() => {
+        // SAFETY: The `close` overload pairs this callback with the stored terminal event.
         (listener as (code: number | null, signal: NodeJS.Signals | null) => void)(
           terminal.code,
           terminal.signal,
@@ -303,29 +316,30 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     const controller = new AbortController();
     this.processAbort = controller;
 
-    const warming = this.startup({
-      options: {
-        abortController: controller,
-        cwd: this.cwd,
-        env: agentEnvironment(),
-        permissionMode: "acceptEdits",
-        settingSources: ["user", "project", "local"],
-        persistSession: true,
-        ...(this.allowedCommands.length === 0
-          ? {}
-          : { allowedTools: this.allowedCommands.map((command) => `Bash(${command} *)`) }),
-        ...(sessionId === null ? {} : { resume: sessionId }),
-      },
-      initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
-    })
+    const options: ClaudeSdkOptions = {
+      abortController: controller,
+      cwd: this.cwd,
+      env: agentEnvironment(),
+      permissionMode: "acceptEdits",
+      settingSources: ["user", "project", "local"],
+      persistSession: true,
+    };
+
+    if (this.allowedCommands.length > 0) {
+      options.allowedTools = this.allowedCommands.map((command) => `Bash(${command} *)`);
+    }
+
+    if (sessionId !== null) options.resume = sessionId;
+
+    const warming = this.startup({ options, initializeTimeoutMs: INITIALIZE_TIMEOUT_MS })
       .then((warmQuery) => {
         if (this.closed || controller.signal.aborted || this.processAbort !== controller)
           warmQuery.close();
         else this.warmQuery = warmQuery;
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (this.processAbort === controller) this.processAbort = null;
-        throw error;
+        throw cause;
       })
       .finally(() => {
         if (this.warming === warming) this.warming = null;
@@ -469,7 +483,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
     try {
       for await (const message of query) {
-        if (typeof message.session_id === "string" && message.session_id !== "") {
+        if (isString(message.session_id) && message.session_id !== "") {
           this.loadedSessionId = message.session_id;
         }
 

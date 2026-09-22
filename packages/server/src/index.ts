@@ -123,7 +123,7 @@ export type {
   StartBranchWorktree,
 } from "./branches/branches.js";
 
-export { classifyFailure, sessionShaped } from "./agents/failure.js";
+export { classifyFailure, conversationFailure } from "./agents/failure.js";
 
 export type { Failure, FailureCode, FailureInput, RetryNotice } from "./agents/failure.js";
 

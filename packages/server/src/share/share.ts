@@ -14,6 +14,8 @@ import {
   type TunnelState,
 } from "./tunnel.js";
 
+import { isNumber, isString, isJsonRecord, type JsonValue } from "../json.js";
+
 export type ShareScope = "direction" | "compare" | "rail";
 
 export type ShareLayout = {
@@ -191,19 +193,28 @@ type Waiting = {
   drop: () => boolean;
 };
 
+type ViewerConfig = ShareManagerOptions["viewerConfig"] & {
+  project: string;
+  devServer: string;
+  previews: ReturnType<ShareManagerOptions["previewsForConfig"]>;
+  errors: string[];
+  warnings: string[];
+  viewer: { scope: ShareScope; layout: ShareLayout };
+};
+
 type ShareManager = {
   tunnels(): Promise<TunnelProviderId[]>;
   status(): ShareStatus | null;
   /** Whether a file-preview mount belongs to a direction in the share. */
   fileSlugAllowed(slug: string, grantId: string): Promise<boolean>;
-  allowRoute(input: unknown): ShareResult;
-  create(input: unknown): Promise<ShareResult>;
-  createGrant(input: unknown): ShareResult;
-  revokeGrant(input: unknown): ShareResult;
-  extendGrant(input: unknown): ShareResult;
+  allowRoute(input: JsonValue | undefined): ShareResult;
+  create(input: JsonValue | undefined): Promise<ShareResult>;
+  createGrant(input: JsonValue | undefined): ShareResult;
+  revokeGrant(input: JsonValue | undefined): ShareResult;
+  extendGrant(input: JsonValue | undefined): ShareResult;
   rotate(): Promise<ShareResult>;
-  update(input: unknown): Promise<ShareResult>;
-  viewerConfig(grantId: string): Promise<unknown | null>;
+  update(input: JsonValue | undefined): Promise<ShareResult>;
+  viewerConfig(grantId: string): Promise<ViewerConfig | null>;
   stop(): Promise<void>;
   /** Stop, and refuse every share from now on: the server is going. */
   close(): Promise<void>;
@@ -220,8 +231,6 @@ export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_GRANTS = 16;
 
 export const MAX_TOMBSTONES = 32;
-
-const NS_PER_MS = 1_000_000n;
 
 /**
  * How many viewer requests may be inside the dev server at once.
@@ -508,28 +517,23 @@ const FILES_PREFIX_PATH = "/leglas/files/";
 /** How long a detection of tunnel programs stands before the next ask looks again. */
 const DETECT_TTL_MS = 10_000;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function stringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  return Array.isArray(value) && value.every((entry) => isString(entry));
 }
 
 function stringRecord(value: unknown): value is Record<string, string> {
-  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+  return isJsonRecord(value) && Object.values(value).every((entry) => isString(entry));
 }
 
-function layoutFrom(value: unknown): ShareLayout | null {
-  if (!isRecord(value)) return null;
+function layoutFrom(value: JsonValue | undefined): ShareLayout | null {
+  if (!isJsonRecord(value)) return null;
 
   if (
     !stringArray(value.order) ||
     !stringRecord(value.renames) ||
     !stringArray(value.collapsedFamilies) ||
-    (value.compare !== null && typeof value.compare !== "string") ||
-    (value.viewport !== null &&
-      (typeof value.viewport !== "number" || !Number.isFinite(value.viewport)))
+    (value.compare !== null && !isString(value.compare)) ||
+    (value.viewport !== null && (!isNumber(value.viewport) || !Number.isFinite(value.viewport)))
   ) {
     return null;
   }
@@ -544,10 +548,10 @@ function layoutFrom(value: unknown): ShareLayout | null {
 }
 
 function manifestFrom(
-  value: unknown,
+  value: JsonValue | undefined,
   previews: readonly Preview[],
 ): { ok: true; manifest: ShareManifest } | { ok: false; error: string } {
-  if (!isRecord(value)) {
+  if (!isJsonRecord(value)) {
     return { ok: false, error: "Share details must be a JSON object." };
   }
 
@@ -740,7 +744,7 @@ function cloneLayout(layout: ShareLayout): ShareLayout {
   };
 }
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+function sendJson<T>(res: http.ServerResponse, status: number, body: T): void {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -805,7 +809,7 @@ function bind(server: http.Server): Promise<number> {
     const onListening = (): void => {
       server.removeListener("error", onError);
       const address = server.address();
-      resolve(typeof address === "object" && address !== null ? address.port : 0);
+      resolve(address !== null && !isString(address) ? address.port : 0);
     };
 
     server.once("error", onError);
@@ -871,10 +875,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     return detected;
   };
 
-  const status = (): ShareStatus | null => {
-    const share = active;
-
-    if (share === null) return null;
+  const snapshot = (share: ActiveShare): ShareStatus => {
     const tunnelUrl = "url" in share.tunnel ? share.tunnel.url : undefined;
     const origin = tunnelUrl === undefined ? null : tunnelUrl.replace(/\/$/, "");
 
@@ -884,7 +885,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       titles: [...share.titles],
       layout: cloneLayout(share.layout),
       sharePort: share.port,
-      grants: [...share.grants.values()]
+      grants: Array.from(share.grants.values())
         .toSorted((a, b) => a.createdAt - b.createdAt)
         .map((grant) => {
           const entryPath = `${ENTRY_PREFIX}${grant.token}`;
@@ -906,6 +907,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       startedAt: share.startedAt,
     };
   };
+
+  const status = (): ShareStatus | null => (active === null ? null : snapshot(active));
 
   /**
    * End one link and let go of everything it is holding.
@@ -937,7 +940,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     // Whoever was waiting for a slot under this link gets the same sentence
     // a live request would, rather than a dropped connection.
-    for (const held of [...(share.waiting.get(grant.id) ?? [])]) {
+    for (const held of Array.from(share.waiting.get(grant.id) ?? [])) {
       if (held.drop()) refuse(held.req, held.res, why);
     }
 
@@ -968,13 +971,13 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const mono = nowMono();
     let ended = false;
 
-    for (const grant of [...share.grants.values()]) {
+    for (const grant of Array.from(share.grants.values())) {
       if (!expired(grant, at, mono)) continue;
       endGrant(share, grant, "expiry");
       ended = true;
     }
 
-    const next = [...share.grants.values()].reduce<number | null>(
+    const next = Array.from(share.grants.values()).reduce<number | null>(
       (soonest, grant) => (soonest === null ? grant.expiresAt : Math.min(soonest, grant.expiresAt)),
       null,
     );
@@ -1169,6 +1172,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       // No event says "the response began", so the call that begins it says
       // so. The proxy always writes its head before any body.
       const writeHead = res.writeHead.bind(res);
+      // SAFETY: Both Node overloads forward their unchanged arguments and return the bound method result.
       res.writeHead = ((...args: Parameters<typeof writeHead>) => {
         release();
 
@@ -1423,7 +1427,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     socket.once("error", letGo);
   };
 
-  const create = async (input: unknown): Promise<ShareResult> => {
+  const create = async (input: JsonValue | undefined): Promise<ShareResult> => {
     if (closed) return { ok: false, status: 409, error: "Leglas is shutting down." };
 
     if (active !== null || creating) {
@@ -1439,7 +1443,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
       if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
       const providers = await tunnels();
-      const requested = isRecord(input) ? input.tunnel : undefined;
+      const requested = isJsonRecord(input) ? input.tunnel : undefined;
 
       if (
         requested !== undefined &&
@@ -1538,7 +1542,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
             port,
             // Whichever link exists when the tunnel starts: the probe only
             // needs a path the listener answers, and a share always has one.
-            entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
+            entryPath: `${ENTRY_PREFIX}${Array.from(share.grants.values())[0]?.token ?? ""}`,
             onState: (next) => {
               if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
               share.tunnel = next;
@@ -1549,18 +1553,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         share.launch.unref?.();
       }
 
-      return { ok: true, share: status() as ShareStatus };
+      return { ok: true, share: snapshot(share) };
     } finally {
       creating = false;
     }
   };
 
   /** A second link to the same share, named by whoever asks for it. */
-  const createGrant = (input: unknown): ShareResult => {
+  const createGrant = (input: JsonValue | undefined): ShareResult => {
     const share = active;
 
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
-    const name = isRecord(input) && typeof input.name === "string" ? input.name.trim() : "";
+    const name = isJsonRecord(input) && isString(input.name) ? input.name.trim() : "";
 
     if (name.length > 60) {
       return { ok: false, status: 400, error: "That name is too long for a link." };
@@ -1580,7 +1584,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     sweepExpiry();
     options.live.nudge("share");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
   /**
@@ -1590,11 +1594,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    * browser's cache and its back-forward cache are all beyond this. Revoke
    * stops what has not been served yet, which is the promise it can keep.
    */
-  const revokeGrant = (input: unknown): ShareResult => {
+  const revokeGrant = (input: JsonValue | undefined): ShareResult => {
     const share = active;
 
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
-    const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
+    const id = isJsonRecord(input) && isString(input.id) ? input.id : "";
     const grant = share.grants.get(id);
 
     if (grant === undefined) return { ok: false, status: 404, error: "No such link." };
@@ -1602,7 +1606,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     sweepExpiry();
     options.live.nudge("share");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
   /**
@@ -1611,11 +1615,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    * Only a live link: an ended one is ended, and the answer to that is a new
    * link, which the sharer has to send anyway.
    */
-  const extendGrant = (input: unknown): ShareResult => {
+  const extendGrant = (input: JsonValue | undefined): ShareResult => {
     const share = active;
 
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
-    const id = isRecord(input) && typeof input.id === "string" ? input.id : "";
+    const id = isJsonRecord(input) && isString(input.id) ? input.id : "";
     sweepExpiry();
     const grant = share.grants.get(id);
 
@@ -1629,7 +1633,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     sweepExpiry();
     options.live.nudge("share");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
   /**
@@ -1642,7 +1646,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
 
-    for (const grant of [...share.grants.values()]) endGrant(share, grant, "revoke");
+    for (const grant of Array.from(share.grants.values())) endGrant(share, grant, "revoke");
     const provider = "provider" in share.tunnel ? share.tunnel.provider : null;
     await share.runningTunnel?.stop().catch(() => {});
     share.runningTunnel = null;
@@ -1658,7 +1662,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       share.runningTunnel = runTunnel({
         provider,
         port: share.port,
-        entryPath: `${ENTRY_PREFIX}${[...share.grants.values()][0]?.token ?? ""}`,
+        entryPath: `${ENTRY_PREFIX}${Array.from(share.grants.values())[0]?.token ?? ""}`,
         onState: (next) => {
           if (active !== share || share.tunnelGeneration !== generation) return;
 
@@ -1671,7 +1675,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     options.live.nudge("share");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
   /**
@@ -1682,11 +1686,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
    * answers leaves the list of what was turned away, so the panel empties as
    * the sharer works through it.
    */
-  const allowRoute = (input: unknown): ShareResult => {
+  const allowRoute = (input: JsonValue | undefined): ShareResult => {
     const share = active;
 
     if (share === null) return { ok: false, status: 404, error: "Nothing is being shared." };
-    const given = isRecord(input) && typeof input.path === "string" ? input.path.trim() : "";
+    const given = isJsonRecord(input) && isString(input.path) ? input.path.trim() : "";
 
     if (!given.startsWith("/")) {
       return { ok: false, status: 400, error: "A route is a path beginning with a slash." };
@@ -1697,7 +1701,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     // "everything beneath", and a refusal for a directory index ends in one,
     // so Allow beside it would otherwise hand the list the folder button's
     // meaning without the folder button's label.
-    const subtree = isRecord(input) && input.subtree === true;
+    const subtree = isJsonRecord(input) && input.subtree === true;
 
     if (subtree && given.replace(/\/+$/, "") === "") {
       return { ok: false, status: 400, error: "The root is a page, not a folder." };
@@ -1717,11 +1721,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     share.refused = share.refused.filter((path) => !routeAllowed([asked], path));
     options.live.nudge("share");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
   const update = async (
-    input: unknown,
+    input: JsonValue | undefined,
   ): Promise<ShareResult | { ok: false; status: 404; error: string }> => {
     const share = active;
 
@@ -1745,10 +1749,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     options.live.nudge("share");
     options.live.nudge("config");
 
-    return { ok: true, share: status() as ShareStatus };
+    return { ok: true, share: snapshot(share) };
   };
 
-  const viewerConfig = async (grantId: string): Promise<unknown | null> => {
+  const viewerConfig = async (grantId: string): Promise<ViewerConfig | null> => {
     const share = active;
 
     if (share === null || !share.grants.has(grantId)) return null;

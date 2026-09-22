@@ -1,6 +1,7 @@
+import { boundPort } from "./test-helpers.js";
 import http from "node:http";
 import net from "node:net";
-import type { AddressInfo } from "node:net";
+
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { createProxyHandler, startProxyServer } from "./proxy.js";
@@ -37,10 +38,10 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
   const seen: Request[] = [];
 
   const server = http.createServer((req, res) => {
-    seen.push({ url: req.url ?? "", headers: req.headers as Record<string, string> });
+    seen.push({ url: req.url ?? "", headers: req.headers });
 
     if (req.url === "/redirect-absolute") {
-      const port = (server.address() as AddressInfo).port;
+      const port = boundPort(server);
       res.writeHead(302, { location: `http://127.0.0.1:${port}/landed` });
 
       return res.end();
@@ -116,7 +117,7 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       resolve({
-        port: (server.address() as AddressInfo).port,
+        port: boundPort(server),
         close: () => shutdown(server, sockets),
         seen,
       });
@@ -124,7 +125,7 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
   });
 }
 
-type Request = { url: string; headers: Record<string, string> };
+type Request = { url: string; headers: http.IncomingMessage["headers"] };
 
 /** One entry per /slow request, flipped to true when the origin sees it close. */
 const slowClosed: boolean[] = [];
@@ -133,7 +134,7 @@ function startProxy(targetPort: number): Promise<{ port: number; close: () => Pr
   const handler = createProxyHandler({ target: `http://127.0.0.1:${targetPort}` });
 
   const server = http.createServer((req, res) => {
-    handler.request(req, res, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    handler.request(req, res, `http://127.0.0.1:${boundPort(server)}`);
   });
 
   server.on("upgrade", (req, socket, head) => handler.upgrade(req, socket, head));
@@ -142,7 +143,7 @@ function startProxy(targetPort: number): Promise<{ port: number; close: () => Pr
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
       resolve({
-        port: (server.address() as AddressInfo).port,
+        port: boundPort(server),
         close: () => shutdown(server, sockets),
       });
     });
@@ -178,16 +179,16 @@ describe("proxy", () => {
     });
 
     await new Promise<void>((resolve) => upstream.listen(0, "::1", () => resolve()));
-    const port = (upstream.address() as AddressInfo).port;
+    const port = boundPort(upstream);
 
     const handler = createProxyHandler({ target: `http://[::1]:${port}` });
 
     const front: http.Server = http.createServer((req, res) => {
-      handler.request(req, res, `http://127.0.0.1:${(front.address() as AddressInfo).port}`);
+      handler.request(req, res, `http://127.0.0.1:${boundPort(front)}`);
     });
 
     await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", () => resolve()));
-    const frontPort = (front.address() as AddressInfo).port;
+    const frontPort = boundPort(front);
 
     try {
       const answer = await fetch(`http://127.0.0.1:${frontPort}/`);

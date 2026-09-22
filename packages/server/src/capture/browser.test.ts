@@ -1,4 +1,6 @@
-import { EventEmitter } from "node:events";
+import { ChildProcess } from "node:child_process";
+import { required, unusedPage } from "../test-helpers.js";
+
 import { PassThrough } from "node:stream";
 
 import { describe, expect, test, vi } from "vitest";
@@ -14,6 +16,8 @@ import {
   type CdpPage,
   type CdpSocket,
 } from "./browser.js";
+
+import { type JsonRecord } from "../json.js";
 
 /**
  * A live test's ceiling, derived rather than chosen.
@@ -272,13 +276,13 @@ describe("findBrowser", () => {
 });
 
 class FakeSocket implements CdpSocket {
-  readonly sent: Record<string, unknown>[] = [];
+  readonly sent: JsonRecord[] = [];
   private messageListeners: Array<(text: string) => void> = [];
   private closeListeners: Array<() => void> = [];
-  onSend: (message: Record<string, unknown>) => void = () => {};
+  onSend: (message: JsonRecord) => void = () => {};
 
   send(text: string): void {
-    const message = JSON.parse(text) as Record<string, unknown>;
+    const message: JsonRecord = JSON.parse(text);
     this.sent.push(message);
     this.onSend(message);
   }
@@ -293,7 +297,7 @@ class FakeSocket implements CdpSocket {
 
   close(): void {}
 
-  answer(message: Record<string, unknown>): void {
+  answer(message: JsonRecord): void {
     for (const listener of this.messageListeners) listener(JSON.stringify(message));
   }
 
@@ -303,15 +307,11 @@ class FakeSocket implements CdpSocket {
 }
 
 function fakeProcess(endpoint = true) {
-  const process = new EventEmitter() as EventEmitter & {
-    stdout: PassThrough;
-    stderr: PassThrough;
-    kill: ReturnType<typeof vi.fn>;
-  };
-
-  process.stdout = new PassThrough();
-  process.stderr = new PassThrough();
-  process.kill = vi.fn(() => true);
+  const process = Object.assign(new ChildProcess(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
 
   if (endpoint) {
     queueMicrotask(() =>
@@ -327,7 +327,7 @@ function launchHarness() {
   const socket = new FakeSocket();
   let target = 0;
   socket.onSend = (message) => {
-    const id = message.id as number;
+    const id = required(message.id);
 
     if (message.method === "Target.createTarget") {
       target += 1;
@@ -353,9 +353,7 @@ describe("launchBrowser", () => {
   test("uses the required argv and frames page commands with their session", async () => {
     const harness = launchHarness();
 
-    const spawn = vi.fn(
-      () => harness.process,
-    ) as unknown as typeof import("node:child_process").spawn;
+    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => harness.process);
 
     const browser = await launchBrowser("/browser", {
       spawn,
@@ -389,7 +387,9 @@ describe("launchBrowser", () => {
     expect(value).toBe(2);
     expect(event).toHaveBeenCalledWith({ type: "error" });
     expect(spawn).toHaveBeenCalledOnce();
-    const args = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as string[];
+    const args = required(spawn.mock.calls[0]?.[1]);
+
+    if (!Array.isArray(args)) throw new Error("Expected browser arguments.");
     expect(args).toEqual(
       expect.arrayContaining([
         "--headless=new",
@@ -415,7 +415,7 @@ describe("launchBrowser", () => {
     const harness = launchHarness();
 
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
     });
 
@@ -444,7 +444,7 @@ describe("launchBrowser", () => {
   test("rejects pending commands when the socket closes", async () => {
     const harness = launchHarness();
     harness.socket.onSend = (message) => {
-      const id = message.id as number;
+      const id = required(message.id);
 
       if (message.method === "Target.createTarget") {
         queueMicrotask(() => harness.socket.answer({ id, result: { targetId: "target" } }));
@@ -456,7 +456,7 @@ describe("launchBrowser", () => {
     };
 
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
     });
 
@@ -475,7 +475,7 @@ describe("launchBrowser", () => {
     // timeout in turn.
     const harness = launchHarness();
     harness.socket.onSend = (message) => {
-      const id = message.id as number;
+      const id = required(message.id);
 
       if (message.method === "Target.createTarget") {
         queueMicrotask(() => harness.socket.answer({ id, result: { targetId: "target" } }));
@@ -486,7 +486,7 @@ describe("launchBrowser", () => {
     };
 
     const browser = await launchBrowser("/browser", {
-      spawn: vi.fn(() => harness.process) as unknown as typeof import("node:child_process").spawn,
+      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
       connect: async () => harness.socket,
       commandTimeoutMs: 10,
     });
@@ -504,7 +504,7 @@ describe("launchBrowser", () => {
     const process = fakeProcess(false);
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
         startTimeoutMs: 5,
       }),
@@ -524,7 +524,7 @@ describe("launchBrowser", () => {
     });
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
       }),
     ).rejects.toThrow("No usable sandbox");
@@ -535,14 +535,18 @@ describe("launchBrowser", () => {
     queueMicrotask(() => process.emit("close", 17, null));
     await expect(
       launchBrowser("/browser", {
-        spawn: vi.fn(() => process) as unknown as typeof import("node:child_process").spawn,
+        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
         connect: async () => new FakeSocket(),
       }),
     ).rejects.toThrow("exit code 17");
   });
 });
 
-function fakeBrowser(): Browser & { pages: number; closes: number } {
+function fakeBrowser(): Omit<Browser, "closed"> & {
+  closed: boolean;
+  pages: number;
+  closes: number;
+} {
   return {
     pages: 0,
     closes: 0,
@@ -550,11 +554,11 @@ function fakeBrowser(): Browser & { pages: number; closes: number } {
     withPage: async function <T>(work: (page: CdpPage) => Promise<T>) {
       this.pages += 1;
 
-      return work({ send: async () => ({}) as never, on: () => () => {} });
+      return work(unusedPage);
     },
     close: async function () {
       this.closes += 1;
-      (this as { closed: boolean }).closed = true;
+      this.closed = true;
     },
   };
 }
@@ -596,7 +600,7 @@ describe("createBrowserPool", () => {
     const dead = {
       closed: false,
       closes: 0,
-      withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+      withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work(unusedPage),
       close: async () => {
         dead.closes += 1;
       },
@@ -612,7 +616,7 @@ describe("createBrowserPool", () => {
     const pool = createBrowserPool({
       find: () => "/browser",
       launch,
-      setTimeout: () => "idle",
+      setTimeout: () => 0,
       clearTimeout: vi.fn(),
     });
 
@@ -735,7 +739,7 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "evaluates JavaScript over CDP",
     async () => {
-      const browser = await launchBrowser(liveExecutable as string);
+      const browser = await launchBrowser(required(liveExecutable));
 
       try {
         const response = await browser.withPage((page) =>
@@ -755,7 +759,7 @@ describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", ()
 });
 
 describe("reapOrphanedBrowsers", () => {
-  const record = (fields: Record<string, unknown>) => JSON.stringify(fields);
+  const record = (fields: JsonRecord) => JSON.stringify(fields);
   const now = 1_000_000;
   /** A profile old enough that the grace period for a pending record is over. */
   const old = now - 600_000;

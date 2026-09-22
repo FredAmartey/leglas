@@ -1,5 +1,7 @@
 import { DEFAULT_LOG_DIR } from "../log.js";
 
+import { isBoolean, isString, isJsonRecord, type JsonValue } from "../json.js";
+
 export const DEFAULT_DEV_SERVER = "http://localhost:3000";
 
 /** Enough to install a fresh checkout with the package manager most repos use. */
@@ -72,10 +74,6 @@ export type NormalizeOptions = {
 /** Zero-config: with no file, preview the app root and let the user add the rest live. */
 const IMPLICIT_PREVIEW = { title: "App", url: "/" };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isValidOrigin(value: string): boolean {
   try {
     const url = new URL(value);
@@ -124,18 +122,21 @@ function isSafePreviewFile(value: string): boolean {
  * stopping at the first, so one run fixes the whole file, and returns a null
  * config when anything is wrong so callers cannot half-use a broken one.
  */
-export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): NormalizeResult {
+export function normalizeConfig(
+  raw: JsonValue | undefined,
+  options: NormalizeOptions = {},
+): NormalizeResult {
   const requireDevCommand = options.requireDevCommand ?? true;
   const errors: string[] = [];
   const source = raw === undefined || raw === null ? {} : raw;
 
-  if (!isRecord(source)) {
+  if (!isJsonRecord(source)) {
     return { config: null, errors: ["Config must export an object."] };
   }
 
   const devServer = source["devServer"] ?? DEFAULT_DEV_SERVER;
 
-  if (typeof devServer !== "string" || !isValidOrigin(devServer)) {
+  if (!isString(devServer) || !isValidOrigin(devServer)) {
     errors.push(`devServer must be an http(s) URL, received ${JSON.stringify(devServer)}.`);
   }
 
@@ -153,7 +154,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
   rawPreviews.forEach((entry, index) => {
     const at = `previews[${index}]`;
 
-    if (!isRecord(entry)) {
+    if (!isJsonRecord(entry)) {
       errors.push(`${at} must be an object.`);
 
       return;
@@ -163,7 +164,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     const url = entry["url"];
     const file = entry["file"];
 
-    if (typeof title !== "string" || title.trim() === "") {
+    if (!isString(title) || title.trim() === "") {
       errors.push(`${at} needs a title; the rail has nothing to show without one.`);
     } else if (seenTitles.has(title)) {
       errors.push(`${at} repeats the title ${JSON.stringify(title)}; titles must be unique.`);
@@ -174,7 +175,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     if (file !== undefined) {
       // A file preview's url is Leglas's to assign at boot; declaring one too
       // would make the entry claim two different sources.
-      if (typeof file !== "string" || !isSafePreviewFile(file)) {
+      if (!isString(file) || !isSafePreviewFile(file)) {
         errors.push(
           `${at} has an unusable file ${JSON.stringify(file)}; use a path inside the project, like "directions/hero.html".`,
         );
@@ -183,7 +184,7 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
       if (url !== undefined) {
         errors.push(`${at} names a file and a url; a file preview's url is assigned by Leglas.`);
       }
-    } else if (typeof url !== "string" || url.trim() === "") {
+    } else if (!isString(url) || url.trim() === "") {
       errors.push(`${at} needs a url.`);
     } else if (!isValidPreviewUrl(url)) {
       errors.push(
@@ -194,11 +195,11 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
     const branch = entry["branch"];
 
     if (branch !== undefined) {
-      if (typeof branch !== "string" || !isSafeBranch(branch)) {
+      if (!isString(branch) || !isSafeBranch(branch)) {
         errors.push(
           `${at} has an unusable branch ${JSON.stringify(branch)}; use a plain git branch name.`,
         );
-      } else if (typeof url === "string" && !url.startsWith("/")) {
+      } else if (isString(url) && !url.startsWith("/")) {
         errors.push(
           `${at} names a branch and an absolute url; a branch preview is served by Leglas, so its url must be a path.`,
         );
@@ -213,34 +214,40 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
 
     const basedOn = entry["basedOn"];
 
-    if (basedOn !== undefined && (typeof basedOn !== "string" || basedOn.trim() === "")) {
+    if (basedOn !== undefined && (!isString(basedOn) || basedOn.trim() === "")) {
       errors.push(`${at} has a basedOn that is not a direction title.`);
     }
 
     const askedFor = entry["askedFor"];
 
-    if (askedFor !== undefined && (typeof askedFor !== "string" || askedFor.trim() === "")) {
+    if (askedFor !== undefined && (!isString(askedFor) || askedFor.trim() === "")) {
       errors.push(`${at} has an askedFor that is not a change request.`);
     }
 
     const tags = entry["tags"];
-    previews.push({
-      title: typeof title === "string" ? title : "",
-      url: typeof url === "string" ? url : "",
-      note: typeof entry["note"] === "string" ? entry["note"] : undefined,
-      tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : [],
-      ...(typeof branch === "string" ? { branch } : {}),
-      ...(typeof file === "string" ? { file } : {}),
-      ...(typeof basedOn === "string" && basedOn.trim() !== "" ? { basedOn } : {}),
-      ...(typeof askedFor === "string" && askedFor.trim() !== "" ? { askedFor } : {}),
-    });
+
+    const preview: Preview = {
+      title: isString(title) ? title : "",
+      url: isString(url) ? url : "",
+      note: isString(entry["note"]) ? entry["note"] : undefined,
+      tags: Array.isArray(tags) ? tags.filter((tag): tag is string => isString(tag)) : [],
+    };
+
+    if (isString(branch)) preview.branch = branch;
+
+    if (isString(file)) preview.file = file;
+
+    if (isString(basedOn) && basedOn.trim() !== "") preview.basedOn = basedOn;
+
+    if (isString(askedFor) && askedFor.trim() !== "") preview.askedFor = askedFor;
+    previews.push(preview);
   });
 
   const devCommand = source["devCommand"];
 
-  if (devCommand !== undefined && typeof devCommand !== "string") {
+  if (devCommand !== undefined && !isString(devCommand)) {
     errors.push("devCommand must be a string.");
-  } else if (typeof devCommand === "string" && !devCommand.includes("{port}")) {
+  } else if (isString(devCommand) && !devCommand.includes("{port}")) {
     errors.push(
       `devCommand must include {port}, so Leglas can start each checkout on a free port. Received ${JSON.stringify(devCommand)}.`,
     );
@@ -259,32 +266,39 @@ export function normalizeConfig(raw: unknown, options: NormalizeOptions = {}): N
 
   const logDir = source["logDir"] ?? DEFAULT_LOG_DIR;
 
-  if (typeof logDir !== "string" || logDir.trim() === "") {
+  if (!isString(logDir) || logDir.trim() === "") {
     errors.push("logDir must be a non-empty string.");
   }
 
   const installCommand = source["installCommand"] ?? DEFAULT_INSTALL_COMMAND;
 
-  if (typeof installCommand !== "string" || installCommand.trim() === "") {
+  if (!isString(installCommand) || installCommand.trim() === "") {
     errors.push("installCommand must be a non-empty string.");
   }
 
   const scanPreviews = source["scanPreviews"] ?? true;
 
-  if (typeof scanPreviews !== "boolean") {
+  if (!isBoolean(scanPreviews)) {
     errors.push("scanPreviews must be a boolean.");
   }
 
-  if (errors.length > 0) return { config: null, errors };
+  if (
+    errors.length > 0 ||
+    !isString(devServer) ||
+    !isBoolean(scanPreviews) ||
+    !isString(installCommand) ||
+    !isString(logDir)
+  )
+    return { config: null, errors };
 
   return {
     config: {
-      devServer: devServer as string,
+      devServer,
       previews,
-      scanPreviews: scanPreviews as boolean,
-      devCommand: typeof devCommand === "string" ? devCommand : undefined,
-      installCommand: installCommand as string,
-      logDir: logDir as string,
+      scanPreviews,
+      devCommand: isString(devCommand) ? devCommand : undefined,
+      installCommand,
+      logDir,
     },
     errors: [],
   };

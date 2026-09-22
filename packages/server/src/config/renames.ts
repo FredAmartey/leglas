@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isJsonRecord, parseJson } from "../json.js";
+
 /**
  * What a direction is called on this machine, when that differs from its title
  * in the config.
@@ -23,14 +25,15 @@ export type Renames = Record<string, string>;
 export async function readRenames(cwd: string): Promise<Renames> {
   try {
     const raw = await readFile(join(cwd, RENAMES_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { renames?: unknown };
+    const parsed = parseJson(raw);
 
-    if (parsed.renames === null || typeof parsed.renames !== "object") return {};
+    if (!isJsonRecord(parsed) || (!isJsonRecord(parsed.renames) && !Array.isArray(parsed.renames)))
+      return {};
 
     // Anything not a string pair is dropped rather than trusted: this file is
     // written by a browser and read by commands that act on real source.
     return Object.fromEntries(
-      Object.entries(parsed.renames as Record<string, unknown>).filter(
+      Object.entries(parsed.renames).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
       ),
     );

@@ -1,3 +1,4 @@
+import { required } from "../test-helpers.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ import {
 /** How long a wait may take before it is a hang rather than a slow machine. */
 const EVENTUALLY_MS = 15_000;
 
-type Message = Record<string, unknown>;
+type Message = import("@anthropic-ai/claude-agent-sdk").SDKUserMessage;
 
 class FakeQuery implements ClaudeSdkQuery {
   readonly applied: Array<{ effortLevel: "low" | "medium" | "high" | "xhigh" | "max" | null }> = [];
@@ -24,8 +25,22 @@ class FakeQuery implements ClaudeSdkQuery {
     if (this.closeDelayMs === 0) this.end();
     else setTimeout(() => this.end(), this.closeDelayMs);
   });
-  private readonly queued: Message[] = [];
-  private readonly readers: Array<(result: IteratorResult<Message>) => void> = [];
+  private readonly queued: Array<{
+    type: string;
+    subtype?: string;
+    session_id?: string;
+    is_error?: boolean;
+  }> = [];
+  private readonly readers: Array<
+    (
+      result: IteratorResult<{
+        type: string;
+        subtype?: string;
+        session_id?: string;
+        is_error?: boolean;
+      }>,
+    ) => void
+  > = [];
   private ended = false;
 
   constructor(private readonly closeDelayMs = 0) {}
@@ -36,7 +51,7 @@ class FakeQuery implements ClaudeSdkQuery {
     this.applied.push(settings);
   }
 
-  emit(message: Message): void {
+  emit(message: { type: string; subtype?: string; session_id?: string; is_error?: boolean }): void {
     const reader = this.readers.shift();
 
     if (reader === undefined) this.queued.push(message);
@@ -52,7 +67,12 @@ class FakeQuery implements ClaudeSdkQuery {
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<Message> {
+  [Symbol.asyncIterator](): AsyncIterator<{
+    type: string;
+    subtype?: string;
+    session_id?: string;
+    is_error?: boolean;
+  }> {
     return {
       next: () => {
         const message = this.queued.shift();
@@ -133,12 +153,12 @@ describe("Claude Agent SDK transport", () => {
 
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[1]?.options.abortController.signal.aborted).toBe(true);
-    await until(() => (sdk.warms[1] as FakeWarmQuery).close.mock.calls.length === 1);
+    await until(() => required(sdk.warms[1]).close.mock.calls.length === 1);
 
     // Released, not closed: a later ask still brings it up.
     await session.warm();
     expect(sdk.calls).toHaveLength(3);
-    expect((sdk.warms[2] as FakeWarmQuery).close).not.toHaveBeenCalled();
+    expect(required(sdk.warms[2]).close).not.toHaveBeenCalled();
     await session.close();
   });
 
@@ -157,7 +177,7 @@ describe("Claude Agent SDK transport", () => {
 
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[1]?.options.abortController.signal.aborted).toBe(false);
-    expect((sdk.warms[1] as FakeWarmQuery).close).not.toHaveBeenCalled();
+    expect(required(sdk.warms[1]).close).not.toHaveBeenCalled();
     // Still warm: another ask starts nothing new.
     await session.warm();
     expect(sdk.calls).toHaveLength(2);
@@ -172,7 +192,7 @@ describe("Claude Agent SDK transport", () => {
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
     const first = await session.run({ prompt: "first", effort: null, sessionId: null, images: [] });
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
     await nextInput(warm);
 
     const firstClosed = new Promise<number | null>((resolve) =>
@@ -198,7 +218,7 @@ describe("Claude Agent SDK transport", () => {
     });
 
     expect(sdk.calls).toHaveLength(2);
-    const resumed = sdk.warms[1] as FakeWarmQuery;
+    const resumed = required(sdk.warms[1]);
     await expect(nextInput(resumed)).resolves.toMatchObject({
       message: { role: "user", content: "second" },
     });
@@ -230,7 +250,7 @@ describe("Claude Agent SDK transport", () => {
     await session.run({ prompt: "continue", effort: null, sessionId: "claude_3", images: [] });
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[0]?.options).not.toHaveProperty("resume");
-    expect((sdk.warms[0] as FakeWarmQuery).close).toHaveBeenCalledOnce();
+    expect(required(sdk.warms[0]).close).toHaveBeenCalledOnce();
     expect(sdk.calls[1]?.options.resume).toBe("claude_3");
     await session.close();
   });
@@ -245,7 +265,7 @@ describe("Claude Agent SDK transport", () => {
 
     await session.run({ prompt: "fresh", effort: null, sessionId: null, images: [] });
     expect(sdk.calls).toHaveLength(2);
-    expect((sdk.warms[0] as FakeWarmQuery).close).toHaveBeenCalledOnce();
+    expect(required(sdk.warms[0]).close).toHaveBeenCalledOnce();
     expect(sdk.calls[1]?.options).not.toHaveProperty("resume");
     await session.close();
   });
@@ -263,7 +283,7 @@ describe("Claude Agent SDK transport", () => {
       images: [],
     });
 
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
     await nextInput(warm);
     const resumedClosed = new Promise<void>((resolve) => resumed.once("close", () => resolve()));
     warm.output.emit({ type: "result", subtype: "success", session_id: "claude_5" });
@@ -273,7 +293,7 @@ describe("Claude Agent SDK transport", () => {
     expect(sdk.calls).toHaveLength(2);
     expect(sdk.calls[1]?.options).not.toHaveProperty("resume");
     expect(warm.output.close).toHaveBeenCalled();
-    await expect(nextInput(sdk.warms[1] as FakeWarmQuery)).resolves.toMatchObject({
+    await expect(nextInput(required(sdk.warms[1]))).resolves.toMatchObject({
       message: { role: "user", content: "clean slate" },
     });
     await session.close();
@@ -299,7 +319,7 @@ describe("Claude Agent SDK transport", () => {
     expect(sdk.calls[0]?.options).not.toHaveProperty("effort");
     expect(sdk.calls[0]?.options.abortController).toBeInstanceOf(AbortController);
 
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
 
     const first = await session.run({
       prompt: "first prompt",
@@ -383,9 +403,11 @@ describe("Claude Agent SDK transport", () => {
       images: [image, tooLarge, join(cwd, "missing.webp"), join(cwd, "not-an-image.txt")],
     });
 
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
     const input = await nextInput(warm);
-    const message = input.message as { content: Record<string, any>[] };
+    const message = input.message;
+
+    if (!Array.isArray(message.content)) throw new Error("Expected image content blocks.");
     expect(message.content).toEqual([
       { type: "text", text: "look at these" },
       {
@@ -419,7 +441,7 @@ describe("Claude Agent SDK transport", () => {
       images: [],
     });
 
-    const firstWarm = sdk.warms[0] as FakeWarmQuery;
+    const firstWarm = required(sdk.warms[0]);
     const firstClosed = new Promise<void>((resolve) => first.once("close", () => resolve()));
     firstWarm.output.emit({
       type: "result",
@@ -461,7 +483,7 @@ describe("Claude Agent SDK transport", () => {
       images: [],
     });
 
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
     expect(child.kill("SIGTERM")).toBe(true);
     expect(warm.output.interrupt).toHaveBeenCalledOnce();
 
@@ -508,7 +530,7 @@ describe("Claude Agent SDK transport", () => {
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
     const running = session.run({ prompt: "quick", effort: null, sessionId: null, images: [] });
-    const warm = sdk.warms[0] as FakeWarmQuery;
+    const warm = required(sdk.warms[0]);
     await until(() => warm.input !== null);
     await expect(nextInput(warm)).resolves.toMatchObject({
       message: { content: "quick" },

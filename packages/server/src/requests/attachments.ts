@@ -240,14 +240,17 @@ async function moveReference(
   };
 }
 
-function focusOf(note: Annotation) {
-  return {
+function focusOf(note: Annotation): import("../capture/capture.js").Focus {
+  const focus: import("../capture/capture.js").Focus = {
     selector: note.anchor.selector,
     text: note.anchor.text,
     tag: note.anchor.tag,
-    ...(note.anchor.region === undefined ? {} : { region: note.anchor.region }),
     rect: note.anchor.rect,
   };
+
+  if (note.anchor.region !== undefined) focus.region = note.anchor.region;
+
+  return focus;
 }
 
 /** Capture everything one request can carry, returning partial work on failure. */
@@ -288,13 +291,10 @@ export async function attachRequest(
 
   timer.unref?.();
 
-  for (let index = 0; index < input.references.length; index += 1) {
-    const reference = await moveReference(
-      cwd,
-      input.references[index] as string,
-      destination,
-      index + 1,
-    ).catch(() => null);
+  for (const [index, referenceId] of input.references.entries()) {
+    const reference = await moveReference(cwd, referenceId, destination, index + 1).catch(
+      () => null,
+    );
 
     if (reference !== null) references.push(reference);
   }

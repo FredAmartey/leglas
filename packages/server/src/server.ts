@@ -25,7 +25,6 @@ import {
   pruneReferences,
   rehomeCaptures,
   rehomeText,
-  removeCaptures,
   sniffImage,
 } from "./requests/attachments.js";
 import {
@@ -91,6 +90,16 @@ import {
 } from "./share/tunnel.js";
 import type { UpdateService } from "./update.js";
 
+import {
+  isBoolean,
+  isNumber,
+  isString,
+  isJsonRecord,
+  parseJson,
+  type JsonRecord,
+  type JsonValue,
+} from "./json.js";
+
 /** Everything Leglas owns lives under this prefix; the rest belongs to the app. */
 export const LEGLAS_PREFIX = "/leglas";
 
@@ -108,7 +117,7 @@ const REFERENCE_MAX_BYTES = 10_000_000;
  */
 const ATTACHED_WINDOW_MS = 6000;
 
-const CONTENT_TYPES: Record<string, string> = {
+const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".gif": "image/gif",
   ".html": "text/html; charset=utf-8",
@@ -125,6 +134,10 @@ const CONTENT_TYPES: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
+
+function isContentExtension(extension: string): extension is keyof typeof CONTENT_TYPES {
+  return Object.hasOwn(CONTENT_TYPES, extension);
+}
 
 /** Where file-backed previews are served from, under the Leglas prefix. */
 export const FILES_PREFIX = `${LEGLAS_PREFIX}/files`;
@@ -189,7 +202,7 @@ export type RunningServer = {
   close(): Promise<void>;
 };
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+function sendJson<T>(res: http.ServerResponse, status: number, body: T): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -212,10 +225,10 @@ function etagMatches(value: string | string[] | undefined, etag: string): boolea
 }
 
 /** Serialize once, then derive and answer from those exact bytes. */
-function sendConditionalJson(
+function sendConditionalJson<T>(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: unknown,
+  body: T,
 ): void {
   const payload = JSON.stringify(body);
   const etag = `"${createHash("sha256").update(payload).digest("base64url")}"`;
@@ -266,8 +279,14 @@ function referenceName(value: string | string[] | undefined): string {
   return safe || "image";
 }
 
+function isAddressInUse(cause: unknown): cause is { code: "EADDRINUSE" } {
+  return (
+    typeof cause === "object" && cause !== null && "code" in cause && cause.code === "EADDRINUSE"
+  );
+}
+
 function isKnownAgent(value: unknown): value is KnownAgentId {
-  return typeof value === "string" && Object.hasOwn(KNOWN_AGENTS, value);
+  return isString(value) && Object.hasOwn(KNOWN_AGENTS, value);
 }
 
 /**
@@ -318,7 +337,7 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 export function isTrustedMutation(req: http.IncomingMessage): boolean {
   if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
 
-  if (typeof req.headers.host !== "string") return false;
+  if (!isString(req.headers.host)) return false;
 
   let host: URL;
 
@@ -365,29 +384,31 @@ function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean
  * was under way, by sending four characters. An array or a bare number are
  * equally valid JSON and equally not what any of this is written for.
  *
- * The cast is the one every route was making by hand. It says what the route
- * expects to find rather than what arrived, and every field is still checked
- * after this returns.
+ * The container is decoded once here. Each route checks the fields it uses
+ * before passing them to its domain operations.
  */
-function jsonBody<T>(body: string): T | null {
-  let parsed: unknown;
-
+function jsonBody(body: string): JsonRecord | null {
   try {
-    parsed = JSON.parse(body || "{}");
+    const parsed = parseJson(body || "{}");
+
+    return isJsonRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
 
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as T)
-    : null;
+/** The words of a request, trimmed; null when the body sent something that is not text. */
+function requestIntent(value: JsonValue | undefined): string | null {
+  if (value === null || value === undefined) return "";
+
+  return isString(value) ? value.trim() : null;
 }
 
 function hasJsonBody(req: http.IncomingMessage): boolean {
   const contentType = req.headers["content-type"];
 
   return (
-    typeof contentType === "string" &&
+    isString(contentType) &&
     contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json"
   );
 }
@@ -431,8 +452,11 @@ function serveFrom(res: http.ServerResponse, dir: string, relativePath: string):
 
   if (!existsSync(candidate) || !statSync(candidate).isFile()) return false;
 
+  const extension = extname(candidate);
   res.writeHead(200, {
-    "content-type": CONTENT_TYPES[extname(candidate)] ?? "application/octet-stream",
+    "content-type": isContentExtension(extension)
+      ? CONTENT_TYPES[extension]
+      : "application/octet-stream",
     "cache-control": "no-store",
   });
   createReadStream(candidate).pipe(res);
@@ -804,7 +828,7 @@ function listen(server: http.Server, port: number): Promise<number> {
     const onListening = () => {
       server.removeListener("error", onError);
       const address = server.address();
-      resolve(typeof address === "object" && address !== null ? address.port : port);
+      resolve(address !== null && !isString(address) ? address.port : port);
     };
 
     server.once("error", onError);
@@ -824,7 +848,7 @@ async function bind(server: http.Server, requested: number): Promise<number> {
     try {
       return await listen(server, requested + attempt);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      if (!isAddressInUse(error)) throw error;
     }
   }
 
@@ -849,7 +873,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let liveHealth: HealthWatch | null = null;
   const live: LiveHub = options.live ?? createLiveHub();
 
-  const branches = createBranchRegistry({
+  const branchOptions: Parameters<typeof createBranchRegistry>[0] = {
     cwd,
     previews: (config?.previews ?? []).flatMap((preview) =>
       preview.branch === undefined ? [] : [{ title: preview.title, branch: preview.branch }],
@@ -857,8 +881,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     installCommand: config?.installCommand ?? DEFAULT_INSTALL_COMMAND,
     devCommand: config?.devCommand,
     onChange: () => live.nudge("config"),
-    ...(options.startWorktree === undefined ? {} : { startWorktree: options.startWorktree }),
-  });
+  };
+
+  if (options.startWorktree !== undefined) branchOptions.startWorktree = options.startWorktree;
+  const branches = createBranchRegistry(branchOptions);
 
   type ConfigPreview =
     | Preview
@@ -1010,12 +1036,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const readShareBody = (
     req: http.IncomingMessage,
     res: http.ServerResponse,
-    run: (body: Record<string, unknown>) => ShareResult | Promise<ShareResult> | undefined,
+    run: (body: JsonRecord) => ShareResult | Promise<ShareResult> | undefined,
   ): void => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      const parsed = jsonBody<Record<string, unknown>>(body);
+      const parsed = jsonBody(body);
 
       if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
       void Promise.resolve(run(parsed)).then((result) => {
@@ -1098,10 +1124,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (path.endsWith("/install")) {
         return void updates.update().then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) =>
+          (cause: unknown) =>
             sendJson(res, 409, {
               ok: false,
-              error: error instanceof Error ? error.message : String(error),
+              error: cause instanceof Error ? cause.message : String(cause),
             }),
         );
       }
@@ -1111,20 +1137,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", () => {
-        const parsed = jsonBody<{ version?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
 
-        if (typeof parsed.version !== "string" || parsed.version.trim() === "") {
+        if (!isString(parsed.version) || parsed.version.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs a version." });
         }
 
         void updates.skip(parsed.version).then(
           (status) => sendJson(res, 200, status),
-          (error: unknown) =>
+          (cause: unknown) =>
             sendJson(res, 400, {
               ok: false,
-              error: error instanceof Error ? error.message : String(error),
+              error: cause instanceof Error ? cause.message : String(cause),
             }),
         );
       });
@@ -1145,17 +1171,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<Record<string, unknown>>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        const result = await shares?.create(parsed).catch((error: unknown) => ({
+        const result = await shares?.create(parsed).catch((cause: unknown) => ({
           ok: false as const,
           status: 500 as const,
           error: `Leglas could not start the share (${
-            error instanceof Error ? error.message : String(error)
+            cause instanceof Error ? cause.message : String(cause)
           }).`,
         }));
 
@@ -1178,7 +1204,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<Record<string, unknown>>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
@@ -1304,13 +1330,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+        if (!isString(parsed.title) || parsed.title.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs a direction title." });
         }
 
@@ -1352,7 +1378,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ titles?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
@@ -1363,7 +1389,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (
           !Array.isArray(titles) ||
           titles.length === 0 ||
-          titles.some((title) => typeof title !== "string" || title.trim() === "")
+          !titles.every((title): title is string => isString(title) && title.trim() !== "")
         ) {
           return sendJson(res, 400, {
             ok: false,
@@ -1371,7 +1397,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const unique = [...new Set(titles as string[])];
+        const unique = [...new Set(titles)];
 
         try {
           const local = await readLocalPreviews(cwd);
@@ -1405,7 +1431,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (path === `${LEGLAS_PREFIX}/api/references` && req.method === "POST") {
       const declaredLength = req.headers["content-length"];
 
-      if (typeof declaredLength === "string" && Number(declaredLength) > REFERENCE_MAX_BYTES) {
+      if (isString(declaredLength) && Number(declaredLength) > REFERENCE_MAX_BYTES) {
         return sendJson(res, 413, { ok: false, error: "That image is over 10MB." });
       }
 
@@ -1481,14 +1507,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{
-          title?: string;
-          intent?: string;
-          mode?: unknown;
-          width?: unknown;
-          compare?: unknown;
-          references?: unknown;
-        }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
@@ -1511,22 +1530,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (
           parsed.references !== undefined &&
           (!Array.isArray(parsed.references) ||
-            parsed.references.some(
-              (reference) =>
-                typeof reference !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(reference),
+            !parsed.references.every(
+              (reference): reference is string =>
+                isString(reference) && /^[A-Za-z0-9_-]{1,32}$/.test(reference),
             ))
         ) {
           return sendJson(res, 400, { ok: false, error: "references must be uploaded image ids." });
         }
 
-        const references = (parsed.references ?? []) as string[];
+        const references = parsed.references ?? [];
 
         // A reference that is no longer there was pasted over an hour ago and
         // pruned. Dropping it silently would send the agent a request the
         // user did not make, and clear a thumbnail that never travelled.
         if (references.length > 0) {
           const present = new Set(
-            (await readdir(join(cwd, REFERENCES_DIR)).catch(() => [] as string[])).map((name) =>
+            (await readdir(join(cwd, REFERENCES_DIR)).catch((): string[] => [])).map((name) =>
               name.slice(0, name.indexOf(".") === -1 ? name.length : name.indexOf(".")),
             ),
           );
@@ -1545,7 +1564,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
 
         const width =
-          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+          isNumber(parsed.width) && Number.isFinite(parsed.width)
             ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
             : 1440;
 
@@ -1563,7 +1582,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // at all still is not a request.
         const notes = annotationsFor(await readAnnotations(cwd).catch(() => []), preview.title);
 
-        if (!parsed.intent?.trim() && notes.length === 0) {
+        const intent = requestIntent(parsed.intent);
+
+        if (intent === null) {
+          return sendJson(res, 400, { ok: false, error: "A request's words must be text." });
+        }
+
+        if (!intent && notes.length === 0) {
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
 
@@ -1573,8 +1598,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // of work already waiting, and it costs a whole provider turn. The
         // usual way in is a stop followed by retyping the same request, which
         // reads as a retry and behaves as a duplicate.
-        const intent = (parsed.intent ?? "").trim();
-
         const live = (await readRequests(cwd).catch(() => [])).filter(
           (entry) => entry.status === "queued" || entry.status === "picked-up",
         );
@@ -1597,7 +1620,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         };
 
         const compare =
-          typeof parsed.compare === "string" && parsed.compare !== preview.title
+          isString(parsed.compare) && parsed.compare !== preview.title
             ? (previews.find((entry) => entry.title === parsed.compare) ?? null)
             : null;
 
@@ -1633,9 +1656,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const address = server.address();
 
         const requestPort =
-          typeof address === "object" && address !== null
-            ? address.port
-            : (options.port ?? DEFAULT_PORT);
+          address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
 
         const id = newRequestId();
 
@@ -1656,24 +1677,26 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const composed = composeRequest(preview, intent, mode, notes, leglasCommand, captured);
 
         try {
-          await appendRequest(
-            cwd,
-            {
-              title: preview.title,
-              url: preview.url,
-              intent,
-              // The ids travel with the request so a change made in place can
-              // forget the notes it answered. A fork leaves them where they are:
-              // the direction they point at was not touched.
-              ...(notes.length === 0 ? {} : { notes: notes.map((entry) => entry.id) }),
-              ...(captured.attachments.length === 0 ? {} : { attachments: captured.attachments }),
-              ...(captured.skipped === null ? {} : { captureNote: captured.skipped }),
-              ...(compare === null ? {} : { compare: compare.title }),
-              ...(references.length === 0 ? {} : { references }),
-              ...composed,
-            },
-            id,
-          );
+          const queued: Parameters<typeof appendRequest>[1] = {
+            title: preview.title,
+            url: preview.url,
+            intent,
+            // The ids travel with the request so a change made in place can
+            // forget the notes it answered. A fork leaves them where they are:
+            // the direction they point at was not touched.
+            ...composed,
+          };
+
+          if (notes.length > 0) queued.notes = notes.map((entry) => entry.id);
+
+          if (captured.attachments.length > 0) queued.attachments = captured.attachments;
+
+          if (captured.skipped !== null) queued.captureNote = captured.skipped;
+
+          if (compare !== null) queued.compare = compare.title;
+
+          if (references.length > 0) queued.references = references;
+          await appendRequest(cwd, queued, id);
           // The runner polls every two seconds, but the queue just grew in
           // this very process: no reason to make the user watch that gap.
           runner?.nudge();
@@ -1707,17 +1730,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown; width?: unknown; note?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.title !== "string" || parsed.title === "") {
+        if (!isString(parsed.title) || parsed.title === "") {
           return sendJson(res, 400, { ok: false, error: "Capture needs a direction title." });
         }
 
-        if (parsed.note !== undefined && typeof parsed.note !== "string") {
+        if (parsed.note !== undefined && !isString(parsed.note)) {
           return sendJson(res, 400, { ok: false, error: "The note id must be a string." });
         }
 
@@ -1728,7 +1751,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         }
 
         const width =
-          typeof parsed.width === "number" && Number.isFinite(parsed.width)
+          isNumber(parsed.width) && Number.isFinite(parsed.width)
             ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
             : 1440;
 
@@ -1741,19 +1764,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        const annotations =
-          typeof parsed.note === "string"
-            ? (await readAnnotations(cwd).catch(() => [])).filter(
-                (entry) => entry.id === parsed.note && entry.title === preview.title,
-              )
-            : [];
+        const annotations = isString(parsed.note)
+          ? (await readAnnotations(cwd).catch(() => [])).filter(
+              (entry) => entry.id === parsed.note && entry.title === preview.title,
+            )
+          : [];
 
         const address = server.address();
 
         const capturePort =
-          typeof address === "object" && address !== null
-            ? address.port
-            : (options.port ?? DEFAULT_PORT);
+          address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
 
         const controller = new AbortController();
         const timeoutMarker = Symbol("capture timeout");
@@ -1771,23 +1791,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         timer.unref?.();
 
         try {
-          const work = capturePage(browser, {
+          const captureInput: Parameters<typeof capturePage>[1] & { signal: AbortSignal } = {
             url: previewUrl(`http://127.0.0.1:${capturePort}`, preview),
             width,
-            ...(annotations.length === 0
-              ? {}
-              : {
-                  focuses: annotations.map((entry) => ({
-                    selector: entry.anchor.selector,
-                    text: entry.anchor.text,
-                    tag: entry.anchor.tag,
-                    ...(entry.anchor.region === undefined ? {} : { region: entry.anchor.region }),
-                    rect: entry.anchor.rect,
-                  })),
-                }),
             timeoutMs: CAPTURE_LOAD_MS,
             signal: controller.signal,
-          } as Parameters<typeof capturePage>[1] & { signal: AbortSignal });
+          };
+
+          if (annotations.length > 0) {
+            captureInput.focuses = annotations.map((entry) => {
+              const focus: NonNullable<typeof captureInput.focuses>[number] = {
+                selector: entry.anchor.selector,
+                text: entry.anchor.text,
+                tag: entry.anchor.tag,
+                rect: entry.anchor.rect,
+              };
+
+              if (entry.anchor.region !== undefined) focus.region = entry.anchor.region;
+
+              return focus;
+            });
+          }
+
+          const work = capturePage(browser, captureInput);
 
           const result = await Promise.race([work, timeout]);
 
@@ -1799,10 +1825,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           const crop = annotations.length > 0 ? result.crops[0] : null;
           const shot = crop?.shot ?? result.frame;
 
-          const noteSuffix =
-            typeof parsed.note === "string"
-              ? `-${parsed.note.replace(/[^A-Za-z0-9_-]+/g, "-")}`
-              : "";
+          const noteSuffix = isString(parsed.note)
+            ? `-${parsed.note.replace(/[^A-Za-z0-9_-]+/g, "-")}`
+            : "";
 
           const name = `${captureSlug(preview.title)}-${result.frame.width}${noteSuffix}.png`;
           const relativeFile = `${CAPTURES_DIR}/show/${name}`;
@@ -1878,7 +1903,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", () => {
-        const parsed = jsonBody<{ agent?: unknown; effort?: unknown; run?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
@@ -1888,7 +1913,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Body needs a known agent." });
         }
 
-        if (parsed.run !== undefined && typeof parsed.run !== "string") {
+        if (parsed.run !== undefined && !isString(parsed.run)) {
           return sendJson(res, 400, {
             ok: false,
             error: "The custom run command must be a string.",
@@ -1913,7 +1938,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           }
 
-          if (typeof parsed.run !== "string") {
+          if (!isString(parsed.run)) {
             return sendJson(res, 400, { ok: false, error: "A custom agent needs a run command." });
           }
 
@@ -1930,7 +1955,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (
           effort !== undefined &&
           effort !== null &&
-          !(KNOWN_AGENTS[parsed.agent].efforts as readonly string[]).includes(effort)
+          !KNOWN_AGENTS[parsed.agent].efforts.some((supported) => supported === effort)
         ) {
           return sendJson(res, 400, {
             ok: false,
@@ -1938,12 +1963,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
-        return void saveAgentChoice(cwd, {
-          agent: parsed.agent,
-          ...(effort === undefined ? {} : { effort }),
-        }).then(
+        const agent = parsed.agent;
+        const choice: Parameters<typeof saveAgentChoice>[1] = { agent };
+
+        if (effort !== undefined) choice.effort = effort;
+
+        return void saveAgentChoice(cwd, choice).then(
           () => {
-            runner?.prepare(parsed.agent as KnownAgentId);
+            runner?.prepare(agent);
             sendJson(res, 200, { ok: true });
           },
           () => sendJson(res, 500, { ok: false, error: "Agent choice could not be saved." }),
@@ -1959,13 +1986,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", () => {
-        const parsed = jsonBody<{ watching?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.watching !== "boolean") {
+        if (!isBoolean(parsed.watching)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a watching boolean." });
         }
 
@@ -2044,13 +2071,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (parsed.id !== undefined && typeof parsed.id !== "string") {
+        if (parsed.id !== undefined && !isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "The request id must be a string." });
         }
 
@@ -2067,13 +2094,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.id !== "string") {
+        if (!isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
 
@@ -2107,31 +2134,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             return sendJson(res, 404, { ok: false, error: "No such request." });
           }
 
-          await appendRequest(
-            cwd,
-            {
-              title: request.title,
-              url: request.url,
-              intent: request.intent,
-              target: request.target,
-              // The prompt names the captures by path, and the embedded pipes
-              // are not its only readers: watch, a custom command and
-              // `requests --json` all hand the text over as it stands.
-              prompt:
-                attachments.length === 0
-                  ? request.prompt
-                  : rehomeText(request.prompt, request.id, retryId),
-              // The stored prompt already carries the mode's instructions;
-              // its notes and visual context travel with the retry too.
-              ...(request.mode === undefined ? {} : { mode: request.mode }),
-              ...(request.notes === undefined ? {} : { notes: request.notes }),
-              ...(attachments.length === 0 ? {} : { attachments }),
-              ...(request.captureNote === undefined ? {} : { captureNote: request.captureNote }),
-              ...(request.compare === undefined ? {} : { compare: request.compare }),
-              ...(request.references === undefined ? {} : { references: request.references }),
-            },
-            retryId,
-          );
+          const retry: Parameters<typeof appendRequest>[1] = {
+            title: request.title,
+            url: request.url,
+            intent: request.intent,
+            target: request.target,
+            // The prompt names the captures by path, and the embedded pipes
+            // are not its only readers: watch, a custom command and
+            // `requests --json` all hand the text over as it stands.
+            prompt:
+              attachments.length === 0
+                ? request.prompt
+                : rehomeText(request.prompt, request.id, retryId),
+            // The stored prompt already carries the mode's instructions;
+            // its notes and visual context travel with the retry too.
+          };
+
+          if (request.mode !== undefined) retry.mode = request.mode;
+
+          if (request.notes !== undefined) retry.notes = request.notes;
+
+          if (attachments.length > 0) retry.attachments = attachments;
+
+          if (request.captureNote !== undefined) retry.captureNote = request.captureNote;
+
+          if (request.compare !== undefined) retry.compare = request.compare;
+
+          if (request.references !== undefined) retry.references = request.references;
+          await appendRequest(cwd, retry, retryId);
           // appendRequest assigns a fresh id, which is naturally outside the
           // runner's process-local failed set and needs no retry exception.
           runner?.nudge();
@@ -2164,13 +2194,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ title?: unknown; note?: unknown; anchor?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.title !== "string" || parsed.title.trim() === "") {
+        if (!isString(parsed.title) || parsed.title.trim() === "") {
           return sendJson(res, 400, { ok: false, error: "A note needs a direction." });
         }
 
@@ -2183,7 +2213,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         try {
           const annotation = await addAnnotation(cwd, {
             anchor,
-            note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+            note: isString(parsed.note) ? parsed.note.trim() : "",
             title: parsed.title,
           });
 
@@ -2206,13 +2236,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown; note?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.id !== "string" || parsed.id === "") {
+        if (!isString(parsed.id) || parsed.id === "") {
           return sendJson(res, 400, { ok: false, error: "Body needs the note to reword." });
         }
 
@@ -2222,7 +2252,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         // case is a request that forgot to say anything wiping the sentence
         // it meant to correct. Clearing a note is still allowed, by sending
         // an empty one on purpose.
-        if (typeof parsed.note !== "string") {
+        if (!isString(parsed.note)) {
           return sendJson(res, 400, { ok: false, error: "A reworded note needs its words." });
         }
 
@@ -2249,14 +2279,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ ids?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
         const ids = Array.isArray(parsed.ids)
-          ? parsed.ids.filter((entry): entry is string => typeof entry === "string")
+          ? parsed.ids.filter((entry): entry is string => isString(entry))
           : [];
 
         if (ids.length === 0) {
@@ -2280,13 +2310,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", async () => {
-        const parsed = jsonBody<{ id?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (typeof parsed.id !== "string") {
+        if (!isString(parsed.id)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a request id." });
         }
 
@@ -2320,18 +2350,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       req.on("data", (chunk) => (body += chunk));
 
       return void req.on("end", () => {
-        const parsed = jsonBody<{ renames?: unknown }>(body);
+        const parsed = jsonBody(body);
 
         if (parsed === null) {
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        if (parsed.renames === null || typeof parsed.renames !== "object") {
+        if (!isJsonRecord(parsed.renames) && !Array.isArray(parsed.renames)) {
           return sendJson(res, 400, { ok: false, error: "Body needs a renames object." });
         }
 
         const renames = Object.fromEntries(
-          Object.entries(parsed.renames as Record<string, unknown>).filter(
+          Object.entries(parsed.renames).filter(
             (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
           ),
         );
@@ -2473,7 +2503,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     handleUpgrade(req, socket, head, { remote: false });
   });
 
-  shares = createShareManager({
+  const shareOptions: Parameters<typeof createShareManager>[0] = {
     live,
     previews: livePreviewDefinitions,
     previewsForConfig,
@@ -2489,9 +2519,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         grantId: context.grantId,
       }),
     upgrade: (req, socket, head) => handleUpgrade(req, socket, head, { remote: true }),
-    ...(options.detectTunnels === undefined ? {} : { detectTunnels: options.detectTunnels }),
-    ...(options.startTunnel === undefined ? {} : { startTunnel: options.startTunnel }),
-  });
+  };
+
+  if (options.detectTunnels !== undefined) shareOptions.detectTunnels = options.detectTunnels;
+
+  if (options.startTunnel !== undefined) shareOptions.startTunnel = options.startTunnel;
+  shares = createShareManager(shareOptions);
 
   port = await bind(server, options.port ?? DEFAULT_PORT);
   options.updates?.setPort(port);
@@ -2506,16 +2539,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: `http://localhost:${port}`,
     pid: process.pid,
   }).catch(() => {});
-  runner = startRunner({
+
+  const runnerOptions: Parameters<typeof startRunner>[0] = {
     cwd,
     externallyAttached,
     onChange: () => live.nudge("requests"),
     leglasCommand,
-    ...(options.codexAppServer === undefined ? {} : { codexAppServer: options.codexAppServer }),
-    ...(options.claudeAgentSession === undefined
-      ? {}
-      : { claudeAgentSession: options.claudeAgentSession }),
-  });
+  };
+
+  if (options.codexAppServer !== undefined) runnerOptions.codexAppServer = options.codexAppServer;
+
+  if (options.claudeAgentSession !== undefined)
+    runnerOptions.claudeAgentSession = options.claudeAgentSession;
+  runner = startRunner(runnerOptions);
   options.updates?.onBusy(() => runner?.snapshot().running ?? false);
   options.updates?.onChange(() => live.nudge("update"));
 

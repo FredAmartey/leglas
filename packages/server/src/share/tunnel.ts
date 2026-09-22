@@ -5,6 +5,8 @@ import https from "node:https";
 
 import { agentEnvironment, pathLookup } from "../agents/agents.js";
 
+import { isString, isJsonRecord, parseJson } from "../json.js";
+
 export type TunnelProviderId = "cloudflared" | "ngrok";
 
 export type TunnelState =
@@ -101,22 +103,22 @@ async function askLink(resolver: Resolver, url: string, entryPath: string): Prom
   const secure = target.protocol === "https:";
 
   return new Promise((resolve) => {
-    const request = (secure ? https : http).request(
-      {
-        host: address,
-        port: Number(target.port || (secure ? 443 : 80)),
-        path: entryPath,
-        method: "GET",
-        headers: { host: target.host },
-        ...(secure ? { servername: target.hostname } : {}),
-        timeout: PROBE_TIMEOUT_MS,
-      },
-      (response) => {
-        response.resume();
-        const status = response.statusCode ?? 0;
-        resolve(status >= 200 && status < 400);
-      },
-    );
+    const requestOptions: https.RequestOptions = {
+      host: address,
+      port: Number(target.port || (secure ? 443 : 80)),
+      path: entryPath,
+      method: "GET",
+      headers: { host: target.host },
+      timeout: PROBE_TIMEOUT_MS,
+    };
+
+    if (secure) requestOptions.servername = target.hostname;
+
+    const request = (secure ? https : http).request(requestOptions, (response) => {
+      response.resume();
+      const status = response.statusCode ?? 0;
+      resolve(status >= 200 && status < 400);
+    });
 
     request.once("timeout", () => request.destroy());
     request.once("error", () => resolve(false));
@@ -173,7 +175,11 @@ export function startTunnel(
   const resolver = deps.probe === undefined ? new Resolver() : null;
 
   const probe =
-    deps.probe ?? ((url: string) => askLink(resolver as Resolver, url, options.entryPath));
+    deps.probe ??
+    ((url: string) => {
+      // SAFETY: Only the default probe is selected when this tunnel constructed a resolver.
+      return askLink(resolver as Resolver, url, options.entryPath);
+    });
 
   const timers = new Set<ReturnType<typeof setTimeout>>();
 
@@ -220,12 +226,10 @@ export function startTunnel(
     if (terminal) return;
     terminal = true;
     clearTimers();
-    report({
-      status: "failed",
-      provider: options.provider,
-      reason,
-      ...(url === null ? {} : { url }),
-    });
+    const failure: TunnelState = { status: "failed", provider: options.provider, reason };
+
+    if (url !== null) failure.url = url;
+    report(failure);
   };
 
   report(state);
@@ -326,10 +330,12 @@ export function startTunnel(
     if (stream !== "stdout") return;
 
     try {
-      const event = JSON.parse(trimmed) as Record<string, unknown>;
+      const event = parseJson(trimmed);
 
       const candidate =
-        typeof event.url === "string" && event.url.startsWith("https://") ? event.url : null;
+        isJsonRecord(event) && isString(event.url) && event.url.startsWith("https://")
+          ? event.url
+          : null;
 
       if (candidate !== null) beginProbe(candidate);
     } catch {

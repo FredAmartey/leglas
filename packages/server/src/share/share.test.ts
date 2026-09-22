@@ -1,3 +1,4 @@
+import { required } from "../test-helpers.js";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -13,6 +14,8 @@ import {
   VIEWER_QUEUE,
   type ShareLayout,
 } from "./share.js";
+
+import { type JsonRecord, isJsonRecord } from "../json.js";
 
 const previews: Preview[] = [
   { title: "Current", url: "/", note: undefined, tags: [] },
@@ -81,7 +84,7 @@ function managerFor(
   const live = createLiveHub();
   const nudge = vi.spyOn(live, "nudge");
 
-  const manager = createShareManager({
+  const options: Parameters<typeof createShareManager>[0] = {
     live,
     previews: async () => {
       await beforePreviews();
@@ -101,10 +104,14 @@ function managerFor(
       return false;
     },
     detectTunnels: async () => [],
-    ...(clocks.now === undefined ? {} : { now: clocks.now }),
-    ...(clocks.nowMono === undefined ? {} : { nowMono: clocks.nowMono }),
-    ...(clocks.deadlineMs === undefined ? {} : { viewerDeadlineMs: clocks.deadlineMs }),
-  });
+  };
+
+  if (clocks.now !== undefined) options.now = clocks.now;
+
+  if (clocks.nowMono !== undefined) options.nowMono = clocks.nowMono;
+
+  if (clocks.deadlineMs !== undefined) options.viewerDeadlineMs = clocks.deadlineMs;
+  const manager = createShareManager(options);
 
   managers.push(manager);
 
@@ -243,14 +250,11 @@ describe("createShareManager", () => {
 
     if (!created.ok) throw new Error(created.error);
 
-    const config = (await manager.viewerConfig(created.share.grants[0].id)) as {
-      previews: Array<{ title: string }>;
-      errors: string[];
-      warnings: string[];
-      viewer: { scope: string; layout: ShareLayout };
-    };
+    const config = required(await manager.viewerConfig(required(created.share.grants[0]).id));
 
-    expect(config.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
+    expect(
+      config.previews.map((preview) => (isJsonRecord(preview) ? preview.title : undefined)),
+    ).toEqual(["Current", "Aurora"]);
     expect(config.errors).toEqual([]);
     expect(config.warnings).toEqual([]);
     expect(config.viewer).toEqual({ scope: "compare", layout: compareLayout });
@@ -376,7 +380,7 @@ describe("many links to one share", () => {
   });
 
   test("revoking one link leaves the others, and says which happened", async () => {
-    const { manager, share } = await start();
+    const { manager, share: _share } = await start();
     const second = manager.createGrant({ name: "Ana" });
 
     if (!second.ok) throw new Error(second.error);
@@ -469,12 +473,14 @@ describe("many links to one share", () => {
     // A stream that never finishes on its own is exactly what "in-flight
     // responses are allowed to finish" would have left running: cut off in
     // name and still receiving in fact.
-    let hold: ServerResponse | null = null;
+    type HeldResponse = { response: ServerResponse | null };
+
+    const held: HeldResponse = { response: null };
 
     const { manager } = managerFor(previews, (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(": open\n\n");
-      hold = res;
+      held.response = res;
     });
 
     const created = await manager.create({
@@ -491,15 +497,15 @@ describe("many links to one share", () => {
 
     const origin = link.localUrl.replace(/\/leglas\/s\/.+$/, "");
     const streaming = fetch(`${origin}/stream`, { headers: { cookie } });
-    await vi.waitFor(() => expect(hold).not.toBeNull());
+    await vi.waitFor(() => expect(held.response).not.toBeNull());
 
     manager.revokeGrant({ id: link.id });
     await expect(streaming.then((r) => r.text())).rejects.toThrow();
-    expect((hold as unknown as ServerResponse).destroyed).toBe(true);
+    expect(required(held.response).destroyed).toBe(true);
   });
 
   test("rotate ends every link and issues one nobody has seen", async () => {
-    const { manager, share } = await start();
+    const { manager, share: _share } = await start();
     manager.createGrant({ name: "Ana" });
     const before = manager.status()?.grants.map((grant) => grant.localUrl) ?? [];
     expect(before).toHaveLength(2);
@@ -520,7 +526,7 @@ describe("many links to one share", () => {
 });
 
 describe("how far a viewer reaches", () => {
-  const startWith = async (extra: Record<string, unknown>) => {
+  const startWith = async (extra: JsonRecord) => {
     const { manager } = managerFor(previews, (res) => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("the app");
@@ -638,7 +644,7 @@ describe("how far a viewer reaches", () => {
     // the interface, while the server's own routing reads the raw path,
     // does not recognise them, and proxies them to the dev server: exempt
     // from the list and the ceiling by one layer, app traffic to the other.
-    const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
+    const { port, cookie } = await startWith({ reach: "listed", routes: [] });
 
     for (const path of ["//leglas/x", "/./leglas/x", "/foo/../leglas/x", "/%2Fleglas/x"]) {
       expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);

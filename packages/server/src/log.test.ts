@@ -12,8 +12,9 @@ const preview = (over: Partial<Preview> & { title: string }): Preview => ({
   ...over,
 });
 
-const request = (over: Partial<PendingRequest> & { title: string }): PendingRequest =>
-  ({
+const request = (over: Partial<PendingRequest> & { title: string }): PendingRequest => {
+  // SAFETY: This log fixture deliberately retains the historical `done` status; composing a log only distinguishes failed requests.
+  return {
     id: "r1",
     status: "done",
     url: "/",
@@ -21,7 +22,8 @@ const request = (over: Partial<PendingRequest> & { title: string }): PendingRequ
     target: null,
     prompt: "",
     ...over,
-  }) as PendingRequest;
+  } as PendingRequest;
+};
 
 describe("composeEntry", () => {
   test("names the winner, where it went, and how many it beat", () => {
@@ -94,8 +96,21 @@ describe("composeEntry", () => {
   });
 
   test("records the pins left on a direction", () => {
-    const note = (over: Partial<Annotation>): Annotation =>
-      ({ id: "a1", title: "Table", note: "", anchor: {}, ...over }) as Annotation;
+    const note = (over: Partial<Annotation>): Annotation => ({
+      id: "a1",
+      title: "Table",
+      note: "",
+      anchor: {
+        selector: "#hero",
+        text: "",
+        tag: "section",
+        classes: [],
+        rect: { x: 0, y: 0, width: 100, height: 100 },
+        spot: { x: 0.5, y: 0.5 },
+        viewport: 1440,
+      },
+      ...over,
+    });
 
     const entry = composeEntry({
       surface: "hero",

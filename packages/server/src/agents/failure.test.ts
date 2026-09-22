@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { classifyFailure, sessionShaped, type FailureCode } from "./failure.js";
+import { classifyFailure, conversationFailure, type FailureCode } from "./failure.js";
 
 const verdict = (input: Parameters<typeof classifyFailure>[0]): FailureCode =>
   classifyFailure(input).code;
@@ -105,7 +105,7 @@ describe("classifyFailure", () => {
   });
 
   test("only a session-shaped failure earns a second run", () => {
-    expect(sessionShaped("agent-error")).toBe(true);
+    expect(conversationFailure("agent-error")).toBe(true);
 
     for (const code of [
       "cancelled",
@@ -117,7 +117,7 @@ describe("classifyFailure", () => {
       "needs-trust",
       "not-registered",
     ] as const) {
-      expect([code, sessionShaped(code)]).toEqual([code, false]);
+      expect([code, conversationFailure(code)]).toEqual([code, false]);
     }
   });
 });

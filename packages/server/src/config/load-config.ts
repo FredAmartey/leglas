@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { normalizeConfig, type LeglasConfig } from "./config.js";
 import { findConfigFile } from "./find-config.js";
+import { isJsonRecord } from "../json.js";
 
 export type LoadResult = {
   config: LeglasConfig | null;
@@ -49,7 +50,11 @@ export async function loadConfig(cwd: string): Promise<LoadResult> {
     return { config: null, errors: [`${label} could not be loaded: ${message}`], path };
   }
 
-  const result = normalizeConfig(exported);
+  // A .ts config can export anything; only an object, or nothing, is a config.
+  const result =
+    isJsonRecord(exported) || exported === undefined || exported === null
+      ? normalizeConfig(exported ?? undefined)
+      : { config: null, errors: ["Config must export an object."] };
 
   return {
     config: result.config,
