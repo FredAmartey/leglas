@@ -125,8 +125,6 @@ function parseNew(rest: string[]): ParseResult {
       continue;
     }
 
-    if (argument === "--help" || argument === "-h") return { kind: "help" };
-
     if (argument.startsWith("-")) {
       return { kind: "error", message: `leglas new does not take ${argument}.` };
     }
@@ -169,8 +167,6 @@ function parseAdd(rest: string[]): ParseResult {
       json = true;
       continue;
     }
-
-    if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
@@ -261,8 +257,6 @@ function parseClassify(rest: string[]): ParseResult {
       continue;
     }
 
-    if (argument === "--help" || argument === "-h") return { kind: "help" };
-
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
 
@@ -303,8 +297,6 @@ function parseWatch(rest: string[]): ParseResult {
 
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
-
-    if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
@@ -355,8 +347,6 @@ function parseShare(rest: string[]): ParseResult {
 
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
-
-    if (argument === "--help" || argument === "-h") return { kind: "help" };
 
     if (argument === "--json") {
       json = true;
@@ -438,6 +428,19 @@ function parseShare(rest: string[]): ParseResult {
 }
 
 export function parseArgs(argv: string[]): ParseResult {
+  const [command] = argv;
+
+  // The command line docs send people to `leglas <command> --help` for a
+  // command's options. Answering it here, before any command reads its own
+  // arguments, means no command can forget to.
+  if (
+    command !== undefined &&
+    !command.startsWith("-") &&
+    argv.slice(1).some((argument) => argument === "--help" || argument === "-h")
+  ) {
+    return { kind: "help" };
+  }
+
   if (argv[0] === "new") return parseNew(argv.slice(1));
 
   if (argv[0] === "watch") return parseWatch(argv.slice(1));

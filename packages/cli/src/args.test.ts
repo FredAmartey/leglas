@@ -52,6 +52,31 @@ describe("parseArgs", () => {
     expect(parseArgs(["-h"]).kind).toBe("help");
   });
 
+  // The command line docs send people to `leglas <command> --help` for a
+  // command's options, so every command has to answer it.
+  test.each([
+    "init",
+    "new",
+    "explore",
+    "classify",
+    "add",
+    "list",
+    "log",
+    "show",
+    "share",
+    "requests",
+    "watch",
+    "keep",
+  ])("leglas %s --help prints the help", (command) => {
+    expect(parseArgs([command, "--help"]).kind).toBe("help");
+    expect(parseArgs([command, "-h"]).kind).toBe("help");
+  });
+
+  test("help wins over whatever else the command was given", () => {
+    expect(parseArgs(["show", "Aurora", "--screenshot", "--help"]).kind).toBe("help");
+    expect(parseArgs(["keep", "Aurora", "-h", "--to", "src/hero.tsx"]).kind).toBe("help");
+  });
+
   test("asks for the version", () => {
     expect(parseArgs(["--version"]).kind).toBe("version");
   });
