@@ -1,7 +1,57 @@
 import { EASE } from "../prefs.js";
+import { refusalWords, type FrameRefusal } from "../preview/framing.js";
 import { previewFrameIsReady } from "../preview/preview-frame.js";
 import type { BranchPreviewState } from "../types.js";
-import { BranchOverlay, ErrorOverlay, SkeletonOverlay } from "../ui/kit.js";
+import { BranchOverlay, ErrorOverlay, RefusedOverlay, SkeletonOverlay } from "../ui/kit.js";
+
+/**
+ * What is said over a pane's frame: why it failed, why the page refused it,
+ * or the skeleton until it has drawn.
+ */
+function PaneOverlay({
+  errored,
+  fromApp,
+  loaded,
+  onReload,
+  onShowAnyway,
+  refusal,
+  serverUp,
+  src,
+}: {
+  errored: boolean;
+  fromApp: boolean;
+  loaded: boolean;
+  onReload: () => void;
+  onShowAnyway: () => void;
+  refusal: FrameRefusal | null;
+  serverUp: boolean;
+  src: string;
+}) {
+  if (errored) {
+    return (
+      <ErrorOverlay
+        onReload={onReload}
+        reason={
+          serverUp || !fromApp
+            ? `${src} didn’t respond.`
+            : "Your dev server stopped. This returns on its own once it is back."
+        }
+      />
+    );
+  }
+
+  if (refusal !== null) {
+    return (
+      <RefusedOverlay
+        href={src}
+        onShowAnyway={onShowAnyway}
+        {...refusalWords(refusal, src, window.location.origin)}
+      />
+    );
+  }
+
+  return <SkeletonOverlay loaded={loaded} />;
+}
 
 /**
  * One direction on the stage: its frame, and whatever has to be said over it
@@ -28,9 +78,11 @@ export function Pane({
   onError,
   onReady,
   onReload,
+  onShowAnyway,
   onStartBranch,
   order,
   paneScale,
+  refusal,
   scaling,
   second,
   serverUp,
@@ -63,10 +115,14 @@ export function Pane({
   onError: () => void;
   onReady: (identity: string, frame: HTMLIFrameElement) => void;
   onReload: () => void;
+  /** The reader says the page frames after all; stop covering it. */
+  onShowAnyway: () => void;
   onStartBranch: () => void;
   /** Left or right, while two panes share the stage. */
   order: number;
   paneScale: number;
+  /** The page told the browser not to frame it; the pane says so instead of showing the browser's broken page. */
+  refusal: FrameRefusal | null;
   /** Two panes, each drawn at its design width and scaled down to fit. */
   scaling: boolean;
   /** The right-hand pane of a comparison. */
@@ -188,17 +244,17 @@ export function Pane({
           )}
           {annotate}
         </div>
-        {branch !== null && branch.status !== "ready" ? null : errored ? (
-          <ErrorOverlay
+        {branch !== null && branch.status !== "ready" ? null : (
+          <PaneOverlay
+            errored={errored}
+            fromApp={fromApp}
+            loaded={loaded}
             onReload={onReload}
-            reason={
-              serverUp || !fromApp
-                ? `${src} didn’t respond.`
-                : "Your dev server stopped. This returns on its own once it is back."
-            }
+            onShowAnyway={onShowAnyway}
+            refusal={refusal}
+            serverUp={serverUp}
+            src={src}
           />
-        ) : (
-          <SkeletonOverlay loaded={loaded} />
         )}
         {/* A pane that loaded before the server died keeps showing that
             render. Saying so is the difference between a stale preview

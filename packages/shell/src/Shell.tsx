@@ -10,6 +10,7 @@ import {
   previewIdentity,
   watchPreviewFrame,
 } from "./preview/preview-frame.js";
+import { frameRefusal, type FrameRefusal } from "./preview/framing.js";
 import { previewFrameForSource, previewMessageSignal } from "./preview/preview-message.js";
 import {
   INITIAL_HEALTH,
@@ -1028,6 +1029,14 @@ export function Shell({
   const busy = st.resizing || dragging || widgetDragging;
 
   const [errored, setErrored] = useState<Record<string, boolean>>({});
+  /** Absolute-URL pages that refused to be framed, by title. */
+  const [refused, setRefused] = useState<Record<string, FrameRefusal>>({});
+  /**
+   * Pages the reader has seen frame after all, by address. Leglas asks without
+   * the browser's cookies, so this is the reader overruling it; it holds for the
+   * session and is never written anywhere.
+   */
+  const framesAnyway = useRef(new Set<string>());
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
 
   // Flipping shows a difference over time; a split shows it at once, which is
@@ -1137,6 +1146,15 @@ export function Shell({
 
         return next;
       });
+    }
+
+    // A new document is asked again when it loads; until then it has no answer.
+    if (changed.some(([title]) => refused[title] !== undefined)) {
+      const stale = new Set(changed.map(([title]) => title));
+
+      setRefused((current) =>
+        Object.fromEntries(Object.entries(current).filter(([title]) => !stale.has(title))),
+      );
     }
 
     previousMounted.current = new Map(mountedIdentities);
@@ -1850,6 +1868,28 @@ export function Shell({
   /** Commit a successful navigation once for each real iframe document. */
   const markPreviewReady = (title: string, identity: string, frame: HTMLIFrameElement) => {
     if (currentPaneIdentities.current.get(title) !== identity) return;
+
+    // A page loaded straight from its own address fires its load event even
+    // when it refused the frame and the browser drew its own broken page. Ask
+    // before the skeleton lifts, so the refusal is what shows rather than a
+    // flash of that page.
+    const src = st.urlFor(title);
+
+    if (!src.startsWith("/") && !framesAnyway.current.has(src)) {
+      void frameRefusal(title).then((refusal) => {
+        if (currentPaneIdentities.current.get(title) !== identity) return;
+
+        if (refusal !== null) setRefused((current) => ({ ...current, [title]: refusal }));
+        settleReady(title, identity, frame);
+      });
+
+      return;
+    }
+
+    settleReady(title, identity, frame);
+  };
+
+  const settleReady = (title: string, identity: string, frame: HTMLIFrameElement) => {
     st.markLoaded(title, identity);
     setErrored((current) => (current[title] ? { ...current, [title]: false } : current));
 
@@ -2897,9 +2937,16 @@ export function Shell({
             onError={() => setErrored((current) => ({ ...current, [title]: true }))}
             onReady={(identity, frame) => markPreviewReady(title, identity, frame)}
             onReload={() => reloadPane(title)}
+            onShowAnyway={() => {
+              framesAnyway.current.add(st.urlFor(title));
+              setRefused((current) =>
+                Object.fromEntries(Object.entries(current).filter(([key]) => key !== title)),
+              );
+            }}
             onStartBranch={() => st.startBranch(title)}
             order={stagePlace.get(title) ?? -1}
             paneScale={paneScale}
+            refusal={refused[title] ?? null}
             scaling={scaling}
             second={title === compare}
             serverUp={health.reachable}

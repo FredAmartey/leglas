@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -6,6 +6,7 @@ import { MOOD } from "./orb.js";
 import { EASE } from "../prefs.js";
 import { placeTip, type Placement } from "./tip.js";
 import type { Toast } from "./toasts.js";
+import type { Quoted } from "../preview/framing.js";
 import type { BranchPreviewState } from "../types.js";
 import { isString } from "../json.js";
 
@@ -751,6 +752,99 @@ export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reaso
       >
         Reload
       </button>
+    </div>
+  );
+}
+
+/**
+ * Words a site sent, shown as it sent them. A line may break between them but
+ * never inside one: "frame-ancestors" split at its hyphen is the one token a
+ * reader would copy, broken across two lines.
+ */
+function Quote({ text }: { text: string }) {
+  // Each word keyed by where it starts in the text: unique, and fixed for as
+  // long as the text is.
+  const words: { word: string; at: number }[] = [];
+  let at = 0;
+
+  for (const word of text.split(" ")) {
+    words.push({ word, at });
+    at += word.length + 1;
+  }
+
+  return (
+    <code className="font-mono text-[0.92em] text-neutral-700">
+      {words.map(({ word, at: start }) => (
+        <Fragment key={start}>
+          {start > 0 && " "}
+          <span className="whitespace-nowrap">{word}</span>
+        </Fragment>
+      ))}
+    </code>
+  );
+}
+
+function QuotedLine({ className, words }: { className: string; words: Quoted }) {
+  return (
+    <p className={className}>
+      {words.lead}
+      <Quote text={words.quote} />
+      {words.tail}
+    </p>
+  );
+}
+
+/**
+ * A page that answered and said no to being framed. Unlike a failure there is
+ * nothing to reload, so the first action is the one that works: opening it in
+ * a tab of its own. The second is for when the answer was wrong. Leglas asks
+ * without the browser's cookies, and a page may frame for a signed-in visitor
+ * that refused a stranger, so the reader can uncover the frame and see.
+ */
+export function RefusedOverlay({
+  headline,
+  hint,
+  href,
+  onShowAnyway,
+  reason,
+}: {
+  headline: string;
+  hint: Quoted;
+  href: string;
+  onShowAnyway: () => void;
+  reason: Quoted;
+}) {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white p-6 text-center"
+      role="alert"
+    >
+      <div className="max-w-sm">
+        <p className="text-balance text-sm font-medium text-neutral-800">{headline}</p>
+        <QuotedLine
+          className="mt-1 text-pretty text-xs leading-snug text-neutral-500"
+          words={reason}
+        />
+      </div>
+      <a
+        className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-neutral-700"
+        href={href}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        Open in a new tab
+      </a>
+      <button
+        className="text-xs text-neutral-500 underline-offset-2 transition-colors hover:text-neutral-800 hover:underline"
+        onClick={onShowAnyway}
+        type="button"
+      >
+        Show the frame anyway
+      </button>
+      <QuotedLine
+        className="max-w-sm text-balance text-[11px] leading-snug text-neutral-400"
+        words={hint}
+      />
     </div>
   );
 }

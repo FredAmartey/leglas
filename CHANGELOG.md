@@ -27,6 +27,19 @@ it was about.
   longest silence measured in real runs.
   (`leglas`)
 
+### Fixed
+
+- **A preview of a site that refuses frames says so.** A direction pointed
+  at another site's address, a deployed page or a staging server, showed
+  the browser's own broken page when that site forbids being shown inside
+  another page, and nothing said why. The pane now names the site, quotes
+  the header that refused it and gives you a button to open the page in a
+  tab. If the site is yours, it also tells you the one header that would
+  let Leglas show it. Leglas asks the page without your cookies, so if a
+  page you are signed in to frames after all, "Show the frame anyway"
+  uncovers it for the rest of the session.
+  (`leglas`)
+
 ## 1.1.2 (2026-09-18): The card on a row is drawn again
 
 ### Fixed

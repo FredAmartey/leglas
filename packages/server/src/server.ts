@@ -68,6 +68,7 @@ import {
   updateAnnotation,
 } from "./requests/annotations.js";
 import { createCoalescer, createLiveHub, type LiveChange, type LiveHub } from "./live.js";
+import { checkFraming } from "./frame-policy.js";
 import { createProxyHandler } from "./proxy.js";
 import { writeRenames } from "./config/renames.js";
 import {
@@ -1323,6 +1324,49 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             warnings: configWarnings,
           }),
         );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/previews/framing` && req.method === "GET") {
+      // Only the interface or a terminal asks. A page elsewhere in the same
+      // browser could not read the answer, but could still make Leglas go and
+      // fetch, so a cross-site caller is turned away before that happens.
+      const site = req.headers["sec-fetch-site"];
+
+      if (site !== undefined && site !== "same-origin" && site !== "none") {
+        return sendJson(res, 403, { ok: false, error: "Only the interface can ask this." });
+      }
+
+      const title = query.get("title");
+
+      return void livePreviewDefinitions().then(async (previews) => {
+        const preview = previews.find((entry) => entry.title === title);
+
+        if (preview === undefined) {
+          return sendJson(res, 404, { ok: false, error: "There is no direction by that name." });
+        }
+
+        // Only a page the frame loads straight from its own address can
+        // refuse it. Everything else reaches the frame through Leglas, and a
+        // viewer never gets this far: remote API calls are refused above.
+        if (
+          preview.file !== undefined ||
+          preview.branch !== undefined ||
+          !/^https?:\/\//i.test(preview.url)
+        ) {
+          return sendJson(res, 200, { framable: true });
+        }
+
+        // The address is the project's own: its config or its local previews,
+        // the same place `devCommand` comes from, which Leglas runs as a shell
+        // command. The capture browser already navigates to this URL for every
+        // request's frame, redirects and all, so asking it for headers reaches
+        // nothing new; and what comes back is a verdict, never the page.
+        //
+        // The page doing the framing is the interface as this browser reached it.
+        const embedder = `http://${req.headers.host ?? "localhost"}${LEGLAS_PREFIX}/`;
+
+        sendJson(res, 200, await checkFraming(preview.url, embedder));
+      });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/previews/start` && req.method === "POST") {
