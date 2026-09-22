@@ -30,6 +30,7 @@ import {
   type PendingRequest,
 } from "../requests/requests.js";
 import type { TimerHandle } from "../timers.js";
+import { ownGroup, signalTree } from "./process-tree.js";
 import { QUIET_NOTICE_MS, SILENCE_CEILING_MS } from "./silence.js";
 
 const POLL_MS = 2000;
@@ -53,13 +54,17 @@ export const IDLE_RELEASE_MS = 5 * 60_000;
  * How long a stopped run has to end itself before Leglas stops waiting.
  *
  * SIGTERM is the polite ask and an agent that honours it is gone in well
- * under a second. What this bounds is the run that does not end: a CLI that
- * traps the signal, or a wrapper whose own child outlives it still holding
- * the output pipe open, in which case the "close" event never arrives at all.
+ * under a second. A spawned agent gets both signals with its whole process
+ * group, so what it started goes with it. What this bounds is the run that
+ * does not end: a CLI that traps the signal, or a transport's turn that
+ * ignores its interrupt, or something the agent started that left the group
+ * and still holds the output pipe open, in which case the "close" event
+ * never arrives at all.
  * Until this existed that wedged the runner for the life of the process: the
  * card said a stopped run was still going, no verdict was ever written, and
  * every request queued behind it waited on a child that was never coming
- * back. The escalation only ever follows a stop the user asked for.
+ * back. The escalation only ever follows a stop: the user's, or the silence
+ * ceiling's.
  */
 const CANCEL_GRACE_MS = 5000;
 
@@ -97,6 +102,8 @@ function isStateUpdater(
 }
 
 export type RunnerChild = {
+  /** Set for a process Leglas spawned; a transport's turn has none. */
+  pid?: number | undefined;
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
   once(event: "error", listener: (error: Error) => void): RunnerChild;
@@ -110,7 +117,7 @@ export type RunnerChild = {
 export type RunnerSpawn = (
   command: string,
   args: string[],
-  options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"] },
+  options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"]; detached: boolean },
 ) => RunnerChild;
 
 export type RunnerOptions = {
@@ -258,7 +265,7 @@ function lineReader(stream: NodeJS.ReadableStream, onLine: (line: string) => voi
 function defaultSpawn(
   command: string,
   args: string[],
-  options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"] },
+  options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"]; detached: boolean },
 ): RunnerChild {
   return nodeSpawn(command, args, { ...options, env: agentEnvironment() });
 }
@@ -347,6 +354,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     heardAt: number;
     /** True once Leglas has ended the run for saying nothing. */
     silenced: boolean;
+    /**
+     * True when the child is a process Leglas spawned, which leads its own
+     * process group, rather than a transport's turn.
+     */
+    spawned: boolean;
   } | null = null;
 
   /** Which vendor the run in flight is on, so a switch never tears it down. */
@@ -508,6 +520,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       abandon: () => {},
       heardAt: now(),
       silenced: false,
+      spawned: false,
     };
 
     // Cancellation has to exist before an embedded transport starts. Warming,
@@ -578,18 +591,26 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       });
     };
 
+    // Its own process group, so a stop reaches whatever the agent started
+    // as well as the agent: a dev server, a watcher, a wrapper's child.
+    const spawnAgent = (): RunnerChild => {
+      const child = spawn(resolved.command, resolved.args, {
+        cwd: options.cwd,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        ...ownGroup(),
+      });
+
+      current.spawned = true;
+
+      return child;
+    };
+
     try {
       let child: RunnerChild;
 
       try {
-        child =
-          persistent !== null
-            ? await startPersistent()
-            : spawn(resolved.command, resolved.args, {
-                cwd: options.cwd,
-                shell: false,
-                stdio: ["ignore", "pipe", "pipe"],
-              });
+        child = persistent !== null ? await startPersistent() : spawnAgent();
       } catch (error) {
         // A transport ended for its silence must not fall back to the CLI
         // behind it: that would be the same unanswered question, asked again.
@@ -601,11 +622,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         // the exact vendor CLI behavior Leglas shipped before this optimization.
         if (persistent !== null) {
           try {
-            child = spawn(resolved.command, resolved.args, {
-              cwd: options.cwd,
-              shell: false,
-              stdio: ["ignore", "pipe", "pipe"],
-            });
+            child = spawnAgent();
           } catch (fallbackError) {
             return {
               ok: false,
@@ -624,7 +641,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
       if (current.cancelled || stopped || controller.signal.aborted) {
         try {
-          child.kill("SIGTERM");
+          signalChild(current, "SIGTERM");
         } catch {
           // The run is already classified as cancelled below.
         }
@@ -930,12 +947,25 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       });
   };
 
+  /**
+   * A process Leglas spawned is signalled with everything it started; a
+   * transport's turn has no process of its own, and its kill is an interrupt.
+   */
+  const signalChild = (current: NonNullable<typeof active>, value: NodeJS.Signals): void => {
+    const { child } = current;
+
+    if (child === null) return;
+
+    if (current.spawned) signalTree(child, value);
+    else child.kill(value);
+  };
+
   /** Ask the run in flight to go, and make sure it has gone once the grace period is up. */
   const end = (current: NonNullable<typeof active>): void => {
     current.controller.abort();
 
     try {
-      current.child?.kill("SIGTERM");
+      signalChild(current, "SIGTERM");
     } catch {
       // The close or error event still settles the run if the process raced us.
     }
@@ -945,7 +975,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       if (active !== current) return;
 
       try {
-        current.child?.kill("SIGKILL");
+        signalChild(current, "SIGKILL");
       } catch {
         // Nothing left to signal; the run is settled below either way.
       }

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { installShutdown } from "leglas";
 
 import { CHANNEL_CAPABILITY, CHANNEL_INSTRUCTIONS, startChannel } from "./channel.js";
 import { hostProject } from "./project.js";
@@ -40,21 +41,16 @@ const tools = registerLeglasTools(server, { project });
 
 let channel: { stop(): void } | null = null;
 
-let stopping = false;
-
-const shutdown = async () => {
-  if (stopping) return;
-  stopping = true;
+// The host closing stdin is the ordinary way a stdio server ends; signals
+// cover a host that kills instead, and the terminal closing under the host
+// (SIGHUP, whose default is to end the process without any of this). Either
+// way the viewer stops with us, and so does any agent it started, which runs
+// in a process group of its own and does not hear the terminal go.
+const shutdown = installShutdown(async () => {
   channel?.stop();
   await tools.shutdown();
   process.exit(0);
-};
-
-// The host closing stdin is the ordinary way a stdio server ends; signals
-// cover a host that kills instead. Either way the viewer stops with us.
-process.on("SIGINT", shutdown);
-
-process.on("SIGTERM", shutdown);
+});
 
 const transport = new StdioServerTransport();
 

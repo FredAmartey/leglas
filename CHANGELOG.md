@@ -58,6 +58,17 @@ it was about.
   the help now.
   (`leglas`)
 
+- **Stopping an agent stops what it started.** Stop, and the thirty minute
+  silence limit, signalled only the agent's own process, so anything it had
+  launched, a dev server holding its port or a watcher still writing files,
+  kept running after the run ended. An agent Leglas starts itself now runs
+  in a process group of its own, and a stop reaches the whole group. The MCP
+  server also shuts down properly when the terminal under its host closes,
+  so an agent it started is not left running then either. Claude and Codex
+  usually run through a session Leglas keeps warm, where a stop is still the
+  vendor's own interrupt.
+  (`leglas`, `leglas-mcp`)
+
 ## 1.1.2 (2026-09-18): The card on a row is drawn again
 
 ### Fixed
