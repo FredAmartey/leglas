@@ -1347,6 +1347,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 200, { framable: true });
         }
 
+        // The address is the project's own: its config or its local previews,
+        // the same place `devCommand` comes from, which Leglas runs as a shell
+        // command. The capture browser already navigates to this URL for every
+        // request's frame, redirects and all, so asking it for headers reaches
+        // nothing new; and what comes back is a verdict, never the page.
+        //
         // The page doing the framing is the interface as this browser reached it.
         const embedder = `http://${req.headers.host ?? "localhost"}${LEGLAS_PREFIX}/`;
 
