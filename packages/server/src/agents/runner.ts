@@ -677,7 +677,15 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
         current.abandon = () => settle(current.silenced ? silent() : cancelled());
 
-        child.once("error", (error) => settle({ ok: false, error: error.message }));
+        // An error on the way out, a signal Node could not deliver, belongs to
+        // the ending Leglas already chose. Only an error nobody asked for is
+        // the agent's own failure.
+        child.once("error", (error) => {
+          if (current.cancelled) return settle(cancelled());
+
+          if (current.silenced) return settle(silent());
+          settle({ ok: false, error: error.message });
+        });
         child.once("close", (code, signal) => {
           if (current.cancelled) return settle(cancelled());
 

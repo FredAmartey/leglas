@@ -945,6 +945,54 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
+  test.each(["silence", "stop"])(
+    "a child that errors on the way out keeps the %s's verdict",
+    async (ending) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-error-exit-"));
+      await saveAgentChoice(cwd, { agent: "claude" });
+      await appendRequest(cwd, input("Poster"));
+      const clock = manualClock();
+      const spawned = spawner();
+      let now = 1_790_000_000_000;
+
+      const runner = startRunner({
+        cwd,
+        externallyAttached: () => false,
+        spawn: spawned.spawn,
+        setInterval: clock.setInterval,
+        clearInterval: clock.clearInterval,
+        setTimeout: () => {},
+        now: () => now,
+      });
+
+      await until(() => spawned.children.length === 1);
+      const child = spawned.children[0];
+
+      // Node reports a signal it could not deliver as an "error", and that can
+      // arrive with no "close" behind it.
+      if (child !== undefined) {
+        child.child.kill = vi.fn(() => {
+          queueMicrotask(() => child.child.emit("error", new Error("kill EPERM")));
+
+          return false;
+        });
+      }
+
+      if (ending === "silence") {
+        now += SILENCE_CEILING_MS;
+        clock.tick();
+      } else {
+        expect(runner.cancel()).toBe(true);
+      }
+
+      const expected = ending === "silence" ? "agent-silent" : "cancelled";
+      await until(async () => (await readRequests(cwd))[0]?.failure?.code !== undefined);
+      expect((await readRequests(cwd))[0]?.failure?.code).toBe(expected);
+      await runner.stop();
+    },
+  );
+
   test("an agent that keeps talking is never cut off, however long it runs", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-chatty-"));
     await saveAgentChoice(cwd, { agent: "claude" });
