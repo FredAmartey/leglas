@@ -796,18 +796,22 @@ function QuotedLine({ className, words }: { className: string; words: Quoted }) 
 
 /**
  * A page that answered and said no to being framed. Unlike a failure there is
- * nothing to reload, so the one action is the one that works: opening it in a
- * tab of its own.
+ * nothing to reload, so the first action is the one that works: opening it in
+ * a tab of its own. The second is for when the answer was wrong. Leglas asks
+ * without the browser's cookies, and a page may frame for a signed-in visitor
+ * that refused a stranger, so the reader can uncover the frame and see.
  */
 export function RefusedOverlay({
   headline,
   hint,
   href,
+  onShowAnyway,
   reason,
 }: {
   headline: string;
   hint: Quoted;
   href: string;
+  onShowAnyway: () => void;
   reason: Quoted;
 }) {
   return (
@@ -830,6 +834,13 @@ export function RefusedOverlay({
       >
         Open in a new tab
       </a>
+      <button
+        className="text-xs text-neutral-500 underline-offset-2 transition-colors hover:text-neutral-800 hover:underline"
+        onClick={onShowAnyway}
+        type="button"
+      >
+        Show the frame anyway
+      </button>
       <QuotedLine
         className="max-w-sm text-balance text-[11px] leading-snug text-neutral-400"
         words={hint}

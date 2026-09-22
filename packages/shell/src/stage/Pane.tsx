@@ -13,6 +13,7 @@ function PaneOverlay({
   fromApp,
   loaded,
   onReload,
+  onShowAnyway,
   refusal,
   serverUp,
   src,
@@ -21,6 +22,7 @@ function PaneOverlay({
   fromApp: boolean;
   loaded: boolean;
   onReload: () => void;
+  onShowAnyway: () => void;
   refusal: FrameRefusal | null;
   serverUp: boolean;
   src: string;
@@ -39,7 +41,13 @@ function PaneOverlay({
   }
 
   if (refusal !== null) {
-    return <RefusedOverlay href={src} {...refusalWords(refusal, src, window.location.origin)} />;
+    return (
+      <RefusedOverlay
+        href={src}
+        onShowAnyway={onShowAnyway}
+        {...refusalWords(refusal, src, window.location.origin)}
+      />
+    );
   }
 
   return <SkeletonOverlay loaded={loaded} />;
@@ -70,6 +78,7 @@ export function Pane({
   onError,
   onReady,
   onReload,
+  onShowAnyway,
   onStartBranch,
   order,
   paneScale,
@@ -106,6 +115,8 @@ export function Pane({
   onError: () => void;
   onReady: (identity: string, frame: HTMLIFrameElement) => void;
   onReload: () => void;
+  /** The reader says the page frames after all; stop covering it. */
+  onShowAnyway: () => void;
   onStartBranch: () => void;
   /** Left or right, while two panes share the stage. */
   order: number;
@@ -239,6 +250,7 @@ export function Pane({
             fromApp={fromApp}
             loaded={loaded}
             onReload={onReload}
+            onShowAnyway={onShowAnyway}
             refusal={refusal}
             serverUp={serverUp}
             src={src}

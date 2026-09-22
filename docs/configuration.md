@@ -109,7 +109,9 @@ deployed one. Absolute URLs load directly rather than through the proxy,
 so a site that refuses to be framed will not preview. The pane says so
 instead of showing the browser's broken page: which header refused it, a
 button that opens the page in a tab, and the one header that would let it
-through if the site is yours.
+through if the site is yours. Leglas asks the page without your cookies, so
+a page that frames only once you are signed in can be uncovered from the
+pane with "Show the frame anyway".
 
 Leglas also compares what each preview actually draws and warns when two
 are identical. This catches a typo like `?v-hero=wavee` that your app

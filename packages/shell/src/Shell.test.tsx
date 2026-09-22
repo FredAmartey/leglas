@@ -227,6 +227,18 @@ describe("the rail and the stage", () => {
     const open = alert.querySelector("a");
     expect(open?.getAttribute("href")).toBe("https://docs.example.com/start");
     expect(open?.getAttribute("target")).toBe("_blank");
+
+    // Leglas asked without the browser's cookies, so a signed-in page may
+    // frame after all. The reader can say so, and is not asked again.
+    const anyway = [...alert.querySelectorAll("button")].find(
+      (button) => button.textContent === "Show the frame anyway",
+    );
+
+    await after(() => click(must(anyway, "the show-anyway button")));
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+
+    await after(() => find('iframe[data-preview="Docs"]').dispatchEvent(new Event("load")));
+    expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
   test("C puts a second direction beside the first, and its row says so", async () => {

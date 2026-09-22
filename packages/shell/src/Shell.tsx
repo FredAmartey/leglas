@@ -1031,6 +1031,12 @@ export function Shell({
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   /** Absolute-URL pages that refused to be framed, by title. */
   const [refused, setRefused] = useState<Record<string, FrameRefusal>>({});
+  /**
+   * Pages the reader has seen frame after all, by address. Leglas asks without
+   * the browser's cookies, so this is the reader overruling it; it holds for the
+   * session and is never written anywhere.
+   */
+  const framesAnyway = useRef(new Set<string>());
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
 
   // Flipping shows a difference over time; a split shows it at once, which is
@@ -1867,7 +1873,9 @@ export function Shell({
     // when it refused the frame and the browser drew its own broken page. Ask
     // before the skeleton lifts, so the refusal is what shows rather than a
     // flash of that page.
-    if (!st.urlFor(title).startsWith("/")) {
+    const src = st.urlFor(title);
+
+    if (!src.startsWith("/") && !framesAnyway.current.has(src)) {
       void frameRefusal(title).then((refusal) => {
         if (currentPaneIdentities.current.get(title) !== identity) return;
 
@@ -2929,6 +2937,12 @@ export function Shell({
             onError={() => setErrored((current) => ({ ...current, [title]: true }))}
             onReady={(identity, frame) => markPreviewReady(title, identity, frame)}
             onReload={() => reloadPane(title)}
+            onShowAnyway={() => {
+              framesAnyway.current.add(st.urlFor(title));
+              setRefused((current) =>
+                Object.fromEntries(Object.entries(current).filter(([key]) => key !== title)),
+              );
+            }}
             onStartBranch={() => st.startBranch(title)}
             order={stagePlace.get(title) ?? -1}
             paneScale={paneScale}
