@@ -136,7 +136,10 @@ function shareFrom(value: JsonValue | undefined): ShareView | null {
   };
 }
 
-async function readShare(base: string, request: typeof fetch): Promise<Read<ShareView | null>> {
+/** What is being shared, if anything, and which tunnel programs the machine has. */
+type Sharing = { share: ShareView | null; installed: string[] };
+
+async function readShare(base: string, request: typeof fetch): Promise<Read<Sharing>> {
   try {
     const response = await request(`${base}/leglas/api/share`);
 
@@ -154,7 +157,9 @@ async function readShare(base: string, request: typeof fetch): Promise<Read<Shar
       return { ok: false, error: "Leglas did not say what it is sharing.", answered: true };
     }
 
-    if (payload.share === null) return { ok: true, value: null };
+    const installed = stringsOf(payload.tunnels) ?? [];
+
+    if (payload.share === null) return { ok: true, value: { share: null, installed } };
     const share = shareFrom(payload.share);
 
     return share === null
@@ -163,7 +168,7 @@ async function readShare(base: string, request: typeof fetch): Promise<Read<Shar
           error: "Leglas is sharing something this version of the command cannot read.",
           answered: true,
         }
-      : { ok: true, value: share };
+      : { ok: true, value: { share, installed } };
   } catch {
     return { ok: false, error: NOT_RUNNING, answered: false };
   }
@@ -213,15 +218,19 @@ function describe(share: ShareView): string {
 }
 
 function clock(at: number): string {
-  return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // A link lasts a day, so the time alone would not say which day.
+  return new Date(at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
 }
 
-function tunnelLine(tunnel: Tunnel): string | null {
+function tunnelLine(tunnel: Tunnel, installed: readonly string[]): string | null {
   switch (tunnel.status) {
     case "ready":
       return null;
     case "none":
-      return "no cloudflared or ngrok on this machine; the link works here, or through a tunnel you run yourself";
+      // Choosing no tunnel and having none read the same in the status.
+      return installed.length > 0
+        ? "none, as asked; the link works on this machine, or through a tunnel you run yourself"
+        : "no cloudflared or ngrok on this machine; the link works here, or through a tunnel you run yourself";
     case "starting":
       return `${tunnel.provider} is still starting; run npx leglas share again for the public link`;
     case "failed":
@@ -280,6 +289,8 @@ export async function runShare(
 
   if (!running.ok) return fail(running.error);
 
+  const { installed } = running.value;
+
   const report = (share: ShareView, already: boolean, leftOut: readonly string[]) => {
     if (options.json) {
       deps.log(
@@ -313,7 +324,7 @@ export async function runShare(
       else deps.log(`  local    ${label}${link.localUrl}`);
     }
 
-    const tunnel = tunnelLine(share.tunnel);
+    const tunnel = tunnelLine(share.tunnel, installed);
 
     if (tunnel !== null) deps.log(`  tunnel   ${tunnel}`);
     const ends = share.links.map((link) => link.expiresAt);
@@ -344,19 +355,27 @@ export async function runShare(
     titles.push(resolved.title);
   }
 
-  if (running.value !== null) {
+  const scope: ShareBody["scope"] =
+    titles.length === 0 ? "rail" : titles.length === 1 ? "direction" : "compare";
+
+  const current = running.value.share;
+
+  if (current !== null) {
+    // A bare share asks for whatever is running. A named one has to match it,
+    // scope included: a rail of one direction is not that direction alone.
     const same =
       titles.length === 0 ||
-      (titles.length === running.value.titles.length &&
-        titles.every((title, index) => running.value?.titles[index] === title));
+      (current.scope === scope &&
+        titles.length === current.titles.length &&
+        titles.every((title, index) => current.titles[index] === title));
 
     if (!same) {
       return fail(
-        `Leglas is already sharing ${describe(running.value)}. Stop it with npx leglas share --stop, then share again.`,
+        `Leglas is already sharing ${describe(current)}. Stop it with npx leglas share --stop, then share again.`,
       );
     }
 
-    return report(running.value, true, []);
+    return report(current, true, []);
   }
 
   const branches = new Set(
@@ -371,9 +390,6 @@ export async function runShare(
   }
 
   const [, right] = shared;
-
-  const scope: ShareBody["scope"] =
-    titles.length === 0 ? "rail" : titles.length === 1 ? "direction" : "compare";
 
   const body: ShareBody = {
     scope,
@@ -439,8 +455,11 @@ export async function runShare(
 
     if (!read.ok) return giveUp(read.error);
 
-    if (read.value === null) return fail("The share was stopped while its tunnel was starting.");
-    share = read.value;
+    if (read.value.share === null) {
+      return fail("The share was stopped while its tunnel was starting.");
+    }
+
+    share = read.value.share;
   }
 
   return report(share, false, leftOut);

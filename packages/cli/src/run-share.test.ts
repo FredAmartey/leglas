@@ -54,6 +54,7 @@ function fakeLeglas(
   tunnels: Tunnel[] = [
     { status: "ready", provider: "cloudflared", url: "https://abc.trycloudflare.com" },
   ],
+  installed: string[] = ["cloudflared"],
 ) {
   const posted: { path: string; body: JsonValue }[] = [];
   let share: { [key: string]: JsonValue } | null = null;
@@ -101,7 +102,7 @@ function fakeLeglas(
         share = { ...share, ...statusFor(share) };
       }
 
-      return Response.json({ share, tunnels: ["cloudflared"] });
+      return Response.json({ share, tunnels: installed });
     }
 
     const body: JsonValue = init?.body === undefined ? null : JSON.parse(String(init.body));
@@ -270,6 +271,22 @@ describe("runShare", () => {
       share: { titles: ["Aurora"] },
     });
 
+    // The same name as a different kind of share is something else too.
+    const rail = fakeLeglas(cwd);
+    rail.running({ scope: "rail", titles: ["Aurora"] });
+    const narrower = collect();
+
+    expect(
+      (
+        await runShare(options(cwd, { titles: ["Aurora"] }), {
+          ...narrower.deps,
+          fetch: rail.fetch,
+          sleep: instantly,
+        })
+      ).exitCode,
+    ).toBe(1);
+    expect(String(last(narrower.lines).error)).toContain("already sharing the rail");
+
     // Asking for something else while it runs says how to get there.
     const other = collect();
 
@@ -397,14 +414,15 @@ describe("runShare", () => {
     const text = lines.join("\n");
     expect(text).toContain("sharing  Aurora");
     expect(text).toContain("link     https://abc.trycloudflare.com/leglas/join/token");
-    expect(text).toMatch(/until {4}\d{1,2}:\d{2}/);
+    // A link lasts a day, so its end names the day as well as the time.
+    expect(text).toMatch(/until {4}[A-Z][a-z]{2} \d{1,2}:\d{2}/);
     expect(text).toContain("stop     npx leglas share --stop");
   });
 
   test("without a tunnel program, the local link and what would reach further", async () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
-    const leglas = fakeLeglas(cwd, [{ status: "none" }]);
+    const leglas = fakeLeglas(cwd, [{ status: "none" }], []);
     const { deps, lines } = collect();
 
     await runShare(options(cwd, { json: false }), {
@@ -416,6 +434,23 @@ describe("runShare", () => {
     const text = lines.join("\n");
     expect(text).toContain("local    http://127.0.0.1:50123/leglas/join/token");
     expect(text).toContain("no cloudflared or ngrok on this machine");
+  });
+
+  test("choosing no tunnel is not the same as having none", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v=aurora");
+    const leglas = fakeLeglas(cwd, [{ status: "none" }], ["cloudflared"]);
+    const { deps, lines } = collect();
+
+    await runShare(options(cwd, { json: false, tunnel: "none" }), {
+      ...deps,
+      fetch: leglas.fetch,
+      sleep: instantly,
+    });
+
+    expect(lines.join("\n")).toContain(
+      "tunnel   none, as asked; the link works on this machine, or through a tunnel you run yourself",
+    );
   });
 
   test("a tunnel still starting when the wait runs out says to ask again", async () => {
