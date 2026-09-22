@@ -394,10 +394,24 @@ export async function runShare(
   );
 
   if (!created.ok) return fail(created.error);
+
+  // From here a share exists. Failing without ending it would leave the app
+  // open to a link nobody was given, with an error saying nothing happened.
+  const giveUp = async (error: string) => {
+    const stopped = await post(found.base, "/leglas/api/share/stop", {}, request, "");
+
+    return fail(
+      stopped.ok
+        ? `${error} The share it started is stopped.`
+        : `${error} The share it started may still be running; stop it with npx leglas share --stop.`,
+    );
+  };
+
   let share = isJsonObject(created.value) ? shareFrom(created.value.share) : null;
 
-  if (share === null)
-    return fail("Leglas started a share this version of the command cannot read.");
+  if (share === null) {
+    return giveUp("Leglas started a share this version of the command cannot read.");
+  }
 
   for (
     let waited = 0;
@@ -407,7 +421,7 @@ export async function runShare(
     await sleep(TUNNEL_POLL_MS);
     const read = await readShare(found.base, request);
 
-    if (!read.ok) return fail(read.error);
+    if (!read.ok) return giveUp(read.error);
 
     if (read.value === null) return fail("The share was stopped while its tunnel was starting.");
     share = read.value;

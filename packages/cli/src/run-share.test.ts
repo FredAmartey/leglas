@@ -59,6 +59,8 @@ function fakeLeglas(
   let share: { [key: string]: JsonValue } | null = null;
   let reads = 0;
   let refusal: string | null = null;
+  let garbled = false;
+  let failReads = false;
 
   const statusFor = (body: { [key: string]: JsonValue }) => {
     const tunnel = tunnels[Math.min(reads, tunnels.length - 1)] ?? { status: "none" };
@@ -91,6 +93,8 @@ function fakeLeglas(
     if (url.pathname === "/leglas/api/health") return Response.json({ cwd, reachable: true });
 
     if (url.pathname === "/leglas/api/share" && method === "GET") {
+      if (failReads) return new Response("nope", { status: 500 });
+
       if (share !== null) {
         reads += 1;
         share = { ...share, ...statusFor(share) };
@@ -114,7 +118,8 @@ function fakeLeglas(
 
       share = statusFor(isJsonObject(body) ? body : {});
 
-      return Response.json({ ok: true, share });
+      // A server whose share this version cannot read, as a newer one might be.
+      return Response.json({ ok: true, share: garbled ? { kind: "new" } : share });
     }
 
     if (url.pathname === "/leglas/api/share/stop") {
@@ -132,6 +137,13 @@ function fakeLeglas(
     refuse: (error: string) => {
       refusal = error;
     },
+    garble: () => {
+      garbled = true;
+    },
+    failReadsAfterStart: () => {
+      failReads = true;
+    },
+    sharing: () => share !== null,
     running: (body: { [key: string]: JsonValue }) => {
       share = statusFor(body);
     },
@@ -277,6 +289,37 @@ describe("runShare", () => {
     ).toBe(0);
     expect(leglas.posted.map((entry) => entry.path)).toEqual(["/leglas/api/share/stop"]);
     expect(last(lines)).toEqual({ ok: true, stopped: true });
+  });
+
+  test("a share it cannot follow is stopped, not left open behind an error", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v=aurora");
+    const leglas = fakeLeglas(cwd);
+    leglas.garble();
+    const { deps, lines } = collect();
+
+    expect(
+      (await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly })).exitCode,
+    ).toBe(1);
+    expect(leglas.sharing()).toBe(false);
+    expect(String(last(lines).error)).toBe(
+      "Leglas started a share this version of the command cannot read. The share it started is stopped.",
+    );
+  });
+
+  test("losing the share while its tunnel starts stops it too", async () => {
+    const cwd = scratch();
+    await add(cwd, "Aurora", "/?v=aurora");
+    const leglas = fakeLeglas(cwd, [{ status: "starting", provider: "cloudflared" }]);
+    const { deps, lines } = collect();
+
+    const sleep = async () => leglas.failReadsAfterStart();
+
+    expect((await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep })).exitCode).toBe(
+      1,
+    );
+    expect(leglas.sharing()).toBe(false);
+    expect(String(last(lines).error)).toContain("The share it started is stopped.");
   });
 
   test("the server's own refusal is what the person reads", async () => {
