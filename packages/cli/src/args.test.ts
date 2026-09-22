@@ -77,6 +77,12 @@ describe("parseArgs", () => {
     expect(parseArgs(["keep", "Aurora", "-h", "--to", "src/hero.tsx"]).kind).toBe("help");
   });
 
+  test("a mistyped command asking for help gets it, since the help lists the real ones", () => {
+    expect(parseArgs(["shwo", "--help"]).kind).toBe("help");
+    // Without the ask it is still refused.
+    expect(parseArgs(["shwo"]).kind).toBe("error");
+  });
+
   test("asks for the version", () => {
     expect(parseArgs(["--version"]).kind).toBe("version");
   });
