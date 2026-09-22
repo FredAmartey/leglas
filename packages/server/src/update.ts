@@ -6,6 +6,8 @@ import { dirname, join, posix, win32 } from "node:path";
 
 import { DEFAULT_PORT } from "./server.js";
 
+import { isString, isJsonRecord } from "./json.js";
+
 export type InstallKind = "npx" | "global" | "project" | "source";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
@@ -148,12 +150,15 @@ function installation(
   root?: string,
   classic = false,
 ): Install {
-  return {
+  const install: Install = {
     kind,
     manager,
     command: commandParts(kind, manager, "latest", classic).join(" "),
-    ...(root === undefined ? {} : { root }),
   };
+
+  if (root !== undefined) install.root = root;
+
+  return install;
 }
 
 function* ancestors(directory: string): Generator<string> {
@@ -395,10 +400,6 @@ export function restartCommand(
 
 type SavedUpdate = { checkedAt: string | null; latest: Release | null; skipped: string | null };
 
-function object(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function readState(path: string | null): SavedUpdate {
   const empty: SavedUpdate = { checkedAt: null, latest: null, skipped: null };
 
@@ -408,17 +409,17 @@ function readState(path: string | null): SavedUpdate {
     // status() is synchronous, so its first caller should already see the cache.
     const value: unknown = JSON.parse(readFileSync(path, "utf8"));
 
-    if (!object(value)) return empty;
+    if (!isJsonRecord(value)) return empty;
 
     if (
       value.checkedAt !== null &&
-      (typeof value.checkedAt !== "string" || !Number.isFinite(Date.parse(value.checkedAt)))
+      (!isString(value.checkedAt) || !Number.isFinite(Date.parse(value.checkedAt)))
     )
       return empty;
 
     if (
       value.skipped !== null &&
-      (typeof value.skipped !== "string" || parsedVersion(value.skipped) === null)
+      (!isString(value.skipped) || parsedVersion(value.skipped) === null)
     )
       return empty;
     let latest: Release | null = null;
@@ -427,11 +428,11 @@ function readState(path: string | null): SavedUpdate {
       const release = value.latest;
 
       if (
-        !object(release) ||
-        typeof release.version !== "string" ||
+        !isJsonRecord(release) ||
+        !isString(release.version) ||
         parsedVersion(release.version) === null ||
-        (release.title !== null && typeof release.title !== "string") ||
-        typeof release.url !== "string"
+        (release.title !== null && !isString(release.title)) ||
+        !isString(release.url)
       )
         return empty;
       latest = { version: release.version, title: release.title, url: releaseUrl(release.version) };
@@ -494,8 +495,8 @@ async function writeState(path: string, state: SavedUpdate): Promise<void> {
   }
 }
 
-function timedOut(error: unknown): boolean {
-  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+function timedOut(cause: unknown): boolean {
+  return cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError");
 }
 
 async function registryVersion(
@@ -525,7 +526,7 @@ async function registryVersion(
     );
   }
 
-  if (!object(body) || typeof body.version !== "string" || parsedVersion(body.version) === null) {
+  if (!isJsonRecord(body) || !isString(body.version) || parsedVersion(body.version) === null) {
     throw new Error("npm's answer made no sense.");
   }
 
@@ -550,7 +551,7 @@ async function releaseTitles(
     if (!Array.isArray(body)) return titles;
 
     for (const entry of body) {
-      if (object(entry) && typeof entry.version === "string" && typeof entry.title === "string") {
+      if (isJsonRecord(entry) && isString(entry.version) && isString(entry.title)) {
         titles.set(entry.version, entry.title);
       }
     }
@@ -609,13 +610,15 @@ function installVersion(
   const invocation = spawnCommand(parts, deps.platform);
   deps.log(`Updating Leglas to ${version} with ${command}…`);
 
-  const child = deps.spawn(invocation.file, invocation.args, {
+  const spawnOptions: import("node:child_process").SpawnOptions = {
     stdio: ["ignore", "pipe", "pipe"],
     shell: invocation.shell,
     detached: deps.platform !== "win32",
     env: deps.env,
-    ...(install.kind === "project" ? { cwd: install.root } : {}),
-  });
+  };
+
+  if (install.kind === "project") spawnOptions.cwd = install.root;
+  const child = deps.spawn(invocation.file, invocation.args, spawnOptions);
 
   let settle!: () => void;
   let reject!: (error: Error) => void;
@@ -760,10 +763,10 @@ export function createUpdateService(input: {
 
   const change = (next: Partial<typeof state>): void => {
     if (
-      Object.entries(next).every(
-        ([key, value]) =>
-          JSON.stringify(state[key as keyof typeof state]) === JSON.stringify(value),
-      )
+      Object.entries(next).every(([key, value]) => {
+        // SAFETY: Each change is a locally constructed partial update of these exact state fields.
+        return JSON.stringify(state[key as keyof typeof state]) === JSON.stringify(value);
+      })
     )
       return;
     state = { ...state, ...next };

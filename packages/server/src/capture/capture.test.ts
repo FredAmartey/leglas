@@ -1,7 +1,7 @@
+import { boundPort, required } from "../test-helpers.js";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 
-import { afterAll, describe, expect, test, vi } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 
 import {
   START_TIMEOUT_MS,
@@ -11,6 +11,8 @@ import {
   type CdpPage,
 } from "./browser.js";
 import { CROP_MIN, FRAME_MAX_HEIGHT, capturePage, cropBox, type Focus } from "./capture.js";
+
+import { type JsonRecord, isJsonRecord } from "../json.js";
 
 /**
  * A live test's ceiling, derived rather than chosen.
@@ -52,7 +54,7 @@ describe("cropBox", () => {
 });
 
 class FakePage implements CdpPage {
-  readonly sent: Array<{ method: string; params: Record<string, unknown> }> = [];
+  readonly sent: Array<{ method: string; params: JsonRecord }> = [];
   private readonly listeners = new Map<string, Set<(params: any) => void>>();
   locatorCalls = 0;
   /** How tall the fake document is; taller than the frame cap by default. */
@@ -64,7 +66,7 @@ class FakePage implements CdpPage {
   /** Load errors to emit instead of the default console line. */
   loadErrors: string[] | null = null;
 
-  async send<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  async send<T = unknown>(method: string, params: JsonRecord = {}): Promise<T> {
     this.sent.push({ method, params });
 
     if (method === "Page.navigate") {
@@ -89,14 +91,17 @@ class FakePage implements CdpPage {
         this.emit("Page.loadEventFired", {});
       });
 
+      // SAFETY: `Page.navigate` acknowledges this fake page without extra response fields.
       return {} as T;
     }
 
     if (method === "Page.getLayoutMetrics") {
+      // SAFETY: This branch implements the layout-metrics response requested by the capture code.
       return { cssContentSize: { width: 1200.1, height: this.contentHeight } } as T;
     }
 
     if (method === "Page.captureScreenshot") {
+      // SAFETY: `Page.captureScreenshot` returns base64 image data; these bytes are the fixture image.
       return { data: Buffer.from("png-data").toString("base64") } as T;
     }
 
@@ -106,11 +111,13 @@ class FakePage implements CdpPage {
       const expression = String(params.expression);
 
       if (expression.startsWith("document.fonts") || expression.includes("requestAnimationFrame")) {
+        // SAFETY: The readiness expressions evaluate to a boolean remote-object value.
         return { result: { value: true } } as T;
       }
 
       this.locatorCalls += 1;
 
+      // SAFETY: The locator expression returns this fixture rectangle first, then a null match.
       return {
         result: {
           value: this.locatorCalls === 1 ? this.found : null,
@@ -118,6 +125,7 @@ class FakePage implements CdpPage {
       } as T;
     }
 
+    // SAFETY: The remaining commands only enable domains; their acknowledgements have no payload.
     return {} as T;
   }
 
@@ -238,7 +246,10 @@ describe("capturePage", () => {
     expect(captured.frame.height).toBe(FRAME_MAX_HEIGHT);
     expect(captured.cut).toBe(true);
     const shots = page.sent.filter((entry) => entry.method === "Page.captureScreenshot");
-    expect((shots[1]?.params.clip as { y: number }).y).toBe(6020 - CROP_MIN.height / 2);
+    const clip = shots[1]?.params.clip;
+
+    if (!isJsonRecord(clip)) throw new Error("Expected a screenshot clip.");
+    expect(clip.y).toBe(6020 - CROP_MIN.height / 2);
   });
 
   test("a document the app could not serve is not a capture of the direction", async () => {
@@ -259,11 +270,14 @@ describe("capturePage", () => {
   test("throws a navigation error and drops an unusable recorded rectangle", async () => {
     const page = new FakePage();
     const original = page.send.bind(page);
-    page.send = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
-      if (method === "Page.navigate") return { errorText: "net::ERR_CONNECTION_REFUSED" };
+    page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {
+      if (method === "Page.navigate") {
+        // SAFETY: Navigation failures use CDP's `errorText` response field in place of a loaded page.
+        return { errorText: "net::ERR_CONNECTION_REFUSED" } as T;
+      }
 
-      return original(method, params);
-    }) as CdpPage["send"];
+      return original<T>(method, params);
+    };
 
     const browser: Browser = {
       closed: false,
@@ -296,7 +310,7 @@ afterAll(async () => {
   );
 });
 
-function pngSize(png: Buffer): { width: number; height: number } {
+function pngSize(png: Buffer) {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
@@ -313,8 +327,8 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
 
       liveServers.push(server);
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = (server.address() as AddressInfo).port;
-      const browser = await launchBrowser(executable as string);
+      const port = boundPort(server);
+      const browser = await launchBrowser(required(executable));
       liveBrowsers.push(browser);
 
       const captured = await capturePage(browser, {
@@ -373,8 +387,8 @@ describe.skipIf(executable === null)("two captures of one design", () => {
 
       liveServers.push(server);
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = (server.address() as AddressInfo).port;
-      const browser = await launchBrowser(executable as string);
+      const port = boundPort(server);
+      const browser = await launchBrowser(required(executable));
       liveBrowsers.push(browser);
 
       const shots = [];

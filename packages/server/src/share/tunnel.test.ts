@@ -1,5 +1,5 @@
-import type { ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { ChildProcess } from "node:child_process";
+
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { detectTunnels, startTunnel, type TunnelState } from "./tunnel.js";
 
-class FakeChild extends EventEmitter {
+class FakeChild extends ChildProcess {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly kill = vi.fn((signal?: NodeJS.Signals | number) => {
@@ -26,12 +26,12 @@ class FakeChild extends EventEmitter {
 function spawnHarness(closeOnSignal = true) {
   const children: FakeChild[] = [];
 
-  const spawn = vi.fn(() => {
+  const spawn = vi.fn<typeof import("node:child_process").spawn>(() => {
     const child = new FakeChild(closeOnSignal);
     children.push(child);
 
-    return child as unknown as ChildProcess;
-  }) as unknown as typeof import("node:child_process").spawn;
+    return child;
+  });
 
   return { children, spawn };
 }

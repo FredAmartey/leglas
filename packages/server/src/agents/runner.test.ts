@@ -11,7 +11,7 @@ import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.j
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
 import { appendRequest, readRequests } from "../requests/requests.js";
-import { IDLE_RELEASE_MS, startRunner, type RunnerChild, type RunnerSpawn } from "./runner.js";
+import { IDLE_RELEASE_MS, startRunner, type RunnerSpawn } from "./runner.js";
 
 const input = (title: string) => ({
   title,
@@ -22,15 +22,16 @@ const input = (title: string) => ({
 });
 
 function fakeChild() {
-  const emitter = new EventEmitter() as EventEmitter & RunnerChild;
-  emitter.stdout = new PassThrough();
-  emitter.stderr = new PassThrough();
-  emitter.kill = vi.fn(() => {
-    emitter.stdout.emit("end");
-    emitter.stderr.emit("end");
-    queueMicrotask(() => emitter.emit("close", null, "SIGTERM"));
+  const emitter = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => {
+      emitter.stdout.emit("end");
+      emitter.stderr.emit("end");
+      queueMicrotask(() => emitter.emit("close", null, "SIGTERM"));
 
-    return true;
+      return true;
+    }),
   });
 
   const close = (code: number) => {
@@ -62,7 +63,7 @@ function manualClock() {
   const clearInterval = vi.fn();
 
   return {
-    setInterval: (next: () => void, milliseconds: number): unknown => {
+    setInterval: (next: () => void, milliseconds: number): string => {
       expect(milliseconds).toBe(2000);
       callback = next;
 

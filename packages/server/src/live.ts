@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
+import { isString } from "./json.js";
+import type { TimerHandle } from "./timers.js";
+
 export const LIVE_PATH = "/leglas/api/live";
 
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -40,7 +43,7 @@ type Listener = {
 
 /** Encode one unmasked server frame, including all three payload length forms. */
 export function encodeFrame(opcode: number, payload: Buffer | string): Buffer {
-  const body = typeof payload === "string" ? Buffer.from(payload) : payload;
+  const body = isString(payload) ? Buffer.from(payload) : payload;
   let header: Buffer;
 
   if (body.length < 126) {
@@ -85,8 +88,8 @@ export function createCoalescer(
   emit: (change: LiveChange) => void,
   options: {
     windowMs?: number;
-    setTimeout?: (callback: () => void, ms: number) => unknown;
-    clearTimeout?: (handle: unknown) => void;
+    setTimeout?: (callback: () => void, ms: number) => TimerHandle;
+    clearTimeout?: (handle: TimerHandle) => void;
   } = {},
 ): Coalescer {
   const windowMs = options.windowMs ?? LIVE_DEBOUNCE_MS;
@@ -100,13 +103,16 @@ export function createCoalescer(
       return timer;
     });
 
-  const clearLater =
+  const clearLater: NonNullable<typeof options.clearTimeout> =
     options.clearTimeout ??
-    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    ((handle) => {
+      // SAFETY: Native scheduling and clearing are paired; injected clocks provide both operations.
+      clearTimeout(handle);
+    });
 
   // One pending nudge per kind, so a burst of config changes cannot delay a
   // requests nudge that arrived in the middle of it.
-  const pending = new Map<LiveChange, unknown>();
+  const pending = new Map<LiveChange, () => void>();
   let closed = false;
 
   return {
@@ -114,20 +120,20 @@ export function createCoalescer(
       if (closed) return;
       const waiting = pending.get(change);
 
-      if (waiting !== undefined) clearLater(waiting);
-      pending.set(
-        change,
-        setLater(() => {
-          pending.delete(change);
+      if (waiting !== undefined) waiting();
 
-          if (!closed) emit(change);
-        }, windowMs),
-      );
+      const handle = setLater(() => {
+        pending.delete(change);
+
+        if (!closed) emit(change);
+      }, windowMs);
+
+      pending.set(change, () => clearLater(handle));
     },
     close() {
       closed = true;
 
-      for (const handle of pending.values()) clearLater(handle);
+      for (const cancel of pending.values()) cancel();
       pending.clear();
     },
   };
@@ -236,7 +242,7 @@ export function createLiveHub(
       if (listeners.size === 0) return;
       const frame = encodeFrame(0x1, JSON.stringify({ changed: change }));
 
-      for (const listener of [...listeners]) {
+      for (const listener of Array.from(listeners)) {
         if (listener.socket.destroyed || !listener.socket.writable) {
           drop(listener);
           continue;
@@ -259,9 +265,9 @@ export function createLiveHub(
       const key = req.headers["sec-websocket-key"];
 
       if (
-        typeof upgrade !== "string" ||
+        !isString(upgrade) ||
         upgrade.toLowerCase() !== "websocket" ||
-        typeof key !== "string" ||
+        !isString(key) ||
         key.trim() === ""
       ) {
         socket.destroy();
@@ -309,7 +315,7 @@ export function createLiveHub(
       return true;
     },
     close: async () => {
-      for (const listener of [...listeners]) {
+      for (const listener of Array.from(listeners)) {
         write(listener, 0x8, Buffer.alloc(0));
         drop(listener);
         listener.socket.destroy();

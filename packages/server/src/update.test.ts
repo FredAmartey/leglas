@@ -1,5 +1,5 @@
-import type { ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { ChildProcess } from "node:child_process";
+
 import {
   mkdirSync,
   mkdtempSync,
@@ -121,7 +121,7 @@ function deferred<T>() {
 
 const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
-class FakeChild extends EventEmitter {
+class FakeChild extends ChildProcess {
   pid: number | undefined = 12345;
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
@@ -131,9 +131,7 @@ class FakeChild extends EventEmitter {
 function spawned() {
   const child = new FakeChild();
 
-  const spawn = vi.fn(
-    () => child as unknown as ChildProcess,
-  ) as unknown as typeof import("node:child_process").spawn;
+  const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
 
   return { spawn, child };
 }
@@ -966,13 +964,16 @@ describe("installing and restarting", () => {
     updates.onRestart(restart);
     await updates.update();
     await nextTurn();
-    expect(spawn).toHaveBeenCalledWith(manager, args, {
+
+    const spawnOptions: import("node:child_process").SpawnOptions = {
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
       detached: true,
       env: { PATH: "/tools" },
-      ...(cwd === undefined ? {} : { cwd }),
-    });
+    };
+
+    if (cwd !== undefined) spawnOptions.cwd = cwd;
+    expect(spawn).toHaveBeenCalledWith(manager, args, spawnOptions);
     expect(log).toHaveBeenNthCalledWith(
       1,
       `Updating Leglas to 1.1.0 with ${[manager, ...args].join(" ")}…`,

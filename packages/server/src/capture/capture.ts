@@ -1,6 +1,8 @@
 import type { Browser, CdpPage } from "./browser.js";
 import { hydrationEvidence, type HydrationEvidence } from "./hydration.js";
 
+import { isNumber, isString, isJsonRecord, type JsonValue } from "../json.js";
+
 /**
  * A fresh browser rendering of one direction and the places its notes name.
  *
@@ -114,9 +116,9 @@ function bounded<T>(work: Promise<T>, milliseconds: number, fallback: T): Promis
         clearTimeout(timer);
         resolve(value);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         clearTimeout(timer);
-        reject(error);
+        reject(cause);
       },
     );
   });
@@ -135,26 +137,25 @@ function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
         signal.removeEventListener("abort", abort);
         resolve(value);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener("abort", abort);
-        reject(error);
+        reject(cause);
       },
     );
   });
 }
 
-function resultValue<T>(response: unknown): T | null {
-  const result = (response as { result?: { value?: unknown } } | null)?.result;
+function resultValue(response: { result?: { value?: JsonValue } } | null): JsonValue | undefined {
+  const result = response?.result;
 
-  return result !== undefined && "value" in result ? (result.value as T) : null;
+  return result !== undefined && "value" in result ? result.value : null;
 }
 
-function validBox(value: unknown): value is Box {
-  if (typeof value !== "object" || value === null) return false;
-  const box = value as Partial<Box>;
+function validBox(value: JsonValue | undefined): value is Box {
+  if (!isJsonRecord(value)) return false;
 
-  return [box.x, box.y, box.width, box.height].every(
-    (entry) => typeof entry === "number" && Number.isFinite(entry),
+  return [value.x, value.y, value.width, value.height].every(
+    (entry) => isNumber(entry) && Number.isFinite(entry),
   );
 }
 
@@ -167,7 +168,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
   const errors: string[] = [];
   let hydration: HydrationEvidence | null = null;
 
-  const remember = (value: unknown) => {
+  const remember = (value: JsonValue | undefined) => {
     const message = String(value ?? "")
       .trim()
       .slice(0, 240);
@@ -190,7 +191,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       if (documentStatus !== null || params?.type !== "Document") return;
       const status = params?.response?.status;
 
-      if (typeof status === "number") documentStatus = status;
+      if (isNumber(status)) documentStatus = status;
     }),
     page.on("Runtime.exceptionThrown", (params) =>
       remember(params?.exceptionDetails?.exception?.description ?? params?.exceptionDetails?.text),
@@ -230,7 +231,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     unlisten.push(stopLoad);
     const navigation = await page.send<{ errorText?: string }>("Page.navigate", { url: input.url });
 
-    if (typeof navigation.errorText === "string" && navigation.errorText !== "") {
+    if (isString(navigation.errorText) && navigation.errorText !== "") {
       throw new Error(`The page did not load: ${navigation.errorText}`);
     }
 
@@ -339,12 +340,15 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     const crops: CaptureOutput["crops"] = [];
 
     for (const focus of input.focuses ?? []) {
-      const located = await page.send("Runtime.evaluate", {
-        expression: locatorExpression(focus),
-        returnByValue: true,
-      });
+      const located = await page.send<{ result?: { value?: JsonValue } } | null>(
+        "Runtime.evaluate",
+        {
+          expression: locatorExpression(focus),
+          returnByValue: true,
+        },
+      );
 
-      const found = resultValue<unknown>(located);
+      const found = resultValue(located);
       let source: Box;
       let resolved: "element" | "recorded-rect";
 
@@ -390,7 +394,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
 
 /** Capture a frame and note crops from one fresh page. */
 export async function capturePage(browser: Browser, input: CaptureInput): Promise<CaptureOutput> {
-  const abortInput = input as AbortableCaptureInput;
+  const abortInput: AbortableCaptureInput = input;
 
   return browser.withPage((page) => abortable(render(page, input), abortInput.signal));
 }

@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isNumber, isString, isJsonRecord, type JsonValue, parseJson } from "../json.js";
+
 /**
  * Notes left on a spot in a preview, waiting to become a change request.
  *
@@ -66,23 +68,19 @@ const CLASS_LENGTH_CAP = 60;
 
 const COVERS_CAP = 8;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function text(value: unknown, cap: number): string {
-  return typeof value === "string" ? value.trim().slice(0, cap) : "";
+function text(value: JsonValue | undefined, cap: number): string {
+  return isString(value) ? value.trim().slice(0, cap) : "";
 }
 
 /** A fraction of an element's box, clamped to it, defaulting to its middle. */
-function fraction(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0.5;
+function fraction(value: JsonValue | undefined): number {
+  if (!isNumber(value) || !Number.isFinite(value)) return 0.5;
 
   return Math.min(1, Math.max(0, value));
 }
 
-function size(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+function size(value: JsonValue | undefined): number {
+  return isNumber(value) && Number.isFinite(value) ? Math.round(value) : 0;
 }
 
 /**
@@ -94,22 +92,22 @@ function size(value: unknown): number {
  * arrived malformed is still a note worth keeping; only a note with nothing to
  * point at is worthless, and that is what a missing selector means.
  */
-export function anchorFrom(value: unknown): AnnotationAnchor | null {
-  if (!isRecord(value)) return null;
+export function anchorFrom(value: JsonValue | undefined): AnnotationAnchor | null {
+  if (!isJsonRecord(value)) return null;
   const selector = text(value["selector"], SELECTOR_CAP);
 
   if (selector === "") return null;
 
-  const rect = isRecord(value["rect"]) ? value["rect"] : {};
+  const rect = isJsonRecord(value["rect"]) ? value["rect"] : {};
 
   const classes = Array.isArray(value["classes"])
     ? value["classes"]
-        .filter((entry): entry is string => typeof entry === "string")
+        .filter((entry): entry is string => isString(entry))
         .slice(0, CLASS_CAP)
         .map((entry) => entry.slice(0, CLASS_LENGTH_CAP))
     : [];
 
-  const rawRegion = isRecord(value["region"]) ? value["region"] : null;
+  const rawRegion = isJsonRecord(value["region"]) ? value["region"] : null;
 
   const region =
     rawRegion === null
@@ -123,7 +121,7 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
 
   const covers = Array.isArray(value["covers"])
     ? value["covers"]
-        .filter(isRecord)
+        .filter(isJsonRecord)
         .slice(0, COVERS_CAP)
         .map((entry) => ({
           tag: text(entry["tag"], TAG_CAP) || "element",
@@ -131,10 +129,8 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
         }))
     : [];
 
-  return {
+  const anchor: AnnotationAnchor = {
     classes,
-    ...(covers.length === 0 ? {} : { covers }),
-    ...(region === null ? {} : { region }),
     rect: {
       height: size(rect["height"]),
       width: size(rect["width"]),
@@ -143,24 +139,30 @@ export function anchorFrom(value: unknown): AnnotationAnchor | null {
     },
     selector,
     spot: {
-      x: fraction(isRecord(value["spot"]) ? value["spot"]["x"] : undefined),
-      y: fraction(isRecord(value["spot"]) ? value["spot"]["y"] : undefined),
+      x: fraction(isJsonRecord(value["spot"]) ? value["spot"]["x"] : undefined),
+      y: fraction(isJsonRecord(value["spot"]) ? value["spot"]["y"] : undefined),
     },
     tag: text(value["tag"], TAG_CAP) || "element",
     text: text(value["text"], TEXT_CAP),
     viewport: size(value["viewport"]),
   };
+
+  if (covers.length > 0) anchor.covers = covers;
+
+  if (region !== null) anchor.region = region;
+
+  return anchor;
 }
 
 export async function readAnnotations(cwd: string): Promise<Annotation[]> {
   try {
     const raw = await readFile(join(cwd, ANNOTATIONS_PATH), "utf8");
-    const parsed = JSON.parse(raw) as { annotations?: unknown };
+    const parsed = parseJson(raw);
 
-    if (!Array.isArray(parsed.annotations)) return [];
+    if (!isJsonRecord(parsed) || !Array.isArray(parsed.annotations)) return [];
 
     return parsed.annotations.flatMap((entry, index) => {
-      if (!isRecord(entry)) return [];
+      if (!isJsonRecord(entry)) return [];
       const anchor = anchorFrom(entry["anchor"]);
       const title = text(entry["title"], TAG_CAP * 4);
 
@@ -169,7 +171,7 @@ export async function readAnnotations(cwd: string): Promise<Annotation[]> {
       return [
         {
           anchor,
-          id: typeof entry["id"] === "string" ? entry["id"] : String(index),
+          id: isString(entry["id"]) ? entry["id"] : String(index),
           note: text(entry["note"], NOTE_CAP),
           title,
         },

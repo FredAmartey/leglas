@@ -9,7 +9,7 @@ import type { RunningWorktree } from "./worktree.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
+  let reject!: (cause: unknown) => void;
 
   const promise = new Promise<T>((onResolve, onReject) => {
     resolve = onResolve;

@@ -2,6 +2,8 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net from "node:net";
 import type { Duplex } from "node:stream";
 
+import { isString } from "./json.js";
+
 export type ProxyOptions = {
   /** Origin of the dev server being fronted, e.g. http://localhost:3000 */
   target: string;
@@ -66,8 +68,8 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
    * origin, they would generate links pointing back at the proxy for routes
    * only the dev server knows about.
    */
-  function upstreamHeaders(req: IncomingMessage): Record<string, string | string[]> {
-    const headers = { ...req.headers, host: authority } as Record<string, string | string[]>;
+  function upstreamHeaders(req: IncomingMessage): IncomingMessage["headers"] {
+    const headers = { ...req.headers, host: authority };
     // The share cookie is the one credential a viewer holds, and the app
     // being previewed has no use for it: its logs, error reporters and
     // middleware are exactly where a token should not end up.
@@ -119,7 +121,7 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
           const headers = { ...upstreamRes.headers };
 
           const location = rewriteLocation(
-            typeof headers.location === "string" ? headers.location : undefined,
+            isString(headers.location) ? headers.location : undefined,
             publicOrigin,
           );
 
@@ -219,7 +221,7 @@ export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
 
     const server = http.createServer((req, res) => {
       const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port = address !== null && !isString(address) ? address.port : 0;
       handler.request(req, res, `http://127.0.0.1:${port}`);
     });
 
@@ -238,7 +240,7 @@ export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
     const onListening = () => {
       server.removeListener("error", onError);
       const address = server.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port = address !== null && !isString(address) ? address.port : 0;
       let closed: Promise<void> | null = null;
       resolve({
         active: () => open > 0,

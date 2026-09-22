@@ -1,3 +1,4 @@
+import { required } from "../test-helpers.js";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
@@ -5,7 +6,9 @@ import { describe, expect, test } from "vitest";
 
 import { createCodexAppServer, type CodexAppServerSpawn } from "./codex-app-server.js";
 
-type Message = Record<string, unknown>;
+import { type JsonRecord } from "../json.js";
+
+type Message = JsonRecord;
 
 class FakeProcess {
   readonly stdin = new PassThrough();
@@ -24,7 +27,10 @@ class FakeProcess {
       this.buffered = lines.pop() ?? "";
 
       for (const line of lines) {
-        if (line !== "") this.messages.push(JSON.parse(line) as Message);
+        if (line !== "") {
+          const message: Message = JSON.parse(line);
+          this.messages.push(message);
+        }
       }
     });
   }
@@ -83,9 +89,9 @@ async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
   const server = createCodexAppServer("/project", spawned.spawn, requestTimeoutMs);
   const warming = server.warm();
   await until(() => spawned.processes.length === 1);
-  const process = spawned.processes[0] as FakeProcess;
+  const process = required(spawned.processes[0]);
   await until(() => byMethod(process, "initialize").length === 1);
-  const request = byMethod(process, "initialize")[0] as Message;
+  const request = required(byMethod(process, "initialize")[0]);
   process.send({ id: request.id, result: { userAgent: "codex-test" } });
   await warming;
   await until(() => byMethod(process, "initialized").length === 1);
@@ -114,9 +120,9 @@ describe("Codex app-server transport", () => {
     // Released, not closed: a later ask still brings it up.
     const again = server.warm();
     await until(() => spawned.processes.length === 3);
-    const process = spawned.processes[2] as FakeProcess;
+    const process = required(spawned.processes[2]);
     await until(() => byMethod(process, "initialize").length === 1);
-    process.send({ id: (byMethod(process, "initialize")[0] as Message).id, result: {} });
+    process.send({ id: required(byMethod(process, "initialize")[0]).id, result: {} });
     await again;
     await server.close();
   });
@@ -133,9 +139,9 @@ describe("Codex app-server transport", () => {
     await release;
 
     await until(() => spawned.processes.length === 2);
-    const process = spawned.processes[1] as FakeProcess;
+    const process = required(spawned.processes[1]);
     await until(() => byMethod(process, "initialize").length === 1);
-    process.send({ id: (byMethod(process, "initialize")[0] as Message).id, result: {} });
+    process.send({ id: required(byMethod(process, "initialize")[0]).id, result: {} });
     await warming;
     expect(process.signals).not.toContain("SIGTERM");
     await server.close();
@@ -154,7 +160,7 @@ describe("Codex app-server transport", () => {
     });
 
     await until(() => byMethod(process, "thread/start").length === 1);
-    const threadStart = byMethod(process, "thread/start")[0] as Message;
+    const threadStart = required(byMethod(process, "thread/start")[0]);
     expect(threadStart.params).toMatchObject({
       cwd: "/project",
       approvalPolicy: "never",
@@ -164,7 +170,7 @@ describe("Codex app-server transport", () => {
     process.send({ id: threadStart.id, result: { thread: { id: "th_1" } } });
 
     await until(() => byMethod(process, "turn/start").length === 1);
-    const firstTurn = byMethod(process, "turn/start")[0] as Message;
+    const firstTurn = required(byMethod(process, "turn/start")[0]);
     expect(firstTurn.params).toMatchObject({
       threadId: "th_1",
       input: [
@@ -223,7 +229,7 @@ describe("Codex app-server transport", () => {
     await until(() => byMethod(process, "turn/start").length === 2);
     expect(byMethod(process, "thread/start")).toHaveLength(1);
     expect(byMethod(process, "thread/resume")).toHaveLength(0);
-    const secondTurn = byMethod(process, "turn/start")[1] as Message;
+    const secondTurn = required(byMethod(process, "turn/start")[1]);
     expect(secondTurn.params).not.toHaveProperty("effort");
     process.send({ id: secondTurn.id, result: { turn: { id: "turn_2" } } });
     const secondChild = await secondRun;
@@ -248,10 +254,10 @@ describe("Codex app-server transport", () => {
     });
 
     await until(() => byMethod(process, "thread/resume").length === 1);
-    const resume = byMethod(process, "thread/resume")[0] as Message;
+    const resume = required(byMethod(process, "thread/resume")[0]);
     process.send({ id: resume.id, result: { thread: { id: "stored_1" } } });
     await until(() => byMethod(process, "turn/start").length === 1);
-    const turn = byMethod(process, "turn/start")[0] as Message;
+    const turn = required(byMethod(process, "turn/start")[0]);
     process.send({ id: turn.id, result: { turn: { id: "turn_1" } } });
     const child = await running;
     const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
@@ -271,10 +277,10 @@ describe("Codex app-server transport", () => {
     const { process, server } = await initialize();
     const running = server.run({ prompt: "keep going", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = byMethod(process, "thread/start")[0] as Message;
+    const thread = required(byMethod(process, "thread/start")[0]);
     process.send({ id: thread.id, result: { thread: { id: "th_cancel" } } });
     await until(() => byMethod(process, "turn/start").length === 1);
-    const turn = byMethod(process, "turn/start")[0] as Message;
+    const turn = required(byMethod(process, "turn/start")[0]);
     process.send({ id: turn.id, result: { turn: { id: "turn_cancel" } } });
     const child = await running;
     expect(child.kill("SIGTERM")).toBe(true);
@@ -283,7 +289,7 @@ describe("Codex app-server transport", () => {
       threadId: "th_cancel",
       turnId: "turn_cancel",
     });
-    const interrupt = byMethod(process, "turn/interrupt")[0] as Message;
+    const interrupt = required(byMethod(process, "turn/interrupt")[0]);
     process.send({ id: interrupt.id, result: {} });
     const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
     process.send({
@@ -301,10 +307,10 @@ describe("Codex app-server transport", () => {
     const { process, server } = await initialize();
     const running = server.run({ prompt: "quick", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = byMethod(process, "thread/start")[0] as Message;
+    const thread = required(byMethod(process, "thread/start")[0]);
     process.send({ id: thread.id, result: { thread: { id: "th_quick" } } });
     await until(() => byMethod(process, "turn/start").length === 1);
-    const turn = byMethod(process, "turn/start")[0] as Message;
+    const turn = required(byMethod(process, "turn/start")[0]);
 
     // Both lines arrive in one stdout batch. The completion is handled before
     // run() resolves and before the queue can attach its close listener.
@@ -344,7 +350,7 @@ describe("Codex app-server transport", () => {
     const { process, server } = await initialize(10);
     const running = server.run({ prompt: "timeout", effort: null, sessionId: null, images: [] });
     await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = byMethod(process, "thread/start")[0] as Message;
+    const thread = required(byMethod(process, "thread/start")[0]);
     process.send({ id: thread.id, result: { thread: { id: "th_timeout" } } });
     await until(() => byMethod(process, "turn/start").length === 1);
 

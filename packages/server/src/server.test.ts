@@ -1,6 +1,8 @@
+import { ChildProcess } from "node:child_process";
+import { boundPort } from "./test-helpers.js";
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { EventEmitter } from "node:events";
+
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import net from "node:net";
-import type { AddressInfo } from "node:net";
+
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -30,6 +32,8 @@ import { SERVER_INFO_PATH } from "./server-info.js";
 import { startTunnel as startTunnelProcess } from "./share/tunnel.js";
 import type { UpdateService, UpdateStatus } from "./update.js";
 import type { RunningWorktree } from "./branches/worktree.js";
+
+import { type JsonRecord } from "./json.js";
 
 const running: RunningServer[] = [];
 
@@ -64,7 +68,7 @@ function startOrigin(): Promise<number> {
   origins.push(server);
 
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
+    server.listen(0, "127.0.0.1", () => resolve(boundPort(server)));
   });
 }
 
@@ -158,7 +162,7 @@ async function expectConditionalRead(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
+  let reject!: (cause: unknown) => void;
 
   const promise = new Promise<T>((onResolve, onReject) => {
     resolve = onResolve;
@@ -202,7 +206,7 @@ function capturePool(loads = true): BrowserPool {
 
       return () => group.delete(listener);
     },
-    send: async <T>(method: string, params: Record<string, unknown> = {}) => {
+    send: async <T>(method: string, params: JsonRecord = {}) => {
       if (method === "Page.navigate") {
         if (loads) {
           queueMicrotask(() => {
@@ -212,19 +216,23 @@ function capturePool(loads = true): BrowserPool {
       }
 
       if (method === "Page.getLayoutMetrics") {
-        const width = Number((params as { width?: number }).width) || 390;
+        const width = Number(params.width) || 390;
 
+        // SAFETY: The metrics command reads this fixed document extent from the capture fixture.
         return { cssContentSize: { width, height: 600 } } as T;
       }
 
       if (method === "Page.captureScreenshot") {
+        // SAFETY: Screenshot callers consume the base64 `data` field supplied by this fake browser.
         return { data: Buffer.from("fake png").toString("base64") } as T;
       }
 
       if (method === "Runtime.evaluate") {
+        // SAFETY: This fixture never locates an element; its evaluation result is a null remote value.
         return { result: { value: null } } as T;
       }
 
+      // SAFETY: The other commands in this fixture are acknowledged without result data.
       return {} as T;
     },
   };
@@ -300,7 +308,7 @@ function postRawReference(
 
           if (!request.writableEnded) request.destroy();
           const text = Buffer.concat(parts).toString("utf8");
-          resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) as unknown });
+          resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) });
         });
       },
     );
@@ -328,11 +336,7 @@ const shareLayout = (compare: string | null = null) => ({
   viewport: 390,
 });
 
-function postShare(
-  server: RunningServer,
-  body: Record<string, unknown>,
-  suffix = "",
-): Promise<Response> {
+function postShare(server: RunningServer, body: JsonRecord, suffix = ""): Promise<Response> {
   return fetch(`${server.url}/leglas/api/share${suffix}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -384,7 +388,7 @@ function openViewerSocket(port: number, cookie: string, extraHeaders = ""): Prom
   });
 }
 
-class ShareTunnelChild extends EventEmitter {
+class ShareTunnelChild extends ChildProcess {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly signals: Array<NodeJS.Signals | number> = [];
@@ -431,6 +435,26 @@ describe("startServer", () => {
     ).toBe(403);
   });
 
+  test("an intent that is not text is refused, not left hanging", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-intent-"));
+
+    const server = await start({
+      config: configFor(await startOrigin(), [{ title: "Aurora", url: "/" }]),
+      port: 0,
+      cwd,
+    });
+
+    const posted = await fetch(`${server.url}/leglas/api/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Aurora", intent: 42 }),
+      signal: AbortSignal.timeout(2_000),
+    });
+
+    expect(posted.status).toBe(400);
+    expect(await readRequests(cwd)).toEqual([]);
+  });
+
   test("POST then GET exposes queued request state without collecting it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-api-"));
 
@@ -448,9 +472,9 @@ describe("startServer", () => {
 
     expect(posted.status).toBe(200);
 
-    const first = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const first: {
       requests: { id: string; status: string; intent: string; mode: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     // The mode travels with the status: a fork leaves its parent's document
     // alone, and the interface needs to know that to leave the parent's
@@ -459,9 +483,7 @@ describe("startServer", () => {
       { id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" },
     ]);
 
-    const second = (await (
-      await fetch(`${server.url}/leglas/api/requests`)
-    ).json()) as typeof first;
+    const second: typeof first = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(second).toEqual(first);
   });
@@ -476,7 +498,7 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const body = (await response.json()) as {
+    const body: {
       ok: boolean;
       reference: {
         id: string;
@@ -486,7 +508,7 @@ describe("startServer", () => {
         height: number;
         bytes: number;
       };
-    };
+    } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
@@ -564,9 +586,9 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const uploadedBody = (await uploaded.json()) as {
+    const uploadedBody: {
       reference: { id: string; file: string };
-    };
+    } = await uploaded.json();
 
     const response = await fetch(`${server.url}/leglas/api/request`, {
       method: "POST",
@@ -606,7 +628,7 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const body = (await response.json()) as { reference: { name: string } };
+    const body: { reference: { name: string } } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.reference.name).toBe(`..caf${"x".repeat(75)}`);
@@ -637,7 +659,7 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const body = (await response.json()) as { reference: { name: string } };
+    const body: { reference: { name: string } } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.reference.name).toBe("image");
@@ -673,10 +695,10 @@ describe("startServer", () => {
       }),
     });
 
-    const body = (await response.json()) as {
+    const body: {
       attachments: { kind: string; file: string }[];
       prompt: string;
-    };
+    } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.attachments).toMatchObject([
@@ -725,14 +747,14 @@ describe("startServer", () => {
       body: JSON.stringify({ title: "Poster Print!", width: 390 }),
     });
 
-    const body = (await response.json()) as {
+    const body: {
       file: string;
       width: number;
       height: number;
       viewport: number;
       errors: string[];
       hydration: null;
-    };
+    } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
@@ -773,7 +795,7 @@ describe("startServer", () => {
       }),
     });
 
-    const note = (await noteResponse.json()) as { annotation: { id: string } };
+    const note: { annotation: { id: string } } = await noteResponse.json();
 
     const response = await fetch(`${server.url}/leglas/api/capture`, {
       method: "POST",
@@ -781,7 +803,7 @@ describe("startServer", () => {
       body: JSON.stringify({ title: "Poster", width: 390, note: note.annotation.id }),
     });
 
-    const body = (await response.json()) as { file: string; width: number; height: number };
+    const body: { file: string; width: number; height: number } = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
@@ -794,6 +816,7 @@ describe("startServer", () => {
     const nativeSetTimeout = globalThis.setTimeout;
     // The deadline fires first here; the load's own share is left real, so
     // this is the abandonment path and nothing else.
+    // SAFETY: The capture-deadline test only calls the callback overload, forwarding its arguments and native timer handle.
     vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: (...args: any[]) => void,
       milliseconds?: number,
@@ -830,6 +853,7 @@ describe("startServer", () => {
     const nativeSetTimeout = globalThis.setTimeout;
     // The load's share of the deadline lapses at once; the deadline itself
     // stays real, so the capture that follows has all the time it needs.
+    // SAFETY: The disconnect test preserves the native callback timer contract while shortening the capture deadline.
     vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: (...args: any[]) => void,
       milliseconds?: number,
@@ -855,7 +879,7 @@ describe("startServer", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { file: string };
+    const body: { file: string } = await response.json();
     expect(existsSync(join(cwd, body.file))).toBe(true);
   });
 
@@ -927,11 +951,11 @@ describe("startServer", () => {
     });
 
     expect(kept.status).toBe(200);
-    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+    const { annotation }: { annotation: { id: string } } = await kept.json();
 
-    const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+    const listed: {
       annotations: { note: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
 
     expect(listed.annotations).toMatchObject([{ note: "looks fake", title: "Poster" }]);
 
@@ -970,7 +994,7 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+    const { annotation }: { annotation: { id: string } } = await kept.json();
 
     const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
       body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
@@ -980,17 +1004,19 @@ describe("startServer", () => {
 
     expect(revised.status).toBe(200);
 
-    const { annotation: reworded } = (await revised.json()) as {
+    const {
+      annotation: reworded,
+    }: {
       annotation: { id: string; note: string };
-    };
+    } = await revised.json();
 
     expect(reworded.note).toBe("looks printed");
     // Reissued, so a change already holding the old id cannot sweep this.
     expect(reworded.id).not.toBe(annotation.id);
 
-    const listed = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+    const listed: {
       annotations: { note: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
 
     expect(listed.annotations).toMatchObject([{ note: "looks printed", title: "Poster" }]);
 
@@ -1026,9 +1052,9 @@ describe("startServer", () => {
 
     expect(wordless.status).toBe(400);
 
-    const survived = (await (await fetch(`${server.url}/leglas/api/annotations`)).json()) as {
+    const survived: {
       annotations: { note: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
 
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
   });
@@ -1061,7 +1087,7 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const { annotation } = (await kept.json()) as { annotation: { id: string } };
+    const { annotation }: { annotation: { id: string } } = await kept.json();
 
     await fetch(`${server.url}/leglas/api/request`, {
       body: JSON.stringify({ title: "Poster", intent: "" }),
@@ -1069,9 +1095,9 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const queue = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const queue: {
       requests: { notes: string[] }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
 
@@ -1084,9 +1110,11 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const { annotation: after } = (await revised.json()) as {
+    const {
+      annotation: after,
+    }: {
       annotation: { id: string; note: string };
-    };
+    } = await revised.json();
 
     expect(after.note).toBe("looks printed");
     expect(after.id).not.toBe(annotation.id);
@@ -1145,7 +1173,7 @@ describe("startServer", () => {
     });
 
     expect(posted.status).toBe(200);
-    const { prompt } = (await posted.json()) as { prompt: string };
+    const { prompt }: { prompt: string } = await posted.json();
     expect(prompt).toContain("1. too tight");
     expect(prompt).toContain("path h1");
     expect(prompt).toContain("reading “Tropical”");
@@ -1248,9 +1276,9 @@ describe("startServer", () => {
     expect((await send("Poster", "make it colder")).status).toBe(200);
     expect((await send("Hero", "make it warmer")).status).toBe(200);
 
-    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const body: {
       requests: { title: string; intent: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(body.requests.map((request) => `${request.title}: ${request.intent}`)).toEqual([
       "Poster: make it warmer",
@@ -1268,7 +1296,7 @@ describe("startServer", () => {
       cwd,
     });
 
-    const send = (body: Record<string, unknown>) =>
+    const send = (body: JsonRecord) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1277,26 +1305,26 @@ describe("startServer", () => {
 
     // No mode named. The safe half of the pair is what a missing field gets,
     // because the other half overwrites the direction being compared.
-    const implied = (await (await send({ title: "Poster", intent: "warmer" })).json()) as {
+    const implied: {
       prompt: string;
       mode: string;
-    };
+    } = await (await send({ title: "Poster", intent: "warmer" })).json();
 
     expect(implied.mode).toBe("variant");
     expect(implied.prompt).toContain("add a new design direction based on");
 
-    const asked = (await (
+    const asked: { prompt: string; mode: string } = await (
       await send({ title: "Poster", intent: "colder", mode: "replace" })
-    ).json()) as { prompt: string; mode: string };
+    ).json();
 
     expect(asked.mode).toBe("replace");
     expect(asked.prompt).toContain('change only the "Poster" design direction');
 
     // The queue keeps which kind of change each one is, so a request that
     // outlives this process still knows what it was asked to do.
-    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const body: {
       requests: { intent: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(body.requests).toHaveLength(2);
   });
@@ -1319,9 +1347,9 @@ describe("startServer", () => {
     expect(refused.status).toBe(400);
 
     // Nothing was queued on the way to being refused.
-    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const body: {
       requests: unknown[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(body.requests).toEqual([]);
   });
@@ -1383,9 +1411,9 @@ describe("startServer", () => {
       cwd,
     });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const body: {
       requests: { id: string; status: string; failure: { code: string } | null }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(body.requests[0]).toMatchObject({
       status: "failed",
@@ -1399,7 +1427,7 @@ describe("startServer", () => {
     });
 
     expect(await dismissed.json()).toEqual({ ok: true });
-    const after = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as typeof body;
+    const after: typeof body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
     expect(after.requests).toEqual([]);
   });
 
@@ -1409,10 +1437,10 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-read-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+    const body: {
       requests: unknown[];
       agent: { attached: boolean };
-    };
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     expect(body.requests).toEqual([]);
     expect(body.agent).toEqual({
@@ -1460,12 +1488,12 @@ describe("startServer", () => {
       },
     });
 
-    const initial = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+    const initial: {
       agents: { id: string; name: string; available: boolean; auth: string }[];
       choice: string | null;
       customRun: string | null;
       effort: string | null;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
     expect(initial.agents).toEqual([
       {
@@ -1498,9 +1526,7 @@ describe("startServer", () => {
 
     expect(saved.status).toBe(200);
 
-    const custom = (await (
-      await fetch(`${server.url}/leglas/api/agents`)
-    ).json()) as typeof initial;
+    const custom: typeof initial = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
     expect(custom).toMatchObject({ choice: "custom", customRun });
 
@@ -1509,7 +1535,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "codex", effort: "high" }),
     });
-    const known = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as typeof initial;
+    const known: typeof initial = await (await fetch(`${server.url}/leglas/api/agents`)).json();
     expect(known).toMatchObject({ choice: "codex", customRun, effort: "high" });
     // Three reads, one probe: the login answer is served from the cache.
     expect(probes).toBe(1);
@@ -1575,7 +1601,7 @@ describe("startServer", () => {
 
     const response = await fetch(`${server.url}/leglas/api/agents/warm`, { method: "POST" });
     expect(response.status).toBe(200);
-    expect((await response.json()) as unknown).toEqual({ ok: true });
+    expect(await response.json()).toEqual({ ok: true });
     expect(warm).toHaveBeenCalledOnce();
   });
 
@@ -1637,17 +1663,17 @@ describe("startServer", () => {
       },
     });
 
-    const first = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+    const first: {
       agents: typeof initial;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
     expect(first.agents).toEqual(initial);
 
     now.mockReturnValue(31_001);
 
-    const stale = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+    const stale: {
       agents: typeof initial;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
     // The second detector is deliberately unresolved: receiving this answer
     // proves the routine request did not wait behind it.
@@ -1658,9 +1684,9 @@ describe("startServer", () => {
     finishRefresh?.();
     await new Promise((resolve) => setImmediate(resolve));
 
-    const fresh = (await (await fetch(`${server.url}/leglas/api/agents`)).json()) as {
+    const fresh: {
       agents: typeof initial;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
     expect(fresh.agents).toEqual(refreshed);
     expect(probes).toBe(2);
@@ -1744,7 +1770,7 @@ describe("startServer", () => {
 
     while (body?.agent.running !== true) {
       if (Date.now() > deadline) throw new Error("embedded runner did not start");
-      body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+      body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
       if (!body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -1779,7 +1805,7 @@ describe("startServer", () => {
 
     while (body.agent.running) {
       if (Date.now() > deadline) throw new Error("embedded runner did not cancel");
-      body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as RequestsBody;
+      body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -1818,9 +1844,9 @@ describe("startServer", () => {
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
 
-      const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      const payload: {
         requests: { id: string; status: string }[];
-      };
+      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
       failed = payload.requests[0];
 
@@ -1948,9 +1974,9 @@ describe("startServer", () => {
     while (failed?.status !== "failed") {
       if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
 
-      const payload = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      const payload: {
         requests: { id: string; status: string }[];
-      };
+      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
       failed = payload.requests[0];
 
@@ -2001,12 +2027,13 @@ describe("startServer", () => {
       vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
       const server = await start({ config: configFor(origin), port: 0 });
 
-      const attached = async () =>
-        (
-          (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
-            agent: { attached: boolean };
-          }
-        ).agent.attached;
+      const attached = async () => {
+        const body: {
+          agent: { attached: boolean };
+        } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+
+        return body.agent.attached;
+      };
 
       const beat = await fetch(`${server.url}/leglas/api/watch`, {
         method: "POST",
@@ -2038,12 +2065,13 @@ describe("startServer", () => {
         body: JSON.stringify({ watching }),
       });
 
-    const attached = async () =>
-      (
-        (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
-          agent: { attached: boolean };
-        }
-      ).agent.attached;
+    const attached = async () => {
+      const body: {
+        agent: { attached: boolean };
+      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+
+      return body.agent.attached;
+    };
 
     await beat(true);
     expect(await attached()).toBe(true);
@@ -2090,7 +2118,7 @@ describe("startServer", () => {
   test("takes the next free port when the requested one is busy", async () => {
     const blocker = net.createServer();
     await new Promise<void>((done) => blocker.listen(0, "127.0.0.1", () => done()));
-    const taken = (blocker.address() as AddressInfo).port;
+    const taken = boundPort(blocker);
 
     const server = await start({ config: configFor(await startOrigin()), port: taken });
 
@@ -2106,7 +2134,7 @@ describe("startServer", () => {
     const server = await start({ config, port: 0 });
 
     const res = await fetch(`${server.url}/leglas/api/config`);
-    const body = (await res.json()) as { previews: unknown[]; errors: string[] };
+    const body: { previews: unknown[]; errors: string[] } = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.previews).toHaveLength(1);
@@ -2199,9 +2227,9 @@ describe("startServer", () => {
 
     live.changes.splice(0);
 
-    const idle = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
-      previews: Array<Record<string, unknown>>;
-    };
+    const idle: {
+      previews: Array<JsonRecord>;
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(idle.previews[0]).toMatchObject({ title: "Wave", state: { status: "idle" } });
     expect(Object.hasOwn(idle.previews[0] ?? {}, "url")).toBe(false);
@@ -2223,9 +2251,9 @@ describe("startServer", () => {
       state: { status: "starting", phase: "checking out" },
     });
 
-    const whileStarting = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
-      previews: Array<Record<string, unknown>>;
-    };
+    const whileStarting: {
+      previews: Array<JsonRecord>;
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
 
@@ -2237,16 +2265,16 @@ describe("startServer", () => {
       stop: async () => {},
     });
     await eventually(async () => {
-      const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      const body: {
         previews: Array<{ state?: { status?: string } }>;
-      };
+      } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
       return body.previews[0]?.state?.status === "ready";
     });
 
-    const ready = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
-      previews: Array<Record<string, unknown>>;
-    };
+    const ready: {
+      previews: Array<JsonRecord>;
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(ready.previews[0]).toMatchObject({
       title: "Wave",
@@ -2319,9 +2347,9 @@ describe("startServer", () => {
       body: JSON.stringify({ title: "Wave" }),
     });
     await eventually(async () => {
-      const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+      const body: {
         previews: Array<{ state?: { status?: string } }>;
-      };
+      } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
       return body.previews[0]?.state?.status === "ready";
     });
@@ -2338,9 +2366,9 @@ describe("startServer", () => {
     config.scanPreviews = false;
     const server = await start({ config, port: 0 });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       scanPreviews: boolean;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.scanPreviews).toBe(false);
   });
@@ -2353,9 +2381,9 @@ describe("startServer", () => {
     const config = configFor(await startOrigin(), [{ title: "Current", url: "/" }]);
     const server = await start({ config, port: 0, cwd });
 
-    const before = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const before: {
       previews: { title: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(before.previews.map((preview) => preview.title)).toEqual(["Current"]);
 
@@ -2372,9 +2400,9 @@ describe("startServer", () => {
       { flag: "w" },
     );
 
-    const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const after: {
       previews: { title: string; local?: boolean }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
@@ -2397,10 +2425,10 @@ describe("startServer", () => {
     unlinkSync(registry);
     mkdirSync(registry);
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       previews: { title: string }[];
       errors: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
     expect(body.errors).toEqual([]);
@@ -2455,14 +2483,14 @@ describe("startServer", () => {
       body: JSON.stringify({ titles: ["Aurora"] }),
     });
 
-    const payload = (await deleted.json()) as { deleted: number; ok: boolean };
+    const payload: { deleted: number; ok: boolean } = await deleted.json();
 
     expect(deleted.status).toBe(200);
     expect(payload).toEqual({ deleted: 1, ok: true });
 
-    const after = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const after: {
       previews: { title: string }[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current"]);
   });
@@ -2486,9 +2514,9 @@ describe("startServer", () => {
     const config = configFor(await startOrigin());
     const server = await start({ config, port: 0, project: "/work/app" });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       project: string;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.project).toBe("/work/app");
   });
@@ -2501,7 +2529,7 @@ describe("startServer", () => {
     });
 
     const res = await fetch(`${server.url}/leglas/api/config`);
-    const body = (await res.json()) as { previews: unknown[]; errors: string[] };
+    const body: { previews: unknown[]; errors: string[] } = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.errors[0]).toContain("needs a title");
@@ -2515,10 +2543,10 @@ describe("startServer", () => {
       port: 0,
     });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       errors: string[];
       warnings: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.errors).toEqual([]);
     expect(body.warnings).toEqual(["Port 3000 may belong to another project."]);
@@ -2529,9 +2557,9 @@ describe("startServer", () => {
     writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       errors: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.errors).toEqual([]);
   });
@@ -2551,9 +2579,9 @@ describe("startServer", () => {
     writeFileSync(configPath, JSON.stringify({ changed: true }));
     utimesSync(configPath, new Date(2020, 0, 1), new Date(2020, 0, 2));
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       errors: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.errors).toEqual([
       "existing config error",
@@ -2566,9 +2594,9 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       errors: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.errors).toContain(
       "leglas.config.json appeared after Leglas started. Restart leglas to pick it up.",
@@ -2582,9 +2610,9 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
     unlinkSync(configPath);
 
-    const body = (await (await fetch(`${server.url}/leglas/api/config`)).json()) as {
+    const body: {
       errors: string[];
-    };
+    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(body.errors).toContain(
       "leglas.config.json was removed after Leglas started. Restart leglas to run without it.",
@@ -2594,9 +2622,9 @@ describe("startServer", () => {
   test("reports the dev server as reachable when it is up", async () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0 });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/health`)).json()) as {
+    const body: {
       reachable: boolean;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/health`)).json();
 
     expect(body.reachable).toBe(true);
   });
@@ -2604,9 +2632,9 @@ describe("startServer", () => {
   test("reports the dev server as unreachable when it is down", async () => {
     const server = await start({ config: configFor(1), port: 0 });
 
-    const body = (await (await fetch(`${server.url}/leglas/api/health`)).json()) as {
+    const body: {
       reachable: boolean;
-    };
+    } = await (await fetch(`${server.url}/leglas/api/health`)).json();
 
     expect(body.reachable).toBe(false);
   });
@@ -2686,9 +2714,9 @@ describe("startServer", () => {
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
     await eventually(async () => {
-      const body = (await (await fetch(`${server.url}/leglas/api/requests`)).json()) as {
+      const body: {
         agent: { running: boolean };
-      };
+      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
       return body.agent.running;
     });
@@ -2697,6 +2725,7 @@ describe("startServer", () => {
 
   test("nudges health once when reachability flips, not on steady probes", async () => {
     const nativeSetInterval = globalThis.setInterval;
+    // SAFETY: Health transitions use the callback interval overload; this wrapper keeps its native handle and forwards every callback argument.
     vi.spyOn(globalThis, "setInterval").mockImplementation(((
       callback: (...args: any[]) => void,
       milliseconds?: number,
@@ -2710,7 +2739,7 @@ describe("startServer", () => {
     const target = http.createServer();
     await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
     origins.push(target);
-    const targetPort = (target.address() as AddressInfo).port;
+    const targetPort = boundPort(target);
     const live = fakeLiveHub(1);
     await start({ config: configFor(targetPort), port: 0, live });
 
@@ -2728,6 +2757,7 @@ describe("startServer", () => {
 
   test("does not probe health with no live listeners", async () => {
     const nativeSetInterval = globalThis.setInterval;
+    // SAFETY: The viewer-count test keeps native interval callbacks and handles, shortening only the health probe interval.
     vi.spyOn(globalThis, "setInterval").mockImplementation(((
       callback: (...args: any[]) => void,
       milliseconds?: number,
@@ -2748,7 +2778,7 @@ describe("startServer", () => {
     const live = fakeLiveHub(0);
 
     const server = await start({
-      config: configFor((target.address() as AddressInfo).port),
+      config: configFor(boundPort(target)),
       port: 0,
       live,
     });
@@ -2858,14 +2888,14 @@ describe("startServer", () => {
       tunnel: "none",
     });
 
-    const created = (await createdResponse.json()) as {
+    const created: {
       ok: true;
       share: {
         grants: { id: string; localUrl: string; viewers: number; expiresAt: number }[];
         sharePort: number;
         tunnel: { status: string };
       };
-    };
+    } = await createdResponse.json();
 
     expect(createdResponse.status).toBe(200);
     expect(created.share.sharePort).not.toBe(server.port);
@@ -2885,16 +2915,14 @@ describe("startServer", () => {
 
     expect(peek.status).toBe(302);
 
-    const viewerConfig = (await (
-      await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })
-    ).json()) as {
+    const viewerConfig: {
       project: string;
       devServer: string;
       previews: Array<{ title: string; url: string }>;
       errors: string[];
       warnings: string[];
       viewer: { scope: string; layout: ReturnType<typeof shareLayout> };
-    };
+    } = await (await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })).json();
 
     // Nothing that names the sharer's machine reaches a viewer: the project
     // id is normally the config's absolute path, and health names the
@@ -3014,7 +3042,7 @@ describe("startServer", () => {
       "/update",
     );
 
-    const updated = (await updatedResponse.json()) as typeof created;
+    const updated: typeof created = await updatedResponse.json();
     expect(updatedResponse.status).toBe(200);
     expect(updated.share.grants[0].localUrl).toBe(created.share.grants[0].localUrl);
     // Viewers read the config, so an update nudges that too.
@@ -3101,9 +3129,9 @@ describe("startServer", () => {
       tunnel: "none",
     });
 
-    const created = (await response.json()) as {
+    const created: {
       share: { grants: { localUrl: string }[]; sharePort: number };
-    };
+    } = await response.json();
 
     const cookie = await enterShare(created.share.grants[0].localUrl);
 
@@ -3127,37 +3155,34 @@ describe("startServer", () => {
         );
       });
     });
-    expect(
-      (
-        (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-          share: { grants: { viewers: number }[] };
-        }
-      ).share.grants[0].viewers,
-    ).toBe(0);
+
+    const beforeViewer: { share: { grants: { viewers: number }[] } } = await (
+      await fetch(`${server.url}/leglas/api/share`)
+    ).json();
+
+    expect(beforeViewer.share.grants[0]?.viewers).toBe(0);
 
     const viewer = await openViewerSocket(created.share.sharePort, cookie);
-    await eventually(
-      async () =>
-        (
-          (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-            share: { grants: { viewers: number }[] };
-          }
-        ).share.grants[0].viewers === 1,
-    );
+    await eventually(async () => {
+      const body: {
+        share: { grants: { viewers: number }[] };
+      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+
+      return body.share.grants[0].viewers === 1;
+    });
     viewer.destroy();
-    await eventually(
-      async () =>
-        (
-          (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-            share: { grants: { viewers: number }[] };
-          }
-        ).share.grants[0].viewers === 0,
-    );
+    await eventually(async () => {
+      const body: {
+        share: { grants: { viewers: number }[] };
+      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+
+      return body.share.grants[0].viewers === 0;
+    });
   });
 
   test("a viewer arriving settles a tunnel the probe has not seen answer", async () => {
     const child = new ShareTunnelChild();
-    const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
 
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
@@ -3166,24 +3191,25 @@ describe("startServer", () => {
       startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
 
-    const created = (await (
+    const created: { share: { localUrl: string; sharePort: number } } = await (
       await postShare(server, {
         scope: "direction",
         titles: ["Current"],
         layout: shareLayout(),
         tunnel: "cloudflared",
       })
-    ).json()) as { share: { localUrl: string; sharePort: number } };
+    ).json();
 
-    const status = async () =>
-      (
-        (await (await fetch(`${server.url}/leglas/api/share`)).json()) as {
-          share: {
-            grants: { url: string | null }[];
-            tunnel: { status: string; url?: string };
-          };
-        }
-      ).share;
+    const status = async () => {
+      const body: {
+        share: {
+          grants: { url: string | null }[];
+          tunnel: { status: string; url?: string };
+        };
+      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+
+      return body.share;
+    };
 
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
     child.stderr.write("| https://example-share.trycloudflare.com |\n");
@@ -3214,7 +3240,7 @@ describe("startServer", () => {
 
   test("closing the primary server stops its tunnel and share listener first", async () => {
     const child = new ShareTunnelChild();
-    const spawn = vi.fn(() => child) as unknown as typeof import("node:child_process").spawn;
+    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
 
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
@@ -3230,7 +3256,7 @@ describe("startServer", () => {
       tunnel: "cloudflared",
     });
 
-    const created = (await response.json()) as { share: { sharePort: number } };
+    const created: { share: { sharePort: number } } = await response.json();
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
 
     await server.close();
@@ -3300,14 +3326,18 @@ describe("update routes", () => {
   }
 
   async function bootUpdates(updates?: ReturnType<typeof updateService>, live?: LiveHub) {
-    return start({
+    const options: Parameters<typeof start>[0] = {
       config: configFor(1),
       cwd: mkdtempSync(join(tmpdir(), "leglas-update-routes-")),
       port: 0,
       detect: async () => [],
-      ...(updates === undefined ? {} : { updates }),
-      ...(live === undefined ? {} : { live }),
-    });
+    };
+
+    if (updates !== undefined) options.updates = updates;
+
+    if (live !== undefined) options.live = live;
+
+    return start(options);
   }
 
   test("each service transition nudges the live update channel", async () => {
@@ -3508,8 +3538,14 @@ describe("update routes", () => {
 });
 
 describe("mutation trust", () => {
-  const request = (headers: Record<string, string>, peer: string | undefined) =>
-    ({ headers, socket: { remoteAddress: peer } }) as unknown as http.IncomingMessage;
+  const request = (headers: Record<string, string>, peer: string | undefined) => {
+    const socket = new net.Socket();
+    Object.defineProperty(socket, "remoteAddress", { value: peer });
+    const message = new http.IncomingMessage(socket);
+    message.headers = headers;
+
+    return message;
+  };
 
   test("an origin-less request is trusted only from the machine itself", () => {
     expect(isTrustedMutation(request({ host: "localhost:4100" }, "127.0.0.1"))).toBe(true);
@@ -3626,7 +3662,7 @@ describe("what a capture may resolve", () => {
       cwd,
     });
 
-    const send = (body: Record<string, unknown>) =>
+    const send = (body: JsonRecord) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -3668,7 +3704,8 @@ describe("what a capture may resolve", () => {
     // quietly leaving the picture out.
     const gone = await send({ title: "Poster", intent: "like that", references: ["r9"] });
     expect(gone.status).toBe(410);
-    expect(((await gone.json()) as { error: string }).error).toContain("Attach it again");
+    const body: { error: string } = await gone.json();
+    expect(body.error).toContain("Attach it again");
     const queued = await readRequests(cwd);
     expect(queued.map((entry) => [entry.compare ?? null, entry.references ?? null])).toEqual([
       ["Ledger", null],
@@ -3698,7 +3735,7 @@ describe("a body that is not an object", () => {
    * so below, where the reason is visible and the entry is one somebody has
    * to justify rather than one somebody has to remember.
    */
-  const NOT_A_JSON_OBJECT: Record<string, string> = {
+  const NOT_A_JSON_OBJECT = {
     "/api/references": "takes raw image bytes",
     "/api/agents/warm": "takes nothing at all",
     "/api/share/stop": "takes nothing at all",
@@ -3747,13 +3784,13 @@ describe("a body that is not an object", () => {
   // parsing a body by hand is how the hole came back the first time.
   test("no route reads a body without going through the one reader", () => {
     const lines = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").split("\n");
-    const opens = lines.findIndex((line) => line.startsWith("function jsonBody<"));
+    const opens = lines.findIndex((line) => line.startsWith("function jsonBody("));
     expect(opens, "jsonBody has been renamed; this check has to follow it").toBeGreaterThan(-1);
     const closes = lines.findIndex((line, index) => index > opens && line === "}");
 
     const offenders = lines
       .map((line, index) => ({ at: index, line: line.trim() }))
-      .filter((entry) => entry.line.includes("JSON.parse(body"))
+      .filter((entry) => /(?:JSON\.parse|parseJson)\(body/.test(entry.line))
       .filter((entry) => entry.at < opens || entry.at > closes)
       .map((entry) => `server.ts:${entry.at + 1}`);
 

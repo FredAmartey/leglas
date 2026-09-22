@@ -1,3 +1,4 @@
+import { required, unusedPage } from "../test-helpers.js";
 import {
   existsSync,
   mkdirSync,
@@ -28,8 +29,8 @@ import {
   removeCaptures,
   sniffImage,
 } from "./attachments.js";
-import type { Browser, BrowserPool, CdpPage } from "../capture/browser.js";
-import { NO_BROWSER } from "../capture/browser.js";
+import { type Browser, type BrowserPool, type CdpPage, NO_BROWSER } from "../capture/browser.js";
+
 import type { CaptureOutput } from "../capture/capture.js";
 import type { Preview } from "../config/config.js";
 
@@ -61,7 +62,7 @@ function note(id: string, text: string): Annotation {
 const fakeBrowser: Browser = {
   closed: false,
   close: async () => {},
-  withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work({} as CdpPage),
+  withPage: async <T>(work: (page: CdpPage) => Promise<T>) => work(unusedPage),
 };
 
 function pool(browser: Browser | null, reason = NO_BROWSER): BrowserPool {
@@ -243,10 +244,8 @@ describe("attachRequest", () => {
     expect(existsSync(join(cwd, REFERENCES_DIR, "paste1.png"))).toBe(false);
     // One load for the direction and its notes, one for the compared pane.
     expect(captured).toHaveBeenCalledTimes(2);
-    expect((captured.mock.calls[0]?.[1] as { url: string }).url).toBe("http://127.0.0.1:4100/");
-    expect((captured.mock.calls[1]?.[1] as { url: string }).url).toBe(
-      "http://127.0.0.1:4100/ledger",
-    );
+    expect(required(captured.mock.calls[0]?.[1]).url).toBe("http://127.0.0.1:4100/");
+    expect(required(captured.mock.calls[1]?.[1]).url).toBe("http://127.0.0.1:4100/ledger");
   });
 
   test("a note whose crop could not be taken is left out rather than misnumbered", async () => {
@@ -306,7 +305,14 @@ describe("attachRequest", () => {
 
   test("honours one deadline and returns without waiting for a stuck capture", async () => {
     const cwd = root();
-    const capture = vi.fn(() => new Promise<CaptureOutput>(() => {}));
+
+    const capture = vi.fn<
+      (
+        browser: Browser,
+        input: import("../capture/capture.js").CaptureInput & { signal?: AbortSignal },
+      ) => Promise<CaptureOutput>
+    >(() => new Promise<CaptureOutput>(() => {}));
+
     const started = Date.now();
 
     const result = await attachRequest(
@@ -326,12 +332,10 @@ describe("attachRequest", () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(result.skipped).toBe("The design could not be captured in time.");
     expect(result.attachments).toEqual([]);
-    expect((capture.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect(required(required(capture.mock.calls[0]?.[1]).signal).aborted).toBe(true);
     // The load gets a share of the deadline, so a page that rendered but
     // never fired load is still captured before the deadline lands.
-    expect((capture.mock.calls[0]?.[1] as { timeoutMs: number }).timeoutMs).toBe(
-      Math.floor(20 * LOAD_SHARE),
-    );
+    expect(required(capture.mock.calls[0]?.[1]).timeoutMs).toBe(Math.floor(20 * LOAD_SHARE));
   });
 
   test("a page that will not load is reported rather than thrown", async () => {

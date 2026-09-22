@@ -172,13 +172,13 @@ export function classifyFailure(input: FailureInput): Failure {
 /**
  * Whether a failure is about the conversation rather than the world.
  *
- * Only this shape earns the runner's one cold rerun. A dead session is
+ * Only this kind earns the runner's one cold rerun. A dead session is
  * invisible to the user and costs a turn to recover; an overloaded provider,
  * a spent limit, a missing login or a refused directory will answer a second
  * run exactly as it answered the first, and the user pays for both. During an
  * outage that second run is another full vendor retry ladder aimed at a
  * provider that is already down.
  */
-export function sessionShaped(code: FailureCode): boolean {
+export function conversationFailure(code: FailureCode): boolean {
   return code === "agent-error";
 }

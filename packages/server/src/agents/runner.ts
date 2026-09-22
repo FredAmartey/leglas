@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 
 import { isOwnCapture } from "../requests/attachments.js";
 import { commandFor, nextRequest, parseTemplate } from "./agent-command.js";
@@ -20,7 +20,7 @@ import {
   type AgentEffort,
   type SavedAgentChoice,
 } from "./agents.js";
-import { classifyFailure, sessionShaped, type Failure, type RetryNotice } from "./failure.js";
+import { classifyFailure, conversationFailure, type Failure, type RetryNotice } from "./failure.js";
 import {
   markFailed,
   markPickedUp,
@@ -29,6 +29,7 @@ import {
   removeRequest,
   type PendingRequest,
 } from "../requests/requests.js";
+import type { TimerHandle } from "../timers.js";
 
 const POLL_MS = 2000;
 
@@ -81,6 +82,12 @@ export type RunnerState = {
 
 type ActiveRunnerState = Omit<RunnerState, "failedIds">;
 
+function isStateUpdater(
+  value: ActiveRunnerState | ((state: ActiveRunnerState) => ActiveRunnerState),
+): value is (state: ActiveRunnerState) => ActiveRunnerState {
+  return typeof value === "function";
+}
+
 export type RunnerChild = {
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -108,8 +115,8 @@ export type RunnerOptions = {
   codexAppServer?: CodexTurnRunner | null;
   /** Injected by Agent SDK tests; null keeps the legacy Claude CLI path. */
   claudeAgentSession?: ClaudeTurnRunner | null;
-  setInterval?: (callback: () => void, milliseconds: number) => unknown;
-  clearInterval?: (handle: unknown) => void;
+  setInterval?: (callback: () => void, milliseconds: number) => TimerHandle;
+  clearInterval?: (handle: TimerHandle) => void;
   /** Injected by tests so the cancel grace period does not cost real seconds. */
   setTimeout?: (callback: () => void, milliseconds: number) => void;
   /**
@@ -143,6 +150,8 @@ type ResolvedCommand = {
   resumed: boolean;
   images: readonly string[];
 };
+
+type ObservedTurn = { sessionId: string | null; edited: boolean; retry: RetryNotice | null };
 
 type ChildOutcome = { ok: true; code: number } | { ok: false; error: string };
 
@@ -241,7 +250,7 @@ function defaultSpawn(
   args: string[],
   options: { cwd: string; shell: false; stdio: ["ignore", "pipe", "pipe"] },
 ): RunnerChild {
-  return nodeSpawn(command, args, { ...options, env: agentEnvironment() }) as RunnerChild;
+  return nodeSpawn(command, args, { ...options, env: agentEnvironment() });
 }
 
 /**
@@ -277,7 +286,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     options.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
 
   const clearEvery =
-    options.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+    options.clearInterval ??
+    ((handle) => {
+      // SAFETY: The default interval comes from Node; injected clocks provide the corresponding clear operation.
+      clearInterval(handle);
+    });
 
   const failed = new Set<string>();
 
@@ -302,7 +315,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const setState = (
     next: ActiveRunnerState | ((current: ActiveRunnerState) => ActiveRunnerState),
   ): void => {
-    state = typeof next === "function" ? next(state) : next;
+    state = isStateUpdater(next) ? next(state) : next;
     options.onChange?.();
   };
 
@@ -463,7 +476,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     request: PendingRequest,
     resolved: ResolvedCommand,
     lines: string[],
-    observed: { sessionId: string | null; edited: boolean; retry: RetryNotice | null },
+    observed: ObservedTurn,
   ): Promise<ChildOutcome> => {
     const persistent =
       resolved.agent === "codex"
@@ -474,8 +487,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
     const controller = new AbortController();
 
-    const current = {
-      child: null as RunnerChild | null,
+    const current: NonNullable<typeof active> = {
+      child: null,
       requestId: request.id,
       cancelled: false,
       controller,
@@ -533,7 +546,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
             resolve(child);
           },
-          (error: unknown) => reject(error),
+          (cause: unknown) => reject(cause),
         );
       });
     };
@@ -711,10 +724,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         waiting: null,
       });
 
-      const observed = {
-        sessionId: null as string | null,
+      const observed: ObservedTurn = {
+        sessionId: null,
         edited: false,
-        retry: null as RetryNotice | null,
+        retry: null,
       };
 
       // A fork's one observable outcome is the previews file gaining its
@@ -765,7 +778,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         // to edit", and rerunning on that is how a half-applied change gets
         // applied twice. Such a vendor keeps the failure card and its Retry.
         activityVerified(resolved.agent) &&
-        sessionShaped(failure.code) &&
+        conversationFailure(failure.code) &&
         // Not redundant with the verdict: a stop that lands between the first
         // child settling and the retry starting finds no child to cancel, so
         // nothing says "cancelled". Stopped still means stopped.

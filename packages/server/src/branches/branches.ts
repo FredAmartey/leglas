@@ -185,10 +185,10 @@ export function createBranchRegistry(options: {
           throw error;
         }
       })
-      .catch((error: unknown) =>
+      .catch((cause: unknown) =>
         transition(title, {
           status: "failed",
-          reason: error instanceof Error ? error.message : String(error),
+          reason: cause instanceof Error ? cause.message : String(cause),
         }),
       )
       .finally(() => {

@@ -6,6 +6,16 @@ import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import {
+  isNumber,
+  isString,
+  isJsonRecord,
+  parseJson,
+  type JsonValue,
+  type JsonRecord,
+} from "../json.js";
+import type { TimerHandle } from "../timers.js";
+
 /**
  * The browser Leglas borrows for screenshots.
  *
@@ -172,7 +182,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
     paths.find((path) => exists(path)) ?? null;
 
   for (const candidate of [env.LEGLAS_BROWSER, env.CHROME_PATH, env.PUPPETEER_EXECUTABLE_PATH]) {
-    if (typeof candidate === "string" && candidate !== "" && exists(candidate)) return candidate;
+    if (isString(candidate) && candidate !== "" && exists(candidate)) return candidate;
   }
 
   const caches = cacheRoots(platform, home, readdir);
@@ -220,7 +230,7 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
 
   if (platform === "win32") {
     const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(
-      (entry): entry is string => typeof entry === "string" && entry !== "",
+      (entry): entry is string => isString(entry) && entry !== "",
     );
 
     const installed = firstExisting(
@@ -293,7 +303,7 @@ export type CdpSocket = {
 };
 
 export type CdpPage = {
-  send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+  send<T = unknown>(method: string, params?: JsonRecord): Promise<T>;
   /** Subscribe to a CDP event on this page's session. Returns unsubscribe. */
   on(method: string, listener: (params: any) => void): () => void;
 };
@@ -325,8 +335,15 @@ export type LaunchOptions = {
  */
 export const START_TIMEOUT_MS = 30_000;
 
+type CommandFrame = {
+  id: number;
+  method: string;
+  params: NonNullable<Parameters<CdpPage["send"]>[1]>;
+  sessionId?: string;
+};
+
 type PendingCommand = {
-  resolve(value: unknown): void;
+  resolve(value: JsonValue | undefined): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -400,7 +417,7 @@ function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
       settled = true;
       clearTimeout(timer);
 
-      if (typeof value === "string") resolve(value);
+      if (isString(value)) resolve(value);
       else reject(value);
     };
 
@@ -468,6 +485,10 @@ const RECORD_GRACE_MS = 60_000;
 /** How long an orphan gets to accept its own close before we stop waiting. */
 const REAP_CLOSE_MS = 2_000;
 
+function permissionDenied(cause: unknown): cause is { code: "EPERM" } {
+  return typeof cause === "object" && cause !== null && "code" in cause && cause.code === "EPERM";
+}
+
 function livePid(pid: number): boolean {
   try {
     // Signal 0 asks whether the process exists without touching it.
@@ -476,9 +497,7 @@ function livePid(pid: number): boolean {
     return true;
   } catch (error) {
     // EPERM means it exists and belongs to someone else, which still counts.
-    return (
-      typeof error === "object" && error !== null && (error as { code?: unknown }).code === "EPERM"
-    );
+    return permissionDenied(error);
   }
 }
 
@@ -598,24 +617,23 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
 
     if (mine !== null && details.uid !== null && details.uid !== mine) continue;
 
-    type OwnerRecord = { owner?: unknown; ws?: unknown };
-
-    let record: OwnerRecord | null = null;
+    let record: JsonRecord | null = null;
 
     try {
       const raw = await read(join(directory, OWNER_FILE));
-      record = raw === null ? null : (JSON.parse(raw) as OwnerRecord);
+      const parsed = raw === null ? null : parseJson(raw);
+      record = isJsonRecord(parsed) ? parsed : null;
     } catch {
       // Either mid-creation or debris; the grace period below tells them apart.
     }
 
-    const owner = typeof record?.owner === "number" ? record.owner : null;
+    const owner = isNumber(record?.owner) ? record.owner : null;
 
     if (owner !== null && alive(owner)) continue;
 
     if (owner === null && clock() - details.createdAt < RECORD_GRACE_MS) continue;
 
-    const endpoint = typeof record?.ws === "string" && record.ws !== "" ? record.ws : null;
+    const endpoint = isString(record?.ws) && record.ws !== "" ? record.ws : null;
 
     if (endpoint !== null && (await closeOrphan(endpoint, connect))) reaped += 1;
     await remove(directory).catch(() => {});
@@ -648,7 +666,7 @@ export async function launchBrowser(
   // Written synchronously, and not merely before the spawn: awaiting here
   // would yield the turn, and a browser that exits in that window would do it
   // before anything is listening for the event.
-  const owned = (fields: Record<string, unknown>): void => {
+  const owned = (fields: { browser?: number | null; ws?: string }): void => {
     try {
       // Owner-only, both of them. The record ends up holding the browser's
       // debugging URL, which is a live capability over that browser: anyone
@@ -760,25 +778,30 @@ export async function launchBrowser(
     rejectPending();
   });
   socket.onMessage((text) => {
-    let message: Record<string, unknown>;
+    let message: JsonRecord;
 
     try {
-      message = JSON.parse(text) as Record<string, unknown>;
+      const parsed = parseJson(text);
+
+      if (!isJsonRecord(parsed)) return;
+      message = parsed;
     } catch {
       return;
     }
 
-    if (typeof message.id === "number") {
+    if (isNumber(message.id)) {
       const command = pending.get(message.id);
 
       if (command === undefined) return;
       pending.delete(message.id);
       clearTimeout(command.timer);
-      const error = message.error as { message?: unknown } | undefined;
+      const error = message.error;
 
       if (error !== undefined) {
         command.reject(
-          new Error(typeof error.message === "string" ? error.message : "CDP command failed."),
+          new Error(
+            isJsonRecord(error) && isString(error.message) ? error.message : "CDP command failed.",
+          ),
         );
       } else {
         command.resolve(message.result);
@@ -787,8 +810,8 @@ export async function launchBrowser(
       return;
     }
 
-    if (typeof message.method !== "string") return;
-    const sessionId = typeof message.sessionId === "string" ? message.sessionId : "";
+    if (!isString(message.method)) return;
+    const sessionId = isString(message.sessionId) ? message.sessionId : "";
     const key = `${sessionId}\0${message.method}`;
 
     for (const listener of listeners.get(key) ?? []) listener(message.params ?? {});
@@ -796,7 +819,7 @@ export async function launchBrowser(
 
   const send = <T>(
     method: string,
-    params: Record<string, unknown> = {},
+    params: NonNullable<Parameters<CdpPage["send"]>[1]> = {},
     sessionId?: string,
   ): Promise<T> => {
     if (processClosed || socketClosed) return Promise.reject(new Error("The browser went away."));
@@ -825,20 +848,17 @@ export async function launchBrowser(
 
       timer.unref?.();
       pending.set(id, {
+        // SAFETY: The pending command id pairs this CDP result with the method and result type requested by its caller.
         resolve: (value) => resolve(value as T),
         reject,
         timer,
       });
 
       try {
-        socket.send(
-          JSON.stringify({
-            id,
-            method,
-            params,
-            ...(sessionId === undefined ? {} : { sessionId }),
-          }),
-        );
+        const message: CommandFrame = { id, method, params };
+
+        if (sessionId !== undefined) message.sessionId = sessionId;
+        socket.send(JSON.stringify(message));
       } catch {
         clearTimeout(timer);
         pending.delete(id);
@@ -864,7 +884,7 @@ export async function launchBrowser(
         const sessionId = attached.sessionId;
 
         const page: CdpPage = {
-          send: <R>(method: string, params: Record<string, unknown> = {}) =>
+          send: <R>(method: string, params: NonNullable<Parameters<CdpPage["send"]>[1]> = {}) =>
             send<R>(method, params, sessionId),
           on: (method, listener) => {
             const key = `${sessionId}\0${method}`;
@@ -947,8 +967,8 @@ export function createBrowserPool(
     find?: () => string | null;
     launch?: typeof launchBrowser;
     idleMs?: number;
-    setTimeout?: (cb: () => void, ms: number) => unknown;
-    clearTimeout?: (handle: unknown) => void;
+    setTimeout?: (cb: () => void, ms: number) => TimerHandle;
+    clearTimeout?: (handle: TimerHandle) => void;
   } = {},
 ): BrowserPool {
   const find = options.find ?? findBrowser;
@@ -957,16 +977,19 @@ export function createBrowserPool(
 
   const setLater =
     options.setTimeout ??
-    ((callback: () => void, milliseconds: number): unknown => {
+    ((callback: () => void, milliseconds: number) => {
       const timer = setTimeout(callback, milliseconds);
       timer.unref?.();
 
       return timer;
     });
 
-  const clearLater =
+  const clearLater: NonNullable<typeof options.clearTimeout> =
     options.clearTimeout ??
-    ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    ((handle) => {
+      // SAFETY: The default clock returns Node timers; an injected clock supplies its matching clear function.
+      clearTimeout(handle);
+    });
 
   let browser: Browser | null = null;
   let exposed: Browser | null = null;
@@ -978,27 +1001,30 @@ export function createBrowserPool(
    */
   let working = 0;
   let launching: Promise<Browser | null> | null = null;
-  let timer: unknown = null;
+  let cancelTimer: (() => void) | null = null;
   let lastReason: string | null = null;
   let closed = false;
 
   const clearIdle = () => {
-    if (timer === null) return;
-    clearLater(timer);
-    timer = null;
+    if (cancelTimer === null) return;
+    cancelTimer();
+    cancelTimer = null;
   };
 
   const scheduleIdle = () => {
     clearIdle();
 
     if (browser === null || closed || working > 0) return;
-    timer = setLater(() => {
-      timer = null;
+
+    const handle = setLater(() => {
+      cancelTimer = null;
       const retiring = browser;
       browser = null;
       exposed = null;
       void retiring?.close().catch(() => {});
     }, idleMs);
+
+    cancelTimer = () => clearLater(handle);
   };
 
   const wrap = (launched: Browser): Browser => ({
@@ -1061,8 +1087,8 @@ export function createBrowserPool(
 
         return exposed;
       })
-      .catch((error: unknown) => {
-        lastReason = error instanceof Error ? error.message : String(error);
+      .catch((cause: unknown) => {
+        lastReason = cause instanceof Error ? cause.message : String(cause);
 
         return null;
       })

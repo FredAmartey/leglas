@@ -64,12 +64,11 @@ function frameFor(title: string, requests: readonly PendingRequest[]): Attachmen
  * to learn what is true is worse than a shorter one.
  */
 function askedOf(title: string, requests: readonly PendingRequest[]): string[] {
-  return requests
-    .filter(
-      (request) =>
-        request.title === title && request.status !== "failed" && request.intent.trim() !== "",
-    )
-    .map((request) => request.intent.trim());
+  return requests.flatMap((request) =>
+    request.title === title && request.status !== "failed" && request.intent.trim() !== ""
+      ? [request.intent.trim()]
+      : [],
+  );
 }
 
 /**

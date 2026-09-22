@@ -4,6 +4,8 @@ import net from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { isString } from "../json.js";
+
 const run = promisify(execFile);
 
 export const WORKTREES_DIR = ".leglas/worktrees";
@@ -43,7 +45,7 @@ async function freePort(): Promise<number> {
     probe.once("error", reject);
     probe.listen(0, "127.0.0.1", () => {
       const address = probe.address();
-      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const port = address !== null && !isString(address) ? address.port : 0;
       probe.close(() => resolve(port));
     });
   });

@@ -5,7 +5,14 @@ import { PassThrough } from "node:stream";
 import { agentEnvironment, type AgentEffort } from "./agents.js";
 import type { RunnerChild } from "./runner.js";
 
-type JsonRecord = Record<string, unknown>;
+import {
+  isNumber,
+  isString,
+  isJsonRecord,
+  parseJson,
+  type JsonValue,
+  type JsonRecord,
+} from "../json.js";
 
 type AppServerProcess = {
   stdin: NodeJS.WritableStream;
@@ -53,7 +60,7 @@ export type CodexTurnRunner = {
 };
 
 type PendingRequest = {
-  resolve(value: unknown): void;
+  resolve(value: JsonValue | undefined): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -66,14 +73,12 @@ type ActiveTurn = {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
-function record(value: unknown): JsonRecord | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
+function record(value: JsonValue | undefined): JsonRecord | null {
+  return isJsonRecord(value) ? value : null;
 }
 
-function string(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
+function string(value: JsonValue | undefined): string | null {
+  return isString(value) && value !== "" ? value : null;
 }
 
 /**
@@ -103,6 +108,7 @@ class CodexTurnChild implements RunnerChild {
     if (event === "close" && this.terminal !== null) {
       const terminal = this.terminal;
       queueMicrotask(() => {
+        // SAFETY: The `close` overload pairs this listener with the stored terminal event.
         (listener as (code: number | null, signal: NodeJS.Signals | null) => void)(
           terminal.code,
           terminal.signal,
@@ -124,7 +130,16 @@ class CodexTurnChild implements RunnerChild {
     return true;
   }
 
-  line(event: unknown): void {
+  line(event: {
+    type: string;
+    thread_id?: string;
+    item?: {
+      type: JsonValue;
+      command?: JsonValue | undefined;
+      changes?: JsonValue | undefined;
+      text?: JsonValue | undefined;
+    };
+  }): void {
     if (!this.ended) this.stdout.write(`${JSON.stringify(event)}\n`);
   }
 
@@ -220,9 +235,9 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       .then(() => {
         this.notify("initialized", {});
       })
-      .catch(async (error: unknown) => {
-        await this.resetProcess(process, error instanceof Error ? error : new Error(String(error)));
-        throw error;
+      .catch(async (cause: unknown) => {
+        await this.resetProcess(process, cause instanceof Error ? cause : new Error(String(cause)));
+        throw cause;
       });
 
     return this.ready;
@@ -261,25 +276,25 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       child.line({ type: "thread.started", thread_id: threadId });
       turnSubmitted = true;
 
-      const response = record(
-        await this.requestRaw("turn/start", {
-          threadId,
-          input: [
-            { type: "text", text: input.prompt },
-            ...input.images.map((path) => ({ type: "localImage", path })),
-          ],
-          cwd: this.cwd,
-          approvalPolicy: "never",
-          sandboxPolicy: {
-            type: "workspaceWrite",
-            writableRoots: [this.cwd],
-            networkAccess: true,
-            excludeTmpdirEnvVar: false,
-            excludeSlashTmp: false,
-          },
-          ...(input.effort === null ? {} : { effort: input.effort }),
-        }),
-      );
+      const params: JsonRecord = {
+        threadId,
+        input: [
+          { type: "text", text: input.prompt },
+          ...input.images.map((path) => ({ type: "localImage", path })),
+        ],
+        cwd: this.cwd,
+        approvalPolicy: "never",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [this.cwd],
+          networkAccess: true,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+      };
+
+      if (input.effort !== null) params.effort = input.effort;
+      const response = record(await this.requestRaw("turn/start", params));
 
       const turn = record(response?.turn);
       const turnId = string(turn?.id);
@@ -405,14 +420,14 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     let message: JsonRecord | null;
 
     try {
-      message = record(JSON.parse(line));
+      message = record(parseJson(line));
     } catch {
       message = null;
     }
 
     if (message === null) return;
 
-    const id = typeof message.id === "number" ? message.id : null;
+    const id = isNumber(message.id) ? message.id : null;
     const method = string(message.method);
 
     if (id !== null && method === null) {
@@ -477,7 +492,12 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     this.active = null;
   }
 
-  private cliItem(item: JsonRecord | null): JsonRecord | null {
+  private cliItem(item: JsonRecord | null): {
+    type: JsonValue;
+    command?: JsonValue | undefined;
+    changes?: JsonValue | undefined;
+    text?: JsonValue | undefined;
+  } | null {
     if (item === null) return null;
 
     if (item.type === "commandExecution") {
@@ -494,7 +514,7 @@ class PersistentCodexAppServer implements CodexTurnRunner {
 
     if (item.type === "reasoning") return { type: "reasoning" };
 
-    return { type: typeof item.type === "string" ? item.type : "unknown" };
+    return { type: isString(item.type) ? item.type : "unknown" };
   }
 
   private answerServerRequest(id: number, method: string): void {
@@ -513,7 +533,7 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     this.respondError(id, -32601, `Leglas does not handle ${method}.`);
   }
 
-  private requestRaw(method: string, params: JsonRecord): Promise<unknown> {
+  private requestRaw(method: string, params: JsonRecord): Promise<JsonValue | undefined> {
     const process = this.process;
 
     if (process === null) return Promise.reject(new Error("Codex app-server is unavailable."));
@@ -641,7 +661,7 @@ const defaultSpawn: CodexAppServerSpawn = (command, args, options) =>
   nodeSpawn(command, args, {
     ...options,
     env: agentEnvironment(),
-  }) as unknown as AppServerProcess;
+  });
 
 export function createCodexAppServer(
   cwd: string,
