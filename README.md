@@ -44,8 +44,8 @@ that already exist, and the winner never has to be rebuilt from a picture.
 
 Leglas asks nothing of your app: no package, no import, no build step. It
 sits in front of the dev server you already run, and its config file is
-optional. The directions themselves live in a folder git ignores, and
-keeping a winner clears the rest away.
+optional. New directions go in `.leglas/`, a folder Leglas adds to your
+`.gitignore`, and keeping a winner clears the rest away.
 
 ## What it does
 
