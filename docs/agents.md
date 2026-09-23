@@ -18,6 +18,15 @@ already knowing how to add design directions to it. Every command accepts
 `--json` and prints a single machine-readable envelope, so agents drive
 the same CLI you do.
 
+## Give this to your agent
+
+Paste this into any agent that can run commands, in the project you want
+directions for. It installs the skill and takes it from there.
+
+```prompt
+Install the Leglas skill with `npx skills add FredAmartey/leglas`, then read it and set this project up the way it says. From now on, when I ask for a few directions for a page, build them with Leglas so I can compare them in the browser.
+```
+
 ## Add beside, never rewrite
 
 The instructions center on one rule. Two directions that rewrite the same

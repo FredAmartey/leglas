@@ -1,16 +1,18 @@
 # How Leglas is built
 
-This page is for people changing Leglas itself. It says what runs where,
-how the packages depend on each other and the path a change request takes,
-so that a fix can start in the right file. Using Leglas is what the rest of
-the manual covers. Setting up the repository is in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+Under the hood, Leglas is one Node process between your browser and your
+dev server, and an agent working through it. Here's how the pieces fit
+together and what happens to a change request after you press send. If you
+want more of the details behind Leglas you can find that [here](README.md),
+if you're interested in contributing take a look at the
+[CONTRIBUTING.md](../CONTRIBUTING.md) file and if you're just looking for the
+easiest way to use Leglas, [give this to your agent](agents.md#give-this-to-your-agent).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/architecture.png" width="852" alt="Ten boxes and the arrows between them: the browser loads the interface, a change request goes through the API and the queue, a Chromium on the machine takes a screenshot of it, the agent runner passes it to an agent, the agent edits the project, a file change reaches the WebSocket, which nudges the browser, and every other path goes through the proxy to the dev server" />
 </p>
 
-<p align="center"><i>What runs where. One Node process sits between your browser and your dev server. The agent, and the Chromium that takes the screenshots, run on the same machine but outside it.</i></p>
+<p align="center"><i>What is happening under the hood. One Node process sits between your browser and your dev server. The agent, and the Chromium that takes the screenshots, run on the same machine but outside it.</i></p>
 
 <details>
 <summary>Plain-English version</summary>
