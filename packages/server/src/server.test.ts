@@ -934,9 +934,9 @@ describe("startServer", () => {
     });
 
     expect(response.status).toBe(200);
-    // The prune runs off the response; give it a beat.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(existsSync(stale)).toBe(false);
+    // The prune runs off the response, so this waits for it to land rather
+    // than for a fixed beat a loaded machine may not keep to.
+    await eventually(() => !existsSync(stale));
     expect(readdirSync(join(cwd, REFERENCES_DIR))).toHaveLength(1);
   });
 
@@ -2775,14 +2775,22 @@ describe("startServer", () => {
         ...args,
       )) as typeof setInterval);
     const target = http.createServer();
+    let probes = 0;
+    target.on("connection", () => {
+      probes += 1;
+    });
     await new Promise<void>((done) => target.listen(0, "127.0.0.1", () => done()));
     origins.push(target);
     const targetPort = boundPort(target);
     const live = fakeLiveHub(1);
     await start({ config: configFor(targetPort), port: 0, live });
 
-    // The first probe establishes the baseline and emits nothing.
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // The first probe establishes the baseline and emits nothing. Probes never
+    // overlap, so a second one reaching the target means the first one's
+    // verdict is recorded. A fixed wait here lost the flip whenever a loaded
+    // machine held that first probe until after the target had closed: the
+    // baseline was then "unreachable" and nothing ever changed.
+    await eventually(() => probes >= 2);
     expect(live.changes).toEqual([]);
 
     target.closeAllConnections();
