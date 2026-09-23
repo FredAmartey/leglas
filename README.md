@@ -27,15 +27,15 @@ they describe. The fastest teams already design in the medium they ship, and
 Leglas is built for working that way: many design directions, explored at
 once, live in your own app.
 
-It is for developers and designers who want to try many versions of a
-component, a page or a whole flow. Leglas makes an idea cheap to try, so
-you try more of them.
+The goal is to help devs and designers try many variations of a component,
+feature, page or user-flow quickly and make coming up with ideas extremely
+easy.
 
 Ask your agent for a handful of directions for the landing page, the
 checkout, the empty states or your onboarding flow. Leglas runs every one
 of them as your actual app, in one place, and keeps your notes on each.
-You can go wide without losing track: more ideas and a clear opinion of
-every one.
+Explore far and wide without losing focus: you see more ideas without
+losing your opinion of any of them.
 
 And because every direction is the real product, your judgment is real
 too. Everything behaves the way it will in production, motion and data
@@ -45,7 +45,10 @@ that already exist, and the winner never has to be rebuilt from a picture.
 Leglas asks nothing of your app: no package, no import, no build step. It
 sits in front of the dev server you already run, and its config file is
 optional. New directions go in `.leglas/`, a folder Leglas adds to your
-`.gitignore`, and keeping a winner clears the rest away.
+`.gitignore`, and keeping a winner clears the rest away. Sessions clean up
+after themselves too: stopping Leglas shuts down everything it started,
+from dev servers and branch checkouts to the share tunnel and any agent
+still at work.
 
 ## What it does
 
