@@ -229,8 +229,8 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
   .bar-row{padding:0 20px;gap:18px}
   .nav{gap:16px;font-size:14px}
   .install{display:none}
-  .star,.star:is(:hover,:focus-visible){width:30px;padding:0;justify-content:center;gap:0}
-  .star .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .bar .star,.bar .star:is(:hover,:focus-visible){width:30px;padding:0;justify-content:center;gap:0}
+  .bar .star .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
 `;
 }

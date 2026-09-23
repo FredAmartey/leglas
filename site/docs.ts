@@ -410,11 +410,19 @@ export function promptFor(href: string, pages: DocPage[]): string | undefined {
   if (target === undefined) return undefined;
 
   const fragment = href.slice(hash + 1);
+  const seen = new Map<string, number>();
   let inSection = false;
 
+  // Heading ids repeat the way renderBlocks writes them: a second "Setup" is
+  // "setup-1", so a link to it finds its prompt too.
   for (const block of parseBlocks(target.markdown, target.file)) {
-    if (block.kind === "heading") inSection = slug(block.text) === fragment;
-    else if (inSection && block.kind === "code" && block.lang === "prompt") return block.text;
+    if (block.kind === "heading") {
+      const base = slug(block.text);
+      const count = seen.get(base) ?? 0;
+
+      seen.set(base, count + 1);
+      inSection = (count === 0 ? base : `${base}-${count}`) === fragment;
+    } else if (inSection && block.kind === "code" && block.lang === "prompt") return block.text;
   }
 
   return undefined;

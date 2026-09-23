@@ -337,15 +337,45 @@ describe("the reader", () => {
   });
 
   test("a prompt block renders as code with its own copy button", () => {
-    expect(render("# T\n\n```prompt\nDo the thing.\n```\n")).toBe(
-      '<pre><code class="lang-prompt">Do the thing.</code></pre>\n<p><button type="button" class="star prompt" data-copy="Do the thing." title="Copy a prompt for your agent">' +
-        render("# T\n\n```prompt\nDo the thing.\n```\n").split(
-          '<p><button type="button" class="star prompt" data-copy="Do the thing." title="Copy a prompt for your agent">',
-        )[1],
+    const html = render("# T\n\n```prompt\nDo the thing.\n```\n");
+
+    expect(
+      html.startsWith(
+        '<pre><code class="lang-prompt">Do the thing.</code></pre>\n<p><button type="button" class="star prompt" data-copy="Do the thing." title="Copy a prompt for your agent">',
+      ),
+    ).toBe(true);
+    expect(
+      html.endsWith(
+        '<span class="cmd">Copy this prompt</span><span class="done">Copied</span></span></button></p>',
+      ),
+    ).toBe(true);
+  });
+
+  test("a link to a repeated heading finds the prompt under GitHub's suffixed id", () => {
+    const target: DocPage = {
+      file: "t.md",
+      slug: "t",
+      title: "T",
+      markdown: "# T\n\n## Setup\n\nText.\n\n## Setup\n\n```prompt\nSecond one.\n```\n",
+    };
+
+    const from: DocPage = { file: "x.md", slug: "x", title: "X", markdown: "" };
+
+    const at = (fragment: string): string =>
+      renderBlocks(parseBlocks(`# X\n\n[go](t.md#${fragment})\n`, "x.md"), from, [from, target]);
+
+    expect(at("setup-1")).toContain('data-copy="Second one."');
+    expect(at("setup")).toBe('<p><a href="../t/#setup">go</a></p>');
+  });
+
+  test("the architecture page hands the reader a button for the agent prompt", () => {
+    const entry = pages.find((page) => page.file === "architecture.md")!;
+    const html = renderBlocks(parseBlocks(entry.markdown, entry.file), entry, pages);
+
+    expect(html).toContain(
+      '<button type="button" class="star prompt" data-copy="Install the Leglas skill with `npx skills add FredAmartey/leglas`',
     );
-    expect(render("# T\n\n```prompt\nDo the thing.\n```\n")).toContain(
-      '<span class="cmd">Copy this prompt</span><span class="done">Copied</span></span></button></p>',
-    );
+    expect(html).not.toContain("#give-this-to-your-agent");
   });
 
   test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {
