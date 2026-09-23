@@ -278,10 +278,10 @@ describe("the reader", () => {
 
     expect(
       render(
-        `# T\n\n<details>\n<summary>Plain-English version</summary>\n\n${image}\n\n<p align="center"><i>Cap.</i></p>\n\n</details>\n`,
+        `# T\n\n<details>\n<summary>ELI5: The same ten boxes</summary>\n\n${image}\n\n<p align="center"><i>Cap.</i></p>\n\n</details>\n`,
       ),
     ).toBe(
-      `<details><summary>Plain-English version</summary>\n${image}\n<p align="center"><i>Cap.</i></p>\n</details>`,
+      `<details><summary>ELI5: The same ten boxes</summary>\n${image}\n<p align="center"><i>Cap.</i></p>\n</details>`,
     );
   });
 

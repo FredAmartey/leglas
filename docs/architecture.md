@@ -15,7 +15,7 @@ easiest way to use Leglas, [give this to your agent](agents.md#give-this-to-your
 <p align="center"><i>What is happening under the hood. One Node process sits between your browser and your dev server. The agent, and the Chromium that takes the screenshots, run on the same machine but outside it.</i></p>
 
 <details>
-<summary>Plain-English version</summary>
+<summary>ELI5: One program between your browser and the app you are building</summary>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/architecture-plain.png" width="852" alt="The same ten boxes with plain labels: your browser opens the Leglas page, your change is taken in and a browser on this computer takes a screenshot, your change waits its turn, the agent edits your project's files, Leglas tells your browser to look again and everything else passes through to your running app" />
