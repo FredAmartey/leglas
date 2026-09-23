@@ -332,7 +332,8 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
         () => false,
       );
 
-      // A page that cannot answer has nothing left worth waiting for.
+      // A look that runs out of time still counts as answered, and the deadline
+      // ends the loop. One that fails means the page closed or crashed.
       if (!answered || (pending.size === 0 && asked === before)) break;
     }
 
