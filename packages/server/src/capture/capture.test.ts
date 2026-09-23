@@ -1,4 +1,5 @@
 import { boundPort, required } from "../test-helpers.js";
+import { readFile } from "node:fs/promises";
 import http from "node:http";
 
 import { afterAll, describe, expect, test } from "vitest";
@@ -110,7 +111,7 @@ class FakePage implements CdpPage {
       // counting those would hand the first note the second answer.
       const expression = String(params.expression);
 
-      if (expression.startsWith("document.fonts") || expression.includes("requestAnimationFrame")) {
+      if (expression.includes("requestAnimationFrame")) {
         // SAFETY: The readiness expressions evaluate to a boolean remote-object value.
         return { result: { value: true } } as T;
       }
@@ -289,6 +290,46 @@ describe("capturePage", () => {
       "The page did not load: net::ERR_CONNECTION_REFUSED",
     );
   });
+
+  test("the shutter waits for what the page asked for after load, arrived or failed", async () => {
+    const page = new FakePage();
+    const order: string[] = [];
+    const original = page.send.bind(page);
+    page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {
+      if (method === "Page.captureScreenshot") order.push("shutter");
+
+      const answer = await original<T>(method, params);
+
+      if (method === "Page.navigate") {
+        // Asked for once the page has loaded, as a client-rendered page
+        // asks for everything it draws with. One arrives, one fails.
+        queueMicrotask(() => {
+          page.emit("Network.requestWillBeSent", { requestId: "sheet", type: "Stylesheet" });
+          page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
+          setTimeout(() => {
+            order.push("sheet arrived");
+            page.emit("Network.loadingFinished", { requestId: "sheet" });
+          }, 40);
+          setTimeout(() => {
+            order.push("picture failed");
+            page.emit("Network.loadingFailed", { requestId: "picture" });
+          }, 60);
+        });
+      }
+
+      return answer;
+    };
+
+    const browser: Browser = {
+      closed: false,
+      close: async () => {},
+      withPage: async (work) => work(page),
+    };
+
+    await capturePage(browser, { url: "http://127.0.0.1/late", width: 800 });
+
+    expect(order).toEqual(["sheet arrived", "picture failed", "shutter"]);
+  });
 });
 
 const executable = findBrowser();
@@ -402,6 +443,119 @@ describe.skipIf(executable === null)("two captures of one design", () => {
       expect(shots[1]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
       expect(shots[2]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
       expect(shots[0]?.frame.png.length).toBeGreaterThan(100);
+    },
+    LIVE_TEST_TIMEOUT_MS,
+  );
+});
+
+describe.skipIf(executable === null)("a page drawn after load", () => {
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
+    "is shot with the script, stylesheet, web font and image it asked for",
+    async () => {
+      // A React direction in a Vite app renders after the load event, so the
+      // code, stylesheets, fonts and images it asks for are all requested
+      // after it. This page asks the same way, slowly, as a font host
+      // answers. Its words wait for their stylesheet, as React waits for a
+      // stylesheet with a precedence, and only then ask for their font. Its
+      // picture waits for a script, as a lazy component waits for its code.
+      const font = await readFile(
+        new URL("../../../shell/src/fonts/Satoshi-Regular.woff2", import.meta.url),
+      );
+
+      const style = `<style>
+        body { margin: 0; padding: 24px; background: #fff; }
+        h1 { font: 64px/1.1 Probe, serif; margin: 0; }
+        img { display: block; }
+      </style>`;
+
+      const words = "<h1>Tonight is decided</h1>";
+      const picture = '<img src="/picture.svg" width="200" height="100" alt="">';
+
+      const pages = new Map([
+        // Everything in the markup, so the load event waits for all of it.
+        ["/reference", `<link rel="stylesheet" href="/face.css">${style}${words}${picture}`],
+        [
+          "/late",
+          `${style}<script>
+            addEventListener("load", () => {
+              const sheet = document.createElement("link");
+              sheet.rel = "stylesheet";
+              sheet.href = "/face.css";
+              sheet.onload = () => document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(words)});
+              document.head.append(sheet);
+              const code = document.createElement("script");
+              code.src = "/draw.js";
+              document.head.append(code);
+            });
+          </script>`,
+        ],
+        // What a shot taken too early shows: the fallback font and no picture.
+        ["/bare", `${style}${words}`],
+      ]);
+
+      // The script is the slowest, slower than the stylesheet and the font
+      // together, so nothing else in flight covers for it.
+      const assets = new Map([
+        [
+          "/face.css",
+          {
+            type: "text/css",
+            body: '@font-face { font-family: Probe; src: url(/font.woff2) format("woff2"); font-display: swap; }',
+            ms: 300,
+          },
+        ],
+        ["/font.woff2", { type: "font/woff2", body: font, ms: 300 }],
+        [
+          "/draw.js",
+          {
+            type: "text/javascript",
+            body: `document.body.insertAdjacentHTML("beforeend", ${JSON.stringify(picture)});`,
+            ms: 900,
+          },
+        ],
+        [
+          "/picture.svg",
+          {
+            type: "image/svg+xml",
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#d9542b"/></svg>',
+            ms: 300,
+          },
+        ],
+      ]);
+
+      const server = http.createServer((req, res) => {
+        const asset = assets.get(req.url ?? "");
+
+        if (asset !== undefined) {
+          setTimeout(() => {
+            res.writeHead(200, { "content-type": asset.type, "cache-control": "no-store" });
+            res.end(asset.body);
+          }, asset.ms);
+
+          return;
+        }
+
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(
+          `<!doctype html><html><head><meta charset="utf-8"></head><body>${pages.get(req.url ?? "") ?? ""}</body></html>`,
+        );
+      });
+
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = boundPort(server);
+      const browser = await launchBrowser(required(executable));
+      liveBrowsers.push(browser);
+
+      const shot = async (path: string) =>
+        (await capturePage(browser, { url: `http://127.0.0.1:${port}${path}`, width: 400 })).frame
+          .png;
+
+      const reference = await shot("/reference");
+
+      // The font and the picture change the pixels, or the comparison below proves nothing.
+      expect(reference.equals(await shot("/bare"))).toBe(false);
+      expect((await shot("/late")).equals(reference)).toBe(true);
     },
     LIVE_TEST_TIMEOUT_MS,
   );

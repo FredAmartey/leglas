@@ -70,6 +70,28 @@ const LOCATOR = `(function (selector, text, tag) {
   return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height };
 })`;
 
+/**
+ * The requests that change how a page looks when they land: its code, which
+ * includes a lazy component still on its way, its stylesheets, fonts and
+ * images. Media and data are left out: a video streams and a page can poll
+ * for as long as it is open, so waiting on either would spend the whole
+ * bound every time.
+ */
+const DRAWN_WITH = new Set(["Script", "Stylesheet", "Font", "Image"]);
+
+/**
+ * Two painted frames, then the page's fonts. The frames let a render that
+ * was waiting on a stylesheet or a script take place. Reading
+ * document.fonts.ready then lays the page out, and layout is what starts a
+ * font's download, so words that just arrived ask for their font before this
+ * answers. Frames last, it answered before that layout and missed the font.
+ */
+const LAID_OUT = `(async () => {
+  await new Promise((next) => requestAnimationFrame(() => requestAnimationFrame(next)));
+  if (document.fonts) await document.fonts.ready;
+  return true;
+})()`;
+
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
@@ -186,12 +208,44 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
   // direction would be worse than no screenshot at all.
   let documentStatus: number | null = null;
 
+  // What the page has asked for to draw with and not yet received, and how
+  // many such requests it has made. The wait after load reads both.
+  const pending = new Set<string>();
+  let asked = 0;
+  let emptied = () => {};
+
+  const received = (id: string) => {
+    if (pending.delete(id) && pending.size === 0) emptied();
+  };
+
+  const landed = () =>
+    pending.size === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          emptied = resolve;
+        });
+
   const unlisten = [
     page.on("Network.responseReceived", (params) => {
       if (documentStatus !== null || params?.type !== "Document") return;
       const status = params?.response?.status;
 
       if (isNumber(status)) documentStatus = status;
+    }),
+    page.on("Network.requestWillBeSent", (params) => {
+      const id = params?.requestId;
+
+      if (!DRAWN_WITH.has(params?.type) || !isString(id)) return;
+
+      // A redirect arrives under the same id and is not a new request.
+      if (!pending.has(id)) asked += 1;
+      pending.add(id);
+    }),
+    page.on("Network.loadingFinished", (params) => {
+      if (isString(params?.requestId)) received(params.requestId);
+    }),
+    page.on("Network.loadingFailed", (params) => {
+      if (isString(params?.requestId)) received(params.requestId);
     }),
     page.on("Runtime.exceptionThrown", (params) =>
       remember(params?.exceptionDetails?.exception?.description ?? params?.exceptionDetails?.text),
@@ -242,15 +296,46 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       throw new Error(`The page did not load: the app answered HTTP ${documentStatus}.`);
     }
 
-    await bounded(
-      page.send("Runtime.evaluate", {
-        expression: "document.fonts ? document.fonts.ready.then(() => true) : true",
-        awaitPromise: true,
-        returnByValue: true,
-      }),
-      2_000,
-      undefined,
-    ).catch(() => {});
+    // Wait for what the page draws with.
+    //
+    // A client-rendered page is drawn after its load event: React in a Vite
+    // app renders once the page has loaded, so every stylesheet, font and
+    // image a direction asks for is requested after load, and load says
+    // nothing about them. Shot at load, a web font came back in its fallback,
+    // an image as empty space, and a React 19 stylesheet with a precedence,
+    // which holds the whole render back until it arrives, as a blank page.
+    // Waiting on document.fonts.ready alone was the old answer, and it knows
+    // nothing of a stylesheet still on its way.
+    //
+    // So the wait ends when nothing is in flight and one more look, painted
+    // frames and then the fonts, asks for nothing new. The look is what lets
+    // a render that was held back take place, and what lets its words ask
+    // for their fonts. One gap stays: React holds a lazy component back for
+    // up to 300 ms after showing its fallback, which no request shows, so a
+    // lazy chunk that arrives inside that window can be shot as its fallback.
+    const until = Date.now() + 2_000;
+
+    while (Date.now() < until) {
+      await bounded(landed(), until - Date.now(), undefined);
+      const before = asked;
+
+      const answered = await bounded(
+        page.send("Runtime.evaluate", {
+          expression: LAID_OUT,
+          awaitPromise: true,
+          returnByValue: true,
+        }),
+        Math.max(0, until - Date.now()),
+        undefined,
+      ).then(
+        () => true,
+        () => false,
+      );
+
+      // A page that cannot answer has nothing left worth waiting for.
+      if (!answered || (pending.size === 0 && asked === before)) break;
+    }
+
     // Settle the design before the shutter, then wait for a painted frame.
     //
     // An entrance animation is the thing that makes two captures of one

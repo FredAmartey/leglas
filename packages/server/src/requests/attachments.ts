@@ -36,8 +36,8 @@ export const REFERENCES_DIR = ".leglas/references";
  *
  * A page with one stalled resource never fires load, and a capture that
  * waited the whole deadline for it would be abandoned with nothing to show,
- * although the page rendered long ago. The rest of the time goes to fonts,
- * a settle and the screenshots themselves.
+ * although the page rendered long ago. The rest of the time goes to what the
+ * page asks for after load, a settle and the screenshots themselves.
  */
 export const LOAD_SHARE = 0.6;
 
