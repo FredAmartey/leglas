@@ -50,7 +50,7 @@ after themselves too: stopping Leglas shuts down everything it started,
 from dev servers and branch checkouts to the share tunnel and any agent
 still at work.
 
-## What it does
+## What Leglas does
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/compare-artboards.jpg" width="900" alt="The Leglas interface: the rail on the left, and two directions running side by side as the real app, each labelled with its name and the width it is drawn at." />
@@ -79,7 +79,7 @@ still at work.
 - A change makes a variant, not a rewrite. The result appears under the
   direction it came from, with the original still there to compare against.
 - Keep the winner with one command. Leglas moves it into your source tree,
-  writes down what the exploration decided and clears the rest away.
+  writes down what the exploration decided and cleans up after itself.
 - No app yet? Leglas compares plain HTML files the same way, with no dev
   server.
 
