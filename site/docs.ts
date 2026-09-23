@@ -85,7 +85,8 @@ export type Block =
   | { kind: "list"; ordered: boolean; items: string[] }
   | { kind: "code"; lang: string; text: string }
   | { kind: "table"; head: string[]; rows: string[][] }
-  | { kind: "html"; text: string };
+  | { kind: "html"; text: string }
+  | { kind: "details"; summary: string; text: string };
 
 /**
  * The body of a page: everything after the title heading, as blocks. A
@@ -202,6 +203,55 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         kind: "html",
         text: captureBlock(html.join("\n"), (why) => refuse(start, why)),
       });
+    } else if (line.trim() === "<details>") {
+      // A collapsible block: one summary line, then capture blocks. It is
+      // rebuilt the same way, so the page shows nothing it did not parse.
+      const start = i;
+      let summary: string | undefined;
+      const inner: string[] = [];
+      i += 1;
+
+      while (i < lines.length && (lines[i] ?? "").trim() !== "</details>") {
+        const current = (lines[i] ?? "").trim();
+
+        if (current === "") {
+          i += 1;
+        } else if (summary === undefined) {
+          const match = /^<summary>([^<>]*)<\/summary>$/.exec(current);
+
+          summary =
+            match === null
+              ? refuse(
+                  i,
+                  current.startsWith("<summary>")
+                    ? "a summary this page cannot show"
+                    : "a details block without a summary",
+                )
+              : (match[1] ?? "");
+          i += 1;
+        } else if (CAPTURE.test(current)) {
+          const from = i;
+          const html: string[] = [];
+
+          while (i < lines.length && !["", "</details>"].includes((lines[i] ?? "").trim())) {
+            html.push(lines[i] ?? "");
+            i += 1;
+          }
+
+          inner.push(captureBlock(html.join("\n"), (why) => refuse(from, why)));
+        } else {
+          refuse(i, "a details block may hold only a summary and capture blocks");
+        }
+      }
+
+      if (i >= lines.length) refuse(start, "a details block that does not close");
+
+      const title = summary ?? refuse(start, "a details block without a summary");
+
+      if (inner.length === 0) refuse(start, "an empty details block");
+
+      i += 1;
+      blocks.push({ kind: "details", summary: title, text: inner.join("\n") });
     } else if (/^<[a-zA-Z!/]/.test(line)) {
       refuse(i, "HTML this page cannot show");
     } else if (/^(>|\*|\+|#{4,}|\d+\))\s/.test(line) || /^(---|\*\*\*)\s*$/.test(line)) {
@@ -394,6 +444,11 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
       case "html":
         html.push(block.text);
         break;
+      case "details":
+        html.push(
+          `<details><summary>${escape(block.summary)}</summary>\n${block.text}\n</details>`,
+        );
+        break;
     }
   }
 
@@ -418,6 +473,12 @@ h1{margin:0;font-size:56px;font-weight:500;letter-spacing:-.03em;line-height:1.0
 .doc p{margin:0 0 14px}
 .doc ul,.doc ol{margin:0 0 14px;padding-left:20px}
 .doc li+li{margin-top:6px}
+.doc details{margin:0 0 14px;border-top:1px dotted var(--rule);border-bottom:1px dotted var(--rule)}
+.doc summary{display:flex;align-items:center;gap:10px;padding:12px 0;cursor:pointer;list-style:none;font-weight:500;color:var(--ink)}
+.doc summary::-webkit-details-marker{display:none}
+.doc summary::before{content:"";flex:none;width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease}
+.doc details[open] summary::before{transform:rotate(45deg)}
+.doc details[open] summary{margin-bottom:4px}
 .doc li::marker{color:var(--ink-4)}
 .doc a{text-decoration:underline;text-decoration-color:var(--ink-4);text-underline-offset:3px}
 .doc a:hover{text-decoration-color:currentColor}

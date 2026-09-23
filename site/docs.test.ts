@@ -272,6 +272,39 @@ describe("the reader", () => {
     expect(() => render('# T\n\n<p align="center">\n</p>\n')).toThrow("an empty capture block");
   });
 
+  test("a details block wraps a summary and capture blocks", () => {
+    const image =
+      '<p align="center">\n  <img src="https://example.test/a.png" width="290" alt="A" />\n</p>';
+
+    expect(
+      render(
+        `# T\n\n<details>\n<summary>Plain-English version</summary>\n\n${image}\n\n<p align="center"><i>Cap.</i></p>\n\n</details>\n`,
+      ),
+    ).toBe(
+      `<details><summary>Plain-English version</summary>\n${image}\n<p align="center"><i>Cap.</i></p>\n</details>`,
+    );
+  });
+
+  test("a details block refuses anything but a summary and capture blocks", () => {
+    const wrap = (inner: string): string => `# T\n\n<details>\n${inner}\n</details>\n`;
+    expect(() => render(wrap('<p align="center"><i>c</i></p>'))).toThrow(
+      "a details block without a summary",
+    );
+    expect(() => render(wrap("<summary>Plain <b>bold</b></summary>"))).toThrow(
+      "a summary this page cannot show",
+    );
+    expect(() => render(wrap("<summary>S</summary>\n\nloose text"))).toThrow(
+      "a details block may hold only a summary and capture blocks",
+    );
+    expect(() => render(wrap("<summary>S</summary>"))).toThrow("an empty details block");
+    expect(() => render("# T\n\n<details>\n<summary>S</summary>\n")).toThrow(
+      "a details block that does not close",
+    );
+    expect(() => render("# T\n\n<details open>\n<summary>S</summary>\n</details>\n")).toThrow(
+      "HTML this page cannot show",
+    );
+  });
+
   test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {
     expect(slug("Über die Schiene")).toBe("über-die-schiene");
     expect(slug("What's `LEGLAS_NO_UPDATE_CHECK` for?")).toBe("whats-leglas_no_update_check-for");

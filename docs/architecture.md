@@ -12,13 +12,16 @@ the manual covers. Setting up the repository is in
 
 <p align="center"><i>What runs where. One Node process sits between your browser and your dev server. The agent, and the Chromium that takes the screenshots, run on the same machine but outside it.</i></p>
 
-## Plain-English version
+<details>
+<summary>Plain-English version</summary>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/architecture-plain.png" width="852" alt="The same ten boxes with plain labels: your browser opens the Leglas page, your change is taken in and a browser on this computer takes a screenshot, your change waits its turn, the agent edits your project's files, Leglas tells your browser to look again and everything else passes through to your running app" />
 </p>
 
 <p align="center"><i>Leglas is one program that sits between your browser and the app you are building. You type a change, Leglas takes a screenshot, an agent edits the code and your browser is told to look again. It never runs your app itself, which is why it works with any framework.</i></p>
+
+</details>
 
 ## One process in front of your dev server
 
