@@ -43,6 +43,21 @@ const STAR = outline(
 const SPARK = (cls: string): string =>
   `<svg class="spark ${cls}" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2l2.4 7.6H22l-6.2 4.5 2.4 7.6-6.2-4.5-6.2 4.5 2.4-7.6L2 9.6h7.6z"/></svg>`;
 
+const SPARKLES = (cls: string | null): string =>
+  outline(
+    cls,
+    '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+  );
+
+/**
+ * A button that copies a prompt for the reader's agent. It wears the star
+ * button's clothes, so it moves the same way, and the copy script picks it
+ * up through `data-copy` like the install chip. `label` is already HTML.
+ */
+export function promptButton(label: string, prompt: string): string {
+  return `<button type="button" class="star prompt" data-copy="${escape(prompt)}" title="Copy a prompt for your agent"><span class="icon">${SPARKLES("from")}<span class="to">${SPARKLES(null)}${SPARK("spark-a")}${SPARK("spark-b")}</span></span><span class="label"><span class="cmd">${label}</span><span class="done">Copied</span></span></button>`;
+}
+
 export const escape = (text: string): string =>
   text
     .replaceAll("&", "&amp;")
@@ -157,6 +172,10 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
 .install .done{display:none}
 .install[data-done] .cmd{display:none}
 .install[data-done] .done{display:inline}
+.prompt{cursor:pointer;vertical-align:middle;margin:-4px 1px 0}
+.prompt .done{display:none}
+.prompt[data-done] .cmd{display:none}
+.prompt[data-done] .done{display:inline}
 .theme{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:999px;border:1px solid var(--chip-border);background:var(--chip-bg);color:var(--ink-2);cursor:pointer}
 .theme:hover{color:var(--ink)}
 .theme .sun{display:var(--icon-sun)}
@@ -210,8 +229,8 @@ code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.
   .bar-row{padding:0 20px;gap:18px}
   .nav{gap:16px;font-size:14px}
   .install{display:none}
-  .star,.star:is(:hover,:focus-visible){width:30px;padding:0;justify-content:center;gap:0}
-  .star .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .bar .star,.bar .star:is(:hover,:focus-visible){width:30px;padding:0;justify-content:center;gap:0}
+  .bar .star .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
 `;
 }

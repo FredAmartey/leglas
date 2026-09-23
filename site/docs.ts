@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
 
 import { inline } from "./changelog.ts";
-import { REPO, bar, document, escape, foot, type Assets } from "./chrome.ts";
+import { REPO, bar, document, escape, foot, promptButton, type Assets } from "./chrome.ts";
 
 /**
  * docs/*.md, as pages.
@@ -393,16 +393,63 @@ export function resolveLink(href: string, page: DocPage, pages: DocPage[]): stri
   return `${REPO}/blob/main/${inTree}${fragment}`;
 }
 
+/**
+ * The prompt a link points at: the first ```prompt block in the section its
+ * fragment names on another docs page. On the site such a link becomes a
+ * button that copies the prompt; on GitHub it stays a link to the block.
+ */
+export function promptFor(href: string, pages: DocPage[]): string | undefined {
+  const hash = href.indexOf("#");
+
+  if (/^(https?:|mailto:|#)/.test(href) || hash === -1) return undefined;
+
+  const path = href.slice(0, hash);
+  const inTree = posix.normalize(path.startsWith("/") ? path.slice(1) : posix.join("docs", path));
+  const target = pages.find((candidate) => `docs/${candidate.file}` === inTree);
+
+  if (target === undefined) return undefined;
+
+  const fragment = href.slice(hash + 1);
+  const seen = new Map<string, number>();
+  let inSection = false;
+
+  // Heading ids repeat the way renderBlocks writes them: a second "Setup" is
+  // "setup-1", so a link to it finds its prompt too.
+  for (const block of parseBlocks(target.markdown, target.file)) {
+    if (block.kind === "heading") {
+      const base = slug(block.text);
+      const count = seen.get(base) ?? 0;
+
+      seen.set(base, count + 1);
+      inSection = (count === 0 ? base : `${base}-${count}`) === fragment;
+    } else if (inSection && block.kind === "code" && block.lang === "prompt") return block.text;
+  }
+
+  return undefined;
+}
+
 const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
 export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): string {
-  const text = (markdown: string): string =>
-    inline(
-      markdown.replace(
-        LINK,
-        (_, label: string, href: string) => `[${label}](${resolveLink(href, page, pages)})`,
-      ),
+  const text = (markdown: string): string => {
+    // A link to a prompt block becomes a button. It goes in as a marker the
+    // inline pass leaves alone and comes out as markup after it.
+    const buttons: string[] = [];
+
+    const marked = markdown.replace(LINK, (_, label: string, href: string) => {
+      const prompt = promptFor(href, pages);
+
+      if (prompt === undefined) return `[${label}](${resolveLink(href, page, pages)})`;
+      buttons.push(promptButton(inline(label), prompt));
+
+      return `\uE000${buttons.length - 1}\uE000`;
+    });
+
+    return inline(marked).replace(
+      /\uE000(\d+)\uE000/g,
+      (_, index: string) => buttons[Number(index)] ?? "",
     );
+  };
 
   const html: string[] = [];
   const seen = new Map<string, number>();
@@ -429,11 +476,17 @@ export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): 
         break;
       }
 
-      case "code":
+      case "code": {
+        const pre = `<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`;
+
         html.push(
-          `<pre><code${block.lang ? ` class="lang-${escape(block.lang)}"` : ""}>${escape(block.text)}</code></pre>`,
+          block.lang === "prompt"
+            ? `${pre}\n<p>${promptButton("Copy this prompt", block.text)}</p>`
+            : pre,
         );
         break;
+      }
+
       case "table":
         html.push(
           `<table><thead><tr>${block.head.map((cell) => `<th>${text(cell)}</th>`).join("")}</tr></thead><tbody>${block.rows

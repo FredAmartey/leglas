@@ -305,6 +305,79 @@ describe("the reader", () => {
     );
   });
 
+  test("a link to a section with a prompt block becomes a copy button", () => {
+    const target: DocPage = {
+      file: "agents.md",
+      slug: "agents",
+      title: "Agents",
+      markdown:
+        '# A\n\n## Give this to your agent\n\nPaste this.\n\n```prompt\nInstall the skill with `npx skills add x/y`, then "read" it & go.\n```\n\n## Next\n\nText.\n',
+    };
+
+    const from: DocPage = { file: "x.md", slug: "x", title: "X", markdown: "" };
+
+    const html = renderBlocks(
+      parseBlocks("# T\n\nGo on, [give this](agents.md#give-this-to-your-agent) now.\n", "x.md"),
+      from,
+      [from, target],
+    );
+
+    expect(html).toContain(
+      '<p>Go on, <button type="button" class="star prompt" data-copy="Install the skill with `npx skills add x/y`, then &quot;read&quot; it &amp; go." title="Copy a prompt for your agent">',
+    );
+    expect(html).toContain('<span class="cmd">give this</span><span class="done">Copied</span>');
+    expect(html).toMatch(/<\/button> now\.<\/p>$/);
+    expect(html).not.toContain("<a ");
+    expect(
+      renderBlocks(parseBlocks("# T\n\nSee [next](agents.md#next).\n", "x.md"), from, [
+        from,
+        target,
+      ]),
+    ).toBe('<p>See <a href="../agents/#next">next</a>.</p>');
+  });
+
+  test("a prompt block renders as code with its own copy button", () => {
+    const html = render("# T\n\n```prompt\nDo the thing.\n```\n");
+
+    expect(
+      html.startsWith(
+        '<pre><code class="lang-prompt">Do the thing.</code></pre>\n<p><button type="button" class="star prompt" data-copy="Do the thing." title="Copy a prompt for your agent">',
+      ),
+    ).toBe(true);
+    expect(
+      html.endsWith(
+        '<span class="cmd">Copy this prompt</span><span class="done">Copied</span></span></button></p>',
+      ),
+    ).toBe(true);
+  });
+
+  test("a link to a repeated heading finds the prompt under GitHub's suffixed id", () => {
+    const target: DocPage = {
+      file: "t.md",
+      slug: "t",
+      title: "T",
+      markdown: "# T\n\n## Setup\n\nText.\n\n## Setup\n\n```prompt\nSecond one.\n```\n",
+    };
+
+    const from: DocPage = { file: "x.md", slug: "x", title: "X", markdown: "" };
+
+    const at = (fragment: string): string =>
+      renderBlocks(parseBlocks(`# X\n\n[go](t.md#${fragment})\n`, "x.md"), from, [from, target]);
+
+    expect(at("setup-1")).toContain('data-copy="Second one."');
+    expect(at("setup")).toBe('<p><a href="../t/#setup">go</a></p>');
+  });
+
+  test("the architecture page hands the reader a button for the agent prompt", () => {
+    const entry = pages.find((page) => page.file === "architecture.md")!;
+    const html = renderBlocks(parseBlocks(entry.markdown, entry.file), entry, pages);
+
+    expect(html).toContain(
+      '<button type="button" class="star prompt" data-copy="Install the Leglas skill with `npx skills add FredAmartey/leglas`',
+    );
+    expect(html).not.toContain("#give-this-to-your-agent");
+  });
+
   test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {
     expect(slug("Über die Schiene")).toBe("über-die-schiene");
     expect(slug("What's `LEGLAS_NO_UPDATE_CHECK` for?")).toBe("whats-leglas_no_update_check-for");
