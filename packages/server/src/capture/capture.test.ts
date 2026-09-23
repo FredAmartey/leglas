@@ -501,16 +501,16 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
           {
             type: "text/css",
             body: '@font-face { font-family: Probe; src: url(/font.woff2) format("woff2"); font-display: swap; }',
-            ms: 300,
+            ms: 200,
           },
         ],
-        ["/font.woff2", { type: "font/woff2", body: font, ms: 300 }],
+        ["/font.woff2", { type: "font/woff2", body: font, ms: 200 }],
         [
           "/draw.js",
           {
             type: "text/javascript",
             body: `document.body.insertAdjacentHTML("beforeend", ${JSON.stringify(picture)});`,
-            ms: 900,
+            ms: 600,
           },
         ],
         [
@@ -518,7 +518,7 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
           {
             type: "image/svg+xml",
             body: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#d9542b"/></svg>',
-            ms: 300,
+            ms: 100,
           },
         ],
       ]);
