@@ -75,8 +75,10 @@ type SearchParams = Record<string, string | string[] | undefined>;
 /**
  * Production always renders the fallback, whatever the URL says, so a branch
  * point that reaches a deployed build cannot expose an unreleased direction.
+ * It is not exported because a file whose exports are all components hot-swaps
+ * in place, while an extra export makes every edit reload the page.
  */
-export function resolve${titleCase(slug).replace(/\s/g, "")}(searchParams: SearchParams): Direction {
+function resolve${titleCase(slug).replace(/\s/g, "")}(searchParams: SearchParams): Direction {
   if (process.env.NODE_ENV === "production") return FALLBACK;
   const raw = searchParams["v-${slug}"];
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -124,8 +126,10 @@ function isProduction(): boolean {
 /**
  * Production always renders the fallback, whatever the URL says, so a branch
  * point that reaches a deployed build cannot expose an unreleased direction.
+ * It is not exported because a file whose exports are all components hot-swaps
+ * in place, while an extra export makes every edit reload the page.
  */
-export function resolve${name}(): Direction {
+function resolve${name}(): Direction {
   if (isProduction()) return FALLBACK;
   const value = new URLSearchParams(window.location.search).get("v-${slug}");
   return value !== null && value in DIRECTIONS ? (value as Direction) : FALLBACK;

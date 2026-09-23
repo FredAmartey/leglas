@@ -112,6 +112,14 @@ describe("planNew", () => {
     expect(switcher?.contents).toContain("window.location");
   });
 
+  test.each([nextPkg, vitePkg])("exports only the component so edits hot-swap in place", (pkg) => {
+    const switcher = plan("hero", pkg).writes.find((w) => w.path.endsWith("switch.tsx"));
+
+    expect(switcher?.contents).not.toContain("export function resolve");
+    expect(switcher?.contents).toContain("export function HeroSwitch");
+    expect(switcher?.contents.match(/^export\b/gm)).toHaveLength(1);
+  });
+
   test("does not depend on bundler globals the project may not have typed", () => {
     // `import.meta.env` needs vite/client and bare `process` needs @types/node.
     // Generated code has to compile in a project that installed neither.

@@ -211,10 +211,15 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
   // What the page has asked for to draw with and not yet received, and how
   // many such requests it has made. The wait after load reads both.
   const pending = new Set<string>();
+  const afterLoadScripts = new Set<string>();
+  let loadFired = false;
+  let scriptLanded: number | null = null;
   let asked = 0;
   let emptied = () => {};
 
   const received = (id: string) => {
+    if (afterLoadScripts.delete(id)) scriptLanded = Date.now();
+
     if (pending.delete(id) && pending.size === 0) emptied();
   };
 
@@ -238,7 +243,12 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       if (!DRAWN_WITH.has(params?.type) || !isString(id)) return;
 
       // A redirect arrives under the same id and is not a new request.
-      if (!pending.has(id)) asked += 1;
+      if (!pending.has(id)) {
+        asked += 1;
+
+        if (loadFired && params?.type === "Script") afterLoadScripts.add(id);
+      }
+
       pending.add(id);
     }),
     page.on("Network.loadingFinished", (params) => {
@@ -281,7 +291,11 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       loaded = resolve;
     });
 
-    const stopLoad = page.on("Page.loadEventFired", () => loaded());
+    const stopLoad = page.on("Page.loadEventFired", () => {
+      loadFired = true;
+      loaded();
+    });
+
     unlisten.push(stopLoad);
     const navigation = await page.send<{ errorText?: string }>("Page.navigate", { url: input.url });
 
@@ -310,10 +324,13 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     // So the wait ends when nothing is in flight and one more look, painted
     // frames and then the fonts, asks for nothing new. The look is what lets
     // a render that was held back take place, and what lets its words ask
-    // for their fonts. One gap stays: React holds a lazy component back for
-    // up to 300 ms after showing its fallback, which no request shows, so a
-    // lazy chunk that arrives inside that window can be shot as its fallback.
+    // for their fonts. React can hold a lazy component back for up to 300 ms
+    // after showing its fallback, which no request shows. When a script asked
+    // for after load lands, the wait gives that window its remaining time,
+    // then looks again so the revealed content can ask for what it draws with.
+    // Another such script starts another window, inside the same deadline.
     const until = Date.now() + 2_000;
+    let waitedForScript: number | null = null;
 
     while (Date.now() < until) {
       await bounded(landed(), until - Date.now(), undefined);
@@ -334,7 +351,17 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
 
       // A look that runs out of time still counts as answered, and the deadline
       // ends the loop. One that fails means the page closed or crashed.
-      if (!answered || (pending.size === 0 && asked === before)) break;
+      if (!answered) break;
+
+      if (pending.size !== 0 || asked !== before) continue;
+
+      const latestScript = scriptLanded;
+
+      if (latestScript === null || latestScript === waitedForScript) break;
+      const remaining = Math.min(latestScript + 300, until) - Date.now();
+
+      if (remaining > 0) await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+      waitedForScript = latestScript;
     }
 
     // Settle the design before the shutter, then wait for a painted frame.
