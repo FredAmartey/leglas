@@ -2,7 +2,7 @@ import { boundPort, required } from "../test-helpers.js";
 import { readFile } from "node:fs/promises";
 import http from "node:http";
 
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
 import {
   START_TIMEOUT_MS,
@@ -330,6 +330,201 @@ describe("capturePage", () => {
 
     expect(order).toEqual(["sheet arrived", "picture failed", "shutter"]);
   });
+
+  test.each([
+    {
+      name: "waits for a quickly arrived script's reveal",
+      script: "after load",
+      finishes: 1,
+      image: 60,
+      shutter: 301,
+      looks: 2,
+    },
+    {
+      name: "waits for a failed script's reveal",
+      script: "failed after load",
+      finishes: 1,
+      image: 60,
+      shutter: 301,
+      looks: 2,
+    },
+    {
+      name: "adds no wait or look without an after-load script",
+      script: "absent",
+      finishes: 0,
+      image: 60,
+      shutter: 60,
+      looks: 1,
+    },
+    {
+      name: "adds no wait or look for a script requested before load",
+      script: "before load",
+      finishes: 1,
+      image: 60,
+      shutter: 60,
+      looks: 1,
+    },
+    {
+      name: "waits only the remainder after other assets land",
+      script: "after load",
+      finishes: 1,
+      image: 200,
+      shutter: 301,
+      looks: 2,
+    },
+    {
+      name: "adds no delay once the reveal window has passed",
+      script: "after load",
+      finishes: 1,
+      image: 400,
+      shutter: 400,
+      looks: 2,
+    },
+    {
+      name: "ends the reveal wait at the existing deadline",
+      script: "after load",
+      finishes: 1900,
+      image: 60,
+      shutter: 2000,
+      looks: 1,
+    },
+  ])("the shutter $name", async ({ script, finishes, image, shutter, looks }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+
+    try {
+      const page = new FakePage();
+      const began = Date.now();
+      let shotAt: number | null = null;
+      let scriptLandedAt: number | null = null;
+      const original = page.send.bind(page);
+      page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {
+        if (method === "Page.captureScreenshot") shotAt = Date.now() - began;
+
+        if (method === "Page.navigate" && script === "before load") {
+          page.emit("Network.requestWillBeSent", { requestId: "code", type: "Script" });
+        }
+
+        const answer = await original<T>(method, params);
+
+        if (method === "Page.navigate") {
+          queueMicrotask(() => {
+            if (script !== "absent") {
+              if (script !== "before load") {
+                page.emit("Network.requestWillBeSent", { requestId: "code", type: "Script" });
+              }
+
+              setTimeout(() => {
+                scriptLandedAt = Date.now() - began;
+                page.emit(
+                  script === "failed after load"
+                    ? "Network.loadingFailed"
+                    : "Network.loadingFinished",
+                  { requestId: "code" },
+                );
+              }, finishes);
+            }
+
+            // The same image takes 60 ms in the original test, so only a
+            // script requested after load should make that capture slower.
+            page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
+            setTimeout(() => page.emit("Network.loadingFinished", { requestId: "picture" }), image);
+          });
+        }
+
+        return answer;
+      };
+
+      const browser: Browser = {
+        closed: false,
+        close: async () => {},
+        withPage: async (work) => work(page),
+      };
+
+      const capture = capturePage(browser, { url: "http://127.0.0.1/lazy", width: 800 });
+      await vi.runAllTimersAsync();
+      await capture;
+
+      expect(shotAt).toBe(shutter);
+
+      if (script.endsWith("after load") && finishes + 300 <= 2000) {
+        expect(scriptLandedAt).toBe(finishes);
+        expect(shotAt).toBeGreaterThanOrEqual(finishes + 300);
+      }
+
+      expect(
+        page.sent.filter(
+          (entry) =>
+            entry.method === "Runtime.evaluate" &&
+            String(entry.params.expression).includes("document.fonts"),
+        ),
+      ).toHaveLength(looks);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a script landing during the reveal wait gets its own window and its content gets a look", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+
+    try {
+      const page = new FakePage();
+      const began = Date.now();
+      const order: string[] = [];
+      let shotAt: number | null = null;
+      let pictureAsked = false;
+      const original = page.send.bind(page);
+      page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {
+        if (method === "Page.captureScreenshot") {
+          order.push("shutter");
+          shotAt = Date.now() - began;
+        }
+
+        if (
+          method === "Runtime.evaluate" &&
+          String(params.expression).includes("document.fonts") &&
+          Date.now() - began >= 552 &&
+          !pictureAsked
+        ) {
+          pictureAsked = true;
+          page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
+          setTimeout(() => {
+            order.push("picture arrived");
+            page.emit("Network.loadingFinished", { requestId: "picture" });
+          }, 20);
+        }
+
+        const answer = await original<T>(method, params);
+
+        if (method === "Page.navigate") {
+          queueMicrotask(() => {
+            page.emit("Network.requestWillBeSent", { requestId: "first", type: "Script" });
+            setTimeout(() => page.emit("Network.loadingFinished", { requestId: "first" }), 1);
+            setTimeout(() => {
+              page.emit("Network.requestWillBeSent", { requestId: "second", type: "Script" });
+              setTimeout(() => page.emit("Network.loadingFinished", { requestId: "second" }), 1);
+            }, 251);
+          });
+        }
+
+        return answer;
+      };
+
+      const browser: Browser = {
+        closed: false,
+        close: async () => {},
+        withPage: async (work) => work(page),
+      };
+
+      const capture = capturePage(browser, { url: "http://127.0.0.1/lazy", width: 800 });
+      await vi.runAllTimersAsync();
+      await capture;
+
+      expect(shotAt).toBe(572);
+      expect(order).toEqual(["picture arrived", "shutter"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 const executable = findBrowser();
@@ -555,6 +750,73 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
 
       // The font and the picture change the pixels, or the comparison below proves nothing.
       expect(reference.equals(await shot("/bare"))).toBe(false);
+      expect((await shot("/late")).equals(reference)).toBe(true);
+    },
+    LIVE_TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
+    "is shot after a lazy script reveals its content",
+    async () => {
+      // React holds a lazy component's content back for up to 300 ms after
+      // showing its fallback, with nothing in flight to wait on. This page's
+      // late script does the same: it shows a placeholder, then the real
+      // words 250 ms later, with no request between the two.
+      const style = `<style>
+        body { margin: 0; padding: 24px; background: #fff; }
+        h1 { font: 64px/1.1 sans-serif; margin: 0; }
+      </style>`;
+
+      const words = "<h1>Tonight is decided</h1>";
+      const placeholder = "<h1>Loading direction</h1>";
+
+      const pages = new Map([
+        ["/reference", `${style}<main id="content">${words}</main>`],
+        ["/placeholder", `${style}<main id="content">${placeholder}</main>`],
+        [
+          "/late",
+          `${style}<main id="content"></main><script>
+            addEventListener("load", () => requestAnimationFrame(() => {
+              const code = document.createElement("script");
+              code.src = "/reveal.js";
+              document.head.append(code);
+            }));
+          </script>`,
+        ],
+      ]);
+
+      const server = http.createServer((req, res) => {
+        if (req.url === "/reveal.js") {
+          res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" });
+          res.end(`
+            const content = document.getElementById("content");
+            content.innerHTML = ${JSON.stringify(placeholder)};
+            setTimeout(() => { content.innerHTML = ${JSON.stringify(words)}; }, 250);
+          `);
+
+          return;
+        }
+
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(
+          `<!doctype html><html><head><meta charset="utf-8"></head><body>${pages.get(req.url ?? "") ?? ""}</body></html>`,
+        );
+      });
+
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = boundPort(server);
+      const browser = await launchBrowser(required(executable));
+      liveBrowsers.push(browser);
+
+      const shot = async (path: string) =>
+        (await capturePage(browser, { url: `http://127.0.0.1:${port}${path}`, width: 400 })).frame
+          .png;
+
+      const reference = await shot("/reference");
+
+      // The placeholder changes the pixels, or the comparison below proves nothing.
+      expect(reference.equals(await shot("/placeholder"))).toBe(false);
       expect((await shot("/late")).equals(reference)).toBe(true);
     },
     LIVE_TEST_TIMEOUT_MS,
