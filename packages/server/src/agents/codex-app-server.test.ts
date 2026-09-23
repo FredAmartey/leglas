@@ -6,9 +6,12 @@ import { describe, expect, test } from "vitest";
 
 import { createCodexAppServer, type CodexAppServerSpawn } from "./codex-app-server.js";
 
-import { type JsonRecord } from "../json.js";
+import { isString, type JsonRecord } from "../json.js";
 
 type Message = JsonRecord;
+
+/** Results the fake sends back by method, the moment it reads the request. */
+type Replies = Record<string, () => JsonRecord>;
 
 class FakeProcess {
   readonly stdin = new PassThrough();
@@ -20,7 +23,10 @@ class FakeProcess {
   private buffered = "";
   private ended = false;
 
-  constructor(private readonly closeOnSigterm = true) {
+  constructor(
+    private readonly closeOnSigterm = true,
+    private readonly replies: Replies = {},
+  ) {
     this.stdin.on("data", (chunk: Buffer) => {
       this.buffered += chunk.toString();
       const lines = this.buffered.split("\n");
@@ -30,6 +36,7 @@ class FakeProcess {
         if (line !== "") {
           const message: Message = JSON.parse(line);
           this.messages.push(message);
+          this.answer(message);
         }
       }
     });
@@ -56,13 +63,26 @@ class FakeProcess {
   send(message: Message): void {
     this.stdout.write(`${JSON.stringify(message)}\n`);
   }
+
+  /**
+   * A reply sent from inside the read lands before any timer can fire, which
+   * a reply sent after polling for the request does not.
+   */
+  private answer(message: Message): void {
+    const { method } = message;
+
+    if (!isString(method) || !Object.hasOwn(this.replies, method)) return;
+    const reply = this.replies[method];
+
+    if (reply !== undefined) this.send({ id: message.id ?? null, result: reply() });
+  }
 }
 
-function harness(closeOnSigterm = true) {
+function harness(closeOnSigterm = true, replies: Replies = {}) {
   const processes: FakeProcess[] = [];
 
   const spawn: CodexAppServerSpawn = (_command, _args, _options) => {
-    const process = new FakeProcess(closeOnSigterm);
+    const process = new FakeProcess(closeOnSigterm, replies);
     processes.push(process);
 
     return process;
@@ -347,14 +367,25 @@ describe("Codex app-server transport", () => {
   });
 
   test("terminates an ambiguously accepted turn before reporting its timeout", async () => {
-    const { process, server } = await initialize(10);
-    const running = server.run({ prompt: "timeout", effort: null, sessionId: null, images: [] });
-    await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = required(byMethod(process, "thread/start")[0]);
-    process.send({ id: thread.id, result: { thread: { id: "th_timeout" } } });
-    await until(() => byMethod(process, "turn/start").length === 1);
+    // Every request shares the one timeout, and here it is short enough to
+    // expire. So the fake answers the handshake and the thread as it reads
+    // them, and only the turn, which it never answers, can time out.
+    const spawned = harness(true, {
+      initialize: () => ({ userAgent: "codex-test" }),
+      "thread/start": () => ({ thread: { id: "th_timeout" } }),
+    });
 
-    await expect(running).rejects.toThrow("turn/start timed out");
+    const server = createCodexAppServer("/project", spawned.spawn, 10);
+
+    // Awaited from the start: the turn can time out before anything below
+    // runs, and a rejection nobody is waiting on yet is reported as unhandled.
+    const timedOut = expect(
+      server.run({ prompt: "timeout", effort: null, sessionId: null, images: [] }),
+    ).rejects.toThrow("turn/start timed out");
+
+    await timedOut;
+    const process = required(spawned.processes[0]);
+    expect(byMethod(process, "turn/start")).toHaveLength(1);
     expect(process.signals).toContain("SIGTERM");
     await server.close();
   });
