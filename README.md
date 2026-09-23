@@ -77,7 +77,8 @@ optional. New directions go in `.leglas/`, a folder Leglas adds to your
   direction it came from, with the original still there to compare against.
 - Keep the winner with one command. Leglas moves it into your source tree,
   writes down what the exploration decided and clears the rest away.
-- No app yet? Plain HTML files compare the same way, no dev server needed.
+- No app yet? Leglas compares plain HTML files the same way, with no dev
+  server.
 
 ## Get started
 
@@ -136,7 +137,7 @@ the MCP server and the Agent Plugin.
 | Page                                          | What it covers                                                                                                              |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | [Using Leglas](https://github.com/FredAmartey/leglas/blob/main/docs/guide.md)                 | The rail and the stage, comparing, asking for a change, pointing at the problem, the keys, updating                        |
-| [Sharing](https://github.com/FredAmartey/leglas/blob/main/docs/sharing.md)                    | Sending the rail to someone with no repo, from the interface or a terminal, how far a viewer can go, links and the tunnel |
+| [Sharing](https://github.com/FredAmartey/leglas/blob/main/docs/sharing.md)                    | Sending the rail to someone with no repo, how far a viewer can go, links and the tunnel                                     |
 | [Setting up a project](https://github.com/FredAmartey/leglas/blob/main/docs/configuration.md) | The config file and every field, plain HTML without a dev server, comparing branches, how the proxy works, limitations     |
 | [Working with agents](https://github.com/FredAmartey/leglas/blob/main/docs/agents.md)         | Add beside, never rewrite; the commands an agent runs; running requests; the MCP server; the Agent Plugin                   |
 | [Command line](https://github.com/FredAmartey/leglas/blob/main/docs/cli.md)                   | Every command and the flags they share                                                                                      |
