@@ -12,6 +12,41 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Changed
+
+- **How Leglas is built, on one page.** The architecture page in the docs
+  opens with a map of the ten pieces and the path a change takes through
+  them, a plain-language twin folded beneath it, and a button that copies a
+  setup prompt for your agent. The README's front page was reworked
+  alongside it.
+  (`leglas`)
+
+### Fixed
+
+- **A screenshot waits for the fonts, pictures and code a page asks for
+  after it loads.** A React app in Vite draws after the page's load event, so
+  every stylesheet, web font, image and lazy chunk a direction uses is asked
+  for after it, and Leglas took the shot at load. A web font came back as its
+  fallback, a picture as empty space, and a stylesheet with a precedence,
+  which holds the whole render back until it arrives, as a blank page. The
+  shot now waits until nothing the page asked for is still on its way and one
+  more look asks for nothing new. A part that loads on demand gets the moment
+  React holds it back before showing it, so it is not shot as its
+  placeholder. At most two seconds more, and about thirty milliseconds on a
+  plain page.
+  (`leglas`, `leglas-mcp`)
+
+- **Adding a direction no longer reloads the page.** The switch file
+  `leglas new` writes exported, beside the component, the helper that picks a
+  direction from the address bar, and a file whose exports are not all
+  components makes the browser's hot update reload the page instead of
+  swapping the file in place. Every direction an agent added reloaded the
+  page you were watching. The helper is private now. A switch file written
+  before this release keeps the old shape until you make it again.
+  (`leglas`)
+
 ## 1.2.0 (2026-09-22): Share from a terminal, and an agent that goes quiet says so
 
 ### Added
