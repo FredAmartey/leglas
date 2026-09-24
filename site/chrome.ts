@@ -148,7 +148,7 @@ export function baseStyles(fonts: Assets["fonts"]): string {
 :root[data-theme="dark"]{${DARK}}
 *{box-sizing:border-box}
 html{scroll-padding-top:96px;-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--ground);color:var(--ink);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;position:relative;min-height:100vh}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;text-wrap:pretty;position:relative;min-height:100vh}
 a{color:var(--link)}
 code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.06em .28em;border-radius:5px;color:inherit}
 .dots{position:absolute;top:0;left:0;right:0;height:440px;pointer-events:none;z-index:0;background-image:radial-gradient(var(--dot) 1px,transparent 1.3px);background-size:34px 34px;-webkit-mask-image:linear-gradient(#000 0 50%,transparent);mask-image:linear-gradient(#000 0 50%,transparent)}
