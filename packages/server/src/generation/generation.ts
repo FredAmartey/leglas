@@ -50,9 +50,10 @@ const OWN_FAILURES: ReadonlySet<string> = new Set([
   "unexpected",
 ]);
 
-/** Jobs kept for the interface after they finish. */
+/** Why a second set is refused while one is being built. */
 const BUSY = "A set of directions is already being built. Wait for it, or stop it first.";
 
+/** Jobs kept for the interface after they finish. */
 const KEPT_JOBS = 5;
 
 export type SlotState = "building" | "checking" | "ready" | "failed" | "stopped";

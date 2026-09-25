@@ -1742,7 +1742,8 @@ describe("a generation's lifecycle", () => {
 
     const answers = await Promise.all([ask(), ask()]);
 
-    expect(answers.map((answer) => answer.ok)).toEqual([true, false]);
+    // Either may win the race; only one may start.
+    expect(answers.filter((answer) => answer.ok)).toHaveLength(1);
     expect(generations.snapshot()).toHaveLength(1);
     await generations.close();
   });
