@@ -44,7 +44,7 @@
 import { isJsonRecord, isString, parseJson } from "../json.js";
 import type { TimerHandle } from "./timers.js";
 
-export type LiveChange = "config" | "requests" | "health" | "share" | "update";
+export type LiveChange = (typeof CHANGES)[number];
 
 /**
  * How long a loop waits when nothing has nudged it.
@@ -64,8 +64,12 @@ export const FALLBACK_MS = 15_000;
  * its own read on its own beat, listened for only while a share exists, and
  * shares nothing with the queue. Folding it into `config` would make every
  * viewer count re-read the rail.
+ *
+ * The type above is read off this list. They used to be written out
+ * separately, and `update` reached the type but not the list, so the shell
+ * threw away every update frame the server sent.
  */
-const CHANGES: readonly LiveChange[] = ["config", "requests", "health", "share"];
+const CHANGES = ["config", "requests", "health", "share", "update"] as const;
 
 export function isLiveChange(value: unknown): value is LiveChange {
   return CHANGES.some((change) => change === value);

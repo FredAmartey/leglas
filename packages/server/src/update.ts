@@ -577,8 +577,13 @@ export function installerReason(stdout: string, stderr: string): string | null {
   const errors = lines(stderr);
   const output = lines(stdout);
 
+  // npm writes its error's fields one per line ahead of the message (`error`
+  // in npm's lib/utils/error-message.js), so the first npm line after them is
+  // the reason. Skipping only `code` reported "syscall mkdir" for EACCES.
   const npm = [...errors, ...output].find(
-    (line) => /^npm error\s+\S/.test(line) && !/^npm error code\s/.test(line),
+    (line) =>
+      /^npm error\s+\S/.test(line) &&
+      !/^npm error (code|syscall|file|path|dest|errno)\s/.test(line),
   );
 
   return npm?.replace(/^npm error\s+/, "") ?? errors[0] ?? output[0] ?? null;
