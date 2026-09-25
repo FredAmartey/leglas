@@ -3666,8 +3666,9 @@ describe("update routes", () => {
 describe("mutation trust", () => {
   // Every route that changes something is a POST today, but the guard stands
   // in front of any method that is not a read, so a PUT, PATCH or DELETE
-  // route written later is behind it the moment it exists.
-  test.each(["PUT", "PATCH", "DELETE"])(
+  // route written later is behind it the moment it exists. OPTIONS is not a
+  // read either; Leglas never sends one to itself.
+  test.each(["PUT", "PATCH", "DELETE", "OPTIONS"])(
     "a cross-origin %s to the API is refused before any route sees it",
     async (method) => {
       const server = await start({ config: configFor(await startOrigin()), port: 0 });
@@ -3680,8 +3681,9 @@ describe("mutation trust", () => {
         ok: false,
         error: "Cross-origin API mutations are refused.",
       });
-      // From Leglas's own page the same request reaches the routes, and a
-      // read from anywhere is still a read.
+      // From Leglas's own page, or a local client that sends no origin, the
+      // same request reaches the routes; a read from anywhere is still a read.
+      expect((await fetch(api, { method, headers: { origin: server.url } })).status).toBe(404);
       expect((await fetch(api, { method })).status).toBe(404);
       expect((await fetch(api, { headers: { origin: "https://other.example" } })).status).toBe(200);
     },
