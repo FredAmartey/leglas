@@ -426,7 +426,10 @@ describe("the duplicate check", () => {
     await after(() => find('iframe[data-preview="Docs"]').dispatchEvent(new Event("load")));
 
     // No frame loads in a test, so each read ends as failed once its time is
-    // up. A failed read is a verdict too, and it stands.
+    // up. A failed read is a verdict too, and it stands. Each wait moves the
+    // scan on by one read: React applies the failed verdict as `after` ends,
+    // and only then starts the next read's timer, so any wait past the 15 s
+    // load limit does.
     expect(reading()).toBe("/?hero=menu");
     await after(() => {}, 60_000);
     expect(reading()).toBe("/?hero=counter");
