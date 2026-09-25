@@ -100,16 +100,53 @@ describe("unshareableReason", () => {
 });
 
 describe("sameShare", () => {
-  test("is blind to rename and fold order, and to nothing else", () => {
-    const a = railShare(prefs, previews).request;
-    const b = railShare({ ...prefs, collapsedFamilies: ["Aurora"] }, previews).request;
+  // The panel offers an update when the rail as it is now makes a different
+  // manifest from the live share's. Renames and folds come back in whatever
+  // order they were made, and the route list grows as the sharer allows
+  // things (sameShare's own comment); none of that is a new share.
+  test("is blind to rename order, fold order and its route list, and to nothing else", () => {
+    const families: Preview[] = [
+      { title: "Aurora", url: "/?v=aurora", tags: [] },
+      { title: "Ember", url: "/?v=ember", tags: [], basedOn: "Aurora" },
+      { title: "Wave", url: "/?v=wave", tags: [] },
+      { title: "Foam", url: "/?v=foam", tags: [], basedOn: "Wave" },
+    ];
+
+    const a = railShare(
+      {
+        ...DEFAULT_PREFS,
+        renames: { Aurora: "Dawn", Wave: "Tide" },
+        collapsedFamilies: ["Aurora", "Wave"],
+      },
+      families,
+    ).request;
+
+    const b = railShare(
+      {
+        ...DEFAULT_PREFS,
+        renames: { Wave: "Tide", Aurora: "Dawn" },
+        collapsedFamilies: ["Wave", "Aurora"],
+      },
+      families,
+    ).request;
+
     expect(sameShare(a, b)).toBe(true);
-    expect(sameShare(a, { ...a, layout: { ...a.layout, viewport: null } })).toBe(false);
-    expect(sameShare(a, { ...a, titles: ["Ember", "Aurora"] })).toBe(false);
+    expect(sameShare(a, { ...a, routes: ["/src/main.tsx"] })).toBe(true);
+
+    expect(sameShare(a, { ...a, reach: "listed" })).toBe(false);
     expect(sameShare(a, { ...a, scope: "direction" })).toBe(false);
-    expect(sameShare(a, { ...a, layout: { ...a.layout, renames: { Aurora: "Dawn" } } })).toBe(
+    expect(sameShare(a, { ...a, titles: [...a.titles].reverse() })).toBe(false);
+    expect(
+      sameShare(a, { ...a, layout: { ...a.layout, order: [...a.layout.order].reverse() } }),
+    ).toBe(false);
+    expect(
+      sameShare(a, { ...a, layout: { ...a.layout, renames: { Aurora: "Dusk", Wave: "Tide" } } }),
+    ).toBe(false);
+    expect(sameShare(a, { ...a, layout: { ...a.layout, collapsedFamilies: ["Aurora"] } })).toBe(
       false,
     );
+    expect(sameShare(a, { ...a, layout: { ...a.layout, compare: "Ember" } })).toBe(false);
+    expect(sameShare(a, { ...a, layout: { ...a.layout, viewport: 834 } })).toBe(false);
   });
 });
 

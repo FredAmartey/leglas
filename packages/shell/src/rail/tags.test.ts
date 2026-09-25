@@ -1,9 +1,19 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 import { tagTone } from "./tags.js";
 
-test("a tag keeps its colour from one session to the next", () => {
-  expect(tagTone("Hero backdrops")).toEqual(tagTone("Hero backdrops"));
+// A session is a fresh load of the module. The second one meets other tags
+// first, so a colour handed out in the order tags arrive would come out
+// different.
+test("a tag keeps its colour from one session to the next", async () => {
+  vi.resetModules();
+  const first = (await import("./tags.js")).tagTone("Hero backdrops");
+
+  vi.resetModules();
+  const next = await import("./tags.js");
+
+  for (const tag of ["Pricing", "Nav", "Footer"]) next.tagTone(tag);
+  expect(next.tagTone("Hero backdrops")).toEqual(first);
 });
 
 test("the pill is the tone at full strength on a wash of itself", () => {

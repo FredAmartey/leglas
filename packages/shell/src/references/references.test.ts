@@ -53,8 +53,17 @@ describe("imageFilesFrom", () => {
 });
 
 describe("admit", () => {
+  // The server's half is in its own suite, which uploads at this very cap
+  // and one byte over it: with the two limits one number, what is refused
+  // here would be refused there too.
   test("refuses at exactly the server's limit, so a retry can never fix a refusal", () => {
-    expect(REFERENCE_BYTES_CAP).toBe(10_000_000);
+    const edge = png("edge.png", REFERENCE_BYTES_CAP);
+    const over = png("over.png", REFERENCE_BYTES_CAP + 1);
+
+    expect(admit([], [edge, over])).toEqual({
+      accepted: [edge],
+      refused: [{ file: over, why: "too-big" }],
+    });
   });
 
   test("takes images up to the cap, counting what is already attached", () => {

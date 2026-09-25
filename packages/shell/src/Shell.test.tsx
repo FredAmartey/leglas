@@ -9,6 +9,7 @@ import { Shell } from "./Shell.js";
 import type { Preview, ViewerInfo } from "./types.js";
 import type { JsonValue } from "./json.js";
 import { must } from "./must.js";
+import { FALLBACK_MS } from "./net/live.js";
 
 /**
  * The shell, mounted whole against a server that answers from a table.
@@ -49,15 +50,22 @@ const AGENTS: AgentsPayload = {
 
 type Sent = { path: string; body: unknown };
 
+/** The dev server's health as the server reports it; a test can change it between reads. */
+type Health = { devServer: string; reachable: boolean; cwd: string };
+
 /** Answer the interface's reads from a table and remember what it wrote. */
-function serve(requests: RequestStatus[] = [], framing: JsonValue = { framable: true }): Sent[] {
+function serve(
+  requests: RequestStatus[] = [],
+  framing: JsonValue = { framable: true },
+  health: Health = { devServer: "http://localhost:3000", reachable: true, cwd: "" },
+): Sent[] {
   const sent: Sent[] = [];
 
   const reads = new Map<string, JsonValue>([
     ["previews/framing", framing],
     ["agents", AGENTS],
     ["annotations", { annotations: [] }],
-    ["health", { devServer: "http://localhost:3000", reachable: true, cwd: "" }],
+    ["health", health],
     ["requests", { requests, agent: IDLE }],
     ["share", { share: null, tunnels: [] }],
     [
@@ -113,8 +121,11 @@ async function mount(props: {
   viewer?: ViewerInfo;
   previews?: Preview[];
   framing?: JsonValue;
+  health?: Health;
+  /** Read directions off stage for the duplicate check, as a real shell does. */
+  scan?: boolean;
 }): Promise<Sent[]> {
-  const sent = serve(props.requests, props.framing);
+  const sent = serve(props.requests, props.framing, props.health);
   document.body.innerHTML = `<div id="root"></div>`;
   root = createRoot(must(document.getElementById("root"), "the root"));
   await act(async () => {
@@ -122,7 +133,7 @@ async function mount(props: {
       <Shell
         previews={props.previews ?? PREVIEWS}
         project="a-project"
-        scanPreviews={false}
+        scanPreviews={props.scan ?? false}
         viewer={props.viewer}
       />,
     );
@@ -253,6 +264,38 @@ describe("the rail and the stage", () => {
     expect(shown.map((frame) => frame.dataset.preview).sort()).toEqual(["Menu", "Table"]);
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
+
+  // Where the cards start is measured with every family open, so a fold
+  // never moves a card sideways. Measured on the folded rail, the roots
+  // would all pull back in (Gutter.test.ts).
+  test("folding a family moves no card sideways", async () => {
+    // Four variants fork Counter's line out to a third lane, which puts every
+    // root further in than a rail with that family folded would.
+    await mount({
+      previews: [
+        ...PREVIEWS,
+        { title: "Fig", url: "/?hero=fig", tags: ["Hero"], basedOn: "Counter" },
+        { title: "Plum", url: "/?hero=plum", tags: ["Hero"], basedOn: "Counter" },
+        { title: "Sage", url: "/?hero=sage", tags: ["Hero"], basedOn: "Counter" },
+      ],
+    });
+
+    const indents = () =>
+      new Map(
+        [...document.querySelectorAll<HTMLElement>("li[data-title]")].map((li) => [
+          li.dataset.title,
+          li.style.paddingLeft,
+        ]),
+      );
+
+    const open = indents();
+    await after(() => click(find('button[aria-label="Hide the variants of Counter"]')));
+    const folded = indents();
+
+    expect([...folded.keys()]).toEqual(["Table", "Menu", "Counter"]);
+
+    for (const [title, indent] of folded) expect(indent, title).toBe(open.get(title));
+  });
 });
 
 describe("the keys", () => {
@@ -347,6 +390,52 @@ describe("asking for a change", () => {
 
     await after(() => click(must(codex, "the Codex button")), 900);
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
+  });
+});
+
+describe("the duplicate check", () => {
+  // When the dev server comes back, every direction it serves is reloaded,
+  // and most of them are off stage. The shell used to remember only the
+  // mounted ones, so an off-stage reload had nothing earlier to differ from:
+  // its verdict stood, and a restart that changed the page could still be
+  // called a duplicate of what it used to be.
+  test("an off-stage direction reloaded by a recovery is read again", async () => {
+    const health: Health = { devServer: "http://localhost:3000", reachable: true, cwd: "" };
+
+    // On stage, a page from another origin, which the check cannot read;
+    // behind it, two routes on the app, which it reads one at a time.
+    await mount({
+      previews: [
+        { title: "Docs", url: "https://docs.example.com/start", tags: [] },
+        { title: "Menu", url: "/?hero=menu", tags: [] },
+        { title: "Counter", url: "/?hero=counter", tags: [] },
+      ],
+      health,
+      scan: true,
+    });
+
+    const reading = () =>
+      document.querySelector('iframe[title="Off-stage duplicate scan"]')?.getAttribute("src") ??
+      null;
+
+    // Nothing is read behind a stage that has not settled.
+    await after(() => find('iframe[data-preview="Docs"]').dispatchEvent(new Event("load")));
+
+    // No frame loads in a test, so each read ends as failed once its time is
+    // up. A failed read is a verdict too, and it stands.
+    expect(reading()).toBe("/?hero=menu");
+    await after(() => {}, 60_000);
+    expect(reading()).toBe("/?hero=counter");
+    await after(() => {}, 60_000);
+    expect(reading()).toBeNull();
+
+    // The dev server goes, and comes back.
+    health.reachable = false;
+    await after(() => {}, FALLBACK_MS);
+    health.reachable = true;
+    await after(() => {}, FALLBACK_MS);
+
+    expect(reading()).toBe("/?hero=menu");
   });
 });
 

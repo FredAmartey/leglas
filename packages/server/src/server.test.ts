@@ -36,6 +36,8 @@ import type { RunningWorktree } from "./branches/worktree.js";
 import { type JsonRecord } from "./json.js";
 // The interface's side of the live socket, for the one test that needs both.
 import { startLive } from "../../shell/src/net/live.js";
+// The interface's cap on a reference, which the upload route has to share.
+import { REFERENCE_BYTES_CAP } from "../../shell/src/references/references.js";
 
 const running: RunningServer[] = [];
 
@@ -608,6 +610,25 @@ describe("startServer", () => {
       body: { ok: false, error: "That image is over 10MB." },
     });
     expect(referenceFiles(cwd)).toEqual([]);
+  });
+
+  // The interface refuses a reference above its own cap before uploading it,
+  // so this limit and that one have to be one number. Each side's own tests
+  // pass with them apart, and then the interface either uploads what will be
+  // refused or refuses what would have been taken.
+  test("takes a reference of exactly the interface's cap, and refuses one byte more", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-cap-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    // A real image padded out, and sent with its length the way a browser
+    // sends a file, so size is the only thing either answer can be about.
+    const upload = (bytes: number) =>
+      postRawReference(server, { "content-length": String(bytes) }, [
+        Buffer.concat([TWO_BY_THREE_PNG, Buffer.alloc(bytes - TWO_BY_THREE_PNG.length)]),
+      ]);
+
+    expect((await upload(REFERENCE_BYTES_CAP)).status).toBe(200);
+    expect((await upload(REFERENCE_BYTES_CAP + 1)).status).toBe(413);
   });
 
   test("moves an uploaded reference into the request capture directory", async () => {

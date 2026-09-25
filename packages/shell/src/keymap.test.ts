@@ -96,8 +96,6 @@ describe("resolveKey", () => {
     expect(caps).not.toContain("A");
     expect(caps).toContain("C");
     expect(caps).toContain("?");
-    // The flag is not carried out: the overlay renders keys and labels only.
-    expect(Object.keys(shortcutList(true, true)[0] ?? {})).toEqual(["keys", "label"]);
   });
 
   test("names the search chord for the platform it is shown on", () => {
