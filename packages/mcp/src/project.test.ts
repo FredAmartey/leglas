@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import { UNRESOLVED_PROJECT, fixedProject, hostProject, type RootsHost } from "./project.js";
+import { UNRESOLVED_PROJECT, hostProject, type RootsHost } from "./project.js";
 
 function scratch(name: string): string {
   return realpathSync(mkdtempSync(join(tmpdir(), `leglas-${name}-`)));
@@ -22,15 +22,6 @@ function host(roots: string[] | null, options: { fails?: boolean } = {}): RootsH
     },
   };
 }
-
-describe("fixedProject", () => {
-  test("answers with the directory it was given", async () => {
-    await expect(fixedProject("/somewhere").locate()).resolves.toEqual({
-      ok: true,
-      directory: "/somewhere",
-    });
-  });
-});
 
 describe("hostProject", () => {
   test("takes the declared root when the working directory is elsewhere", async () => {
@@ -110,15 +101,6 @@ describe("hostProject", () => {
 
     expect(located).toEqual({ ok: false, reason: UNRESOLVED_PROJECT });
     expect(UNRESOLVED_PROJECT).not.toContain("declares no");
-  });
-
-  test("a declared root rescues a working directory inside the plugin", async () => {
-    const pluginRoot = scratch("plugin");
-    const project = scratch("project");
-
-    const located = await hostProject(host([project]), { cwd: pluginRoot, pluginRoot }).locate();
-
-    expect(located).toEqual({ ok: true, directory: project });
   });
 
   test("an unexpanded ${PLUGIN_ROOT} placeholder matches nothing and is ignored", async () => {

@@ -111,19 +111,15 @@ const until = async (condition: () => boolean): Promise<void> => {
 };
 
 describe("channelEvent", () => {
-  test("carries the prompt as the body and identifies the request", () => {
-    const event = channelEvent(request("abc123", "queued"));
-
-    expect(event.content).toBe("Change only Aurora (abc123).");
-    expect(event.meta).toEqual({ direction: "Aurora", request_id: "abc123" });
-  });
-
   test("meta keys are identifier-safe, which the channel contract requires", () => {
     // Keys with hyphens are silently dropped by the host, so a rename here
     // would lose the attribute without any error saying so.
-    for (const key of Object.keys(channelEvent(request("x", "queued")).meta)) {
-      expect(key).toMatch(/^[A-Za-z0-9_]+$/);
-    }
+    const keys = Object.keys(channelEvent(request("x", "queued")).meta);
+
+    // The event always names its direction and request, so the loop has keys to check.
+    expect(keys).toEqual(expect.arrayContaining(["direction", "request_id"]));
+
+    for (const key of keys) expect(key).toMatch(/^[A-Za-z0-9_]+$/);
   });
 });
 

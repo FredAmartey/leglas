@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
+import { parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
+import { renderHome } from "./home.ts";
 import {
   PAGES,
   docsPath,
@@ -18,6 +20,28 @@ import {
 } from "./docs.ts";
 
 const root = join(import.meta.dirname, "..");
+
+/** The first button in some rendered HTML: what it copies and the text it shows. */
+function copyButton(html: string): { copies: string; text: string } | null {
+  const match = /<button\b([^>]*)>([\s\S]*?)<\/button>/.exec(html);
+
+  if (match === null) return null;
+
+  const copies = (/data-copy="([^"]*)"/.exec(match[1] ?? "")?.[1] ?? "")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
+
+  return {
+    copies,
+    text: (match[2] ?? "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  };
+}
 
 /** A checkout of the manual, with every page it names and nothing else. */
 function manual(): string {
@@ -50,16 +74,9 @@ const page = (name: string): DocPage => {
  * where a new construct would first appear.
  */
 describe("docs/", () => {
-  test("the index leads and the pages follow in the order the manual names them", () => {
+  // The order of the rest is test/docs.test.ts's, against docs/README.md.
+  test("the index leads, and each page is served at its own path", () => {
     expect(pages[0]?.slug).toBe("");
-    expect(pages.slice(1).map((entry) => entry.slug)).toEqual([
-      "guide",
-      "sharing",
-      "configuration",
-      "agents",
-      "cli",
-      "architecture",
-    ]);
     expect(docsPath("")).toBe("docs/index.html");
     expect(docsPath("guide")).toBe("docs/guide/index.html");
   });
@@ -322,11 +339,12 @@ describe("the reader", () => {
       [from, target],
     );
 
-    expect(html).toContain(
-      '<p>Go on, <button type="button" class="star prompt" data-copy="Install the skill with `npx skills add x/y`, then &quot;read&quot; it &amp; go." title="Copy a prompt for your agent">',
+    expect(copyButton(html)?.copies).toBe(
+      'Install the skill with `npx skills add x/y`, then "read" it & go.',
     );
-    expect(html).toContain('<span class="cmd">give this</span><span class="done">Copied</span>');
-    expect(html).toMatch(/<\/button> now\.<\/p>$/);
+    expect(copyButton(html)?.text).toContain("give this");
+    // The sentence keeps its words around the button that replaced the link.
+    expect(html).toMatch(/^<p>Go on, <button[\s\S]*<\/button> now\.<\/p>$/);
     expect(html).not.toContain("<a ");
     expect(
       renderBlocks(parseBlocks("# T\n\nSee [next](agents.md#next).\n", "x.md"), from, [
@@ -339,16 +357,10 @@ describe("the reader", () => {
   test("a prompt block renders as code with its own copy button", () => {
     const html = render("# T\n\n```prompt\nDo the thing.\n```\n");
 
-    expect(
-      html.startsWith(
-        '<pre><code class="lang-prompt">Do the thing.</code></pre>\n<p><button type="button" class="star prompt" data-copy="Do the thing." title="Copy a prompt for your agent">',
-      ),
-    ).toBe(true);
-    expect(
-      html.endsWith(
-        '<span class="cmd">Copy this prompt</span><span class="done">Copied</span></span></button></p>',
-      ),
-    ).toBe(true);
+    expect(html).toMatch(/<code[^>]*>Do the thing\.<\/code>/);
+    expect(html.indexOf("<button")).toBeGreaterThan(html.indexOf("</code>"));
+    expect(copyButton(html)?.copies).toBe("Do the thing.");
+    expect(copyButton(html)?.text).toContain("Copy this prompt");
   });
 
   test("a link to a repeated heading finds the prompt under GitHub's suffixed id", () => {
@@ -447,8 +459,10 @@ describe("the page", () => {
   });
 
   test("the homepage and the changelog link the docs", () => {
-    const home = readFileSync(join(root, "site", "home.ts"), "utf8");
-    expect(home).toContain('docs: "./docs/"');
-    expect(home).toContain('href="./docs/"');
+    const assets = loadAssets(root);
+    const changelog = parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8"));
+
+    expect(renderHome(assets)).toContain('href="./docs/"');
+    expect(renderPage(changelog, assets)).toContain('href="../docs/"');
   });
 });

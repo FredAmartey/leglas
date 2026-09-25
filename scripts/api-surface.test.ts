@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,5 +147,36 @@ describe("resolving a name through re-exports", () => {
 
     const found = resolve(directory, join(directory, "index.d.ts"), "Gone", new Set());
     expect(found).toEqual({ kind: "missing" });
+  });
+
+  // The guarantee is the refusal: a surface with a hole in it is not written.
+  test("the surface refuses to build around a name nothing declares", () => {
+    const root = mkdtempSync(join(tmpdir(), "leglas-surface-root-"));
+
+    for (const [dir, files] of [
+      [
+        "packages/cli/dist",
+        {
+          "index.d.ts": 'export { Gone } from "./real.js";',
+          "real.d.ts": "export type Present = { yes: true };",
+        },
+      ],
+      [
+        "packages/mcp/dist",
+        {
+          "index.d.ts": 'export { Present } from "./real.js";',
+          "real.d.ts": "export type Present = { yes: true };",
+        },
+      ],
+    ] as const) {
+      mkdirSync(join(root, dir), { recursive: true });
+
+      for (const [name, contents] of Object.entries(files))
+        writeFileSync(join(root, dir, name), contents);
+    }
+
+    expect(() => publicSurface(root)).toThrow(
+      "leglas exports Gone, but no module on the chain declares it",
+    );
   });
 });
