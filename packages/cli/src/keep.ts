@@ -1,4 +1,4 @@
-import { basename, extname, normalize } from "node:path";
+import { basename, extname, isAbsolute, normalize } from "node:path";
 
 import { targetFor, type Preview } from "@leglas/server";
 
@@ -77,7 +77,9 @@ export function planKeep(options: {
 
   const to = normalize(options.to);
 
-  if (to.startsWith("..")) {
+  // The move joins this onto the project, so an absolute path would land
+  // nested inside it rather than where it points.
+  if (to.startsWith("..") || isAbsolute(to)) {
     return { ok: false, error: "The destination has to be inside the project." };
   }
 

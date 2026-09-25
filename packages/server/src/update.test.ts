@@ -1016,6 +1016,24 @@ describe("installing and restarting", () => {
     await nextTurn();
   });
 
+  test("a failed npm install names npm's own message, not one of its fields", async () => {
+    const { spawn, child } = spawned();
+    const updates = service({ cached: true, deps: { spawn } });
+    updates.onRestart(vi.fn(async () => {}));
+    await updates.update();
+    await nextTurn();
+    child.stderr.write(NPM_11_EACCES);
+    child.emit("close", 243);
+    await nextTurn();
+    expect(updates.status().phase).toEqual({
+      status: "failed",
+      version: "1.1.0",
+      reason:
+        "npm i -g leglas@1.1.0 exited 243. " +
+        "Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'",
+    });
+  });
+
   test("a failed install includes the code and the first useful stderr line", async () => {
     const { spawn, child } = spawned();
     const updates = service({ cached: true, deps: { spawn } });
@@ -1211,6 +1229,46 @@ describe("Windows command lines and replacement bins", () => {
   );
 });
 
+/**
+ * What npm 11.19 printed for two failed global installs, captured from real
+ * runs with only the paths and the registry host put back to the defaults. It
+ * writes its error's fields (code, syscall, file, path, dest, errno) one per
+ * line ahead of the message itself, per `error` in lib/utils/error-message.js.
+ */
+const NPM_11_EACCES = `npm error code EACCES
+npm error syscall mkdir
+npm error path /usr/local/lib/node_modules/leglas
+npm error errno -13
+npm error Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'
+npm error     at async mkdir (node:internal/fs/promises:1605:10)
+npm error     at async Arborist.reify (/usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:113:7)
+npm error     at async Install.exec (/usr/local/lib/node_modules/npm/lib/commands/install.js:158:5)
+npm error     at async Npm.exec (/usr/local/lib/node_modules/npm/lib/npm.js:193:9)
+npm error     at async module.exports (/usr/local/lib/node_modules/npm/lib/cli/entry.js:67:5) {
+npm error   errno: -13,
+npm error   code: 'EACCES',
+npm error   syscall: 'mkdir',
+npm error   path: '/usr/local/lib/node_modules/leglas'
+npm error }
+npm error
+npm error The operation was rejected by your operating system.
+npm error It is likely you do not have the permissions to access this file as the current user
+npm error
+npm error If you believe this might be a permissions issue, please double-check the permissions of the file and its containing directories, or try running the command again as root/Administrator.
+npm error A complete log of this run can be found in: /tmp/npm/_logs/run-debug-0.log
+`;
+
+const NPM_11_ENOTFOUND = `npm error code ENOTFOUND
+npm error syscall getaddrinfo
+npm error errno ENOTFOUND
+npm error network request to https://registry.npmjs.org/leglas failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org
+npm error network This is a problem related to network connectivity.
+npm error network In most cases you are behind a proxy or have bad network settings.
+npm error network
+npm error network If you are behind a proxy, please make sure that the 'proxy' config is set properly.  See: 'npm help config'
+npm error A complete log of this run can be found in: /tmp/npm/_logs/run-debug-0.log
+`;
+
 describe("installerReason", () => {
   test.each([
     [
@@ -1226,14 +1284,14 @@ npm error A complete log of this run can be found in: /tmp/npm/_logs/run-debug-0
     [
       "npm 11 EACCES",
       "",
-      `npm error code EACCES
-npm error syscall mkdir
-npm error path /usr/local/lib/node_modules/leglas
-npm error errno -13
-npm error Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'
-    at async mkdir (node:internal/fs/promises:858:10)
-npm error A complete log of this run can be found in: /tmp/npm/_logs/run-debug-0.log`,
-      "syscall mkdir",
+      NPM_11_EACCES,
+      "Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'",
+    ],
+    [
+      "npm 11 ENOTFOUND",
+      "",
+      NPM_11_ENOTFOUND,
+      "network request to https://registry.npmjs.org/leglas failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org",
     ],
     [
       "Yarn classic",
