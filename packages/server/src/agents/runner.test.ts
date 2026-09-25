@@ -855,11 +855,11 @@ describe("startRunner", () => {
     expect(runner.snapshot().running).toBe(true);
 
     // The stop armed its own escalation; its grace running out is the only
-    // thing that frees the runner now.
-    const grace = timers.slice(armed);
-    expect(grace).not.toEqual([]);
+    // thing that frees the runner now. Anything else armed since fires too.
+    const sinceStop = timers.slice(armed);
+    expect(sinceStop).not.toEqual([]);
 
-    for (const fire of grace) fire();
+    for (const fire of sinceStop) fire();
     await until(() => !runner.snapshot().running);
     expect(stubborn?.child.kill).toHaveBeenCalledWith("SIGKILL");
     expect((await readRequests(cwd))[0]?.status).toBe("cancelled");

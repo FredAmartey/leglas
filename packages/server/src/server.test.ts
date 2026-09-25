@@ -24,7 +24,7 @@ import { CAPTURES_DIR, REFERENCES_DIR } from "./requests/attachments.js";
 import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./capture/browser.js";
 import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
 import type { LeglasConfig } from "./config/config.js";
-import type { LiveChange, LiveHub } from "./live.js";
+import { LIVE_DEBOUNCE_MS, type LiveChange, type LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests/requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
@@ -157,9 +157,9 @@ async function expectConditionalRead(
   const initialBody = await initial.text();
   const initialEtag = initial.headers.get("etag");
 
-  // The validator is opaque (RFC 9110); only its behaviour is checked.
+  // The validator is opaque (RFC 9110), but it is still a quoted entity-tag.
   expect(initial.status).toBe(200);
-  expect(initialEtag).not.toBeNull();
+  expect(initialEtag).toMatch(/^(W\/)?"[^"]*"$/);
 
   const unchanged = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
   expect(unchanged.status).toBe(304);
@@ -877,6 +877,8 @@ describe("startServer", () => {
       })
     ).json();
 
+    expect(body.width).toBeGreaterThan(0);
+    expect(body.height).toBeGreaterThan(0);
     expect({ width: body.width, height: body.height }).not.toEqual({
       width: frame.width,
       height: frame.height,
@@ -2794,8 +2796,15 @@ describe("startServer", () => {
     });
 
     // Let the nudges for the queue file's own writes land first; they would
-    // say "requests" whether or not the runner is wired to the channel.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // say "requests" whether or not the runner is wired to the channel. Quiet
+    // for twice the coalescing window means none is still on its way.
+    let settled = -1;
+
+    while (settled !== live.changes.length) {
+      settled = live.changes.length;
+      await new Promise((resolve) => setTimeout(resolve, 2 * LIVE_DEBOUNCE_MS));
+    }
+
     const before = live.changes.length;
 
     const stop = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
@@ -3847,6 +3856,29 @@ describe("a body that is not an object", () => {
         found.push(`${match.groups?.["base"] ?? ""}${name[1] ?? ""}`);
       }
     }
+
+    // A route can also hide by testing its method some other way. Every route
+    // that reads a body does it through `req.on("data"` or readShareBody, so
+    // those are counted too; one listener is readShareBody's own.
+    const readers =
+      (source.match(/req\.on\("data"/g) ?? []).length -
+      1 +
+      (source.match(/readShareBody\(req,/g) ?? []).length;
+
+    const takesNothing = new Set(
+      Object.entries(NOT_A_JSON_OBJECT)
+        .filter(([, why]) => why === "takes nothing at all")
+        .map(([route]) => route),
+    );
+
+    expect(
+      Object.keys(NOT_A_JSON_OBJECT).filter((route) => !found.includes(route)),
+      "a stale exemption",
+    ).toEqual([]);
+    expect(
+      found.filter((route) => !takesNothing.has(route)),
+      "a body reader the scan cannot see",
+    ).toHaveLength(readers);
 
     // What is left is the one trust check in front of every mutation. Any
     // other POST is a route this scan cannot read, and so never tests.

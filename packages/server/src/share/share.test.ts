@@ -1209,9 +1209,12 @@ describe("the ceiling on viewer traffic", () => {
     expect(reached).toHaveLength(VIEWER_CONCURRENCY);
     giveUp.abort();
     await abandoned.catch(() => undefined);
-    // The share hears the viewer leave when the closed socket reaches it,
-    // a turn or two after the abort on this side.
+    // The share hears the viewer leave when the closed socket reaches it, in
+    // the event loop's next poll. The wait covers a busy loop; the turns after
+    // it make sure a poll has run since, however long the process was paused.
     await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
 
     holding.shift()?.();
     // The freed slot goes to the request behind it, not to the one that left.

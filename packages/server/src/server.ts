@@ -177,7 +177,10 @@ export type ServerOptions = {
    * the default probes each installed CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
-  /** How long one capture may take in all; injectable so a test need not wait it out. */
+  /**
+   * How long one capture may take in all; injectable so a test need not wait
+   * it out. The page's load wait keeps its share of the default either way.
+   */
   captureDeadlineMs?: number;
   /** How often the dev server is probed while someone is watching. */
   healthProbeMs?: number;
