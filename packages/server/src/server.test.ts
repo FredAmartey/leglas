@@ -1,5 +1,5 @@
 import { ChildProcess } from "node:child_process";
-import { boundPort } from "./test-helpers.js";
+import { boundPort, detectNoAgents } from "./test-helpers.js";
 import http from "node:http";
 import { createHash } from "node:crypto";
 
@@ -175,10 +175,11 @@ function deferred<T>() {
 }
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
-  // Server tests exercise HTTP behavior, not the installed Codex binary.
+  // Server tests exercise HTTP behavior, not the installed agent CLIs.
   const server = await startServer({
     codexAppServer: null,
     claudeAgentSession: null,
+    detect: detectNoAgents,
     detectTunnels: async () => [],
     pool: quietPool(),
     ...options,

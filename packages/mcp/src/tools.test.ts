@@ -10,10 +10,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test } from "vitest";
 
+import { runWithServices } from "../../cli/src/run.js";
+import { startServer } from "../../server/src/index.js";
 import { writeServerInfo } from "../../server/src/server-info.js";
+import { detectNoAgents } from "../../server/src/test-helpers.js";
 
 import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
-import { registerLeglasTools, type LeglasTools } from "./tools.js";
+import { registerLeglasTools, registerLeglasToolsWithServices, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
 
@@ -44,7 +47,8 @@ async function connect(
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
 
   // A silent engagement, so no test beats a real port; the recording variant
-  // proves the wiring where a test asks for it.
+  // proves the wiring where a test asks for it. The boot is the CLI's own,
+  // with a server that runs no agent CLI to ask about logins.
   const engagement = {
     touch: async () => {
       if (options.touches) options.touches.count += 1;
@@ -52,7 +56,19 @@ async function connect(
     stop: async () => {},
   };
 
-  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd), engagement }));
+  cleanups.push(
+    registerLeglasToolsWithServices(
+      server,
+      { project: fixedProject(cwd), engagement },
+      {
+        run: (runOptions, deps) =>
+          runWithServices(runOptions, deps, {
+            startServer: (serverOptions) =>
+              startServer({ ...serverOptions, detect: detectNoAgents }),
+          }),
+      },
+    ),
+  );
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);

@@ -1,5 +1,6 @@
 import type { Server } from "node:net";
 
+import { detectAgents, type DetectedAgent } from "./agents/agents.js";
 import type { CdpPage } from "./capture/browser.js";
 import { isString } from "./json.js";
 
@@ -26,3 +27,15 @@ export const unusedPage: CdpPage = {
   },
   on: () => () => {},
 };
+
+/**
+ * Agent detection on a machine with no agent CLI installed, for servers under
+ * test: a real startup probe runs each vendor's login status command. The
+ * probe is stubbed too, so a lookup that answers yes still runs nothing.
+ */
+export function detectNoAgents(): Promise<DetectedAgent[]> {
+  return detectAgents(
+    async () => false,
+    async () => null,
+  );
+}
