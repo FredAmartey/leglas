@@ -1199,6 +1199,41 @@ describe("a generation's lifecycle", () => {
     expect(generations.snapshot()[0]?.slots[2]?.state).toBe("building");
   });
 
+  test("a new idea's start is when it was asked for, not when its build began", async () => {
+    const cwd = await project("claude");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["fail", "hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const failed = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(generations.replace(started.job.id, failed.key)).toBe(true);
+    const asked = generations.snapshot()[0]?.slots[0]?.startedAt;
+
+    // The replacement is planned first, and only then built.
+    await settled(
+      () => builds[1],
+      () => true,
+    );
+    expect(generations.snapshot()[0]?.slots[0]?.startedAt).toBe(asked);
+  });
+
   test("a planned direction never overwrites a file that is already there", async () => {
     const cwd = await project("claude");
     const own = 'export function HeroImage() {\n  return <img src="/hero.jpg" alt="" />;\n}\n';
