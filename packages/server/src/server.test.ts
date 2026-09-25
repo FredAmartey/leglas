@@ -3339,41 +3339,42 @@ describe("startServer", () => {
   });
 });
 
+/** An update service that answers without touching npm. */
+function updateService() {
+  const status: UpdateStatus = {
+    version: "1.0.0",
+    install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
+    latest: {
+      version: "1.1.0",
+      title: "A release",
+      url: "https://leglas.vercel.app/changelog/#v1.1.0",
+    },
+    checkedAt: "2026-09-07T10:00:00.000Z",
+    checkError: null,
+    skipped: null,
+    available: true,
+    phase: { status: "idle" },
+    busy: false,
+  };
+
+  return {
+    status: vi.fn(() => status),
+    check: vi.fn(async () => status),
+    skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
+    update: vi.fn(async () => ({
+      ...status,
+      phase: { status: "installing" as const, version: "1.1.0" },
+    })),
+    notice: () => null,
+    onRestart: vi.fn(),
+    onBusy: vi.fn<(busy: () => boolean) => void>(),
+    setPort: vi.fn(),
+    onChange: vi.fn<(listener: () => void) => void>(),
+    close: vi.fn(async () => {}),
+  } satisfies UpdateService;
+}
+
 describe("update routes", () => {
-  function updateService() {
-    const status: UpdateStatus = {
-      version: "1.0.0",
-      install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
-      latest: {
-        version: "1.1.0",
-        title: "A release",
-        url: "https://leglas.vercel.app/changelog/#v1.1.0",
-      },
-      checkedAt: "2026-09-07T10:00:00.000Z",
-      checkError: null,
-      skipped: null,
-      available: true,
-      phase: { status: "idle" },
-      busy: false,
-    };
-
-    return {
-      status: vi.fn(() => status),
-      check: vi.fn(async () => status),
-      skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
-      update: vi.fn(async () => ({
-        ...status,
-        phase: { status: "installing" as const, version: "1.1.0" },
-      })),
-      notice: () => null,
-      onRestart: vi.fn(),
-      onBusy: vi.fn<(busy: () => boolean) => void>(),
-      setPort: vi.fn(),
-      onChange: vi.fn<(listener: () => void) => void>(),
-      close: vi.fn(async () => {}),
-    } satisfies UpdateService;
-  }
-
   async function bootUpdates(updates?: ReturnType<typeof updateService>, live?: LiveHub) {
     const options: Parameters<typeof start>[0] = {
       config: configFor(1),
@@ -3801,18 +3802,34 @@ describe("a body that is not an object", () => {
     "/api/references": "takes raw image bytes",
     "/api/agents/warm": "takes nothing at all",
     "/api/share/stop": "takes nothing at all",
+    "/api/update/check": "takes nothing at all",
+    "/api/update/install": "takes nothing at all",
   };
 
   const routes = (): string[] => {
-    const source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8");
+    // Read with its whitespace collapsed: the formatter wraps a long
+    // condition across lines, and a route split that way used to go unseen.
+    let source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").replace(/\s+/g, " ");
+    const single = /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g;
 
-    const found = [
-      ...source.matchAll(
-        /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g,
-      ),
-    ].map((match) => match.groups?.["route"] ?? "");
+    const grouped =
+      /req\.method === "POST" && \[(?<names>[^\]]*)\]\.some\( \(action\) => path === `\$\{LEGLAS_PREFIX\}(?<base>\/[^`$]*)\$\{action\}`/g;
 
-    expect(found.length, "no POST routes found; the pattern above has drifted").toBeGreaterThan(5);
+    const found = [...source.matchAll(single)].map((match) => match.groups?.["route"] ?? "");
+
+    for (const match of source.matchAll(grouped)) {
+      for (const name of (match.groups?.["names"] ?? "").matchAll(/"([^"]+)"/g)) {
+        found.push(`${match.groups?.["base"] ?? ""}${name[1] ?? ""}`);
+      }
+    }
+
+    // What is left is the one trust check in front of every mutation. Any
+    // other POST is a route this scan cannot read, and so never tests.
+    source = source.replace(single, "").replace(grouped, "");
+    expect(
+      source.match(/req\.method === "POST"/g),
+      "a POST route the scan cannot read",
+    ).toHaveLength(1);
 
     return found.filter((route) => !(route in NOT_A_JSON_OBJECT));
   };
@@ -3824,6 +3841,7 @@ describe("a body that is not an object", () => {
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
       port: 0,
+      updates: updateService(),
     });
 
     for (const route of routes()) {
