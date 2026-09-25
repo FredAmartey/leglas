@@ -343,6 +343,27 @@ describe("reorderAmongSiblings", () => {
 
     expect(order.indexOf("Ferry")).toBe(order.indexOf("Quay") - 1);
   });
+
+  test("a hidden sibling keeps its place in the list", () => {
+    // Tide is hidden, so the rail offers only the siblings it draws. Moving
+    // Wave ahead of Ferry leaves Tide second, where it was, not at either end.
+    const saved = ["Quay", "Tide", "Ferry", "Wave"];
+
+    expect(reorderAmongSiblings(saved, saved, "Wave", "Ferry", ["Quay", "Ferry", "Wave"])).toEqual([
+      "Quay",
+      "Tide",
+      "Wave",
+      "Ferry",
+    ]);
+
+    // Dropped past the last sibling, it lands after that sibling, not past a
+    // hidden one that follows.
+    const trailing = ["Quay", "Ferry", "Wave", "Tide"];
+
+    expect(
+      reorderAmongSiblings(trailing, trailing, "Quay", null, ["Quay", "Ferry", "Wave"]),
+    ).toEqual(["Ferry", "Wave", "Quay", "Tide"]);
+  });
 });
 
 describe("tracedChain", () => {
