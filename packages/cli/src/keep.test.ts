@@ -119,4 +119,15 @@ describe("planKeep", () => {
     if (plan.ok) return;
     expect(plan.error.toLowerCase()).toContain("inside the project");
   });
+
+  // runKeep turns a path inside the project into its relative form first, so
+  // an absolute one here is outside it, such as another drive on Windows.
+  test("refuses an absolute destination", () => {
+    const plan = planKeep({ title: "Aurora", previews, to: "/elsewhere/hero.tsx" });
+
+    expect(plan.ok).toBe(false);
+
+    if (plan.ok) return;
+    expect(plan.error.toLowerCase()).toContain("inside the project");
+  });
 });
