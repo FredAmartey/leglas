@@ -355,6 +355,14 @@ describe("reorderAmongSiblings", () => {
       "Wave",
       "Ferry",
     ]);
+
+    // Dropped past the last sibling, it lands after that sibling, not past a
+    // hidden one that follows.
+    const trailing = ["Quay", "Ferry", "Wave", "Tide"];
+
+    expect(
+      reorderAmongSiblings(trailing, trailing, "Quay", null, ["Quay", "Ferry", "Wave"]),
+    ).toEqual(["Ferry", "Wave", "Quay", "Tide"]);
   });
 });
 
