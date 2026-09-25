@@ -389,6 +389,18 @@ describe("trailPath", () => {
     expect(path).toMatch(/ 14 24 L 14 80$/);
     // Between the two, the very curve the gutter draws.
     expect(path).toBe(`${forkCurve(4, 10, 14)} L 14 80`);
+
+    // And that curve leaves the mark heading straight down and arrives in the
+    // new lane heading straight down: the first control point stays on x 4,
+    // the last one before the knee is already on x 14.
+    const cubics = path
+      .slice(0, path.lastIndexOf(" L "))
+      .split(" C ")
+      .slice(1)
+      .map((cubic) => cubic.split(", ").map((point) => point.split(" ").map(Number)));
+
+    expect(cubics[0]?.[0]?.[0]).toBe(4);
+    expect(cubics.at(-1)?.[1]?.[0]).toBe(14);
   });
 
   test("a fork with no room before the next mark goes straight there", () => {
