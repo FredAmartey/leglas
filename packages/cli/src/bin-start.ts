@@ -8,6 +8,8 @@ import { createHandoff } from "./restart.js";
 import { run } from "./run.js";
 import { installShutdown } from "./shutdown.js";
 
+type HandoffDeps = Parameters<ReturnType<typeof createHandoff>["handOff"]>[2];
+
 /** Wire the long-running CLI instance to its updater and signal handlers. */
 export async function startViewer(
   options: RunOptions & { cwd: string },
@@ -19,6 +21,8 @@ export async function startViewer(
     createUpdateService?: typeof createUpdateService;
     run?: typeof run;
     installShutdown?: typeof installShutdown;
+    /** Where a restart spawns and how either shutdown ends the process. */
+    handoff?: HandoffDeps;
   },
 ): Promise<void> {
   let entry = deps.entry;
@@ -47,17 +51,17 @@ export async function startViewer(
 
   const { handOff, handedOff } = createHandoff();
 
-  updates.onRestart((command) =>
-    handOff(command, result.stop, {
-      spawn,
-      exit: (code) => process.exit(code),
-      target: process,
-    }),
-  );
+  const handoff = deps.handoff ?? {
+    spawn,
+    exit: (code) => process.exit(code),
+    target: process,
+  };
+
+  updates.onRestart((command) => handOff(command, result.stop, handoff));
 
   (deps.installShutdown ?? installShutdown)(async () => {
     if (handedOff()) return;
     await result.stop();
-    process.exit(0);
-  });
+    handoff.exit(0);
+  }, handoff.target);
 }
