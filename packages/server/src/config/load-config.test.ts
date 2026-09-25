@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_DEV_SERVER } from "./config.js";
 import { loadConfig } from "./load-config.js";
 
 function scratch(): string {
@@ -17,7 +16,7 @@ describe("loadConfig", () => {
     expect(result.errors).toEqual([]);
     expect(result.path).toBeNull();
     expect(result.config?.previews).toHaveLength(1);
-    expect(result.config?.devServer).toBe(DEFAULT_DEV_SERVER);
+    expect(result.config?.devServer).toBe("http://localhost:3000");
   });
 
   test("loads a TypeScript config, including its type annotations", async () => {

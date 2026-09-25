@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { needsDevServer, nextHealthState, type HealthState } from "./health.js";
+import { INITIAL_HEALTH, needsDevServer, nextHealthState, type HealthState } from "./health.js";
 import type { Preview } from "../types.js";
 
 const up: HealthState = { reachable: true, wasDown: false };
@@ -20,15 +20,6 @@ describe("nextHealthState", () => {
     expect(nextHealthState(down, true)).toEqual({ reachable: true, wasDown: true });
   });
 
-  test("clears the memory once the recovery has been handled", () => {
-    const recovered = nextHealthState(down, true);
-
-    expect(nextHealthState({ ...recovered, wasDown: false }, true)).toEqual({
-      reachable: true,
-      wasDown: false,
-    });
-  });
-
   test("does not re-arm recovery while it stays down", () => {
     expect(nextHealthState(down, false)).toEqual({ reachable: false, wasDown: true });
   });
@@ -41,8 +32,9 @@ describe("nextHealthState", () => {
   });
 
   test("treats the first successful check as ordinary, not a recovery", () => {
-    // Starting optimistic means a normal boot never flashes a reload.
-    expect(nextHealthState({ reachable: true, wasDown: false }, true).wasDown).toBe(false);
+    // Starting optimistic means a normal boot never flashes a reload. The
+    // state the shell boots with, so a pessimistic start breaks this.
+    expect(nextHealthState(INITIAL_HEALTH, true).wasDown).toBe(false);
   });
 });
 

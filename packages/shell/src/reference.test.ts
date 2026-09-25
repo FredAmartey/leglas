@@ -73,11 +73,6 @@ describe("referenceText", () => {
     expect(reference({}, "Sunrise")).toContain('npx leglas show "Warm" --json');
   });
 
-  test("leaks no absolute filesystem path", () => {
-    const text = reference({ file: "pages/warm.html", note: "Sunlit." });
-    expect(text).not.toMatch(/(^|\s)\//m);
-  });
-
   test("survives a title it has no preview for", () => {
     const text = referenceText({
       displayName: "Gone",

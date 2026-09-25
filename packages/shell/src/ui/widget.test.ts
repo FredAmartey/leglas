@@ -105,18 +105,4 @@ describe("dragAnchor", () => {
     expect(anchor.x + WIDGET_SIZE / 2).toBe(pointer.x);
     expect(anchor.y + WIDGET_SIZE / 2).toBe(pointer.y);
   });
-
-  test("keeps the pointer inside the button's box", () => {
-    for (const pointer of [
-      { x: 0, y: 0 },
-      { x: 1000, y: 500 },
-      { x: 24, y: 972 },
-    ]) {
-      const a = dragAnchor(pointer);
-      expect(pointer.x).toBeGreaterThanOrEqual(a.x);
-      expect(pointer.x).toBeLessThanOrEqual(a.x + WIDGET_SIZE);
-      expect(pointer.y).toBeGreaterThanOrEqual(a.y);
-      expect(pointer.y).toBeLessThanOrEqual(a.y + WIDGET_SIZE);
-    }
-  });
 });

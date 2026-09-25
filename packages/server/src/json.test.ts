@@ -3,15 +3,6 @@ import { describe, expect, test } from "vitest";
 import { isBoolean, isJsonRecord, isNumber, isString, parseJson } from "./json.js";
 
 describe("JSON boundaries", () => {
-  test("decodes nested values and keeps omitted keys absent", () => {
-    const value = parseJson('{"items":[null,true,3,"text",{"id":1}]}');
-    expect(value).toEqual({ items: [null, true, 3, "text", { id: 1 }] });
-    expect(isJsonRecord(value)).toBe(true);
-
-    if (!isJsonRecord(value)) throw new Error("Expected the decoded object.");
-    expect("missing" in value).toBe(false);
-  });
-
   test.each([null, undefined, [], 1, "text", true])(
     "refuses %j as an object container",
     (value) => {

@@ -9,13 +9,6 @@ import {
 } from "./rendered.js";
 
 describe("renderedSignature", () => {
-  test("two pages drawing the same thing agree", () => {
-    const a = renderedSignature("Ship design faster\nGet started", ["SECTION", "H1", "BUTTON"]);
-    const b = renderedSignature("Ship design faster\nGet started", ["SECTION", "H1", "BUTTON"]);
-
-    expect(a).toBe(b);
-  });
-
   test("different words disagree", () => {
     const a = renderedSignature("Ship design faster", ["H1"]);
     const b = renderedSignature("Choose well", ["H1"]);
@@ -106,13 +99,6 @@ describe("paint in the signature", () => {
     expect(dawn).not.toBe(dusk);
   });
 
-  test("an accidental duplicate still matches, paint included", () => {
-    // A typo'd query value serves the same page, which renders the same
-    // colours along with the same words.
-    const paint = ["rgb(255,255,255);none;rgb(17,17,17)"];
-    expect(renderedSignature(TEXT, TAGS, paint)).toBe(renderedSignature(TEXT, TAGS, paint));
-  });
-
   test("no paint sample behaves as before", () => {
     expect(renderedSignature(TEXT, TAGS)).toBe(renderedSignature(TEXT, TAGS, []));
   });
@@ -129,13 +115,6 @@ describe("paint in the signature", () => {
     ]);
 
     expect(capsule).not.toBe(satellite);
-  });
-
-  test("identical high-fidelity visual records still agree", () => {
-    const visual = ["SVG{rect:20,20,64,64;d:M0 0L64 64}", "NAV{rect:120,20,650,64;display:grid}"];
-    expect(renderedSignature(TEXT, TAGS, [], visual)).toBe(
-      renderedSignature(TEXT, TAGS, [], visual),
-    );
   });
 
   test("pseudo-elements, vector geometry and media sources affect the verdict", () => {
@@ -159,6 +138,8 @@ describe("paint in the signature", () => {
 
 describe("visualSample", () => {
   type FakeElement = {
+    /** The computed animation-name and transform the stand-in reports. */
+    animation: string;
     getAttribute: (name: string) => string | null;
     getBoundingClientRect: () => {
       bottom: number;
@@ -180,9 +161,15 @@ describe("visualSample", () => {
     parentElement: FakeElement | null;
     querySelectorAll: () => FakeElement[];
     tagName: string;
+    transform: string;
   };
 
-  const fakeTree = (childLeft: number, path = "M0 0L10 10") => {
+  /** A body and one child, which `moving` catches at some frame of an animation. */
+  const fakeTree = (
+    childLeft: number,
+    path = "M0 0L10 10",
+    moving?: { animation: string; transform: string },
+  ) => {
     const ownerDocument = {
       defaultView: { getComputedStyle: () => ({ position: "static" }), scrollX: 0, scrollY: 0 },
     };
@@ -197,6 +184,7 @@ describe("visualSample", () => {
     });
 
     const child: FakeElement = {
+      animation: moving?.animation ?? "none",
       getAttribute: (name) => (name === "d" ? path : null),
       getBoundingClientRect: () => rect(childLeft, 100),
       matches: () => false,
@@ -205,9 +193,11 @@ describe("visualSample", () => {
       parentElement: null,
       querySelectorAll: () => [],
       tagName: "PATH",
+      transform: moving?.transform ?? "none",
     };
 
     const body: FakeElement = {
+      animation: "none",
       getAttribute: () => null,
       getBoundingClientRect: () => rect(0, 1280),
       matches: () => false,
@@ -216,6 +206,7 @@ describe("visualSample", () => {
       parentElement: null,
       querySelectorAll: () => [child],
       tagName: "BODY",
+      transform: "none",
     };
 
     child.parentElement = body;
@@ -223,11 +214,13 @@ describe("visualSample", () => {
     return body;
   };
 
-  const styleOf = (_element: FakeElement, pseudo?: string) => ({
+  const styleOf = (element: FakeElement, pseudo?: string) => ({
     getPropertyValue: (property: string) => {
       if (property === "content") return pseudo ? "none" : "";
 
-      if (property === "animation-name") return "none";
+      if (property === "animation-name") return element.animation;
+
+      if (property === "transform") return element.transform;
 
       if (property === "display") return "block";
 
@@ -248,6 +241,36 @@ describe("visualSample", () => {
   test("half-pixel quantisation ignores sub-raster noise", () => {
     expect(quantiseCssPixel(10.01)).toBe(quantiseCssPixel(10.19));
     expect(quantiseCssPixel(10.01)).not.toBe(quantiseCssPixel(10.49));
+  });
+
+  // visualSample's own comment: a running animation's name is kept and the
+  // frame it happens to be on is not, so one page loaded twice, milliseconds
+  // apart, still agrees. And quantiseCssPixel's: a box is read to the half
+  // pixel, so rasterisation noise is no difference either.
+  test("one design read twice still agrees, mid-animation and through sub-pixel noise", () => {
+    const signature = (body: FakeElement) =>
+      renderedSignature(
+        "Every incident, one timeline",
+        ["BODY", "PATH"],
+        [],
+        visualSample(body, styleOf),
+      );
+
+    // A slide caught at two frames: the transform has moved, and the box with it.
+    const early = fakeTree(20, "M0 0L10 10", {
+      animation: "slide",
+      transform: "matrix(1, 0, 0, 1, 4, 0)",
+    });
+
+    const late = fakeTree(62, "M0 0L10 10", {
+      animation: "slide",
+      transform: "matrix(1, 0, 0, 1, 46, 0)",
+    });
+
+    expect(signature(late)).toBe(signature(early));
+
+    // A still layout, rasterised a fraction of a pixel apart.
+    expect(signature(fakeTree(20.19))).toBe(signature(fakeTree(20.01)));
   });
 });
 

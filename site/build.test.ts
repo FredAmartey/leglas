@@ -14,9 +14,10 @@ import { docsPath, loadDocs } from "./docs.ts";
 import {
   findBrowser,
   launchBrowser,
+  type Browser,
   type CdpPage,
 } from "../packages/server/src/capture/browser.ts";
-import { boundPort } from "../packages/server/src/test-helpers.ts";
+import { boundPort, required } from "../packages/server/src/test-helpers.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -145,79 +146,85 @@ const executable = findBrowser();
 // What the switch's own comment in chrome.ts promises: the theme flips from
 // whatever is showing, the circle opens from the button's centre, a reader
 // who asked for less motion gets the flip alone, and the choice is kept.
-describe.skipIf(executable === null || process.env.CODEX_SANDBOX === "seatbelt")(
-  "the theme switch in a real browser",
-  () => {
-    test.each([
-      ["no-preference", 1],
-      ["reduce", 0],
-    ] as const)(
-      "with reduced motion %s, a click flips the theme from the switch (%i view transitions)",
-      async (motion, transitions) => {
-        const page = await serve(renderHome(loadAssets(root)));
-        const browser = await launchBrowser(executable ?? "");
+// Skipped for two reasons kept apart, as the capture tests keep them: no
+// browser on the machine, or a sandbox that will not let one start.
+describe.skipIf(executable === null)("the theme switch in a real browser", () => {
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt").each([
+    ["no-preference", 1],
+    ["reduce", 0],
+  ] as const)(
+    "with reduced motion %s, a click flips the theme from the switch (%i view transitions)",
+    async (motion, transitions) => {
+      const page = await serve(renderHome(loadAssets(root)));
+      let browser: Browser | null = null;
 
-        try {
-          await browser.withPage(async (tab) => {
-            await tab.send("Page.enable");
+      try {
+        browser = await launchBrowser(required(executable));
 
-            await tab.send("Emulation.setEmulatedMedia", {
-              features: [
-                { name: "prefers-color-scheme", value: "light" },
-                { name: "prefers-reduced-motion", value: motion },
-              ],
-            });
+        await browser.withPage(async (tab) => {
+          await tab.send("Page.enable");
 
-            await load(tab, page.url);
-
-            await evaluate(
-              tab,
-              "window.transitions = 0; const start = document.startViewTransition; if (start) document.startViewTransition = (update) => { window.transitions += 1; return start.call(document, update); }; true",
-            );
-
-            const centre = await evaluate<{ x: number; y: number }>(
-              tab,
-              'JSON.parse(JSON.stringify((() => { const box = document.querySelector("[data-theme-switch]").getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; })()))',
-            );
-
-            for (const type of ["mousePressed", "mouseReleased"]) {
-              await tab.send("Input.dispatchMouseEvent", {
-                type,
-                x: centre.x,
-                y: centre.y,
-                button: "left",
-                clickCount: 1,
-              });
-            }
-
-            await until(tab, 'document.documentElement.dataset.theme === "dark"');
-            expect(await evaluate<number>(tab, "window.transitions")).toBe(transitions);
-
-            expect(
-              await evaluate<string>(
-                tab,
-                'document.documentElement.style.getPropertyValue("--vt-x")',
-              ),
-            ).toBe(`${centre.x}px`);
-
-            expect(
-              await evaluate<string>(
-                tab,
-                'document.documentElement.style.getPropertyValue("--vt-y")',
-              ),
-            ).toBe(`${centre.y}px`);
-
-            // Kept: the next visit starts dark.
-            await load(tab, page.url);
-            expect(await evaluate<string>(tab, "document.documentElement.dataset.theme")).toBe(
-              "dark",
-            );
+          await tab.send("Emulation.setEmulatedMedia", {
+            features: [
+              { name: "prefers-color-scheme", value: "light" },
+              { name: "prefers-reduced-motion", value: motion },
+            ],
           });
+
+          await load(tab, page.url);
+
+          await evaluate(
+            tab,
+            "window.transitions = 0; const start = document.startViewTransition; if (start) document.startViewTransition = (update) => { window.transitions += 1; return start.call(document, update); }; true",
+          );
+
+          const centre = await evaluate<{ x: number; y: number }>(
+            tab,
+            'JSON.parse(JSON.stringify((() => { const box = document.querySelector("[data-theme-switch]").getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; })()))',
+          );
+
+          for (const type of ["mousePressed", "mouseReleased"]) {
+            await tab.send("Input.dispatchMouseEvent", {
+              type,
+              x: centre.x,
+              y: centre.y,
+              button: "left",
+              clickCount: 1,
+            });
+          }
+
+          await until(tab, 'document.documentElement.dataset.theme === "dark"');
+          expect(await evaluate<number>(tab, "window.transitions")).toBe(transitions);
+
+          expect(
+            await evaluate<string>(
+              tab,
+              'document.documentElement.style.getPropertyValue("--vt-x")',
+            ),
+          ).toBe(`${centre.x}px`);
+
+          expect(
+            await evaluate<string>(
+              tab,
+              'document.documentElement.style.getPropertyValue("--vt-y")',
+            ),
+          ).toBe(`${centre.y}px`);
+
+          // Kept: the next visit starts dark.
+          await load(tab, page.url);
+          expect(await evaluate<string>(tab, "document.documentElement.dataset.theme")).toBe(
+            "dark",
+          );
+        });
+      } finally {
+        // The page's server closes whatever became of the browser, one that
+        // never started and one that would not close included.
+        try {
+          await browser?.close();
         } finally {
-          await browser.close();
           await page.close();
         }
-      },
-    );
-  },
-);
+      }
+    },
+  );
+});

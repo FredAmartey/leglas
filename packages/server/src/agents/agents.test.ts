@@ -92,14 +92,6 @@ describe("KNOWN_AGENTS", () => {
     expect(KNOWN_AGENTS.claude.args("make it warmer", null, images)).not.toContain("-i");
     expect(KNOWN_AGENTS.cursor.args("make it warmer", null, images)).not.toContain("-i");
   });
-
-  test("grants each exact Claude command as its own allowed tool", () => {
-    expect(KNOWN_AGENTS.claude.allowArgs(["npx leglas show", "npx leglas add"])).toEqual([
-      "--allowedTools",
-      "Bash(npx leglas show *)",
-      "Bash(npx leglas add *)",
-    ]);
-  });
 });
 
 test("codex is told it may run outside a git repository", () => {

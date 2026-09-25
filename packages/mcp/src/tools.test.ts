@@ -1,14 +1,21 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
 
@@ -21,6 +28,7 @@ const captureServers: http.Server[] = [];
 
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((tools) => tools.shutdown()));
+  vi.unstubAllEnvs();
   await Promise.all(
     captureServers.splice(0).map(
       (server) =>
@@ -321,25 +329,55 @@ describe("the MCP face", () => {
     expect(envelope["requests"]).toEqual([]);
   });
 
-  test("start boots the viewer, is idempotent, and shutdown stops it", async () => {
-    const dir = scratch();
-    const client = await connect(dir);
+  // This is the one test that boots the viewer the way the published package
+  // does, bundle and all, and a booting server asks each agent CLI whether it
+  // is logged in. Stand-ins that answer "no" sit first on PATH, where agent
+  // detection looks before anywhere else, so no real CLI is run.
+  test.skipIf(process.platform === "win32")(
+    "start boots the viewer, is idempotent, and shutdown stops it",
+    async () => {
+      const dir = scratch();
+      const bin = scratch();
+      const asked = join(bin, "asked.log");
 
-    const first = await call(client, "start", { port: 0 });
-    expect(first.envelope["ok"]).toBe(true);
-    const url = String(first.envelope["url"]);
-    expect(url).toContain("/leglas");
+      for (const name of ["claude", "codex", "cursor-agent"]) {
+        const stub = join(bin, name);
+        writeFileSync(stub, `#!/bin/sh\necho ${name} >> "${asked}"\nexit 1\n`);
+        chmodSync(stub, 0o755);
+      }
 
-    const health = await fetch(`${url}/api/health`);
-    expect(health.ok).toBe(true);
+      vi.stubEnv("PATH", `${bin}${delimiter}${process.env.PATH ?? ""}`);
+      const client = await connect(dir);
 
-    const second = await call(client, "start", {});
-    expect(second.envelope["alreadyRunning"]).toBe(true);
-    expect(String(second.envelope["url"])).toBe(url);
+      const first = await call(client, "start", { port: 0 });
+      expect(first.envelope["ok"]).toBe(true);
+      const url = String(first.envelope["url"]);
+      expect(url).toContain("/leglas");
 
-    await cleanups[0]?.shutdown();
-    await expect(fetch(`${url}/api/health`)).rejects.toThrow();
-  });
+      const health = await fetch(`${url}/api/health`);
+      expect(health.ok).toBe(true);
+
+      const second = await call(client, "start", {});
+      expect(second.envelope["alreadyRunning"]).toBe(true);
+      expect(String(second.envelope["url"])).toBe(url);
+
+      await cleanups[0]?.shutdown();
+      await expect(fetch(`${url}/api/health`)).rejects.toThrow();
+
+      // Every login question went to a stand-in, and all of them have been
+      // asked, so PATH can go back.
+      await vi.waitFor(
+        () => {
+          expect(readFileSync(asked, "utf8").split("\n").filter(Boolean).sort()).toEqual([
+            "claude",
+            "codex",
+            "cursor-agent",
+          ]);
+        },
+        { timeout: 15_000 },
+      );
+    },
+  );
 });
 
 /**
