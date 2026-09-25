@@ -7,7 +7,6 @@ import {
   deleteDirections,
   loadPrefs,
   railOrder,
-  reorder,
   type Prefs,
 } from "./prefs.js";
 import type { Preview } from "./types.js";
@@ -124,37 +123,6 @@ describe("deleteDirections", () => {
     const once = deleteDirections(loadPrefs(null, previews), ["Wave"]);
 
     expect(deleteDirections(once, ["Wave"]).deleted).toEqual(["Wave"]);
-  });
-});
-
-describe("reorder", () => {
-  const base = loadPrefs(null, previews);
-
-  test("moves a preview down to the requested slot", () => {
-    expect(reorder(base, previews, "Original", 2)).toEqual(["Wave", "Aurora", "Original"]);
-  });
-
-  test("moves a preview up to the requested slot", () => {
-    expect(reorder(base, previews, "Aurora", 0)).toEqual(["Aurora", "Original", "Wave"]);
-  });
-
-  test("moving to the end appends", () => {
-    expect(reorder(base, previews, "Wave", 5)).toEqual(["Original", "Aurora", "Wave"]);
-  });
-
-  test("hidden previews keep their place in the underlying order", () => {
-    const prefs = { ...base, hidden: ["Wave"] };
-
-    // Visible rows are Original, Aurora; moving Aurora to slot 0 must not
-    // reshuffle the hidden Wave out of the stored order.
-    expect(reorder(prefs, previews, "Aurora", 0)).toEqual(["Aurora", "Original", "Wave"]);
-
-    // A hidden row between two visible ones stays where it was, rather than
-    // being swept to an end: Dusk lands before Aurora, after the hidden Wave.
-    const four = [...previews, { title: "Dusk", url: "/?v-hero=dusk", tags: [] }];
-    const between = { ...loadPrefs(null, four), hidden: ["Wave"] };
-
-    expect(reorder(between, four, "Dusk", 1)).toEqual(["Original", "Wave", "Dusk", "Aurora"]);
   });
 });
 
