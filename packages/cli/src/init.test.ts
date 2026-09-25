@@ -23,20 +23,25 @@ describe("planInit", () => {
     expect(contents.indexOf("Run the tests")).toBeLessThan(contents.indexOf(AGENTS_MARKER_START));
   });
 
-  test("does not add a second copy when the section is already there", () => {
-    const existing = `# Project\n\n${AGENTS_MARKER_START}\nold text\n${AGENTS_MARKER_END}\n`;
+  // The markers sit in projects' committed AGENTS.md files, so these two use
+  // the text already on disk rather than the module's constants: a renamed
+  // marker has to break them, not travel with them.
+  const onDisk = "# Project\n\n<!-- leglas:start -->\nold text\n<!-- leglas:end -->\n";
 
-    expect(write(plan({ agents: existing }), "AGENTS.md")).toBeUndefined();
+  test("does not add a second copy when the section is already there", () => {
+    expect(write(plan({ agents: onDisk }), "AGENTS.md")).toBeUndefined();
   });
 
-  test("replaces the section when asked to update it", () => {
-    const existing = `# Project\n\n${AGENTS_MARKER_START}\nold text\n${AGENTS_MARKER_END}\n`;
+  test("replaces the section when asked to update it, keeping the project's own text", () => {
+    const existing = `${onDisk}\n## Our notes\n\nKeep this.\n`;
     const result = planInit({ agents: existing, config: null, gitignore: null, force: true });
     const contents = write(result, "AGENTS.md")?.contents ?? "";
 
     expect(contents).toContain("# Project");
+    expect(contents).toContain("Keep this.");
     expect(contents).not.toContain("old text");
-    expect(contents.match(new RegExp(AGENTS_MARKER_START, "g"))).toHaveLength(1);
+    expect(contents.split("<!-- leglas:start -->")).toHaveLength(2);
+    expect(contents.split("<!-- leglas:end -->")).toHaveLength(2);
   });
 
   test("teaches additive authoring, which is what keeps switching instant", () => {

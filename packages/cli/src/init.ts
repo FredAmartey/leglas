@@ -131,7 +131,8 @@ Useful to know:
   they have asked for that is not done yet. Add \`--screenshot\` to render a PNG
   you can inspect. Run it when handed a direction you did not register yourself.
 - Every command accepts \`--json\` and prints one envelope with a stable exit
-  code, so you can drive it without parsing prose.
+  code, so you can drive it without parsing prose. \`watch\` keeps running, so
+  it prints one JSON line per event instead.
 
 ${AGENTS_MARKER_END}
 `;

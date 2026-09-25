@@ -61,7 +61,7 @@ export type ParseResult =
       json: boolean;
     }
   | { kind: "requests"; json: boolean; clear: boolean }
-  | { kind: "watch"; run: string | undefined; port: number | undefined }
+  | { kind: "watch"; run: string | undefined; port: number | undefined; json: boolean }
   | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
   | { kind: "keep"; title: string; to: string; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
@@ -294,9 +294,15 @@ function parseClassify(rest: string[]): ParseResult {
 function parseWatch(rest: string[]): ParseResult {
   let run: string | undefined;
   let port: number | undefined;
+  let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
+
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
 
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
@@ -328,7 +334,7 @@ function parseWatch(rest: string[]): ParseResult {
     port = parsed.port;
   }
 
-  return { kind: "watch", run, port };
+  return { kind: "watch", run, port, json };
 }
 
 /**

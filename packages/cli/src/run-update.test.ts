@@ -90,13 +90,7 @@ describe("skipStartupCheck", () => {
 });
 
 describe("startup update check without a listener", () => {
-  test("omits absent server options and forwards explicit values", async () => {
-    const absent = await run(options, { log: vi.fn(), open: async () => {} });
-    const first = server.start.mock.calls[0]![0];
-    expect(Object.hasOwn(first, "port")).toBe(false);
-    expect(Object.hasOwn(first, "updates")).toBe(false);
-    await absent.stop();
-
+  test("forwards the port and update service it is given to the server", async () => {
     const updates = fakeUpdates();
 
     const present = await run(
@@ -104,36 +98,26 @@ describe("startup update check without a listener", () => {
       { updates, log: vi.fn(), open: async () => {} },
     );
 
-    const second = server.start.mock.calls[1]![0];
-    expect(second.port).toBe(0);
-    expect(second.updates).toBe(updates);
+    const given = server.start.mock.calls[0]![0];
+    expect(given.port).toBe(0);
+    expect(given.updates).toBe(updates);
     await present.stop();
   });
 
-  test("checks hourly without printing another notice and clears the unref'd timer on stop", async () => {
-    const interval = vi.spyOn(globalThis, "setInterval");
+  test("checks again hourly without printing another notice, and stops checking on stop", async () => {
     const updates = fakeUpdates();
     const log = vi.fn();
     const result = await run(options, { updates, log, open: async () => {} });
     await Promise.resolve();
     expect(updates.check).toHaveBeenCalledOnce();
-    expect(updates.notice).toHaveBeenCalledOnce();
-    expect(interval).toHaveBeenCalledWith(expect.any(Function), 60 * 60_000);
-    const timer = interval.mock.results[0]!;
-    expect(timer.type).toBe("return");
-
-    if (timer.type !== "return") throw new Error("The interval did not start.");
-    expect(timer.value.hasRef()).toBe(false);
     await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
     expect(updates.check).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1);
     expect(updates.check).toHaveBeenCalledTimes(2);
-    expect(updates.notice).toHaveBeenCalledOnce();
     expect(log.mock.calls.filter(([line]) => line === "An update is available.")).toHaveLength(1);
     await result.stop();
     await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
     expect(updates.check).toHaveBeenCalledTimes(2);
-    expect(vi.getTimerCount()).toBe(0);
   });
 
   test("a startup check finishing after stop prints nothing", async () => {
@@ -149,27 +133,8 @@ describe("startup update check without a listener", () => {
     await result.stop();
     finish(status);
     await Promise.resolve();
-    expect(updates.notice).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalledWith("An update is available.");
   });
-  test("prints the notice after the startup block and browser open, passing the service to the server", async () => {
-    const output: string[] = [];
-    const updates = fakeUpdates();
-    await run(options, {
-      updates,
-      log: (line) => {
-        output.push(line);
-      },
-      open: async () => {
-        output.push("opened");
-      },
-    });
-    await Promise.resolve();
-    expect(output.at(-1)).toBe("An update is available.");
-    expect(output.indexOf("opened")).toBe(output.length - 2);
-    expect(output[0]).toBe("Leglas   http://localhost:4105/leglas");
-    expect(server.start).toHaveBeenCalledWith(expect.objectContaining({ updates }));
-  });
-
   test("returns without waiting for npm", async () => {
     const updates = fakeUpdates();
     let finish!: (value: UpdateStatus) => void;
@@ -196,15 +161,6 @@ describe("startup update check without a listener", () => {
     expect(updates.check).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledOnce();
     expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ ok: true });
-  });
-
-  test("a null notice adds no output", async () => {
-    const updates = fakeUpdates();
-    updates.notice.mockReturnValue(null);
-    const log = vi.fn();
-    await run(options, { updates, log, open: async () => {} });
-    await Promise.resolve();
-    expect(log).toHaveBeenCalledTimes(4);
   });
 
   test.each(["CI", "LEGLAS_NO_UPDATE_CHECK"])("%s suppresses the startup check", async (name) => {

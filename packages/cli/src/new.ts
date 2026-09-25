@@ -142,11 +142,13 @@ export function ${name}Switch() {
 `;
 }
 
+// The note goes in as a string expression: written straight into the JSX,
+// `import { Hero }` and `<Hero />` were read as code and threw when rendered.
 function placeholder(label: string, note: string): string {
   return `export function ${label}() {
   return (
     <div style={{ padding: "3rem", fontFamily: "system-ui" }}>
-      <p>${note}</p>
+      <p>{${JSON.stringify(note)}}</p>
     </div>
   );
 }
