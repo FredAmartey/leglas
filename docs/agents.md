@@ -104,7 +104,7 @@ open standard for shipping a skill and MCP configuration together, so a
 client that implements it installs both in one step. It is a layout, not a
 build: `plugin.json` and `mcp.json` at the root, the skill in
 `skills/leglas/`. Such a client starts the server in the plugin's own
-directory, so the project is taken from the workspace the host declares
-over MCP roots, or from `LEGLAS_PROJECT_DIR` when it declares none. The
+directory, so the project is taken from `LEGLAS_PROJECT_DIR` when it is
+set, and otherwise from the workspace the host declares over MCP roots. The
 plugin's version covers the skill and the configuration; the server it
 launches is whatever `npx` fetches, the same as every command above.

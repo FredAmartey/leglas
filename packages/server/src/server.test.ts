@@ -34,6 +34,8 @@ import type { UpdateService, UpdateStatus } from "./update.js";
 import type { RunningWorktree } from "./branches/worktree.js";
 
 import { type JsonRecord } from "./json.js";
+// The interface's side of the live socket, for the one test that needs both.
+import { startLive } from "../../shell/src/net/live.js";
 
 const running: RunningServer[] = [];
 
@@ -3395,6 +3397,27 @@ describe("update routes", () => {
     changed();
     changed();
     expect(live.changes.filter((change) => change === "update")).toEqual(["update", "update"]);
+  });
+
+  // The test above proves the server asks; this one proves the interface
+  // hears. Each half of the live protocol has its own package, and each set
+  // of tests fakes the other half, which is how the shell dropped every
+  // update frame for two weeks while both sets passed.
+  test("an announced update reaches the interface's update listener", async () => {
+    const updates = updateService();
+    const server = await bootUpdates(updates);
+    const live = startLive({ url: `ws://127.0.0.1:${server.port}/leglas/api/live` });
+    let heard = 0;
+    live.on("update", () => (heard += 1));
+
+    try {
+      // Deadlines bound a hang on a loaded machine; they are not about speed.
+      await vi.waitFor(() => expect(live.connected).toBe(true), { timeout: 15_000 });
+      updates.onChange.mock.calls[0]![0]();
+      await vi.waitFor(() => expect(heard).toBe(1), { timeout: 15_000 });
+    } finally {
+      live.stop();
+    }
   });
 
   test("close waits for the installer before releasing the server's resources", async () => {
