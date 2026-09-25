@@ -437,7 +437,8 @@ describe("leglas watch --json, as a process", () => {
     child.kill("SIGTERM");
     await closed;
 
-    expect(exited).toBe(0);
+    // A missing build fails here, with node's "Cannot find module" as the message.
+    expect(exited, stderr).toBe(0);
 
     const events = stdout
       .trim()
