@@ -475,6 +475,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
     changed();
   };
 
+  /** A run's own stream says what it is doing; only a change is worth a nudge, and only while the attempt holds the slot. */
+  const follow =
+    (live: Live, slot: GenerationSlot, attempt: number) =>
+    (line: string): void => {
+      const activity = activityFrom("claude", line, deps.cwd);
+
+      if (activity === null || activity === slot.activity || !owns(live, slot, attempt)) return;
+      slot.activity = activity;
+      changed();
+    };
+
   const build = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
     const concept = live.concepts.get(slot.key);
 
@@ -504,14 +515,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       base: live.base,
     });
 
-    // The build's own stream says what it is doing; only a change is worth a nudge.
-    const building = run(buildArgs(prompt), BUILD_DEADLINE_MS, (line) => {
-      const activity = activityFrom("claude", line, deps.cwd);
-
-      if (activity === null || activity === slot.activity || !owns(live, slot, attempt)) return;
-      slot.activity = activity;
-      changed();
-    });
+    const building = run(buildArgs(prompt), BUILD_DEADLINE_MS, follow(live, slot, attempt));
 
     live.runs.set(slot.key, building);
     const outcome = await building.done;
@@ -537,7 +541,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
         message: "The build finished without writing its file.",
       });
     } else {
+      // The build's last step is over; until a fix run says otherwise, the page is being opened.
       slot.state = "checking";
+      slot.activity = null;
       changed();
       await check(live, slot, attempt);
     }
@@ -596,12 +602,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
     if (errors === null) return;
 
     if (errors.length > 0) {
-      const fixing = run(buildArgs(fixPrompt({ file: slot.file, errors })), FIX_DEADLINE_MS);
+      const fixing = run(
+        buildArgs(fixPrompt({ file: slot.file, errors })),
+        FIX_DEADLINE_MS,
+        follow(live, slot, attempt),
+      );
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
 
       if (!owns(live, slot, attempt)) return;
+      slot.activity = null;
 
       if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
 

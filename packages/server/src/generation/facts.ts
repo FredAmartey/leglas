@@ -31,6 +31,17 @@ const EXAMPLE_LINES = 250;
 /** A variation starts from the whole of its direction, not a sample of the house style. */
 const VARIED_LINES = 600;
 
+/** The first `limit` lines, saying so when there were more, so a build never takes a cut file for the whole. */
+function clip(source: string, limit: number): string {
+  const lines = source.split("\n");
+
+  if (lines.length <= limit) return source;
+
+  return [...lines.slice(0, limit), `// … ${lines.length - limit} more lines, not shown`].join(
+    "\n",
+  );
+}
+
 /** Short enough that a direction this size is a re-export, not a design. */
 const BASELINE_LINES = 15;
 
@@ -160,14 +171,14 @@ async function example(
         return {
           key: direction.key,
           path: followed,
-          source: real.split("\n").slice(0, limit).join("\n"),
+          source: clip(real, limit),
         };
       }
 
       continue;
     }
 
-    return { key: direction.key, path, source: body.split("\n").slice(0, limit).join("\n") };
+    return { key: direction.key, path, source: clip(body, limit) };
   }
 
   return null;

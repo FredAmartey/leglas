@@ -334,6 +334,22 @@ describe("the facts a builder is given", () => {
     expect(facts.example?.path).toBe(".leglas/variants/hero/current.tsx");
   });
 
+  test("say where a long direction was cut, so a build never takes it for the whole", async () => {
+    const cwd = await project("claude");
+    const body = Array.from({ length: 698 }, (_, index) => `  // line ${index + 1}`);
+
+    await writeFile(
+      join(cwd, ".leglas", "variants", "hero", "hero-a.tsx"),
+      ["export function HeroA() {", ...body, "}"].join("\n"),
+    );
+
+    const facts = await readProjectFacts(cwd, ".leglas/variants/hero/switch.tsx", "hero-a");
+    const lines = facts.example?.source.split("\n") ?? [];
+
+    expect(lines).toHaveLength(601);
+    expect(lines.at(-1)).toBe("// … 100 more lines, not shown");
+  });
+
   test("name the example as the direction being varied only when it was read from it", async () => {
     const cwd = await project("claude");
     // Hero A is a stub, so the facts fall back to the current direction.
@@ -393,6 +409,15 @@ describe("starting a generation", () => {
 
     expect(unbased.status).toBe(422);
     expect(unbased.json.error).toBe("Describe what the directions are for.");
+
+    const blank = await call(server, "generate", {
+      surface: "hero",
+      brief: "",
+      count: 2,
+      basedOn: "",
+    });
+
+    expect(blank.json.error).toBe("Describe what the directions are for.");
 
     for (const basedOn of ["Nowhere", "Elsewhere"]) {
       const refused = await call(server, "generate", {
@@ -613,6 +638,7 @@ function orchestrator(
   behaviours: Behaviour[],
   render: (title: string) => Promise<{ errors: readonly string[] } | null>,
   register: GenerationDeps["register"] = async () => ({ ok: true }),
+  fixes: "answer" | "hang" = "answer",
 ) {
   const builds: FakeChild[] = [];
   const spawned: FakeChild[] = [];
@@ -633,7 +659,8 @@ function orchestrator(
     } else if (prompt.startsWith("Leglas rendered ")) {
       // A fix run answers and leaves the file as it was; the render decides.
       builds.push(child);
-      setTimeout(() => child.finish(0), 5);
+
+      if (fixes === "answer") setTimeout(() => child.finish(0), 5);
     } else {
       builds.push(child);
       const behaviour = behaviours[Math.min(buildIndex, behaviours.length - 1)];
@@ -1387,6 +1414,80 @@ describe("a generation's lifecycle", () => {
     );
 
     expect(building.activity).toBe("editing .leglas/variants/hero/hero-ledger.tsx");
+  });
+
+  test("checking starts with no build step left over, and a fix run says what it is doing", async () => {
+    const cwd = await project("claude");
+    const reports: ((report: { errors: readonly string[] }) => void)[] = [];
+    const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
+
+    const edit = (tool: string) =>
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: tool, input: { file_path: file } }] } })}\n`;
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      () => new Promise((resolve) => reports.push(resolve)),
+      undefined,
+      "hang",
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    const slot = () => generations.snapshot()[0]?.slots[0];
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    build.stdout.write(edit("Write"));
+    await settled(slot, (value) => value.activity !== null);
+    await writeFile(file, "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n");
+    build.finish(0);
+
+    expect(await settled(slot, (value) => value.state === "checking")).toMatchObject({
+      activity: null,
+    });
+
+    await settled(
+      () => reports[0],
+      () => true,
+    );
+    reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
+
+    const fix = await settled(
+      () => builds[1],
+      () => true,
+    );
+
+    fix.stdout.write(edit("Edit"));
+
+    expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
+      state: "checking",
+      activity: "editing .leglas/variants/hero/hero-ledger.tsx",
+    });
+
+    fix.finish(0);
+    await settled(
+      () => reports[1],
+      () => true,
+    );
+    // Opening the page again, the fix run's last step is over too.
+    expect(slot()?.activity).toBeNull();
+    reports[1]!({ errors: [] });
+
+    expect(await settled(slot, (value) => value.state === "ready")).toMatchObject({
+      activity: null,
+      fixed: true,
+    });
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {

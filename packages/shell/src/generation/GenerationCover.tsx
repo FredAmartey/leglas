@@ -23,7 +23,8 @@ function Progress({ slot }: { slot: GenerationSlot }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const doing = slot.state === "checking" ? "opening the page" : (slot.activity ?? "starting");
+  // While checking, a step can only be a fix run's; otherwise the page is being opened.
+  const doing = slot.activity ?? (slot.state === "checking" ? "opening the page" : "starting");
 
   return (
     <p className="mt-3 text-[11px] leading-snug text-neutral-400">

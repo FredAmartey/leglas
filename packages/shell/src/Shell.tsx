@@ -593,11 +593,35 @@ export function Shell({
     return view !== undefined && isSlotOf(st.urlFor(title), view) ? view : undefined;
   };
 
+  // A set shown whole, one cell per ready direction. It holds only while the
+  // direction that was on the stage when it opened stays there: picking any
+  // row ends it, so coming back to that direction shows it alone. Cleared
+  // while rendering, since every way of moving the stage passes through here.
+  if (grid !== null && grid.from !== st.active) setGrid(null);
+
+  /** A set's finished directions that are still on the rail: what showing it whole shows. */
+  const shownWhole = (job: GenerationJob | undefined): string[] =>
+    job === undefined
+      ? []
+      : job.slots.flatMap((slot) =>
+          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
+        );
+
+  const gridSet =
+    grid !== null && grid.from === st.active ? jobs.find((job) => job.id === grid.job) : undefined;
+
+  const gridTitles = shownWhole(gridSet);
+  const cardWhole = shownWhole(cardJob ?? undefined);
+
+  const gridding = gridTitles.length >= 2;
+
   // Variations need a direction on a surface with a file to start from, so a
   // direction still being built, or one that failed, has nothing to offer yet.
+  // With a set shown whole, the direction it was opened from is off the stage.
   const activeSlot = st.active === null ? undefined : slotFor(st.active);
 
   const likeTitle =
+    !gridding &&
     st.active !== null &&
     activeSurface !== null &&
     (activeSlot === undefined || activeSlot.slot.state === "ready")
@@ -1337,27 +1361,6 @@ export function Shell({
     rows: st.rows,
   });
 
-  // A set shown whole, one cell per ready direction. It holds only while the
-  // direction that was on the stage when it opened stays there: picking any
-  // row ends it, so coming back to that direction shows it alone. Cleared
-  // while rendering, since every way of moving the stage passes through here.
-  if (grid !== null && grid.from !== st.active) setGrid(null);
-
-  /** A set's finished directions that are still on the rail: what showing it whole shows. */
-  const shownWhole = (job: GenerationJob | undefined): string[] =>
-    job === undefined
-      ? []
-      : job.slots.flatMap((slot) =>
-          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
-        );
-
-  const gridSet =
-    grid !== null && grid.from === st.active ? jobs.find((job) => job.id === grid.job) : undefined;
-
-  const gridTitles = shownWhole(gridSet);
-  const cardWhole = shownWhole(cardJob ?? undefined);
-
-  const gridding = gridTitles.length >= 2;
   const visible = gridding ? gridTitles : paneTitles({ active: st.active, compare, split });
   const gridLayout = gridding ? setLayout(visible.length) : { columns: visible.length, rows: 1 };
   // Escape leaves a set shown whole, unless something nearer the key took it.
@@ -1365,7 +1368,12 @@ export function Shell({
     if (!gridding) return;
 
     const leave = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) setGrid(null);
+      // A popover or menu with the focus closes first, whichever listener runs first.
+      const inDialog =
+        document.activeElement instanceof Element &&
+        document.activeElement.closest('[role="dialog"]') !== null;
+
+      if (event.key === "Escape" && !event.defaultPrevented && !inDialog) setGrid(null);
     };
 
     window.addEventListener("keydown", leave);
@@ -2591,7 +2599,7 @@ export function Shell({
           <RailHeader
             active={st.active}
             briefing={briefing}
-            compare={splitting ? compare : null}
+            compare={splitting && !gridding ? compare : null}
             displayName={st.displayName}
             notify={st.notify}
             onBuild={
@@ -2688,9 +2696,14 @@ export function Shell({
                   }}
                   onFold={() => foldFamily(title)}
                   onOpenAlone={() => openAlone(title)}
+                  // Picking the row a set was opened from shows that direction alone again.
+                  onPick={() => setGrid(null)}
                   onPointerDown={onRowPointerDown(title, index)}
                   onToggleCompare={() => {
-                    if (splitting && title === compare) {
+                    // Comparing two is a different view from the set shown whole.
+                    setGrid(null);
+
+                    if (splitting && !gridding && title === compare) {
                       setSplit(false);
 
                       return;
@@ -2886,7 +2899,8 @@ export function Shell({
 
                   // A note carries its own words and its own address, so pins
                   // alone are a request. Nothing at all still is not.
-                  if ((!value && activeNotes.length === 0) || !title || sending) return;
+                  // A set shown whole has no one direction to change; its names open one.
+                  if ((!value && activeNotes.length === 0) || !title || sending || gridding) return;
                   const name = st.displayName(title);
                   // An image still uploading lands in a moment; one that failed
                   // needs a decision, because sending without it would quietly
@@ -3137,12 +3151,14 @@ export function Shell({
                           : briefSurface === null
                             ? "Describe the new directions for Claude to build"
                             : `Describe the new ${briefSurface} directions for Claude to build`
-                        : st.active
-                          ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                          : "Ask your agent to change a direction"
+                        : gridding
+                          ? "Open one of the directions to ask for a change"
+                          : st.active
+                            ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                            : "Ask your agent to change a direction"
                     }
                     className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={briefing ? starting : sending || !st.active}
+                    disabled={briefing ? starting : sending || !st.active || gridding}
                     onChange={(event) => {
                       if (briefing) {
                         setBrief(event.target.value);
@@ -3187,21 +3203,23 @@ export function Shell({
                           : briefSurface === null
                             ? "Pick a direction on the surface first"
                             : "What should they explore?"
-                        : st.active === null
-                          ? "No direction to change yet"
-                          : dropping
-                            ? "Drop the image here"
-                            : references.length > 0 && activeNotes.length === 0
-                              ? `Say what to take from the ${
-                                  references.length === 1 ? "image" : "images"
-                                }…`
-                              : activeNotes.length > 0
-                                ? `Send ${
-                                    activeNotes.length === 1
-                                      ? "the annotation"
-                                      : `${activeNotes.length} annotations`
-                                  }, or add words…`
-                                : `Change ${st.displayName(st.active)}…`
+                        : gridding
+                          ? "Open one of them to ask for a change"
+                          : st.active === null
+                            ? "No direction to change yet"
+                            : dropping
+                              ? "Drop the image here"
+                              : references.length > 0 && activeNotes.length === 0
+                                ? `Say what to take from the ${
+                                    references.length === 1 ? "image" : "images"
+                                  }…`
+                                : activeNotes.length > 0
+                                  ? `Send ${
+                                      activeNotes.length === 1
+                                        ? "the annotation"
+                                        : `${activeNotes.length} annotations`
+                                    }, or add words…`
+                                  : `Change ${st.displayName(st.active)}…`
                     }
                     ref={requestRef}
                     rows={1}

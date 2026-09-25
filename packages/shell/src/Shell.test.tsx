@@ -829,6 +829,106 @@ describe("building directions", () => {
     expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
   });
 
+  describe("a set shown whole", () => {
+    const whole = async (typed = ""): Promise<Sent[]> => {
+      switchedOn();
+
+      const done = {
+        ...JOB,
+        state: "done",
+        endedAt: 1_789_999_999_000,
+        slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+      };
+
+      const sent = await mount({
+        previews: HEROES,
+        reads: { generate: { ok: true, jobs: [done] } },
+      });
+
+      if (typed !== "") await after(() => type(find("textarea"), typed));
+
+      const compareAll = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent === "Compare all 2",
+      );
+
+      await after(() => click(must(compareAll, "the compare button")));
+      expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
+
+      return sent;
+    };
+
+    const shownWhole = () => document.querySelectorAll('button[aria-label$="on its own"]').length;
+
+    test("takes no change for a direction that is off the stage, and offers no variations of it", async () => {
+      // Words typed for Table before the set went up must not go to it unseen.
+      const sent = await whole("Make it warmer");
+      const field = find<HTMLTextAreaElement>("textarea");
+
+      expect(field.disabled).toBe(true);
+      expect(field.placeholder).toBe("Open one of them to ask for a change");
+
+      await after(() =>
+        find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      );
+      expect(sent.filter((entry) => entry.path === "/leglas/api/request")).toEqual([]);
+
+      await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+      expect(moreLike()).toBeUndefined();
+    });
+
+    test("gives way to comparing two when a row's compare is pressed", async () => {
+      await whole();
+
+      await after(() => click(find('[aria-label="Compare Pantry with Table"]')));
+      expect(shownWhole()).toBe(0);
+      expect(
+        [...document.querySelectorAll("iframe")].map((frame) => frame.getAttribute("title")),
+      ).toEqual(["Preview: Table", "Preview: Pantry"]);
+    });
+
+    test("ends when the row it was opened from is picked again", async () => {
+      await whole();
+
+      await after(() => click(row("Table")));
+      expect(shownWhole()).toBe(0);
+    });
+
+    test("stays while Escape closes a popover over it", async () => {
+      await whole();
+      await after(() => key("t"));
+      expect(tools().getAttribute("aria-hidden")).toBe("false");
+
+      await after(() => key("Escape"));
+      expect(tools().getAttribute("aria-hidden")).toBe("true");
+      expect(shownWhole()).toBe(2);
+
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(0);
+    });
+  });
+
+  test("a fix run's step shows while the page is checked, and otherwise the page is being opened", async () => {
+    switchedOn();
+
+    const checking = (activity: string | null) => ({
+      ...JOB,
+      slots: [{ ...slot("Ledger", "checking"), activity }],
+    });
+
+    const reads: GenerateAnswer = { generate: { ok: true, jobs: [checking(null)] } };
+    await mount({ previews: HEROES, reads });
+    await after(() => click(row("Ledger")));
+    expect(document.body.textContent).toContain("opening the page");
+
+    reads.generate = {
+      ok: true,
+      jobs: [checking("editing src/heroes/hero-ledger.tsx")],
+    };
+    await after(() => undefined, 16_000);
+    expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
+    expect(document.body.textContent).not.toContain("opening the page");
+  });
+
   test("a direction being built says what its build is doing", async () => {
     switchedOn();
 

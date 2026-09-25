@@ -1153,7 +1153,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           let basedOn: GenerationBase | null = null;
 
           // Variations name their direction as the rail does; its switch key is in its address.
-          if (parsed.basedOn !== undefined && parsed.basedOn !== null) {
+          if (parsed.basedOn !== undefined && parsed.basedOn !== null && parsed.basedOn !== "") {
             const title = parsed.basedOn;
 
             const preview = isString(title)

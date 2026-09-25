@@ -397,6 +397,7 @@ export function RailRow({
   onEnter,
   onFold,
   onOpenAlone,
+  onPick,
   onPointerDown,
   onToggleCompare,
   same,
@@ -426,6 +427,8 @@ export function RailRow({
   onEnter: (row: HTMLLIElement) => void;
   onFold: () => void;
   onOpenAlone: () => void;
+  /** The row was picked, whether or not its direction was already on the stage. */
+  onPick: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onToggleCompare: () => void;
   /** Directions that render the same as this one. */
@@ -576,6 +579,7 @@ export function RailRow({
               return;
             }
 
+            onPick();
             st.setActive(title);
           }}
           onDoubleClick={(event) => {
@@ -600,6 +604,7 @@ export function RailRow({
 
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
+              onPick();
               st.setActive(title);
             }
           }}
