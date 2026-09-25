@@ -19,6 +19,7 @@ import { activityFrom, agentEnvironment, type SavedAgentChoice } from "../agents
 import { classifyFailure, type FailureCode } from "../agents/failure.js";
 import { ownGroup, signalTree } from "../agents/process-tree.js";
 import type { RunnerChild, RunnerSpawn } from "../agents/runner.js";
+import type { Preview } from "../config/config.js";
 import type { AddInput } from "../config/local-previews.js";
 import { isJsonRecord, isString, parseJson } from "../json.js";
 
@@ -92,13 +93,20 @@ export type GenerationJob = {
   endedAt: number | null;
   error: string | null;
   slots: GenerationSlot[];
+  /** The direction this set varies, or null for a set of new ones. */
+  basedOn: string | null;
 };
+
+/** The direction a set varies, as the rail has it: its title, its key in the switch and its idea. */
+export type GenerationBase = { title: string; key: string; idea: string };
 
 export type GenerationRequest = {
   surface: string;
   brief: string;
   count: number;
   agent: SavedAgentChoice;
+  /** Build variations of this direction instead of new ones. */
+  basedOn?: GenerationBase | null;
 };
 
 export type GenerationDeps = {
@@ -148,6 +156,7 @@ type Live = {
   stack: string;
   /** The attempt each slot's work currently belongs to; see `begin`. */
   attempts: Map<string, number>;
+  base: GenerationBase | null;
   /** Work still running after the call that started it answered; see `detach`. */
   pending: Set<Promise<void>>;
 };
@@ -158,6 +167,26 @@ export function surfaceSlug(surface: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/** What a rail direction gives a set of variations: the key its address picks in the surface's switch, or null when it picks none. */
+export function baseOf(
+  preview: Pick<Preview, "title" | "url" | "note">,
+  surface: string,
+): GenerationBase | null {
+  let key: string | null;
+
+  try {
+    key = new URL(preview.url, "http://leglas.invalid").searchParams.get(
+      `v-${surfaceSlug(surface)}`,
+    );
+  } catch {
+    return null;
+  }
+
+  return key === null || key === ""
+    ? null
+    : { title: preview.title, key, idea: preview.note ?? "" };
 }
 
 async function stackOf(cwd: string, switchPath: string): Promise<string> {
@@ -195,10 +224,15 @@ async function stackOf(cwd: string, switchPath: string): Promise<string> {
  * brief it came from, which the row's card shows, and its surface as a tag,
  * so it sits with the directions made by hand for the same place.
  */
-function provenance(job: GenerationJob): Pick<AddInput, "askedFor" | "tags"> {
+function provenance(job: GenerationJob): Pick<AddInput, "askedFor" | "basedOn" | "tags"> {
   const words = job.surface.replace(/-/g, " ");
 
-  return { askedFor: job.brief, tags: [words.charAt(0).toUpperCase() + words.slice(1)] };
+  return {
+    askedFor: job.brief === "" ? undefined : job.brief,
+    // Variations sit under the direction they vary, as any family does on the rail.
+    basedOn: job.basedOn ?? undefined,
+    tags: [words.charAt(0).toUpperCase() + words.slice(1)],
+  };
 }
 
 function copy(job: GenerationJob): GenerationJob {
@@ -467,6 +501,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       name: pascal(slot.key),
       stack: live.stack,
       facts: live.facts ?? "",
+      base: live.base,
     });
 
     // The build's own stream says what it is doing; only a change is worth a nudge.
@@ -614,7 +649,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
     const { job } = live;
 
     const planning = run(
-      planArgs(planPrompt({ surface: job.surface, brief: job.brief, count: job.count, existing })),
+      planArgs(
+        planPrompt({
+          surface: job.surface,
+          brief: job.brief,
+          count: job.count,
+          existing,
+          base: live.base,
+        }),
+      ),
       PLAN_DEADLINE_MS,
     );
 
@@ -648,7 +691,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       return;
     }
 
-    live.facts = factsBlock(await readProjectFacts(deps.cwd, live.switchPath), job.surface);
+    live.facts = factsBlock(
+      await readProjectFacts(deps.cwd, live.switchPath, live.base?.key ?? null),
+      job.surface,
+      live.base,
+    );
     const slug = surfaceSlug(job.surface);
     const keys = new Set(existing);
     const titles = new Set(await deps.titles());
@@ -801,8 +848,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       }
 
       const brief = request.brief.trim();
+      const base = request.basedOn ?? null;
 
-      if (brief === "") return { ok: false, error: "Describe what the directions are for." };
+      // A variation has its direction to go on; a new set has only the brief.
+      if (brief === "" && base === null)
+        return { ok: false, error: "Describe what the directions are for." };
       const slug = surfaceSlug(request.surface);
 
       if (slug === "") return { ok: false, error: "Name the surface to build directions for." };
@@ -823,6 +873,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
         };
       }
 
+      const existing = directionKeys(await readFile(join(deps.cwd, switchPath), "utf8"));
+
+      if (base !== null && !existing.includes(base.key)) {
+        return {
+          ok: false,
+          error: `${base.title} is not a direction of the ${slug}, so Leglas cannot build variations of it.`,
+        };
+      }
+
       const job: GenerationJob = {
         id: `gen-${now().toString(36)}`,
         surface: slug,
@@ -834,6 +893,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         endedAt: null,
         error: null,
         slots: [],
+        basedOn: base?.title ?? null,
       };
 
       const live: Live = {
@@ -845,14 +905,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
         facts: null,
         stack: await stackOf(deps.cwd, switchPath),
         attempts: new Map(),
+        base,
         pending: new Set(),
       };
 
       lives.push(live);
 
       while (lives.length > KEPT_JOBS) lives.shift();
-
-      const existing = directionKeys(await readFile(join(deps.cwd, switchPath), "utf8"));
 
       changed();
 
@@ -930,6 +989,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
               surface: live.job.surface,
               brief: live.job.brief,
               avoid: [...live.concepts.values()],
+              base: live.base,
             }),
           ),
           PLAN_DEADLINE_MS,

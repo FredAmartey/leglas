@@ -52,7 +52,8 @@ Options for explore
   --based-on <title>     Variants of an existing direction instead of new ones
   --build              Build the set with your agent (Claude) in the running
                        Leglas, instead of printing a brief for an agent
-  --brief <text>       What the directions are for (needs --build)
+  --brief <text>       What the directions are for (needs --build; optional
+                       with --based-on)
   --port <port>        Running Leglas port (needs --build)
 
 Options for watch
@@ -188,6 +189,7 @@ if (parsed.kind === "explore" && parsed.build) {
       surface: parsed.surface,
       brief: parsed.brief ?? "",
       count: parsed.count,
+      basedOn: parsed.basedOn,
       json: parsed.json,
       cwd: process.cwd(),
       port: parsed.port,

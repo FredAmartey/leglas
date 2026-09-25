@@ -511,6 +511,8 @@ export function Shell({
   const briefing = briefOpen && buildEnabled;
   const [brief, setBrief] = useState("");
   const [briefCount, setBriefCount] = useState(3);
+  /** The brief builds variations of the active direction rather than new directions. */
+  const [briefLike, setBriefLike] = useState(false);
   const [starting, setStarting] = useState(false);
   /**
    * Buttons waiting on the server, by `job:slot` (or `job:set`), each with
@@ -590,6 +592,20 @@ export function Shell({
 
     return view !== undefined && isSlotOf(st.urlFor(title), view) ? view : undefined;
   };
+
+  // Variations need a direction on a surface with a file to start from, so a
+  // direction still being built, or one that failed, has nothing to offer yet.
+  const activeSlot = st.active === null ? undefined : slotFor(st.active);
+
+  const likeTitle =
+    st.active !== null &&
+    activeSurface !== null &&
+    (activeSlot === undefined || activeSlot.slot.state === "ready")
+      ? st.active
+      : null;
+
+  const briefBase = briefLike ? likeTitle : null;
+  const buildSurface = briefBase === null ? briefSurface : activeSurface;
 
   const slotActions = (view: SlotView) => {
     const key = `${view.job.id}:${view.slot.key}`;
@@ -689,9 +705,14 @@ export function Shell({
   const submitBrief = () => {
     const value = brief.trim();
 
-    if (value === "" || briefSurface === null || starting) return;
+    if ((value === "" && briefBase === null) || buildSurface === null || starting) return;
     setStarting(true);
-    void startGeneration({ surface: briefSurface, brief: value, count: briefCount })
+    void startGeneration({
+      surface: buildSurface,
+      brief: value,
+      count: briefCount,
+      basedOn: briefBase,
+    })
       .then((job) => {
         noteJob(job);
         setBrief("");
@@ -1679,7 +1700,7 @@ export function Shell({
       ? "Building directions runs on Claude."
       : runningJob !== null
         ? "A set is being built. Wait for it, or stop it."
-        : briefSurface === null
+        : buildSurface === null
           ? "Pick a direction on the surface first."
           : null;
 
@@ -3025,8 +3046,12 @@ export function Shell({
                   }}
                 >
                   {briefing ? (
-                    <div className="flex items-center justify-between pl-2.5 pr-1 pt-1">
-                      {surfaces.length > 1 && briefSurface !== null ? (
+                    <div className="flex items-center justify-between gap-2 pl-2.5 pr-1 pt-1">
+                      {briefBase !== null ? (
+                        <span className="min-w-0 truncate text-[10px] font-medium leading-5 text-[#84848C]">
+                          Variations of {st.displayName(briefBase)}
+                        </span>
+                      ) : surfaces.length > 1 && briefSurface !== null ? (
                         <label className="flex items-center gap-1 text-[10px] font-medium leading-5 text-[#84848C]">
                           New
                           <select
@@ -3050,21 +3075,40 @@ export function Shell({
                             : `New ${briefSurface} directions`}
                         </span>
                       )}
-                      <button
-                        aria-label="Close the brief"
-                        className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
-                        onClick={() => setBriefOpen(false)}
-                        type="button"
-                      >
-                        <svg aria-hidden="true" height="10" viewBox="0 0 16 16" width="10">
-                          <path
-                            d="m4 4 8 8M12 4l-8 8"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeWidth="1.75"
-                          />
-                        </svg>
-                      </button>
+                      <span className="flex min-w-0 shrink-0 items-center gap-0.5">
+                        {/* The label on the left always says what Enter builds; this only switches it. */}
+                        {likeTitle !== null &&
+                          (briefBase !== null || briefSurface === activeSurface) && (
+                            <button
+                              aria-pressed={briefBase !== null}
+                              className={`h-5 max-w-36 truncate rounded px-1.5 text-[10px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60 ${
+                                briefBase === null
+                                  ? "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                                  : "bg-white/[0.08] text-[#E8E8EA] hover:bg-white/[0.12]"
+                              }`}
+                              disabled={starting}
+                              onClick={() => setBriefLike(briefBase === null)}
+                              type="button"
+                            >
+                              More like {st.displayName(likeTitle)}
+                            </button>
+                          )}
+                        <button
+                          aria-label="Close the brief"
+                          className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
+                          onClick={() => setBriefOpen(false)}
+                          type="button"
+                        >
+                          <svg aria-hidden="true" height="10" viewBox="0 0 16 16" width="10">
+                            <path
+                              d="m4 4 8 8M12 4l-8 8"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeWidth="1.75"
+                            />
+                          </svg>
+                        </button>
+                      </span>
                     </div>
                   ) : (
                     <ReferenceStrip
@@ -3078,9 +3122,11 @@ export function Shell({
                   <textarea
                     aria-label={
                       briefing
-                        ? briefSurface === null
-                          ? "Describe the new directions for Claude to build"
-                          : `Describe the new ${briefSurface} directions for Claude to build`
+                        ? briefBase !== null
+                          ? `Say what the variations of ${st.displayName(briefBase)} should vary, or leave it to Claude`
+                          : briefSurface === null
+                            ? "Describe the new directions for Claude to build"
+                            : `Describe the new ${briefSurface} directions for Claude to build`
                         : st.active
                           ? `Ask your agent to change the ${st.displayName(st.active)} direction`
                           : "Ask your agent to change a direction"
@@ -3126,9 +3172,11 @@ export function Shell({
                     }}
                     placeholder={
                       briefing
-                        ? briefSurface === null
-                          ? "Pick a direction on the surface first"
-                          : "What should they explore?"
+                        ? briefBase !== null
+                          ? "What should they vary? Optional"
+                          : briefSurface === null
+                            ? "Pick a direction on the surface first"
+                            : "What should they explore?"
                         : st.active === null
                           ? "No direction to change yet"
                           : dropping
@@ -3160,7 +3208,7 @@ export function Shell({
                       onCount={setBriefCount}
                       picker={chip.kind === "chosen" && chip.id === "claude" ? null : agentPicker}
                       reason={briefReason}
-                      ready={brief.trim() !== "" && briefSurface !== null}
+                      ready={(brief.trim() !== "" || briefBase !== null) && buildSurface !== null}
                       starting={starting}
                     />
                   ) : (

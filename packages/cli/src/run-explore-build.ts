@@ -5,6 +5,8 @@ export type ExploreBuildOptions = {
   surface: string;
   brief: string;
   count: number;
+  /** The direction to build variations of, by its title on the rail, or null for new directions. */
+  basedOn: string | null;
   json: boolean;
   cwd: string;
   port: number | null;
@@ -123,6 +125,7 @@ export async function runExploreBuild(
           surface: options.surface,
           brief: options.brief,
           count: options.count,
+          basedOn: options.basedOn,
         }),
       }),
     );
@@ -137,7 +140,13 @@ export async function runExploreBuild(
     return fail(isString(answer?.error) ? answer.error : "Leglas could not start the build.");
   }
 
-  if (!options.json) deps.log(`Planning ${options.count} directions for the ${options.surface}…`);
+  if (!options.json) {
+    deps.log(
+      options.basedOn === null
+        ? `Planning ${options.count} directions for the ${options.surface}…`
+        : `Planning ${options.count} variations of ${options.basedOn}…`,
+    );
+  }
 
   const said = new Map<string, string>();
   let announced = false;

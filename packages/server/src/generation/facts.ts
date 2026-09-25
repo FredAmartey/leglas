@@ -18,7 +18,8 @@ export type ProjectFacts = {
   dependencies: string[];
   stylesheet: { path: string; fonts: string[]; tokens: string } | null;
   images: string[];
-  example: { path: string; source: string } | null;
+  /** `key` is the direction it was read from, which is not always the one asked for. */
+  example: { key: string; path: string; source: string } | null;
 };
 
 const IMAGE = /\.(png|jpe?g|webp|avif|gif|svg)$/i;
@@ -26,6 +27,9 @@ const IMAGE = /\.(png|jpe?g|webp|avif|gif|svg)$/i;
 const IMAGE_LIMIT = 24;
 
 const EXAMPLE_LINES = 250;
+
+/** A variation starts from the whole of its direction, not a sample of the house style. */
+const VARIED_LINES = 600;
 
 /** Short enough that a direction this size is a re-export, not a design. */
 const BASELINE_LINES = 15;
@@ -122,15 +126,20 @@ async function componentFile(cwd: string, from: string, specifier: string): Prom
  * shows by default, then any other, skipping placeholders. A baseline that
  * only re-exports the real component is followed one step to it.
  */
-async function example(cwd: string, switchPath: string): Promise<ProjectFacts["example"]> {
+async function example(
+  cwd: string,
+  switchPath: string,
+  prefer: string | null,
+): Promise<ProjectFacts["example"]> {
   const source = await text(join(cwd, switchPath));
 
   if (source === null) return null;
   const directions = readDirections(source);
-  const first = fallbackKey(source);
+  const first = prefer ?? fallbackKey(source);
   const ordered = [...directions].sort((a, b) => Number(b.key === first) - Number(a.key === first));
 
   for (const direction of ordered) {
+    const limit = direction.key === prefer ? VARIED_LINES : EXAMPLE_LINES;
     const path = await componentFile(cwd, switchPath, direction.from);
     const body = path === null ? null : await text(join(cwd, path));
 
@@ -147,12 +156,18 @@ async function example(cwd: string, switchPath: string): Promise<ProjectFacts["e
       const followed = target === undefined ? null : await componentFile(cwd, path, target);
       const real = followed === null ? null : await text(join(cwd, followed));
 
-      if (followed !== null && real !== null)
-        return { path: followed, source: real.split("\n").slice(0, EXAMPLE_LINES).join("\n") };
+      if (followed !== null && real !== null) {
+        return {
+          key: direction.key,
+          path: followed,
+          source: real.split("\n").slice(0, limit).join("\n"),
+        };
+      }
+
       continue;
     }
 
-    return { path, source: body.split("\n").slice(0, EXAMPLE_LINES).join("\n") };
+    return { key: direction.key, path, source: body.split("\n").slice(0, limit).join("\n") };
   }
 
   return null;
@@ -169,7 +184,12 @@ async function dependencyNames(cwd: string): Promise<string[]> {
   }
 }
 
-export async function readProjectFacts(cwd: string, switchPath: string): Promise<ProjectFacts> {
+/** `prefer` names a direction to show as the example, such as the one a set of variations is based on. */
+export async function readProjectFacts(
+  cwd: string,
+  switchPath: string,
+  prefer: string | null = null,
+): Promise<ProjectFacts> {
   const dependencies = await dependencyNames(cwd);
   const sheetPath = await globalStylesheet(cwd);
   const css = sheetPath === null ? null : await text(join(cwd, sheetPath));
@@ -191,12 +211,20 @@ export async function readProjectFacts(cwd: string, switchPath: string): Promise
             tokens: /:root\s*\{[\s\S]*?\n\}/.exec(css)?.[0] ?? "",
           },
     images: await images(cwd),
-    example: await example(cwd, switchPath),
+    example: await example(cwd, switchPath, prefer),
   };
 }
 
-/** The facts as the paragraph a build prompt carries, leaving out whatever the project does not have. */
-export function factsBlock(facts: ProjectFacts, surface: string): string {
+/**
+ * The facts as the paragraph a build prompt carries, leaving out whatever the
+ * project does not have. `varied` is the direction a set of variations is
+ * based on; the example is named as it only when it was read from it.
+ */
+export function factsBlock(
+  facts: ProjectFacts,
+  surface: string,
+  varied: { title: string; key: string } | null = null,
+): string {
   const lines = [
     "Leglas read the project for you. Follow its house style: differ in the idea, not in the craft.",
   ];
@@ -222,7 +250,9 @@ export function factsBlock(facts: ProjectFacts, surface: string): string {
 
   if (facts.example !== null) {
     lines.push(
-      `The ${surface}'s current direction, ${facts.example.path}, shows how directions here are written:`,
+      varied?.key === facts.example.key
+        ? `${varied.title}, the direction being varied, is ${facts.example.path}. Its imports are relative to that file:`
+        : `The ${surface}'s current direction, ${facts.example.path}, shows how directions here are written:`,
       "```tsx",
       facts.example.source.trimEnd(),
       "```",

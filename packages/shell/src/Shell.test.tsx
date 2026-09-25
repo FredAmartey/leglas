@@ -104,6 +104,7 @@ function serve(
             ? {
                 ok: true,
                 job: {
+                  basedOn: null,
                   ...body,
                   id: "gen-new",
                   state: "planning",
@@ -424,10 +425,16 @@ describe("building directions", () => {
         message: "Claude's provider was overloaded and gave up.",
       }),
     ],
+    basedOn: null,
   };
 
   const switchedOn = () =>
     localStorage.setItem("leglas:a-project", JSON.stringify({ buildDirections: true }));
+
+  const moreLike = () =>
+    [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.startsWith("More like "),
+    );
 
   test("switched off, the rail offers no way to build them", async () => {
     await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
@@ -463,6 +470,54 @@ describe("building directions", () => {
       },
     ]);
     expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("Change Table…");
+  });
+
+  test("the brief can ask for more like the direction on the stage, with nothing typed", async () => {
+    switchedOn();
+    const reads: GenerateAnswer = { generate: { ok: true, jobs: [] } };
+    const sent = await mount({ previews: HEROES, reads });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    const like = must(moreLike(), "the more like chip");
+    expect(like.textContent).toBe("More like Table");
+    expect(like.getAttribute("aria-pressed")).toBe("false");
+    expect(find<HTMLButtonElement>('button[type="submit"]').disabled).toBe(true);
+
+    await after(() => click(like));
+    expect(like.getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain("Variations of Table");
+    expect(document.body.textContent).not.toContain("New hero directions");
+    expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe(
+      "What should they vary? Optional",
+    );
+    expect(find<HTMLButtonElement>('button[type="submit"]').disabled).toBe(false);
+
+    await after(() => {
+      find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      // From here the server lists the set it started.
+      reads.generate = {
+        ok: true,
+        jobs: [{ ...JOB, id: "gen-new", count: 3, state: "planning", slots: [], basedOn: "Table" }],
+      };
+    }, 900);
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
+      {
+        path: "/leglas/api/generate",
+        body: { surface: "hero", brief: "", count: 3, basedOn: "Table" },
+      },
+    ]);
+    expect(document.body.textContent).toContain("Planning 3 variations of Table…");
+  });
+
+  test("a direction still being built has nothing to vary yet", async () => {
+    switchedOn();
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    await after(() => click(row("Ledger")));
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    expect(document.body.textContent).toContain("New hero directions");
+    expect(moreLike()).toBeUndefined();
   });
 
   test("each direction says how it is going, on its row and on the stage", async () => {

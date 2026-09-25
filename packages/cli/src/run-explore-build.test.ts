@@ -51,13 +51,20 @@ function leglas(start: { status: number; body: object }, snapshots: object[]) {
   });
 }
 
-function run(fetch: typeof globalThis.fetch, json = false) {
+function run(
+  fetch: typeof globalThis.fetch,
+  json = false,
+  ask: { brief: string; basedOn: string | null } = {
+    brief: "A hero for a cooking app",
+    basedOn: null,
+  },
+) {
   const lines: string[] = [];
   const errors: string[] = [];
   const cwd = mkdtempSync(join(tmpdir(), "leglas-explore-build-"));
 
   const outcome = runExploreBuild(
-    { surface: "hero", brief: "A hero for a cooking app", count: 3, json, cwd, port: 4321 },
+    { surface: "hero", ...ask, count: 3, json, cwd, port: 4321 },
     {
       log: (line) => lines.push(line),
       error: (line) => errors.push(line),
@@ -100,6 +107,25 @@ describe("leglas explore --build", () => {
       "Ready: Dial",
       "3 of 3 directions ready in 42 s. Compare them in the interface, or keep one with leglas keep.",
     ]);
+  });
+
+  test("asks for variations of a direction by its title, with no brief", async () => {
+    const fetch = leglas({ status: 202, body: { ok: true, job: job("planning", []) } }, [
+      job("done", [slot("Warm", "ready")]),
+    ]);
+
+    const { outcome, lines } = run(fetch, false, { brief: "", basedOn: "Menu" });
+
+    expect((await outcome).exitCode).toBe(0);
+    expect(lines[0]).toBe("Planning 3 variations of Menu…");
+
+    const start = fetch.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(JSON.parse(String(start?.[1]?.body))).toEqual({
+      surface: "hero",
+      brief: "",
+      count: 3,
+      basedOn: "Menu",
+    });
   });
 
   test("exits 1 and says why when a direction fails", async () => {

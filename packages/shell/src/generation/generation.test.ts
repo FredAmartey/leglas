@@ -40,6 +40,7 @@ function job(state: GenerationJob["state"], slots: GenerationSlot[], extra = {})
     endedAt: null,
     error: null,
     slots,
+    basedOn: null,
     ...extra,
   };
 }
@@ -89,6 +90,21 @@ describe("the card above the composer", () => {
       tone: "working",
       text: "Building 1 hero direction",
     });
+  });
+
+  test("calls a set of variations what it is, from planning to its end", () => {
+    const like = { basedOn: "Table" };
+
+    expect(cardFor(job("planning", [], like)).text).toBe("Planning 3 variations of Table…");
+    expect(cardFor(job("building", [slot("Ledger", "building")], like)).text).toBe(
+      "Building 1 variation of Table",
+    );
+    expect(
+      cardFor(
+        job("done", [slot("Ledger", "ready"), slot("Steam", "ready")], { ...like, endedAt: 9_000 }),
+      ).text,
+    ).toBe("2 variations of Table ready in 8 s");
+    expect(cardFor(job("stopped", [], like)).text).toBe("Stopped the variations of Table");
   });
 
   test("gives the time a finished set took", () => {

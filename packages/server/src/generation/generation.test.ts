@@ -10,11 +10,12 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, describe, expect, test } from "vitest";
 
-import { readProjectFacts } from "./facts.js";
+import { factsBlock, readProjectFacts } from "./facts.js";
 import { createGenerations, type GenerationDeps } from "./generation.js";
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
+import type { Preview } from "../config/config.js";
 import type { AddInput } from "../config/local-previews.js";
 import { START_TIMEOUT_MS, findBrowser } from "../capture/browser.js";
 import { isJsonRecord, isString, parseJson, type JsonRecord, type JsonValue } from "../json.js";
@@ -116,7 +117,7 @@ if (fix) {
 }
 const file = /Your file is (\\S+)\\./.exec(prompt)[1];
 const name = /component exported as (\\w+)\\./.exec(prompt)[1];
-const title = /direction for the \\w+: ([^,]+),/.exec(prompt)[1];
+const title = /(?:direction for the \\w+|variation of the \\w+ direction "[^"]+"): ([^,]+),/.exec(prompt)[1];
 readFileSync(file, "utf8");
 if (title.startsWith("Slow")) writeFileSync(file, "// half written, as a stopped build leaves it\\n");
 await sleep(title.startsWith("Slow") ? 20000 : 300);
@@ -203,6 +204,7 @@ async function devServer(cwd: string): Promise<number> {
 async function leglas(
   cwd: string,
   withBrowser: boolean,
+  previews: Preview[] = [],
 ): Promise<{ server: RunningServer; log: string }> {
   const fake = join(cwd, "..", `${cwd.split("/").pop() ?? "x"}-fake-claude.mjs`);
   const log = `${fake}.log`;
@@ -218,7 +220,7 @@ async function leglas(
     });
 
   const serverOptions: Parameters<typeof startServer>[0] = {
-    config: { devServer: `http://127.0.0.1:${await devServer(cwd)}`, previews: [] },
+    config: { devServer: `http://127.0.0.1:${await devServer(cwd)}`, previews },
     cwd,
     port: 0,
     codexAppServer: null,
@@ -331,6 +333,19 @@ describe("the facts a builder is given", () => {
     expect(facts.images).toEqual(["/photos/plate.jpg"]);
     expect(facts.example?.path).toBe(".leglas/variants/hero/current.tsx");
   });
+
+  test("name the example as the direction being varied only when it was read from it", async () => {
+    const cwd = await project("claude");
+    // Hero A is a stub, so the facts fall back to the current direction.
+    const facts = await readProjectFacts(cwd, ".leglas/variants/hero/switch.tsx", "hero-a");
+    const block = factsBlock(facts, "hero", { title: "Hero A", key: "hero-a" });
+
+    expect(facts.example?.path).toBe(".leglas/variants/hero/current.tsx");
+    expect(block).toContain(
+      "The hero's current direction, .leglas/variants/hero/current.tsx, shows how directions here are written:",
+    );
+    expect(block).not.toContain("the direction being varied");
+  });
 });
 
 describe("starting a generation", () => {
@@ -358,6 +373,65 @@ describe("starting a generation", () => {
 
     expect(started.status).toBe(422);
     expect(String(started.json.error)).toContain("leglas new pricing --from");
+  });
+
+  test("builds variations of a direction named as the rail names it, with no brief needed", async () => {
+    const cwd = await project("claude");
+
+    const { server, log } = await leglas(cwd, false, [
+      { title: "Current", url: "/?v-hero=current", note: "Dark and type-led.", tags: [] },
+      { title: "Elsewhere", url: "/pricing", tags: [] },
+    ]);
+
+    // No base, as the command line sends it for a new set, still needs a brief.
+    const unbased = await call(server, "generate", {
+      surface: "hero",
+      brief: "",
+      count: 2,
+      basedOn: null,
+    });
+
+    expect(unbased.status).toBe(422);
+    expect(unbased.json.error).toBe("Describe what the directions are for.");
+
+    for (const basedOn of ["Nowhere", "Elsewhere"]) {
+      const refused = await call(server, "generate", {
+        surface: "hero",
+        brief: "",
+        count: 2,
+        basedOn,
+      });
+
+      expect(refused.status).toBe(422);
+      expect(String(refused.json.error)).toBe(
+        `${basedOn} is not a direction of the hero, so Leglas cannot build variations of it.`,
+      );
+    }
+
+    const started = await call(server, "generate", {
+      surface: "hero",
+      brief: "",
+      count: 2,
+      basedOn: "Current",
+    });
+
+    expect(started.status).toBe(202);
+    expect(isJsonRecord(started.json.job) && started.json.job.basedOn).toBe("Current");
+
+    let plan = "";
+
+    for (let tries = 0; tries < 200 && plan === ""; tries += 1) {
+      const first = (await readFile(log, "utf8")).split("\n")[0] ?? "";
+      const args = first === "" ? [] : parseJson(first);
+      const list = isJsonRecord(args) && Array.isArray(args.args) ? args.args.map(String) : [];
+      plan = list[list.indexOf("-p") + 1] ?? "";
+
+      if (plan === "") await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    expect(plan).toMatch(
+      /^Propose 2 variations of the hero direction "Current" \(Dark and type-led\)\. Every variation stays recognisably Current/,
+    );
   });
 });
 
@@ -542,12 +616,14 @@ function orchestrator(
 ) {
   const builds: FakeChild[] = [];
   const spawned: FakeChild[] = [];
+  const prompts: string[] = [];
   let buildIndex = 0;
 
   const fakeSpawn: RunnerSpawn = (_command, args) => {
     const child = new FakeChild();
     const prompt = args[args.indexOf("-p") + 1] ?? "";
     spawned.push(child);
+    prompts.push(prompt);
 
     if (args[args.indexOf("--tools") + 1] === "") {
       setTimeout(() => {
@@ -597,7 +673,7 @@ function orchestrator(
     onChange: () => {},
   });
 
-  return { generations, builds, spawned };
+  return { generations, builds, spawned, prompts };
 }
 
 async function settled<T>(read: () => T | undefined, holds: (value: T) => boolean): Promise<T> {
@@ -1343,5 +1419,97 @@ describe("a generation's lifecycle", () => {
     expect(await readFile(join(cwd, ".leglas", "variants", "hero", "hero-image.tsx"), "utf8")).toBe(
       own,
     );
+  });
+
+  test("variations are built from their direction's own file and sit under it on the rail", async () => {
+    const cwd = await project("claude");
+    const registered: AddInput[] = [];
+
+    const heroA = CURRENT.replace("export function Current()", "export function HeroA()").replace(
+      "<footer>Simmer</footer>",
+      "<footer>Simmer, again</footer>",
+    );
+
+    await writeFile(join(cwd, ".leglas", "variants", "hero", "hero-a.tsx"), heroA);
+
+    const { generations, prompts } = orchestrator(
+      cwd,
+      [
+        { key: "warm", title: "Warm", idea: "The same page in warm light." },
+        { key: "tight", title: "Tight", idea: "The same page, denser." },
+      ],
+      ["write"],
+      async () => ({ errors: [] }),
+      async (input) => {
+        registered.push(input);
+
+        return { ok: true };
+      },
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+      basedOn: { title: "Hero A", key: "hero-a", idea: "Ink and a single accent." },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => generations.snapshot()[0],
+      (value) => value.slots.length === 2 && value.slots.every((slot) => slot.state === "ready"),
+    );
+
+    expect(registered.map((entry) => [entry.title, entry.basedOn, entry.askedFor])).toEqual([
+      ["Warm", "Hero A", undefined],
+      ["Tight", "Hero A", undefined],
+    ]);
+
+    const builds = prompts.filter((prompt) => prompt.startsWith("Build "));
+    expect(builds).toHaveLength(2);
+
+    for (const prompt of builds) {
+      expect(prompt).toMatch(
+        /^Build this variation of the hero direction "Hero A": (Warm|Tight), /,
+      );
+      expect(prompt).toContain(
+        "Hero A, the direction being varied, is .leglas/variants/hero/hero-a.tsx. Its imports are relative to that file:",
+      );
+      expect(prompt).toContain("<footer>Simmer, again</footer>");
+    }
+
+    // A new idea for one of them is still a variation of Hero A.
+    const warm = required(generations.snapshot()[0]?.slots[0]);
+    expect(generations.replace(started.job.id, warm.key)).toBe(true);
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(prompts.find((prompt) => prompt.startsWith("Propose 1 "))).toMatch(
+      /^Propose 1 more variation of the hero direction "Hero A" \(Ink and a single accent\)\. It stays recognisably Hero A/,
+    );
+  });
+
+  test("a direction that is not in the switch cannot be varied, and nothing starts", async () => {
+    const cwd = await project("claude");
+
+    const { generations, spawned } = orchestrator(cwd, [], ["write"], async () => ({ errors: [] }));
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+      basedOn: { title: "Gone", key: "hero-gone", idea: "" },
+    });
+
+    expect(started).toEqual({
+      ok: false,
+      error: "Gone is not a direction of the hero, so Leglas cannot build variations of it.",
+    });
+    expect(spawned).toHaveLength(0);
+    expect(generations.snapshot()).toEqual([]);
   });
 });
