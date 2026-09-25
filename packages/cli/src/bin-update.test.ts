@@ -112,11 +112,6 @@ describe("CLI update wiring", () => {
     const child = new ChildProcess();
     const kill = vi.spyOn(child, "kill").mockReturnValue(true);
     const exit = vi.fn<(code: number) => void>();
-    let shutdown = async (): Promise<void> => {};
-
-    mocked.shutdown.mockImplementation((onSignal) => {
-      shutdown = onSignal;
-    });
 
     await startViewer(
       {
@@ -134,7 +129,6 @@ describe("CLI update wiring", () => {
         realpath: mocked.realpath,
         createUpdateService: mocked.create,
         run: mocked.run,
-        installShutdown: mocked.shutdown,
         handoff: { spawn: () => child, exit, target },
       },
     );
@@ -143,8 +137,9 @@ describe("CLI update wiring", () => {
     const restart = service.onRestart.mock.calls[0]![0];
     await restart({ file: "npx", args: ["-y", "leglas@1.1.0"], shell: false });
 
+    // One signal reaches both the handoff and the ordinary shutdown.
     target.emit("SIGINT");
-    await shutdown();
+    await Promise.resolve();
 
     expect(kill).toHaveBeenCalledExactlyOnceWith("SIGINT");
     expect(stop).toHaveBeenCalledOnce();

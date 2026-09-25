@@ -63,5 +63,5 @@ export async function startViewer(
     if (handedOff()) return;
     await result.stop();
     handoff.exit(0);
-  });
+  }, handoff.target);
 }
