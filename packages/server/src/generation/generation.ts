@@ -13,7 +13,7 @@ import {
   replacePrompt,
   type Concept,
 } from "./prompts.js";
-import { addSlots, findSwitch, placeholderSource, readDirections } from "./switch-file.js";
+import { addSlots, directionKeys, findSwitch, isFile, placeholderSource } from "./switch-file.js";
 
 import { agentEnvironment, type SavedAgentChoice } from "../agents/agents.js";
 import { classifyFailure, type FailureCode } from "../agents/failure.js";
@@ -109,7 +109,14 @@ export type Generations = {
 
 type Outcome = { code: number | null; lines: string[]; error: string | null; timedOut: boolean };
 
-type Run = { done: Promise<Outcome>; stop(): void };
+/** A run of the agent CLI. `stop` resolves once the process is gone, escalating to SIGKILL if it lingers. */
+type Run = { done: Promise<Outcome>; stop(): Promise<void> };
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds).unref?.();
+  });
+}
 
 type Live = {
   job: GenerationJob;
@@ -185,6 +192,16 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   const changed = (): void => deps.onChange();
 
+  // Registration rewrites one file; queued, two writers can never lose each other's entries.
+  let registry: Promise<unknown> = Promise.resolve();
+
+  const serially = <T>(task: () => Promise<T>): Promise<T> => {
+    const next = registry.then(task, task);
+    registry = next.catch(() => {});
+
+    return next;
+  };
+
   const run = (args: string[], deadlineMs: number): Run => {
     const lines: string[] = [];
     let timedOut = false;
@@ -245,8 +262,19 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     return {
       done,
-      stop: () => {
-        if (child !== null) signalTree(child, "SIGTERM");
+      stop: async () => {
+        if (child === null) return;
+        signalTree(child, "SIGTERM");
+
+        const exited = await Promise.race([
+          done.then(() => true),
+          wait(KILL_GRACE_MS).then(() => false),
+        ]);
+
+        if (!exited && child !== null) {
+          signalTree(child, "SIGKILL");
+          await Promise.race([done, wait(KILL_GRACE_MS)]);
+        }
       },
     };
   };
@@ -280,6 +308,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
     );
   };
 
+  /**
+   * Take a slot back from its run: the process is gone before the
+   * placeholder returns, so nothing it writes on the way out survives, and
+   * the run stays registered until then so no retry can start beside it.
+   */
+  const release = async (live: Live, slot: GenerationSlot): Promise<void> => {
+    await live.runs.get(slot.key)?.stop();
+    await restore(slot);
+    live.runs.delete(slot.key);
+  };
+
   const fail = (live: Live, slot: GenerationSlot, failure: GenerationFailure): void => {
     slot.state = "failed";
     slot.failure = failure;
@@ -291,14 +330,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
     if (same >= 2) {
       for (const other of live.job.slots) {
         if (other.state !== "building" && other.state !== "checking") continue;
-        live.runs.get(other.key)?.stop();
         other.state = "stopped";
         other.failure = {
           code: "same-failure",
           message: `Stopped after two directions failed the same way: ${failure.message}`,
         };
         other.endedAt = now();
-        void restore(other);
+        void release(live, other);
       }
     }
   };
@@ -306,7 +344,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const build = async (live: Live, slot: GenerationSlot): Promise<void> => {
     const concept = live.concepts.get(slot.key);
 
-    if (concept === undefined) return;
+    // Stopped between being accepted and starting: the stop stands.
+    if (concept === undefined || stopped(slot)) return;
     slot.state = "building";
     slot.startedAt = now();
     slot.endedAt = null;
@@ -330,9 +369,10 @@ export function createGenerations(deps: GenerationDeps): Generations {
     const building = run(buildArgs(prompt), BUILD_DEADLINE_MS);
     live.runs.set(slot.key, building);
     const outcome = await building.done;
-    live.runs.delete(slot.key);
 
-    if (stopped(slot)) return;
+    // A stop took the slot over while this run was ending, and owns it now.
+    if (live.runs.get(slot.key) !== building || stopped(slot)) return;
+    live.runs.delete(slot.key);
 
     if (outcome.timedOut) {
       fail(live, slot, {
@@ -368,6 +408,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const check = async (live: Live, slot: GenerationSlot): Promise<void> => {
     let report = await deps.render(slot.title);
 
+    // A stop can land while the page renders; from then on the slot is the stop's.
+    if (stopped(slot)) return;
+
     if (report !== null && report.errors.length > 0) {
       const fixing = run(
         buildArgs(fixPrompt({ file: slot.file, errors: report.errors })),
@@ -376,9 +419,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
-      live.runs.delete(slot.key);
 
-      if (stopped(slot)) return;
+      if (live.runs.get(slot.key) !== fixing || stopped(slot)) return;
+      live.runs.delete(slot.key);
 
       if (outcome.timedOut || outcome.error !== null || outcome.code !== 0) {
         fail(
@@ -394,6 +437,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       slot.fixed = true;
       report = await deps.render(slot.title);
+
+      if (stopped(slot)) return;
 
       if (report !== null && report.errors.length > 0) {
         fail(live, slot, {
@@ -463,13 +508,20 @@ export function createGenerations(deps: GenerationDeps): Generations {
     // Slots join the job only once they are on the rail, so whoever reads the job never sees a direction the rail lacks.
     const slots: GenerationSlot[] = [];
 
+    const extension = live.switchPath.endsWith(".jsx") ? "jsx" : "tsx";
+
+    // A key is free only when neither the switch nor the folder has it: a
+    // switch kept with the person's components sits beside files that are
+    // not directions, and a placeholder must never replace one of them.
+    const taken = async (key: string): Promise<boolean> =>
+      keys.has(key) || (await isFile(join(deps.cwd, folder, `${key}.${extension}`)));
+
     for (const concept of concepts) {
       let key = `${slug}-${concept.key}`;
 
-      for (let suffix = 2; keys.has(key); suffix += 1) key = `${slug}-${concept.key}-${suffix}`;
+      for (let suffix = 2; await taken(key); suffix += 1) key = `${slug}-${concept.key}-${suffix}`;
       keys.add(key);
       const title = freeTitle(concept.title, titles);
-      const extension = live.switchPath.endsWith(".jsx") ? "jsx" : "tsx";
 
       live.concepts.set(key, { ...concept, title });
       slots.push({
@@ -487,8 +539,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     const source = await readFile(join(deps.cwd, live.switchPath), "utf8");
 
-    for (const slot of slots)
-      await writeFile(join(deps.cwd, slot.file), placeholderSource(pascal(slot.key)), "utf8");
+    for (const slot of slots) {
+      await writeFile(join(deps.cwd, slot.file), placeholderSource(pascal(slot.key)), {
+        encoding: "utf8",
+        flag: "wx",
+      });
+    }
+
     await writeFile(
       join(deps.cwd, live.switchPath),
       addSlots(
@@ -500,7 +557,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     // One at a time: registration rewrites one file, and parallel writers would lose entries.
     for (const slot of slots) {
-      await deps.register({ title: slot.title, url: `/?v-${slug}=${slot.key}`, note: slot.idea });
+      await serially(() =>
+        deps.register({ title: slot.title, url: `/?v-${slug}=${slot.key}`, note: slot.idea }),
+      );
     }
 
     if (job.state !== "planning") return;
@@ -580,9 +639,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       while (lives.length > KEPT_JOBS) lives.shift();
 
-      const existing = readDirections(await readFile(join(deps.cwd, switchPath), "utf8")).map(
-        (direction) => direction.key,
-      );
+      const existing = directionKeys(await readFile(join(deps.cwd, switchPath), "utf8"));
 
       changed();
 
@@ -605,10 +662,10 @@ export function createGenerations(deps: GenerationDeps): Generations {
       const { job } = live;
 
       if (key === undefined && job.state === "planning") {
-        live.plan?.stop();
         job.state = "stopped";
         job.endedAt = now();
         changed();
+        await live.plan?.stop();
 
         return true;
       }
@@ -620,15 +677,14 @@ export function createGenerations(deps: GenerationDeps): Generations {
       );
 
       for (const slot of targets) {
-        live.runs.get(slot.key)?.stop();
         slot.state = "stopped";
         slot.endedAt = now();
-        // A half-written file never stays on the rail.
-        await restore(slot);
       }
 
       settle(live);
       changed();
+      // A half-written file never stays on the rail.
+      await Promise.all(targets.map((slot) => release(live, slot)));
 
       return targets.length > 0;
     },
@@ -640,10 +696,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
       if (
         live === undefined ||
         slot === undefined ||
-        (slot.state !== "failed" && slot.state !== "stopped")
+        (slot.state !== "failed" && slot.state !== "stopped") ||
+        live.runs.has(slot.key)
       )
         return false;
 
+      // Accepted means building from this moment, so the job never reads as stopped after a yes.
+      slot.state = "building";
+      slot.startedAt = now();
+      slot.failure = null;
       void restore(slot).then(() => build(live, slot));
       live.job.state = "building";
       live.job.endedAt = null;
@@ -660,7 +721,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
         live === undefined ||
         slot === undefined ||
         slot.state === "building" ||
-        slot.state === "checking"
+        slot.state === "checking" ||
+        live.runs.has(slot.key)
       )
         return false;
 
@@ -685,9 +747,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
         live.runs.set(slot.key, asking);
         const outcome = await asking.done;
-        live.runs.delete(slot.key);
 
-        if (stopped(slot)) return;
+        if (live.runs.get(slot.key) !== asking || stopped(slot)) return;
+        live.runs.delete(slot.key);
         let concept: Concept;
 
         try {
@@ -707,11 +769,14 @@ export function createGenerations(deps: GenerationDeps): Generations {
         const titles = new Set(await deps.titles());
         titles.delete(slot.title);
         const title = freeTitle(concept.title, titles);
-        await deps.unregister([slot.title]);
-        await deps.register({
-          title,
-          url: `/?v-${surfaceSlug(live.job.surface)}=${slot.key}`,
-          note: concept.idea,
+        await serially(async () => {
+          await deps.unregister([slot.title]);
+
+          return deps.register({
+            title,
+            url: `/?v-${surfaceSlug(live.job.surface)}=${slot.key}`,
+            note: concept.idea,
+          });
         });
         live.concepts.set(slot.key, { ...concept, title });
         slot.title = title;
@@ -724,24 +789,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
     },
 
     async close() {
-      const pending: Promise<Outcome>[] = [];
+      const pending: Promise<void>[] = [];
 
       for (const live of lives) {
-        if (live.plan !== null) {
-          live.plan.stop();
-          pending.push(live.plan.done);
-        }
+        if (live.plan !== null) pending.push(live.plan.stop());
 
-        for (const running of live.runs.values()) {
-          running.stop();
-          pending.push(running.done);
-        }
+        for (const running of live.runs.values()) pending.push(running.stop());
       }
 
-      await Promise.race([
-        Promise.all(pending),
-        new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS).unref?.()),
-      ]);
+      await Promise.race([Promise.all(pending), wait(KILL_GRACE_MS * 2 + 1000)]);
     },
   };
 }

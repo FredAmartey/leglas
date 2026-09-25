@@ -13,7 +13,7 @@ const SOURCE = /\.(tsx|jsx|ts|js)$/;
 /** Far enough to reach a component folder, short enough that a monorepo cannot keep the walk going. */
 const SCAN_LIMIT = 3000;
 
-async function isFile(path: string): Promise<boolean> {
+export async function isFile(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
   } catch {
@@ -97,6 +97,15 @@ export function readDirections(source: string): SwitchDirection[] {
   }
 
   return directions;
+}
+
+/** Every key a switch's DIRECTIONS map holds, however its components are imported. */
+export function directionKeys(source: string): string[] {
+  const body = MAP.exec(source)?.[1] ?? "";
+
+  return [...body.matchAll(/"?([\w-]+)"?\s*:/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
 }
 
 /** The direction a switch shows when the URL names none. */

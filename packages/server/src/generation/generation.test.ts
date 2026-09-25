@@ -1,14 +1,17 @@
 import { boundPort, required } from "../test-helpers.js";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
+import { PassThrough } from "node:stream";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, describe, expect, test } from "vitest";
 
 import { readProjectFacts } from "./facts.js";
+import { createGenerations } from "./generation.js";
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
@@ -493,4 +496,215 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
     },
     START_TIMEOUT_MS * 2,
   );
+});
+
+/**
+ * A stand-in for one Claude process, driven by the test: a plan run answers
+ * with `concepts`; a build either writes its file and exits, or waits until
+ * it is killed, and then takes `exitAfterKillMs` to go, as a CLI finishing
+ * its own shutdown does.
+ */
+class FakeChild extends EventEmitter {
+  readonly pid = undefined;
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  exitAfterKillMs = 0;
+  private finished = false;
+
+  kill(): boolean {
+    setTimeout(() => this.finish(null), this.exitAfterKillMs);
+
+    return true;
+  }
+
+  say(result: string): void {
+    this.stdout.write(`${JSON.stringify({ type: "result", result })}\n`);
+  }
+
+  finish(code: number | null): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.stdout.end();
+    this.stderr.end();
+    this.emit("close", code, null);
+  }
+}
+
+type Behaviour = "write" | "hang";
+
+function orchestrator(
+  cwd: string,
+  concepts: object[],
+  behaviours: Behaviour[],
+  render: (title: string) => Promise<{ errors: readonly string[] } | null>,
+) {
+  const builds: FakeChild[] = [];
+  let buildIndex = 0;
+
+  const fakeSpawn: RunnerSpawn = (_command, args) => {
+    const child = new FakeChild();
+    const prompt = args[args.indexOf("-p") + 1] ?? "";
+
+    if (args[args.indexOf("--tools") + 1] === "") {
+      setTimeout(() => {
+        child.say(JSON.stringify(concepts));
+        child.finish(0);
+      }, 5);
+    } else {
+      builds.push(child);
+      const behaviour = behaviours[Math.min(buildIndex, behaviours.length - 1)];
+      buildIndex += 1;
+      const file = /Your file is (\S+)\./.exec(prompt)?.[1] ?? "";
+      const name = /component exported as (\w+)\./.exec(prompt)?.[1] ?? "";
+
+      if (behaviour === "write") {
+        setTimeout(() => {
+          void writeFile(
+            join(cwd, file),
+            `export function ${name}() {\n  return <h1>${name}</h1>;\n}\n`,
+          ).then(() => child.finish(0));
+        }, 5);
+      }
+    }
+
+    return child;
+  };
+
+  const generations = createGenerations({
+    cwd,
+    spawn: fakeSpawn,
+    render,
+    register: async () => ({ ok: true }),
+    unregister: async () => {},
+    titles: async () => new Set<string>(),
+    onChange: () => {},
+  });
+
+  return { generations, builds };
+}
+
+async function settled<T>(read: () => T | undefined, holds: (value: T) => boolean): Promise<T> {
+  for (let tries = 0; tries < 400; tries += 1) {
+    const value = read();
+
+    if (value !== undefined && holds(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error("The condition never held.");
+}
+
+describe("a generation's lifecycle", () => {
+  test("a direction stopped while its page is being rendered stays stopped", async () => {
+    const cwd = await project("claude");
+    let rendered!: (report: { errors: readonly string[] }) => void;
+    const pending = new Promise<{ errors: readonly string[] }>((resolve) => (rendered = resolve));
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      () => pending,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "checking",
+    );
+
+    expect(await generations.stop(started.job.id, slot.key)).toBe(true);
+    rendered({ errors: [] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
+    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
+      "export function HeroLedger() {\n  return null;\n}\n",
+    );
+  });
+
+  test("a retry waits for the stopped build's process to be gone", async () => {
+    const cwd = await project("claude");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang", "write"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "building",
+    );
+
+    await settled(
+      () => builds[0],
+      () => true,
+    );
+    required(builds[0]).exitAfterKillMs = 200;
+
+    const stopping = generations.stop(started.job.id, slot.key);
+
+    // The old process is still shutting down: a retry now would race it.
+    expect(generations.retry(started.job.id, slot.key)).toBe(false);
+    await stopping;
+    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+
+    const done = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state !== "building" && value.state !== "checking",
+    );
+
+    expect(done).toMatchObject({ state: "ready", failure: null });
+  });
+
+  test("a planned direction never overwrites a file that is already there", async () => {
+    const cwd = await project("claude");
+    const own = 'export function HeroImage() {\n  return <img src="/hero.jpg" alt="" />;\n}\n';
+    await writeFile(join(cwd, ".leglas", "variants", "hero", "hero-image.tsx"), own);
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "image", title: "Image", idea: "A photograph." }],
+      ["write"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(slot.key).toBe("hero-image-2");
+    expect(await readFile(join(cwd, ".leglas", "variants", "hero", "hero-image.tsx"), "utf8")).toBe(
+      own,
+    );
+  });
 });
