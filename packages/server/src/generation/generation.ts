@@ -43,7 +43,14 @@ const KEPT_JOBS = 5;
 export type SlotState = "building" | "checking" | "ready" | "failed" | "stopped";
 
 export type GenerationFailure = {
-  code: FailureCode | "too-slow" | "not-written" | "broken" | "unreadable-plan" | "same-failure";
+  code:
+    | FailureCode
+    | "too-slow"
+    | "not-written"
+    | "broken"
+    | "unreadable-plan"
+    | "same-failure"
+    | "unexpected";
   message: string;
 };
 
@@ -128,6 +135,8 @@ type Live = {
   stack: string;
   /** The attempt each slot's work currently belongs to; see `begin`. */
   attempts: Map<string, number>;
+  /** Work still running after the call that started it answered; see `detach`. */
+  pending: Set<Promise<void>>;
 };
 
 export function surfaceSlug(surface: string): string {
@@ -330,6 +339,28 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const owns = (live: Live, slot: GenerationSlot, attempt: number): boolean =>
     live.attempts.get(slot.key) === attempt;
 
+  /** `work`, with any error it ends in handed to `onError` as a message. */
+  const guarded = (work: Promise<void>, onError: (message: string) => void): Promise<void> =>
+    work.catch((error) => onError(error instanceof Error ? error.message : String(error)));
+
+  /**
+   * Keep work that carries on after the call that started it has answered.
+   * A stop or close waits for it, since a write cut off by the process
+   * exiting leaves a file half-written, and its error goes to `onError`
+   * instead of taking the server down.
+   */
+  const detach = (live: Live, work: Promise<void>, onError: (message: string) => void): void => {
+    const kept = guarded(work, onError);
+
+    live.pending.add(kept);
+    void kept.then(() => live.pending.delete(kept));
+  };
+
+  /** Wait for everything a job has detached, including work detached meanwhile. */
+  const drain = async (live: Live): Promise<void> => {
+    while (live.pending.size > 0) await Promise.all(live.pending);
+  };
+
   /**
    * Take a slot back from its run: the process is gone before the
    * placeholder returns, so nothing it writes on the way out survives, and
@@ -363,9 +394,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
           message: `Stopped after two directions failed the same way: ${failure.message}`,
         };
         other.endedAt = now();
-        void release(live, other);
+        detach(live, release(live, other), () => {});
       }
     }
+  };
+
+  /** An error nothing planned for, in work on a slot: the slot shows it, if the slot is still that work's. */
+  const lost = (live: Live, slot: GenerationSlot, attempt: number, message: string): void => {
+    if (!owns(live, slot, attempt)) return;
+    fail(live, slot, { code: "unexpected", message });
+    settle(live);
+    changed();
   };
 
   const build = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
@@ -610,7 +649,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
     job.plannedAt = now();
     changed();
     // Each slot's first attempt starts as it joins the job, with no wait between, so any later stop outranks it.
-    await Promise.all(job.slots.map((slot) => build(live, slot, begin(live, slot))));
+    await Promise.all(
+      job.slots.map((slot) => {
+        const attempt = begin(live, slot);
+
+        return guarded(build(live, slot, attempt), (message) => lost(live, slot, attempt, message));
+      }),
+    );
   };
 
   const find = (id: string): Live | undefined => lives.find((live) => live.job.id === id);
@@ -626,6 +671,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
       job.endedAt = now();
       changed();
       await live.plan?.stop();
+      // Past its run, planning may still be writing the slots: stopped means those writes are done.
+      await drain(live);
 
       return true;
     }
@@ -711,6 +758,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         facts: null,
         stack: await stackOf(deps.cwd, switchPath),
         attempts: new Map(),
+        pending: new Set(),
       };
 
       lives.push(live);
@@ -721,9 +769,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       changed();
 
-      void plan(live, existing).catch((error) => {
+      detach(live, plan(live, existing), (message) => {
         job.state = "failed";
-        job.error = error instanceof Error ? error.message : String(error);
+        job.error = message;
         job.endedAt = now();
         changed();
       });
@@ -752,7 +800,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       slot.state = "building";
       slot.startedAt = now();
       slot.failure = null;
-      void restore(slot).then(() => build(live, slot, attempt));
+      detach(
+        live,
+        restore(slot).then(() => build(live, slot, attempt)),
+        (message) => lost(live, slot, attempt, message),
+      );
       live.job.state = "building";
       live.job.endedAt = null;
       changed();
@@ -781,7 +833,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       live.job.endedAt = null;
       changed();
 
-      void (async () => {
+      const replacing = async (): Promise<void> => {
         const asking = run(
           planArgs(
             replacePrompt({
@@ -837,16 +889,24 @@ export function createGenerations(deps: GenerationDeps): Generations {
         if (!owns(live, slot, attempt)) return;
         await restore(slot);
         await build(live, slot, attempt);
-      })();
+      };
+
+      detach(live, replacing(), (message) => lost(live, slot, attempt, message));
 
       return true;
     },
 
     async close() {
       closed = true;
-      // Closing stops everything the way a stop does, so no half-written file stays behind.
+      // Closing stops everything the way a stop does, then waits for work
+      // still writing, so the process never exits halfway through a file.
       await Promise.race([
-        Promise.all(lives.map((live) => stop(live.job.id))),
+        Promise.all(
+          lives.map(async (live) => {
+            await stop(live.job.id);
+            await drain(live);
+          }),
+        ),
         wait(KILL_GRACE_MS * 2 + 1000),
       ]);
     },

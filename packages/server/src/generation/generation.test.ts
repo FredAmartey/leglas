@@ -787,7 +787,7 @@ describe("a generation's lifecycle", () => {
     );
   });
 
-  test("a stop while the directions go on the rail leaves them listed, stopped", async () => {
+  test("a stop while the directions go on the rail waits for them and lists them, stopped", async () => {
     const cwd = await project("claude");
     let registered!: () => void;
     let registrations = 0;
@@ -820,18 +820,156 @@ describe("a generation's lifecycle", () => {
       () => (registrations === 1 ? true : undefined),
       () => true,
     );
-    expect(await generations.stop(started.job.id)).toBe(true);
+    const stopping = generations.stop(started.job.id);
+    let answered = false;
+
+    void stopping.then(() => (answered = true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Stopped means the writes already under way are done, so the answer waits for them.
+    expect(answered).toBe(false);
 
     registered();
+    expect(await stopping).toBe(true);
 
-    const job = await settled(
-      () => generations.snapshot()[0],
-      (value) => value.slots.length > 0,
-    );
+    const job = required(generations.snapshot()[0]);
 
     expect(job.state).toBe("stopped");
     expect(job.slots.map((slot) => slot.state)).toEqual(["stopped"]);
     expect(builds).toHaveLength(0);
+  });
+
+  test("closing waits for directions still going on the rail, even after a stop", async () => {
+    const cwd = await project("claude");
+    let registered!: () => void;
+    let registrations = 0;
+
+    const register = (): Promise<{ ok: boolean }> => {
+      registrations += 1;
+
+      return registrations === 1
+        ? new Promise((resolve) => (registered = () => resolve({ ok: true })))
+        : Promise.resolve({ ok: true });
+    };
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      register,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => (registrations === 1 ? true : undefined),
+      () => true,
+    );
+
+    const stopping = generations.stop(started.job.id);
+    const closing = generations.close();
+    let closed = false;
+
+    void closing.then(() => (closed = true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The switch file and the rail are still being written, so the process must not exit yet.
+    expect(closed).toBe(false);
+
+    registered();
+    await Promise.all([stopping, closing]);
+    expect(generations.snapshot()[0]?.slots.map((slot) => slot.state)).toEqual(["stopped"]);
+  });
+
+  test("a replace whose registration fails shows the error on the direction", async () => {
+    const cwd = await project("claude");
+    let registrations = 0;
+
+    const register = (): Promise<{ ok: boolean }> => {
+      registrations += 1;
+
+      return registrations === 2
+        ? Promise.reject(new Error("could not write the previews file"))
+        : Promise.resolve({ ok: true });
+    };
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      register,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(generations.replace(started.job.id, slot.key)).toBe(true);
+
+    const failed = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(failed.failure).toEqual({
+      code: "unexpected",
+      message: "could not write the previews file",
+    });
+    expect(builds).toHaveLength(1);
+  });
+
+  test("a render that throws fails that direction and its retry, not the whole set", async () => {
+    const cwd = await project("claude");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => {
+        throw new Error("no browser to render with");
+      },
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const failed = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(failed.failure).toEqual({ code: "unexpected", message: "no browser to render with" });
+    expect(generations.snapshot()[0]?.state).toBe("done");
+    expect(generations.retry(started.job.id, failed.key)).toBe(true);
+
+    const again = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => builds.length === 2 && value.state === "failed",
+    );
+
+    expect(again.failure?.code).toBe("unexpected");
   });
 
   test("closing while a page is being rendered starts no fix run and puts the placeholder back", async () => {
@@ -859,10 +997,10 @@ describe("a generation's lifecycle", () => {
       (value) => value.state === "checking",
     );
 
-    await generations.close();
-    // The browser went with the rest, so the render ends in an error.
+    const closing = generations.close();
+    // The browser goes with the rest, so the render ends in an error.
     rendered({ errors: ["Target closed"] });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await closing;
 
     expect(builds).toHaveLength(1);
     expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
