@@ -108,15 +108,6 @@ export function registerLeglasTools(
   server: McpServer,
   options: { project: Project; engagement?: Engagement },
 ): LeglasTools {
-  return registerLeglasToolsWithServices(server, options);
-}
-
-/** Register the tools with the viewer's boot swappable, so tests can start one quietly. */
-export function registerLeglasToolsWithServices(
-  server: McpServer,
-  options: { project: Project; engagement?: Engagement },
-  services: { run?: typeof run } = {},
-): LeglasTools {
   const project = options.project;
 
   // One viewer per MCP process. The handle is held so a host that dies or
@@ -159,7 +150,7 @@ export function registerLeglasToolsWithServices(
       }
 
       return inProject(project, async (cwd, deps) => {
-        const result = await (services.run ?? run)(
+        const result = await run(
           { port, userPort: undefined, configPath: undefined, open: false, json: true, cwd },
           { open: async () => {}, log: deps.log },
         );
