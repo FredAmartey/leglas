@@ -126,6 +126,8 @@ type Live = {
   switchPath: string;
   facts: string | null;
   stack: string;
+  /** The attempt each slot's work currently belongs to; see `begin`. */
+  attempts: Map<string, number>;
 };
 
 export function surfaceSlug(surface: string): string {
@@ -166,11 +168,6 @@ async function stackOf(cwd: string, switchPath: string): Promise<string> {
   return `an app with ${react}${typescript}`;
 }
 
-/** Read fresh: a stop can land while a run is awaited, which a narrowed local would not see. */
-function stopped(slot: GenerationSlot): boolean {
-  return slot.state === "stopped";
-}
-
 function copy(job: GenerationJob): GenerationJob {
   return {
     ...job,
@@ -189,6 +186,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     ((command, args, options) => nodeSpawn(command, args, { ...options, env: agentEnvironment() }));
 
   const lives: Live[] = [];
+  let closed = false;
 
   const changed = (): void => deps.onChange();
 
@@ -208,6 +206,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
     let child: RunnerChild | null = null;
 
     const done = new Promise<Outcome>((resolve) => {
+      // Work that was already on its way when Leglas closed ends here, before any process starts.
+      if (closed) {
+        resolve({ code: null, lines, error: "Leglas is closing.", timedOut });
+
+        return;
+      }
+
       try {
         child = spawn("claude", args, {
           cwd: deps.cwd,
@@ -309,14 +314,35 @@ export function createGenerations(deps: GenerationDeps): Generations {
   };
 
   /**
+   * Every piece of work on a slot holds the attempt it started under. A stop,
+   * a retry or a replace starts a new one, and work still running for an
+   * older attempt finds out at its next step and leaves the slot alone. A
+   * state string cannot do this: a retry sets "building" again, which is
+   * exactly what stale work expects to see.
+   */
+  const begin = (live: Live, slot: GenerationSlot): number => {
+    const attempt = (live.attempts.get(slot.key) ?? 0) + 1;
+    live.attempts.set(slot.key, attempt);
+
+    return attempt;
+  };
+
+  const owns = (live: Live, slot: GenerationSlot, attempt: number): boolean =>
+    live.attempts.get(slot.key) === attempt;
+
+  /**
    * Take a slot back from its run: the process is gone before the
    * placeholder returns, so nothing it writes on the way out survives, and
    * the run stays registered until then so no retry can start beside it.
    */
   const release = async (live: Live, slot: GenerationSlot): Promise<void> => {
-    await live.runs.get(slot.key)?.stop();
+    const running = live.runs.get(slot.key);
+
+    await running?.stop();
     await restore(slot);
-    live.runs.delete(slot.key);
+
+    // A retry accepted meanwhile has its own run, which must stay stoppable.
+    if (running !== undefined && live.runs.get(slot.key) === running) live.runs.delete(slot.key);
   };
 
   const fail = (live: Live, slot: GenerationSlot, failure: GenerationFailure): void => {
@@ -330,6 +356,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     if (same >= 2) {
       for (const other of live.job.slots) {
         if (other.state !== "building" && other.state !== "checking") continue;
+        begin(live, other);
         other.state = "stopped";
         other.failure = {
           code: "same-failure",
@@ -341,11 +368,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
     }
   };
 
-  const build = async (live: Live, slot: GenerationSlot): Promise<void> => {
+  const build = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
     const concept = live.concepts.get(slot.key);
 
-    // Stopped between being accepted and starting: the stop stands.
-    if (concept === undefined || stopped(slot)) return;
+    // Stopped or replaced between being accepted and starting: the newer attempt stands.
+    if (concept === undefined || !owns(live, slot, attempt)) return;
     slot.state = "building";
     slot.startedAt = now();
     slot.endedAt = null;
@@ -370,9 +397,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
     live.runs.set(slot.key, building);
     const outcome = await building.done;
 
-    // A stop took the slot over while this run was ending, and owns it now.
-    if (live.runs.get(slot.key) !== building || stopped(slot)) return;
-    live.runs.delete(slot.key);
+    // A stop or a newer attempt took the slot over while this run was ending.
+    if (!owns(live, slot, attempt)) return;
+
+    if (live.runs.get(slot.key) === building) live.runs.delete(slot.key);
+    const written = await readFile(join(deps.cwd, slot.file), "utf8").catch(() => "");
+
+    if (!owns(live, slot, attempt)) return;
 
     if (outcome.timedOut) {
       fail(live, slot, {
@@ -381,10 +412,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       });
     } else if (outcome.error !== null || outcome.code !== 0) {
       fail(live, slot, failureOf(outcome));
-    } else if (
-      (await readFile(join(deps.cwd, slot.file), "utf8").catch(() => "")) ===
-      placeholderSource(pascal(slot.key))
-    ) {
+    } else if (written === placeholderSource(pascal(slot.key))) {
       fail(live, slot, {
         code: "not-written",
         message: "The build finished without writing its file.",
@@ -392,7 +420,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     } else {
       slot.state = "checking";
       changed();
-      await check(live, slot);
+      await check(live, slot, attempt);
     }
 
     settle(live);
@@ -405,11 +433,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
    * carrying the error, and still broken means failed, never a broken
    * direction presented as done.
    */
-  const check = async (live: Live, slot: GenerationSlot): Promise<void> => {
+  const check = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
     let report = await deps.render(slot.title);
 
-    // A stop can land while the page renders; from then on the slot is the stop's.
-    if (stopped(slot)) return;
+    // A stop, or a stop and a retry, can land while the page renders.
+    if (!owns(live, slot, attempt)) return;
 
     if (report !== null && report.errors.length > 0) {
       const fixing = run(
@@ -420,8 +448,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
 
-      if (live.runs.get(slot.key) !== fixing || stopped(slot)) return;
-      live.runs.delete(slot.key);
+      if (!owns(live, slot, attempt)) return;
+
+      if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
 
       if (outcome.timedOut || outcome.error !== null || outcome.code !== 0) {
         fail(
@@ -438,7 +467,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       slot.fixed = true;
       report = await deps.render(slot.title);
 
-      if (stopped(slot)) return;
+      if (!owns(live, slot, attempt)) return;
 
       if (report !== null && report.errors.length > 0) {
         fail(live, slot, {
@@ -501,6 +530,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       return;
     }
 
+    live.facts = factsBlock(await readProjectFacts(deps.cwd, live.switchPath), job.surface);
     const slug = surfaceSlug(job.surface);
     const keys = new Set(existing);
     const titles = new Set(await deps.titles());
@@ -562,16 +592,63 @@ export function createGenerations(deps: GenerationDeps): Generations {
       );
     }
 
-    if (job.state !== "planning") return;
     job.slots = slots;
+
+    // Stopped while the slots were going on the rail: they are there as placeholders, so the job lists them, stopped.
+    if (job.state !== "planning") {
+      for (const slot of slots) {
+        slot.state = "stopped";
+        slot.endedAt = now();
+      }
+
+      changed();
+
+      return;
+    }
+
     job.state = "building";
     job.plannedAt = now();
-    live.facts = factsBlock(await readProjectFacts(deps.cwd, live.switchPath), job.surface);
     changed();
-    await Promise.all(job.slots.map((slot) => build(live, slot)));
+    // Each slot's first attempt starts as it joins the job, with no wait between, so any later stop outranks it.
+    await Promise.all(job.slots.map((slot) => build(live, slot, begin(live, slot))));
   };
 
   const find = (id: string): Live | undefined => lives.find((live) => live.job.id === id);
+
+  const stop = async (id: string, key?: string): Promise<boolean> => {
+    const live = find(id);
+
+    if (live === undefined) return false;
+    const { job } = live;
+
+    if (key === undefined && job.state === "planning") {
+      job.state = "stopped";
+      job.endedAt = now();
+      changed();
+      await live.plan?.stop();
+
+      return true;
+    }
+
+    const targets = job.slots.filter(
+      (slot) =>
+        (key === undefined || slot.key === key) &&
+        (slot.state === "building" || slot.state === "checking"),
+    );
+
+    for (const slot of targets) {
+      begin(live, slot);
+      slot.state = "stopped";
+      slot.endedAt = now();
+    }
+
+    settle(live);
+    changed();
+    // A half-written file never stays on the rail.
+    await Promise.all(targets.map((slot) => release(live, slot)));
+
+    return targets.length > 0;
+  };
 
   return {
     async start(request) {
@@ -633,6 +710,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         switchPath,
         facts: null,
         stack: await stackOf(deps.cwd, switchPath),
+        attempts: new Map(),
       };
 
       lives.push(live);
@@ -655,39 +733,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     snapshot: () => lives.map((live) => copy(live.job)),
 
-    async stop(id, key) {
-      const live = find(id);
-
-      if (live === undefined) return false;
-      const { job } = live;
-
-      if (key === undefined && job.state === "planning") {
-        job.state = "stopped";
-        job.endedAt = now();
-        changed();
-        await live.plan?.stop();
-
-        return true;
-      }
-
-      const targets = job.slots.filter(
-        (slot) =>
-          (key === undefined || slot.key === key) &&
-          (slot.state === "building" || slot.state === "checking"),
-      );
-
-      for (const slot of targets) {
-        slot.state = "stopped";
-        slot.endedAt = now();
-      }
-
-      settle(live);
-      changed();
-      // A half-written file never stays on the rail.
-      await Promise.all(targets.map((slot) => release(live, slot)));
-
-      return targets.length > 0;
-    },
+    stop,
 
     retry(id, key) {
       const live = find(id);
@@ -702,10 +748,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
         return false;
 
       // Accepted means building from this moment, so the job never reads as stopped after a yes.
+      const attempt = begin(live, slot);
       slot.state = "building";
       slot.startedAt = now();
       slot.failure = null;
-      void restore(slot).then(() => build(live, slot));
+      void restore(slot).then(() => build(live, slot, attempt));
       live.job.state = "building";
       live.job.endedAt = null;
       changed();
@@ -726,6 +773,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       )
         return false;
 
+      const attempt = begin(live, slot);
       slot.state = "building";
       slot.startedAt = now();
       slot.failure = null;
@@ -748,8 +796,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
         live.runs.set(slot.key, asking);
         const outcome = await asking.done;
 
-        if (live.runs.get(slot.key) !== asking || stopped(slot)) return;
-        live.runs.delete(slot.key);
+        if (!owns(live, slot, attempt)) return;
+
+        if (live.runs.get(slot.key) === asking) live.runs.delete(slot.key);
         let concept: Concept;
 
         try {
@@ -767,6 +816,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
         }
 
         const titles = new Set(await deps.titles());
+
+        if (!owns(live, slot, attempt)) return;
         titles.delete(slot.title);
         const title = freeTitle(concept.title, titles);
         await serially(async () => {
@@ -778,26 +829,26 @@ export function createGenerations(deps: GenerationDeps): Generations {
             note: concept.idea,
           });
         });
+        // The rail shows the new concept from here on, so the slot does too, whoever holds it now.
         live.concepts.set(slot.key, { ...concept, title });
         slot.title = title;
         slot.idea = concept.idea;
+
+        if (!owns(live, slot, attempt)) return;
         await restore(slot);
-        await build(live, slot);
+        await build(live, slot, attempt);
       })();
 
       return true;
     },
 
     async close() {
-      const pending: Promise<void>[] = [];
-
-      for (const live of lives) {
-        if (live.plan !== null) pending.push(live.plan.stop());
-
-        for (const running of live.runs.values()) pending.push(running.stop());
-      }
-
-      await Promise.race([Promise.all(pending), wait(KILL_GRACE_MS * 2 + 1000)]);
+      closed = true;
+      // Closing stops everything the way a stop does, so no half-written file stays behind.
+      await Promise.race([
+        Promise.all(lives.map((live) => stop(live.job.id))),
+        wait(KILL_GRACE_MS * 2 + 1000),
+      ]);
     },
   };
 }

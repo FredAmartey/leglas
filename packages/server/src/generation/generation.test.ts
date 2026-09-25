@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 
 import { readProjectFacts } from "./facts.js";
-import { createGenerations } from "./generation.js";
+import { createGenerations, type GenerationDeps } from "./generation.js";
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
@@ -537,13 +537,16 @@ function orchestrator(
   concepts: object[],
   behaviours: Behaviour[],
   render: (title: string) => Promise<{ errors: readonly string[] } | null>,
+  register: GenerationDeps["register"] = async () => ({ ok: true }),
 ) {
   const builds: FakeChild[] = [];
+  const spawned: FakeChild[] = [];
   let buildIndex = 0;
 
   const fakeSpawn: RunnerSpawn = (_command, args) => {
     const child = new FakeChild();
     const prompt = args[args.indexOf("-p") + 1] ?? "";
+    spawned.push(child);
 
     if (args[args.indexOf("--tools") + 1] === "") {
       setTimeout(() => {
@@ -574,13 +577,13 @@ function orchestrator(
     cwd,
     spawn: fakeSpawn,
     render,
-    register: async () => ({ ok: true }),
+    register,
     unregister: async () => {},
     titles: async () => new Set<string>(),
     onChange: () => {},
   });
 
-  return { generations, builds };
+  return { generations, builds, spawned };
 }
 
 async function settled<T>(read: () => T | undefined, holds: (value: T) => boolean): Promise<T> {
@@ -674,6 +677,225 @@ describe("a generation's lifecycle", () => {
     );
 
     expect(done).toMatchObject({ state: "ready", failure: null });
+  });
+
+  test("a render that outlives a stop and a retry does not speak for the new attempt", async () => {
+    const cwd = await project("claude");
+    let staleRender!: (report: { errors: readonly string[] }) => void;
+    let renders = 0;
+
+    const render = (): Promise<{ errors: readonly string[] }> => {
+      renders += 1;
+
+      return renders === 1
+        ? new Promise((resolve) => (staleRender = resolve))
+        : Promise.resolve({ errors: [] });
+    };
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write", "hang"],
+      render,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "checking",
+    );
+
+    await generations.stop(started.job.id, slot.key);
+    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+    await settled(
+      () => builds[1],
+      () => true,
+    );
+
+    // The first attempt's render now reports errors: it must neither call the slot ready nor start a fix run.
+    staleRender({ errors: ["Uncaught Error: broken"] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("building");
+    expect(builds).toHaveLength(2);
+  });
+
+  test("a replace that loses its slot to a stop and a retry leaves the retry's work alone", async () => {
+    const cwd = await project("claude");
+    let registered!: () => void;
+    let registrations = 0;
+
+    const register = (): Promise<{ ok: boolean }> => {
+      registrations += 1;
+
+      // The replace's registration is held open until the test lets it go.
+      return registrations === 2
+        ? new Promise((resolve) => (registered = () => resolve({ ok: true })))
+        : Promise.resolve({ ok: true });
+    };
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      register,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(generations.replace(started.job.id, slot.key)).toBe(true);
+    await settled(
+      () => (registrations === 2 ? true : undefined),
+      () => true,
+    );
+    await generations.stop(started.job.id, slot.key);
+    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => builds.length === 2 && value.state === "ready",
+    );
+
+    // The replace wakes up after the retry finished; the retry's file is the one that stays.
+    registered();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(builds).toHaveLength(2);
+    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("ready");
+    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
+      "export function HeroLedger() {\n  return <h1>HeroLedger</h1>;\n}\n",
+    );
+  });
+
+  test("a stop while the directions go on the rail leaves them listed, stopped", async () => {
+    const cwd = await project("claude");
+    let registered!: () => void;
+    let registrations = 0;
+
+    const register = (): Promise<{ ok: boolean }> => {
+      registrations += 1;
+
+      return registrations === 1
+        ? new Promise((resolve) => (registered = () => resolve({ ok: true })))
+        : Promise.resolve({ ok: true });
+    };
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      register,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => (registrations === 1 ? true : undefined),
+      () => true,
+    );
+    expect(await generations.stop(started.job.id)).toBe(true);
+
+    registered();
+
+    const job = await settled(
+      () => generations.snapshot()[0],
+      (value) => value.slots.length > 0,
+    );
+
+    expect(job.state).toBe("stopped");
+    expect(job.slots.map((slot) => slot.state)).toEqual(["stopped"]);
+    expect(builds).toHaveLength(0);
+  });
+
+  test("closing while a page is being rendered starts no fix run and puts the placeholder back", async () => {
+    const cwd = await project("claude");
+    let rendered!: (report: { errors: readonly string[] }) => void;
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      () => new Promise((resolve) => (rendered = resolve)),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "checking",
+    );
+
+    await generations.close();
+    // The browser went with the rest, so the render ends in an error.
+    rendered({ errors: ["Target closed"] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(builds).toHaveLength(1);
+    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
+      "export function HeroLedger() {\n  return null;\n}\n",
+    );
+  });
+
+  test("a set that starts as Leglas closes starts no process", async () => {
+    const cwd = await project("claude");
+
+    const { generations, spawned } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+    );
+
+    const starting = generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    await generations.close();
+    const started = await starting;
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => generations.snapshot()[0],
+      (value) => value.state === "failed",
+    );
+    expect(spawned).toHaveLength(0);
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {
