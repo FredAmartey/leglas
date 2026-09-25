@@ -67,13 +67,15 @@ function manualTimers() {
 }
 
 describe("what a frame can say", () => {
-  test("reads the three kinds and refuses everything else", () => {
-    expect(changeFrom(JSON.stringify({ changed: "config" }))).toBe("config");
-    expect(changeFrom(JSON.stringify({ changed: "requests" }))).toBe("requests");
-    expect(changeFrom(JSON.stringify({ changed: "health" }))).toBe("health");
+  // Every kind the server sends, as packages/server/src/live.ts declares
+  // them. This test used to list three, and the shell dropped `update`.
+  test.each(["config", "requests", "health", "share", "update"])("reads %s", (kind) => {
+    expect(changeFrom(JSON.stringify({ changed: kind }))).toBe(kind);
+  });
 
-    // A fourth kind is not a kind. Annotations ride "requests" on purpose,
-    // so the queue and its notes keep costing one socket instead of two.
+  test("refuses everything else", () => {
+    // Annotations are not a kind. They ride "requests" on purpose, so the
+    // queue and its notes keep costing one socket instead of two.
     expect(changeFrom(JSON.stringify({ changed: "annotations" }))).toBeNull();
     expect(isLiveChange("annotations")).toBe(false);
 
