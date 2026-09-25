@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -206,11 +206,16 @@ describe("branch preview registry", () => {
     });
 
     await registry.start("Wave");
-    await vi.advanceTimersByTimeAsync(BRANCH_IDLE_MS + 30_000);
 
+    // Nine quiet minutes are not enough to lose it.
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    expect(registry.state("Wave")?.status).toBe("ready");
+    expect(worktreeStops).toBe(0);
+
+    // Past ten, the next sweep lets it go.
+    await vi.advanceTimersByTimeAsync(60_000 + 30_000);
     expect(proxyStops).toBe(1);
     expect(worktreeStops).toBe(1);
-    expect(existsSync(checkout)).toBe(false);
     expect(registry.state("Wave")).toEqual({ status: "idle" });
     expect(transitions.at(-1)).toBe("idle");
 

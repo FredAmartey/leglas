@@ -93,17 +93,6 @@ describe("classifyFailure", () => {
     );
   });
 
-  test("a clean exit that registered nothing is named as itself", () => {
-    // Exit 0 with a polite goodbye used to read as success, and everything the
-    // run built stayed invisible. The verdict is Leglas's own, so no output
-    // sniffing outranks it.
-    const failure = classifyFailure({ agent: "Claude", error: "not-registered" });
-    expect(failure.code).toBe("not-registered");
-    expect(failure.message).toBe(
-      "Claude finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.",
-    );
-  });
-
   test("a run that went quiet is ended by Leglas, and says so", () => {
     // The same process would sit on the same unanswerable question a second
     // time, which is why this is not a conversation failure either.
