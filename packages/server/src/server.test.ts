@@ -1006,6 +1006,12 @@ describe("startServer", () => {
     });
 
     expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
+
+    const after: { annotations: unknown[] } = await (
+      await fetch(`${server.url}/leglas/api/annotations`)
+    ).json();
+
+    expect(after.annotations).toEqual([]);
   });
 
   test("rewords a note that is already there", async () => {
