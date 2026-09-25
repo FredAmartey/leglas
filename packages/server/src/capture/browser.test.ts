@@ -900,15 +900,28 @@ describe("reapOrphanedBrowsers", () => {
   test("never signals a process id, whatever the record says", async () => {
     // The guarantee behind the endpoint design: no code path here reaches a
     // kill, so a recycled process id cannot be signalled by mistake.
+    // A dead endpoint is where a fallback would be tempting, so both are run.
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
-    await reap({
-      list: async () => ["leglas-browser-dead"],
-      read: async () => record({ owner: 4242, browser: 9003, ws: "ws://127.0.0.1:51003/x" }),
-      connect: async () => socket().handle,
-    });
 
-    expect(kill).not.toHaveBeenCalledWith(9003, expect.anything());
-    kill.mockRestore();
+    try {
+      await reap({
+        list: async () => ["leglas-browser-dead"],
+        read: async () => record({ owner: 4242, browser: 9003, ws: "ws://127.0.0.1:51003/x" }),
+        connect: async () => socket().handle,
+      });
+
+      await reap({
+        list: async () => ["leglas-browser-dead"],
+        read: async () => record({ owner: 4242, browser: 9003, ws: "ws://127.0.0.1:51003/x" }),
+        connect: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+      });
+
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+    }
   });
 
   test("leaves another user's profile alone", async () => {
