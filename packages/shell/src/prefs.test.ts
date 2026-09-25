@@ -147,7 +147,14 @@ describe("reorder", () => {
 
     // Visible rows are Original, Aurora; moving Aurora to slot 0 must not
     // reshuffle the hidden Wave out of the stored order.
-    expect(reorder(prefs, previews, "Aurora", 0)).toContain("Wave");
+    expect(reorder(prefs, previews, "Aurora", 0)).toEqual(["Aurora", "Original", "Wave"]);
+
+    // A hidden row between two visible ones stays where it was, rather than
+    // being swept to an end: Dusk lands before Aurora, after the hidden Wave.
+    const four = [...previews, { title: "Dusk", url: "/?v-hero=dusk", tags: [] }];
+    const between = { ...loadPrefs(null, four), hidden: ["Wave"] };
+
+    expect(reorder(between, four, "Dusk", 1)).toEqual(["Original", "Wave", "Dusk", "Aurora"]);
   });
 });
 

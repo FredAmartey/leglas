@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   ancestry,
   collapseChain,
+  forkCurve,
   lineageRail,
   reorderAmongSiblings,
   segmentsOf,
@@ -291,18 +292,20 @@ describe("tracedSegments", () => {
 });
 
 describe("segmentsOf", () => {
+  // The shell reads these as a set, of what is drawn and of what is new, so
+  // the order they come in is not part of the answer.
   test("names every part a row draws", () => {
-    expect(
-      segmentsOf({
-        title: "Quay",
-        depth: 4,
-        lane: 0,
-        fromAbove: true,
-        toBelow: true,
-        forks: [2],
-        through: [1],
-      }),
-    ).toEqual(["mark", "above", "below", "fork:2", "through:1"]);
+    const segments = segmentsOf({
+      title: "Quay",
+      depth: 4,
+      lane: 0,
+      fromAbove: true,
+      toBelow: true,
+      forks: [2],
+      through: [1],
+    });
+
+    expect(new Set(segments)).toEqual(new Set(["mark", "above", "below", "fork:2", "through:1"]));
   });
 });
 
@@ -371,15 +374,33 @@ describe("trailPath", () => {
     ).toBe("M 6 10 L 6 60");
   });
 
-  test("a step into another lane drops, turns out, turns down and arrives vertical", () => {
-    expect(
-      trailPath([
-        { x: 4, y: 10 },
-        { x: 14, y: 80 },
-      ]),
-    ).toBe(
-      "M 4 10 C 4 11.33, 4 12.67, 4 14 C 4 16.76, 6.24 19, 9 19 C 11.76 19, 14 21.24, 14 24 L 14 80",
-    );
+  // trailPath's contract: the light takes the knee the gutter draws for a
+  // fork, so it follows the line already there instead of cutting its own
+  // corner. Where that knee lands, in the new lane fourteen pixels below the
+  // mark it left, is from forkCurve's own comment.
+  test("a step into another lane rides the gutter's fork and arrives vertical", () => {
+    const path = trailPath([
+      { x: 4, y: 10 },
+      { x: 14, y: 80 },
+    ]);
+
+    // Out of the parent's mark, and down the child's lane to its mark.
+    expect(path).toMatch(/^M 4 10 /);
+    expect(path).toMatch(/ 14 24 L 14 80$/);
+    // Between the two, the very curve the gutter draws.
+    expect(path).toBe(`${forkCurve(4, 10, 14)} L 14 80`);
+
+    // And that curve leaves the mark heading straight down and arrives in the
+    // new lane heading straight down: the first control point stays on x 4,
+    // the last one before the knee is already on x 14.
+    const cubics = path
+      .slice(0, path.lastIndexOf(" L "))
+      .split(" C ")
+      .slice(1)
+      .map((cubic) => cubic.split(", ").map((point) => point.split(" ").map(Number)));
+
+    expect(cubics[0]?.[0]?.[0]).toBe(4);
+    expect(cubics.at(-1)?.[1]?.[0]).toBe(14);
   });
 
   test("a fork with no room before the next mark goes straight there", () => {
