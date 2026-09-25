@@ -59,6 +59,7 @@ Options for watch
   --run <command>      Your agent, with {prompt} where the request goes, for
                        example "claude -p {prompt}". Remembered after first use
   --port <port>        Port Leglas itself is on (default: 4100)
+  --json               One JSON line per event; the agent's output goes to stderr
 
 Options for classify
   --change <path>      A file the direction creates or wires up (repeatable)
@@ -219,10 +220,11 @@ if (parsed.kind === "requests") {
 }
 
 // Long-running like leglas itself, so it prints progress rather than a single
-// envelope, and returns only once a signal has stopped it.
+// envelope (under --json, one JSON line per event), and returns only once a
+// signal has stopped it.
 if (parsed.kind === "watch") {
   const outcome = await runWatch(
-    { run: parsed.run, port: parsed.port, cwd: process.cwd() },
+    { run: parsed.run, port: parsed.port, cwd: process.cwd(), json: parsed.json },
     previewDeps,
   );
 

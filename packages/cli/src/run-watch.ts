@@ -33,6 +33,15 @@ const HEARTBEAT_TIMEOUT_MS = 1000;
 
 type SpawnOutcome = { ok: true; code: number } | { ok: false; error: string };
 
+/** One line of `watch --json`, as docs/cli.md lists them. */
+type WatchEvent =
+  | { event: "watching"; command: string; agent: string | null }
+  | { event: "started"; id: string; title: string; intent: string; target: string | null }
+  | { event: "done"; id: string; title: string }
+  | { event: "failed"; id: string; title: string; code: string; reason: string }
+  | { event: "error"; message: string }
+  | { event: "stopped" };
+
 async function saveTemplate(cwd: string, run: string): Promise<void> {
   const path = join(cwd, WATCH_PATH);
   // The file also carries the interface's agent choice. Writing only the
@@ -59,9 +68,15 @@ async function saveTemplate(cwd: string, run: string): Promise<void> {
  * No shell: the prompt is arbitrary text typed into a browser, and a shell
  * would read it as syntax. stdio is inherited so the agent's own output lands
  * in this terminal as it happens, which is what makes watch a thing worth
- * leaving open rather than a wrapper that hides the work.
+ * leaving open rather than a wrapper that hides the work. Under --json the
+ * agent's stdout goes to stderr instead, so stdout carries only events.
  */
-function spawnAgent(command: string, args: string[], cwd: string): Promise<SpawnOutcome> {
+function spawnAgent(
+  command: string,
+  args: string[],
+  cwd: string,
+  json: boolean,
+): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
     let settled = false;
 
@@ -71,7 +86,11 @@ function spawnAgent(command: string, args: string[], cwd: string): Promise<Spawn
       resolve(outcome);
     };
 
-    const child = spawn(command, args, { cwd, stdio: "inherit" });
+    const child = spawn(command, args, {
+      cwd,
+      stdio: json ? ["inherit", 2, "inherit"] : "inherit",
+    });
+
     child.on("error", (error) => settle({ ok: false, error: error.message }));
     child.on("close", (code, signal) =>
       settle(
@@ -95,9 +114,28 @@ function spawnAgent(command: string, args: string[], cwd: string): Promise<Spawn
  * stays the same shape as every other command.
  */
 export async function runWatch(
-  options: { run: string | undefined; port: number | undefined; cwd: string; signal?: AbortSignal },
+  options: {
+    run: string | undefined;
+    port: number | undefined;
+    cwd: string;
+    json?: boolean;
+    signal?: AbortSignal;
+  },
   deps: WatchDeps,
 ): Promise<{ exitCode: number }> {
+  // Under --json stdout carries one event per line and nothing else, so the
+  // lines written for a person are left out and a refusal is the envelope
+  // every other command prints.
+  const json = options.json === true;
+  const emit = (event: WatchEvent): void => deps.log(JSON.stringify(event));
+
+  const refuse = (error: string) => {
+    if (json) deps.log(JSON.stringify({ ok: false, error }));
+    else deps.error(error);
+
+    return { exitCode: 1 };
+  };
+
   const saved =
     options.run === undefined ? await readAgentChoice(options.cwd) : { agent: null, run: null };
 
@@ -109,11 +147,7 @@ export async function runWatch(
   if (raw !== null) {
     const parsed = parseTemplate(raw);
 
-    if (!parsed.ok) {
-      deps.error(parsed.error);
-
-      return { exitCode: 1 };
-    }
+    if (!parsed.ok) return refuse(parsed.error);
 
     template = parsed.template;
     shownCommand = raw;
@@ -126,11 +160,9 @@ export async function runWatch(
     shownCommand = [template.command, ...template.args].join(" ");
     synthesizedAgent = adapter.name;
   } else {
-    deps.error(
+    return refuse(
       'Watch needs an agent command the first time: pick an agent in the interface, or pass --run "claude -p {prompt}".',
     );
-
-    return { exitCode: 1 };
   }
 
   // An explicit template is remembered as soon as it is known good. A
@@ -155,12 +187,16 @@ export async function runWatch(
     }
   };
 
-  if (synthesizedAgent !== null) {
-    deps.log(`Using ${synthesizedAgent}, chosen in the interface.`);
-  }
+  if (json) {
+    emit({ event: "watching", command: shownCommand, agent: synthesizedAgent });
+  } else {
+    if (synthesizedAgent !== null) {
+      deps.log(`Using ${synthesizedAgent}, chosen in the interface.`);
+    }
 
-  deps.log(`Watching for change requests. Each one runs: ${shownCommand}`);
-  deps.log("Stop with Ctrl-C.");
+    deps.log(`Watching for change requests. Each one runs: ${shownCommand}`);
+    deps.log("Stop with Ctrl-C.");
+  }
 
   const failed = new Set<string>();
   let stopped = false;
@@ -170,21 +206,29 @@ export async function runWatch(
   let inflight: Promise<void> | null = null;
 
   const handle = async (request: PendingRequest): Promise<void> => {
-    deps.log("");
-    deps.log(`  ${request.title}: ${request.intent}`);
+    const { id, title, intent, target } = request;
 
-    if (request.target !== null) deps.log(`    ${request.target}`);
+    if (json) {
+      emit({ event: "started", id, title, intent, target });
+    } else {
+      deps.log("");
+      deps.log(`  ${title}: ${intent}`);
+
+      if (target !== null) deps.log(`    ${target}`);
+    }
 
     // Persisted before the agent starts, so the interface stops saying the
     // request is waiting the moment it is not.
     await markPickedUp(options.cwd, request.id);
 
     const { command, args } = commandFor(template, request.prompt);
-    const outcome = await spawnAgent(command, args, options.cwd);
+    const outcome = await spawnAgent(command, args, options.cwd, json);
 
     if (outcome.ok && outcome.code === 0) {
       await removeRequest(options.cwd, request.id);
-      deps.log(`  done    ${request.title}`);
+
+      if (json) emit({ event: "done", id, title });
+      else deps.log(`  done    ${title}`);
 
       return;
     }
@@ -205,8 +249,13 @@ export async function runWatch(
     });
 
     await markFailed(options.cwd, request.id, failure);
-    deps.error(`  failed  ${request.title}: ${failure.message}`);
-    deps.error("  Left in the queue and not retried.");
+
+    if (json) {
+      emit({ event: "failed", id, title, code: failure.code, reason: failure.message });
+    } else {
+      deps.error(`  failed  ${title}: ${failure.message}`);
+      deps.error("  Left in the queue and not retried.");
+    }
   };
 
   const tick = async (): Promise<void> => {
@@ -238,7 +287,10 @@ export async function runWatch(
         await inflight;
       }
     } catch (error) {
-      deps.error(`  ! ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (json) emit({ event: "error", message });
+      else deps.error(`  ! ${message}`);
     } finally {
       inflight = null;
       busy = false;
@@ -263,7 +315,10 @@ export async function runWatch(
       void Promise.resolve(inflight)
         .catch(() => {})
         .then(() => heartbeat(false))
-        .then(() => resolve({ exitCode: 0 }));
+        .then(() => {
+          if (json) emit({ event: "stopped" });
+          resolve({ exitCode: 0 });
+        });
     };
 
     process.on("SIGINT", stop);

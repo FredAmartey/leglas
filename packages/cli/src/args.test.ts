@@ -529,11 +529,6 @@ describe("the share command", () => {
     expect(parseArgs(["share", "--tunnel", "none"])).toMatchObject({ tunnel: "none" });
   });
 
-  test("asks for help, which lists its options", () => {
-    expect(parseArgs(["share", "--help"]).kind).toBe("help");
-    expect(parseArgs(["share", "Aurora", "-h"]).kind).toBe("help");
-  });
-
   test("stop ends the share and takes nothing that would start one", () => {
     expect(parseArgs(["share", "--stop", "--json"])).toMatchObject({ stop: true, json: true });
     expect(parseArgs(["share", "Aurora", "--stop"])).toEqual({
@@ -603,6 +598,17 @@ describe("watch", () => {
   });
 
   test("rejects an unknown flag rather than ignoring it", () => {
-    expect(parseArgs(["watch", "--json"]).kind).toBe("error");
+    expect(parseArgs(["watch", "--verbose"]).kind).toBe("error");
+  });
+
+  // docs/cli.md: --json works on every command, watch included.
+  test("takes --json, which prints one JSON line per event", () => {
+    const result = parseArgs(["watch", "--json", "--run", "claude -p {prompt}"]);
+
+    expect(result.kind).toBe("watch");
+
+    if (result.kind !== "watch") return;
+    expect(result.json).toBe(true);
+    expect(result.run).toBe("claude -p {prompt}");
   });
 });

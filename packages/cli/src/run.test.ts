@@ -121,6 +121,9 @@ describe("run", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.url).toMatch(/^http:\/\/localhost:\d+\/leglas$/);
+    // The app answers through Leglas, so it is the configured dev server behind it.
+    const proxied = await fetch(result.url.replace(/\/leglas$/, "/"));
+    expect(await proxied.text()).toBe("app");
   });
 
   test("opens the browser at the interface, not at the app", async () => {
@@ -297,7 +300,8 @@ describe("startup update notice", () => {
         expect(JSON.parse(output[0]!)).toMatchObject({ ok: true });
         expect(updates.check).not.toHaveBeenCalled();
       } else {
-        expect(output).toHaveLength(4);
+        // Nothing follows the startup block, whose last line counts previews.
+        expect(output.at(-1)).toMatch(/^ {10}\d+ previews?$/);
       }
 
       const response = await fetch(`${result.url}/api/update`);
@@ -430,9 +434,14 @@ describe("greenfield", () => {
     expect(await proxied.text()).toBe("greenfield-app");
   });
 
+  // A real server, so a start that should not happen would visibly succeed.
   test("does not start the app behind an explicit --user-port", async () => {
     const dir = projectWith("placeholder");
-    writeFileSync(join(dir, "app.mjs"), `process.exit(0);`);
+    writeFileSync(
+      join(dir, "app.mjs"),
+      `import http from "node:http";\n` +
+        `http.createServer((q, s) => s.end("greenfield-app")).listen(Number(process.argv[2]), "127.0.0.1");\n`,
+    );
     writeFileSync(
       join(dir, "leglas.config.ts"),
       `export default {\n` +

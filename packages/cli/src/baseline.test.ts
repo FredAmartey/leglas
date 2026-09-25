@@ -3,21 +3,15 @@ import { describe, expect, test } from "vitest";
 import { baselineFrom } from "./baseline.js";
 
 describe("baselineFrom", () => {
+  // The point of re-exporting rather than copying: edit the real component
+  // and the baseline changes with it, so a comparison is never against a
+  // stale duplicate of your own code.
   test("re-exports the component instead of copying it", () => {
     const result = baselineFrom("hero", "src/Hero.tsx", "export function Hero() { return null; }");
 
     expect(result).not.toBeNull();
     expect(result?.contents).toContain('import { Hero } from "../../../src/Hero"');
     expect(result?.contents).toContain("<Hero />");
-  });
-
-  test("keeps the baseline live, so it tracks the real component", () => {
-    // The point of re-exporting rather than copying: edit the real component
-    // and the baseline changes with it, so a comparison is never against a
-    // stale duplicate of your own code.
-    const result = baselineFrom("hero", "src/Hero.tsx", "export function Hero() {}");
-
-    expect(result?.contents).not.toContain("return (");
   });
 
   test("drops the extension from the import specifier, as bundlers expect", () => {

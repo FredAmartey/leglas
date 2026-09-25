@@ -54,7 +54,8 @@ If it does not:
 - `npx leglas explore <surface> --count <n>` briefs an exploration
   before you build it. Run it first; it tells you what the set needs.
 - Every command accepts `--json` and prints one machine-readable
-  envelope with a stable exit code.
+  envelope with a stable exit code. `watch` keeps running, so it prints one
+  JSON line per event instead.
 - `npx leglas requests --json` holds change requests the user typed
   into the interface, each naming the direction and the file behind it.
 - `npx leglas show "<title>" --screenshot` renders a direction with a
