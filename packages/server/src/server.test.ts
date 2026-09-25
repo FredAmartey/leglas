@@ -845,32 +845,34 @@ describe("startServer", () => {
 
     expect(response.status).toBe(200);
     expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
-    expect(body.width).toBe(640);
-    expect(body.height).toBe(400);
+
+    // The size reported is the crop's, not the whole frame's. How big a crop
+    // is belongs to the crop tests in capture.test.ts.
+    const frame: { width: number; height: number } = await (
+      await fetch(`${server.url}/leglas/api/capture`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Poster", width: 390 }),
+      })
+    ).json();
+
+    expect({ width: body.width, height: body.height }).not.toEqual({
+      width: frame.width,
+      height: frame.height,
+    });
   });
 
   test("capture gives a bounded timeout when the page never loads", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-timeout-"));
-    const nativeSetTimeout = globalThis.setTimeout;
+
     // The deadline fires first here; the load's own share is left real, so
     // this is the abandonment path and nothing else.
-    // SAFETY: The capture-deadline test only calls the callback overload, forwarding its arguments and native timer handle.
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetTimeout(
-        callback,
-        milliseconds === 15_000 ? 5 : milliseconds,
-        ...args,
-      )) as typeof setTimeout);
-
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
       port: 0,
       cwd,
+      captureDeadlineMs: 5,
     });
 
     const response = await fetch(`${server.url}/leglas/api/capture`, {

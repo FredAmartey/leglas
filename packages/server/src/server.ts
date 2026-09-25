@@ -177,6 +177,8 @@ export type ServerOptions = {
    * the default probes each installed CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
+  /** How long one capture may take in all; injectable so a test need not wait it out. */
+  captureDeadlineMs?: number;
   /** Persistent Codex transport; null disables it (notably in unit tests). */
   codexAppServer?: CodexTurnRunner | null;
   /** Persistent Claude transport; null disables it (notably in unit tests). */
@@ -867,6 +869,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     leglasCommand = "npx -y leglas",
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
+    captureDeadlineMs = CAPTURE_DEADLINE_MS,
   } = options;
 
   const browserPool = options.pool ?? createBrowserPool();
@@ -1830,7 +1833,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const timer = setTimeout(() => {
           timedOut();
           controller.abort();
-        }, CAPTURE_DEADLINE_MS);
+        }, captureDeadlineMs);
 
         timer.unref?.();
 
