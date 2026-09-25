@@ -1766,6 +1766,9 @@ describe("a set built with Codex", () => {
         '[mcp_servers."odd.name"]',
         'url = "http://127.0.0.1:2/mcp"',
         "",
+        "[mcp_servers.'paper'] # the design app",
+        'url = "http://127.0.0.1:3/mcp"',
+        "",
       ].join("\n"),
     );
 
@@ -1879,8 +1882,12 @@ describe("a set built with Codex", () => {
 
     for (const args of [plan, build]) {
       expect(args).toContain("-c model_reasoning_effort=medium");
+      // A version that lacks a feature ignores it here, where `--disable` would refuse to start.
+      expect(args).toContain("-c features.plugins=false");
+      expect(args).not.toContain("--disable");
       expect(args).toContain("-c mcp_servers.blender.enabled=false");
       expect(args).toContain("-c mcp_servers.gmail-organizer.enabled=false");
+      expect(args).toContain("-c mcp_servers.paper.enabled=false");
       expect(args).not.toContain("odd.name");
       expect(args).not.toContain("blender.env");
     }

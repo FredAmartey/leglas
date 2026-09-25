@@ -29,6 +29,8 @@ const RESTRICTED = [
   "skills.include_instructions=false",
   "-c",
   "skills.bundled.enabled=false",
+  // Through the config, not `--disable`: a Codex that lacks one of these
+  // ignores it here, where `--disable` refuses to start at all.
   ...[
     "multi_agent",
     "apps",
@@ -38,7 +40,7 @@ const RESTRICTED = [
     "browser_use",
     "computer_use",
     "image_generation",
-  ].flatMap((feature) => ["--disable", feature]),
+  ].flatMap((feature) => ["-c", `features.${feature}=false`]),
 ];
 
 /** A key Codex's `-c` accepts bare; a quoted one makes a second, broken server instead. */
@@ -62,9 +64,9 @@ export async function codexServers(home: string = defaultCodexHome()): Promise<s
   const names = new Set<string>();
 
   for (const match of config.matchAll(
-    /^\s*\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_-]+))\]\s*$/gm,
+    /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\]\s*(?:#.*)?$/gm,
   )) {
-    const name = match[1] ?? match[2] ?? "";
+    const name = match[1] ?? match[2] ?? match[3] ?? "";
 
     if (BARE.test(name)) names.add(name);
   }
