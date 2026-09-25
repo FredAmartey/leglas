@@ -370,23 +370,31 @@ describe("Codex app-server transport", () => {
     // Every request shares the one timeout, and here it is short enough to
     // expire. So the fake answers the handshake and the thread as it reads
     // them, and only the turn, which it never answers, can time out.
-    const spawned = harness(true, {
+    // The fake shrugs off SIGTERM, so the process is only gone once Leglas
+    // escalates to SIGKILL. The timeout must not be reported before then.
+    const spawned = harness(false, {
       initialize: () => ({ userAgent: "codex-test" }),
       "thread/start": () => ({ thread: { id: "th_timeout" } }),
     });
 
     const server = createCodexAppServer("/project", spawned.spawn, 10);
 
-    // Awaited from the start: the turn can time out before anything below
+    // Caught from the start: the turn can time out before anything below
     // runs, and a rejection nobody is waiting on yet is reported as unhandled.
-    const timedOut = expect(
-      server.run({ prompt: "timeout", effort: null, sessionId: null, images: [] }),
-    ).rejects.toThrow("turn/start timed out");
+    const reported = server
+      .run({ prompt: "timeout", effort: null, sessionId: null, images: [] })
+      .then(
+        () => null,
+        (error: Error) => ({
+          message: error.message,
+          signals: [...required(spawned.processes[0]).signals],
+        }),
+      );
 
-    await timedOut;
-    const process = required(spawned.processes[0]);
-    expect(byMethod(process, "turn/start")).toHaveLength(1);
-    expect(process.signals).toContain("SIGTERM");
+    const failure = required(await reported);
+    expect(failure.message).toContain("turn/start timed out");
+    expect(failure.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(byMethod(required(spawned.processes[0]), "turn/start")).toHaveLength(1);
     await server.close();
   });
 

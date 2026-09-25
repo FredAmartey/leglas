@@ -544,11 +544,18 @@ describe("Claude Agent SDK transport", () => {
 
     const child = await running;
 
-    const closed = new Promise<number | null>((resolve) =>
-      child.once("close", (code) => resolve(code)),
-    );
+    // Let the turn end completely, close event included, before anyone listens,
+    // which is what happens when the runner is slower than the SDK.
+    child.stdout.resume();
+    await new Promise((resolve) => child.stdout.once("end", resolve));
+    await new Promise((resolve) => setImmediate(resolve));
 
-    await expect(closed).resolves.toBe(0);
+    const closed = await Promise.race([
+      new Promise<number | null>((resolve) => child.once("close", (code) => resolve(code))),
+      new Promise<"never">((resolve) => setTimeout(() => resolve("never"), 1000)),
+    ]);
+
+    expect(closed).toBe(0);
     await session.close();
   });
 

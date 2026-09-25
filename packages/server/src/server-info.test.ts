@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -16,6 +17,7 @@ import {
   readServerInfo,
   removeServerInfo,
   writeServerInfo,
+  type ServerInfo,
 } from "./server-info.js";
 
 describe("server info", () => {
@@ -44,11 +46,31 @@ describe("server info", () => {
   test("leaves nothing half-written for a reader that arrives mid-write", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-server-info-atomic-"));
     await writeServerInfo(cwd, { port: 4100, url: "http://localhost:4100", pid: 1 });
-    await writeServerInfo(cwd, { port: 4200, url: "http://localhost:4200", pid: 2 });
 
-    expect(await readServerInfo(cwd)).toEqual({ port: 4200, url: "http://localhost:4200", pid: 2 });
-    // The temporary the rename came from does not survive the write.
-    expect(existsSync(join(cwd, `${SERVER_INFO_PATH}.${process.pid}.tmp`))).toBe(false);
+    // A reader loops on the record the whole time the server keeps rewriting it.
+    let writing = true;
+    const reads: Array<ServerInfo | null> = [];
+
+    const reader = (async () => {
+      while (writing) reads.push(await readServerInfo(cwd));
+    })();
+
+    for (let pid = 2; pid <= 200; pid += 1) {
+      await writeServerInfo(cwd, { port: 4100 + pid, url: `http://localhost:${4100 + pid}`, pid });
+    }
+
+    writing = false;
+    await reader;
+
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.filter((read) => read === null)).toEqual([]);
+    expect(await readServerInfo(cwd)).toEqual({
+      port: 4300,
+      url: "http://localhost:4300",
+      pid: 200,
+    });
+    // Nothing the write went through is left beside the record.
+    expect(readdirSync(join(cwd, ".leglas"))).toEqual(["server.json"]);
   });
 });
 
