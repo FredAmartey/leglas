@@ -16,7 +16,8 @@ is the agent's whole workflow, and it travels with the repo, so Claude
 Code, Cursor, Codex or whatever you switch to next opens the project
 already knowing how to add design directions to it. Every command accepts
 `--json` and prints a single machine-readable envelope, so agents drive
-the same CLI you do.
+the same CLI you do; `watch`, which keeps running, prints one JSON line per
+event.
 
 ## Give this to your agent
 

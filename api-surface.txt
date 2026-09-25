@@ -118,6 +118,7 @@ export type ParseResult = {
     kind: "watch";
     run: string | undefined;
     port: number | undefined;
+    json: boolean;
 } | {
     kind: "explore";
     surface: string;
@@ -396,6 +397,7 @@ export declare function runWatch(options: {
     run: string | undefined;
     port: number | undefined;
     cwd: string;
+    json?: boolean;
     signal?: AbortSignal;
 }, deps: WatchDeps): Promise<{
     exitCode: number;

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -256,6 +257,76 @@ describe("runWatch", () => {
     expect(await readRequests(root)).toEqual([]);
   });
 
+  // docs/cli.md, "Watch as JSON": one object per line, each with an event.
+  test("under --json every line is an event, in the order things happened", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    const [queued] = await readRequests(root);
+    const controller = new AbortController();
+    const d = deps();
+    const run = 'node -e "process.exit(0)" {prompt}';
+
+    const running = runWatch(
+      { run, port: DEAD_PORT, cwd: root, json: true, signal: controller.signal },
+      d,
+    );
+
+    await until(async () => (await readRequests(root)).length === 0);
+    controller.abort();
+    await running;
+
+    expect(d.lines.map((line) => JSON.parse(line))).toEqual([
+      { event: "watching", command: run, agent: null },
+      { event: "started", id: queued?.id, title: "Aurora", intent: "warmer", target: null },
+      { event: "done", id: queued?.id, title: "Aurora" },
+      { event: "stopped" },
+    ]);
+  });
+
+  test("under --json a failed request is a failed event carrying the queue's verdict", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    const controller = new AbortController();
+    const d = deps();
+
+    const running = runWatch(
+      {
+        run: 'node -e "process.exit(3)" {prompt}',
+        port: DEAD_PORT,
+        cwd: root,
+        json: true,
+        signal: controller.signal,
+      },
+      d,
+    );
+
+    await until(() => d.lines.some((line) => line.includes('"event":"failed"')));
+    controller.abort();
+    await running;
+
+    const [written] = await readRequests(root);
+    const failed = d.lines.map((line) => JSON.parse(line)).find((line) => line.event === "failed");
+    // An agent that ran and exited nonzero, as FailureCode names it.
+    expect(written?.failure?.code).toBe("agent-error");
+    expect(failed).toEqual({
+      event: "failed",
+      id: written?.id,
+      title: "Aurora",
+      code: "agent-error",
+      reason: written?.failure?.message,
+    });
+  });
+
+  test("under --json a watch that cannot start prints the usual failure envelope", async () => {
+    const d = deps();
+    const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd(), json: true }, d);
+
+    expect(outcome.exitCode).toBe(1);
+    expect(d.lines.map((line) => JSON.parse(line))).toEqual([
+      { ok: false, error: expect.stringContaining("pick an agent in the interface") },
+    ]);
+  });
+
   test("a command that cannot spawn is written down as failed and unretried", async () => {
     const root = cwd();
     await appendRequest(root, input);
@@ -324,6 +395,57 @@ describe("runWatch", () => {
     );
 
     expect(outcome.exitCode).toBe(0);
+  });
+});
+
+describe("leglas watch --json, as a process", () => {
+  // What only a real process shows: stdout carries the events and nothing
+  // else, because the agent's own output goes to stderr instead. Needs the
+  // build, which `pnpm test` runs first.
+  test("stdout is JSON lines while the agent's output goes to stderr", async () => {
+    const root = cwd();
+    await appendRequest(root, input);
+    let stdout = "";
+    let stderr = "";
+    let exited: number | null | undefined;
+
+    const child = spawn(
+      process.execPath,
+      [
+        join(import.meta.dirname, "../dist/bin.js"),
+        "watch",
+        "--json",
+        "--port",
+        String(DEAD_PORT),
+        "--run",
+        `node -e "console.log('agent chatter')" {prompt}`,
+      ],
+      { cwd: root },
+    );
+
+    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+
+    const closed = new Promise<void>((settle) =>
+      child.on("close", (code) => {
+        exited = code;
+        settle();
+      }),
+    );
+
+    await until(() => stdout.includes('"event":"done"') || exited !== undefined);
+    child.kill("SIGTERM");
+    await closed;
+
+    expect(exited).toBe(0);
+
+    const events = stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).event);
+
+    expect(events).toEqual(["watching", "started", "done", "stopped"]);
+    expect(stderr).toContain("agent chatter");
   });
 });
 

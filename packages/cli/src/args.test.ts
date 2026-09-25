@@ -564,6 +564,17 @@ describe("watch", () => {
   });
 
   test("rejects an unknown flag rather than ignoring it", () => {
-    expect(parseArgs(["watch", "--json"]).kind).toBe("error");
+    expect(parseArgs(["watch", "--verbose"]).kind).toBe("error");
+  });
+
+  // docs/cli.md: --json works on every command, watch included.
+  test("takes --json, which prints one JSON line per event", () => {
+    const result = parseArgs(["watch", "--json", "--run", "claude -p {prompt}"]);
+
+    expect(result.kind).toBe("watch");
+
+    if (result.kind !== "watch") return;
+    expect(result.json).toBe(true);
+    expect(result.run).toBe("claude -p {prompt}");
   });
 });
