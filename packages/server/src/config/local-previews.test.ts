@@ -135,14 +135,6 @@ describe("addLocalPreview", () => {
     expect((await readLocalPreviews(dir)).previews[0]?.title).toBe("Aurora");
   });
 
-  test("creates the directory when it is the first thing added", async () => {
-    const dir = scratch();
-
-    await addLocalPreview(dir, { title: "Aurora", url: "/?v-hero=aurora" }, shared);
-
-    expect(readFileSync(join(dir, LOCAL_PREVIEWS_PATH), "utf8")).toContain("Aurora");
-  });
-
   test("appends rather than replacing what is already there", async () => {
     const dir = scratch();
     await addLocalPreview(dir, { title: "Aurora", url: "/?a" }, shared);

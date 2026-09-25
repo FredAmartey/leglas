@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -111,7 +111,11 @@ describe("startWorktree", () => {
 
     cleanups.push(worktree.stop);
 
-    expect(worktree.path).toContain(WORKTREES_DIR);
+    // `.leglas/` is the directory projects ignore, so a checkout anywhere
+    // else shows up in the user's git status.
+    expect(realpathSync(worktree.path).startsWith(join(realpathSync(cwd), ".leglas") + sep)).toBe(
+      true,
+    );
   }, 60_000);
 
   test("reports a branch that does not exist rather than hanging", async () => {

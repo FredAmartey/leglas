@@ -177,6 +177,13 @@ export type ServerOptions = {
    * the default probes each installed CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
+  /**
+   * How long one capture may take in all; injectable so a test need not wait
+   * it out. The page's load wait keeps its share of the default either way.
+   */
+  captureDeadlineMs?: number;
+  /** How often the dev server is probed while someone is watching. */
+  healthProbeMs?: number;
   /** Persistent Codex transport; null disables it (notably in unit tests). */
   codexAppServer?: CodexTurnRunner | null;
   /** Persistent Claude transport; null disables it (notably in unit tests). */
@@ -722,7 +729,7 @@ type HealthWatch = LiveFiles & {
   reachable(): boolean | null;
 };
 
-function watchHealth(target: string, live: LiveHub): HealthWatch {
+function watchHealth(target: string, live: LiveHub, intervalMs: number): HealthWatch {
   let previous: boolean | null = null;
   let probing = false;
   let closed = false;
@@ -750,7 +757,7 @@ function watchHealth(target: string, live: LiveHub): HealthWatch {
       .finally(() => {
         probing = false;
       });
-  }, HEALTH_PROBE_MS);
+  }, intervalMs);
 
   timer.unref?.();
 
@@ -867,6 +874,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     leglasCommand = "npx -y leglas",
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
+    captureDeadlineMs = CAPTURE_DEADLINE_MS,
+    healthProbeMs = HEALTH_PROBE_MS,
   } = options;
 
   const browserPool = options.pool ?? createBrowserPool();
@@ -1830,7 +1839,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const timer = setTimeout(() => {
           timedOut();
           controller.abort();
-        }, CAPTURE_DEADLINE_MS);
+        }, captureDeadlineMs);
 
         timer.unref?.();
 
@@ -2577,7 +2586,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   port = await bind(server, options.port ?? DEFAULT_PORT);
   options.updates?.setPort(port);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
-  liveHealth = watchHealth(target, live);
+  liveHealth = watchHealth(target, live, healthProbeMs);
   await pruneCaptures(
     cwd,
     (await readRequests(cwd).catch(() => [])).map((request) => request.id),
