@@ -3664,6 +3664,29 @@ describe("update routes", () => {
 });
 
 describe("mutation trust", () => {
+  // Every route that changes something is a POST today, but the guard stands
+  // in front of any method that is not a read, so a PUT, PATCH or DELETE
+  // route written later is behind it the moment it exists.
+  test.each(["PUT", "PATCH", "DELETE"])(
+    "a cross-origin %s to the API is refused before any route sees it",
+    async (method) => {
+      const server = await start({ config: configFor(await startOrigin()), port: 0 });
+      const api = `${server.url}/leglas/api/requests`;
+
+      const foreign = await fetch(api, { method, headers: { origin: "https://other.example" } });
+
+      expect(foreign.status).toBe(403);
+      expect(await foreign.json()).toEqual({
+        ok: false,
+        error: "Cross-origin API mutations are refused.",
+      });
+      // From Leglas's own page the same request reaches the routes, and a
+      // read from anywhere is still a read.
+      expect((await fetch(api, { method })).status).toBe(404);
+      expect((await fetch(api, { headers: { origin: "https://other.example" } })).status).toBe(200);
+    },
+  );
+
   const request = (headers: Record<string, string>, peer: string | undefined) => {
     const socket = new net.Socket();
     Object.defineProperty(socket, "remoteAddress", { value: peer });
@@ -3901,13 +3924,9 @@ describe("a body that is not an object", () => {
       "a body reader the scan cannot see",
     ).toHaveLength(readers);
 
-    // What is left is the one trust check in front of every mutation. Any
-    // other POST is a route this scan cannot read, and so never tests.
+    // Any POST left is a route this scan cannot read, and so never tests.
     source = source.replace(single, "").replace(grouped, "");
-    expect(
-      source.match(/req\.method === "POST"/g),
-      "a POST route the scan cannot read",
-    ).toHaveLength(1);
+    expect(source.match(/req\.method === "POST"/g), "a POST route the scan cannot read").toBeNull();
 
     return found.filter((route) => !(route in NOT_A_JSON_OBJECT));
   };
