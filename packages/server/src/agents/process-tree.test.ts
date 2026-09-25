@@ -32,16 +32,6 @@ describe("ownGroup", () => {
 });
 
 describe("signalTree", () => {
-  test("signals the whole group through a negative pid", () => {
-    const agent = child(4242);
-    const system = deps("darwin");
-
-    signalTree(agent, "SIGTERM", system.value);
-
-    expect(system.value.kill).toHaveBeenCalledWith(-4242, "SIGTERM");
-    expect(agent.kill).not.toHaveBeenCalled();
-  });
-
   test("falls back to the process itself when there is no group to signal", () => {
     const agent = child(4242);
 

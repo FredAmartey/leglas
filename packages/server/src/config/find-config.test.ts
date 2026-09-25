@@ -1,4 +1,3 @@
-import { required } from "../test-helpers.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,7 +43,12 @@ describe("findConfigFile", () => {
   });
 
   test("accepts every documented extension", () => {
-    for (const basename of CONFIG_BASENAMES) {
+    for (const basename of [
+      "leglas.config.ts",
+      "leglas.config.js",
+      "leglas.config.mjs",
+      "leglas.config.json",
+    ]) {
       const dir = scratch();
       writeFileSync(join(dir, basename), "export default {}");
 
@@ -59,6 +63,7 @@ describe("findConfigFile", () => {
       writeFileSync(join(dir, basename), "export default {}");
     }
 
-    expect(findConfigFile(dir)).toBe(join(dir, required(CONFIG_BASENAMES[0])));
+    // The docs lead with the TypeScript file, so it is the one that wins.
+    expect(findConfigFile(dir)).toBe(join(dir, "leglas.config.ts"));
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_DEV_SERVER, normalizeConfig } from "./config.js";
+import { normalizeConfig } from "./config.js";
 
 describe("normalizeConfig", () => {
   test("accepts a config with one preview", () => {
@@ -13,7 +13,7 @@ describe("normalizeConfig", () => {
   test("defaults devServer when the config omits it", () => {
     const result = normalizeConfig({ previews: [{ title: "App", url: "/" }] });
 
-    expect(result.config?.devServer).toBe(DEFAULT_DEV_SERVER);
+    expect(result.config?.devServer).toBe("http://localhost:3000");
   });
 
   test("scans unopened previews by default", () => {

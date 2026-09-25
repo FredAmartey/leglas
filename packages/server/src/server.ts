@@ -183,6 +183,13 @@ export type ServerOptions = {
    * the default probes each installed CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
+  /**
+   * How long one capture may take in all; injectable so a test need not wait
+   * it out. The page's load wait keeps its share of the default either way.
+   */
+  captureDeadlineMs?: number;
+  /** How often the dev server is probed while someone is watching. */
+  healthProbeMs?: number;
   /** Persistent Codex transport; null disables it (notably in unit tests). */
   codexAppServer?: CodexTurnRunner | null;
   /** Persistent Claude transport; null disables it (notably in unit tests). */
@@ -730,7 +737,7 @@ type HealthWatch = LiveFiles & {
   reachable(): boolean | null;
 };
 
-function watchHealth(target: string, live: LiveHub): HealthWatch {
+function watchHealth(target: string, live: LiveHub, intervalMs: number): HealthWatch {
   let previous: boolean | null = null;
   let probing = false;
   let closed = false;
@@ -758,7 +765,7 @@ function watchHealth(target: string, live: LiveHub): HealthWatch {
       .finally(() => {
         probing = false;
       });
-  }, HEALTH_PROBE_MS);
+  }, intervalMs);
 
   timer.unref?.();
 
@@ -875,6 +882,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     leglasCommand = "npx -y leglas",
     fileMounts = new Map<string, string>(),
     detect = () => detectAgents(),
+    captureDeadlineMs = CAPTURE_DEADLINE_MS,
+    healthProbeMs = HEALTH_PROBE_MS,
   } = options;
 
   const browserPool = options.pool ?? createBrowserPool();
@@ -1066,6 +1075,53 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   };
 
+  /**
+   * A generate route's body: JSON or a 400, and a 503 until the generations
+   * exist. One call per route, so the scan in server.test.ts sees each of them.
+   */
+  const readGenerationBody = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    run: (body: JsonRecord, running: Generations) => void | Promise<void>,
+  ): void => {
+    if (!hasJsonBody(req)) {
+      return sendJson(res, 400, { ok: false, error: "A generation request must be JSON." });
+    }
+
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const parsed = jsonBody(body);
+
+      if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+
+      if (generations === null)
+        return sendJson(res, 503, { ok: false, error: "Leglas is still starting." });
+      void run(parsed, generations);
+    });
+  };
+
+  /** Stop, retry or replace: a set by its id, and a direction by its slot. */
+  const actOnGeneration = async (
+    res: http.ServerResponse,
+    action: string,
+    parsed: JsonRecord,
+    act: (id: string, slot: string | undefined) => boolean | Promise<boolean>,
+  ): Promise<void> => {
+    if (!isString(parsed.id) || (parsed.slot !== undefined && !isString(parsed.slot))) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: "Name the generation by its id, and the direction by its slot.",
+      });
+    }
+
+    const done = await act(parsed.id, isString(parsed.slot) ? parsed.slot : undefined);
+
+    return done
+      ? sendJson(res, 200, { ok: true })
+      : sendJson(res, 409, { ok: false, error: `Nothing to ${action} there right now.` });
+  };
+
   const handleRequest = (
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -1075,9 +1131,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const path = url.split("?")[0] ?? "/";
     const query = new URLSearchParams(url.includes("?") ? url.slice(url.indexOf("?") + 1) : "");
 
+    // Anything but a read counts as a mutation, whatever routes exist today.
     if (
       !context.remote &&
-      req.method === "POST" &&
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
       path.startsWith(`${LEGLAS_PREFIX}/api/`) &&
       !isTrustedMutation(req)
     ) {
@@ -1116,74 +1174,48 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return sendJson(res, 200, { ok: true, jobs: generations?.snapshot() ?? [] });
     }
 
-    const generationAction = ["stop", "retry", "replace"].find(
-      (action) => path === `${LEGLAS_PREFIX}/api/generate/${action}`,
-    );
-
-    if (
-      (path === `${LEGLAS_PREFIX}/api/generate` || generationAction !== undefined) &&
-      req.method === "POST"
-    ) {
-      if (!hasJsonBody(req)) {
-        return sendJson(res, 400, { ok: false, error: "A generation request must be JSON." });
-      }
-
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-
-      return void req.on("end", async () => {
-        const parsed = jsonBody(body);
-
-        if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
-
-        if (generations === null)
-          return sendJson(res, 503, { ok: false, error: "Leglas is still starting." });
-
-        if (generationAction === undefined) {
-          if (!isString(parsed.surface) || !isString(parsed.brief)) {
-            return sendJson(res, 400, {
-              ok: false,
-              error: "Name a surface and describe the directions in a brief.",
-            });
-          }
-
-          const started = await generations.start({
-            surface: parsed.surface,
-            brief: parsed.brief,
-            count: isNumber(parsed.count) ? parsed.count : 3,
-            agent: await readAgentChoice(cwd),
-          });
-
-          return started.ok
-            ? sendJson(res, 202, { ok: true, job: started.job })
-            : sendJson(res, 422, { ok: false, error: started.error });
-        }
-
-        if (!isString(parsed.id) || (parsed.slot !== undefined && !isString(parsed.slot))) {
+    if (path === `${LEGLAS_PREFIX}/api/generate` && req.method === "POST") {
+      return void readGenerationBody(req, res, async (parsed, running) => {
+        if (!isString(parsed.surface) || !isString(parsed.brief)) {
           return sendJson(res, 400, {
             ok: false,
-            error: "Name the generation by its id, and the direction by its slot.",
+            error: "Name a surface and describe the directions in a brief.",
           });
         }
 
-        const slot = isString(parsed.slot) ? parsed.slot : undefined;
+        const started = await running.start({
+          surface: parsed.surface,
+          brief: parsed.brief,
+          count: isNumber(parsed.count) ? parsed.count : 3,
+          agent: await readAgentChoice(cwd),
+        });
 
-        const done =
-          generationAction === "stop"
-            ? await generations.stop(parsed.id, slot)
-            : slot === undefined
-              ? false
-              : generationAction === "retry"
-                ? generations.retry(parsed.id, slot)
-                : generations.replace(parsed.id, slot);
-
-        return done
-          ? sendJson(res, 200, { ok: true })
-          : sendJson(res, 409, {
-              ok: false,
-              error: `Nothing to ${generationAction} there right now.`,
-            });
+        return started.ok
+          ? sendJson(res, 202, { ok: true, job: started.job })
+          : sendJson(res, 422, { ok: false, error: started.error });
       });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/stop` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "stop", parsed, (id, slot) => running.stop(id, slot)),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/retry` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "retry", parsed, (id, slot) =>
+          slot === undefined ? false : running.retry(id, slot),
+        ),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/replace` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "replace", parsed, (id, slot) =>
+          slot === undefined ? false : running.replace(id, slot),
+        ),
+      );
     }
 
     if (
@@ -1913,7 +1945,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const timer = setTimeout(() => {
           timedOut();
           controller.abort();
-        }, CAPTURE_DEADLINE_MS);
+        }, captureDeadlineMs);
 
         timer.unref?.();
 
@@ -2660,7 +2692,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   port = await bind(server, options.port ?? DEFAULT_PORT);
   options.updates?.setPort(port);
   const liveFiles = watchLiveFiles(cwd, bootConfigPath, live);
-  liveHealth = watchHealth(target, live);
+  liveHealth = watchHealth(target, live, healthProbeMs);
   await pruneCaptures(
     cwd,
     (await readRequests(cwd).catch(() => [])).map((request) => request.id),

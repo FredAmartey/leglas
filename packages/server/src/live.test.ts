@@ -229,18 +229,25 @@ describe("createCoalescer", () => {
     const timers = clock();
 
     const coalescer = createCoalescer((change) => emitted.push(change), {
+      windowMs: 50,
       setTimeout: timers.setTimeout,
       clearTimeout: timers.clearTimeout,
     });
 
     // A burst of config changes must not hold back a requests nudge that
-    // arrived in the middle of it.
+    // arrived in the middle of it: requests lands at 10, config again at 40.
     coalescer.schedule("config");
+    timers.advance(10);
     coalescer.schedule("requests");
+    timers.advance(30);
     coalescer.schedule("config");
-    timers.advance(LIVE_DEBOUNCE_MS);
+    timers.advance(20);
 
-    expect(emitted.slice().sort()).toEqual(["config", "requests"]);
+    expect(emitted).toEqual(["requests"]);
+
+    timers.advance(30);
+
+    expect(emitted).toEqual(["requests", "config"]);
   });
 
   test("closing drops what is pending and refuses anything after", () => {
