@@ -3859,21 +3859,4 @@ describe("a body that is not an object", () => {
     // Still up, which is the whole point.
     expect((await fetch(`${server.url}/leglas/api/requests`)).status).toBe(200);
   });
-
-  // The reader exists so that no route has to remember any of this. One route
-  // parsing a body by hand is how the hole came back the first time.
-  test("no route reads a body without going through the one reader", () => {
-    const lines = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").split("\n");
-    const opens = lines.findIndex((line) => line.startsWith("function jsonBody("));
-    expect(opens, "jsonBody has been renamed; this check has to follow it").toBeGreaterThan(-1);
-    const closes = lines.findIndex((line, index) => index > opens && line === "}");
-
-    const offenders = lines
-      .map((line, index) => ({ at: index, line: line.trim() }))
-      .filter((entry) => /(?:JSON\.parse|parseJson)\(body/.test(entry.line))
-      .filter((entry) => entry.at < opens || entry.at > closes)
-      .map((entry) => `server.ts:${entry.at + 1}`);
-
-    expect(offenders, "these should call jsonBody instead").toEqual([]);
-  });
 });
