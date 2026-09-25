@@ -1008,6 +1008,45 @@ describe("a generation's lifecycle", () => {
     );
   });
 
+  test("a retry, a replace or a new set asked for while Leglas closes is refused and writes nothing", async () => {
+    const cwd = await project("claude");
+    const kept = "export function HeroLedger() {\n  return <p>kept</p>;\n}\n";
+
+    const { generations, spawned } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const request = {
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude" as const, effort: null, run: null },
+    };
+
+    const started = await generations.start(request);
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => spawned.length === 2 && value.state === "building",
+    );
+
+    await generations.close();
+    // Close has finished waiting, so anything started now could be cut off mid-write.
+    await writeFile(join(cwd, slot.file), kept);
+
+    expect(generations.retry(started.job.id, slot.key)).toBe(false);
+    expect(generations.replace(started.job.id, slot.key)).toBe(false);
+    expect(await generations.start(request)).toEqual({ ok: false, error: "Leglas is closing." });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(kept);
+    expect(spawned).toHaveLength(2);
+  });
+
   test("a set that starts as Leglas closes starts no process", async () => {
     const cwd = await project("claude");
 

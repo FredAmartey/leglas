@@ -699,6 +699,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   return {
     async start(request) {
+      if (closed) return { ok: false, error: "Leglas is closing." };
+
       if (request.agent.agent !== "claude") {
         return {
           ok: false,
@@ -787,7 +789,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
       const live = find(id);
       const slot = live?.job.slots.find((candidate) => candidate.key === key);
 
+      // Once Leglas is closing, nothing new may start writing: close has stopped waiting.
       if (
+        closed ||
         live === undefined ||
         slot === undefined ||
         (slot.state !== "failed" && slot.state !== "stopped") ||
@@ -817,6 +821,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       const slot = live?.job.slots.find((candidate) => candidate.key === key);
 
       if (
+        closed ||
         live === undefined ||
         slot === undefined ||
         slot.state === "building" ||
