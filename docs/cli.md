@@ -4,7 +4,7 @@
 leglas init                Prepare a project and teach its agents
 leglas [options]           Start the server and open the interface
 leglas new <surface>       Scaffold a branch point for a surface
-leglas explore <surface>   Brief an agent's exploration of a surface
+leglas explore <surface>   Brief an agent's exploration of a surface, or build it
 leglas classify            Decide where a direction should live
 leglas add --title T --url U   Register a preview on this machine
 leglas list                Show every preview, shared and local

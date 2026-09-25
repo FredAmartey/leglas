@@ -62,7 +62,17 @@ export type ParseResult =
     }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "watch"; run: string | undefined; port: number | undefined }
-  | { kind: "explore"; surface: string; count: number; basedOn: string | null; json: boolean }
+  | {
+      kind: "explore";
+      surface: string;
+      count: number;
+      basedOn: string | null;
+      json: boolean;
+      /** Build the set with the configured agent instead of printing a brief for one. */
+      build: boolean;
+      brief: string | null;
+      port: number | null;
+    }
   | { kind: "keep"; title: string; to: string; json: boolean }
   | { kind: "init"; force: boolean; json: boolean }
   | { kind: "help" }
@@ -522,12 +532,47 @@ export function parseArgs(argv: string[]): ParseResult {
     let count = 3;
     let basedOn: string | null = null;
     let json = false;
+    let build = false;
+    let brief: string | null = null;
+    let port: number | null = null;
 
     for (let index = 0; index < rest.length; index += 1) {
       const argument = rest[index]!;
 
       if (argument === "--json") {
         json = true;
+        continue;
+      }
+
+      if (argument === "--build") {
+        build = true;
+        continue;
+      }
+
+      if (argument === "--brief" || argument.startsWith("--brief=")) {
+        const raw = argument.includes("=")
+          ? argument.slice(argument.indexOf("=") + 1)
+          : rest[(index += 1)];
+
+        if (raw === undefined || raw.trim() === "") {
+          return {
+            kind: "error",
+            message: '--brief needs a description, for example --brief "A hero for a cooking app".',
+          };
+        }
+
+        brief = raw;
+        continue;
+      }
+
+      if (argument === "--port" || argument.startsWith("--port=")) {
+        const raw = argument.includes("=") ? argument.split("=")[1] : rest[(index += 1)];
+
+        if (raw === undefined || !/^\d+$/.test(raw)) {
+          return { kind: "error", message: "--port needs a number, for example --port 4000." };
+        }
+
+        port = Number(raw);
         continue;
       }
 
@@ -575,7 +620,26 @@ export function parseArgs(argv: string[]): ParseResult {
       };
     }
 
-    return { kind: "explore", surface, count, basedOn, json };
+    if (build && brief === null) {
+      return {
+        kind: "error",
+        message:
+          'leglas explore --build needs a brief, for example: npx leglas explore hero --build --brief "A hero for a cooking app"',
+      };
+    }
+
+    if (!build && brief !== null) {
+      return {
+        kind: "error",
+        message: "--brief goes with --build: add --build to have Leglas build the set.",
+      };
+    }
+
+    if (build && basedOn !== null) {
+      return { kind: "error", message: "--based-on does not combine with --build yet." };
+    }
+
+    return { kind: "explore", surface, count, basedOn, json, build, brief, port };
   }
 
   if (argv[0] === "requests") {
