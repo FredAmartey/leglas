@@ -41,10 +41,11 @@ function Progress({ slot }: { slot: GenerationSlot }) {
  * What the stage shows for a direction that is not ready: its placeholder
  * renders nothing, and a blank page would read as broken. It stands in for
  * the app, so it is white like the other stage overlays, and it says what
- * the direction is meant to be while Claude works on it.
+ * the direction is meant to be while its agent works on it.
  */
 export function GenerationCover({
   acting,
+  agent,
   name,
   onReplace,
   onRetry,
@@ -53,6 +54,8 @@ export function GenerationCover({
 }: {
   /** A button's request is on its way to the server. */
   acting: boolean;
+  /** Who is building it, by name. */
+  agent: string;
   name: string;
   onReplace: () => void;
   onRetry: () => void;
@@ -68,7 +71,9 @@ export function GenerationCover({
         <span className="size-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-800 motion-reduce:animate-none" />
         <div className="max-w-xs">
           <p className="text-sm font-medium text-neutral-800">
-            {slot.state === "building" ? `Claude is building ${name}` : `Checking ${name} renders`}
+            {slot.state === "building"
+              ? `${agent} is building ${name}`
+              : `Checking ${name} renders`}
           </p>
           <p className="mt-1 text-xs leading-snug text-neutral-500">{slot.idea}</p>
           <Progress slot={slot} />

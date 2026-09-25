@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { buildArgs, planArgs, resultText } from "./claude.js";
+import { codexBuildArgs, codexPlanArgs, codexResultText, codexServers } from "./codex.js";
 import { factsBlock, readProjectFacts } from "./facts.js";
 import {
   buildPrompt,
@@ -95,7 +96,11 @@ export type GenerationJob = {
   slots: GenerationSlot[];
   /** The direction this set varies, or null for a set of new ones. */
   basedOn: string | null;
+  /** Who builds the set. */
+  agent: GenerationAgent;
 };
+
+export type GenerationAgent = "claude" | "codex";
 
 /** The direction a set varies, as the rail has it: its title, its key in the switch and its idea. */
 export type GenerationBase = { title: string; key: string; idea: string };
@@ -113,6 +118,8 @@ export type GenerationDeps = {
   cwd: string;
   /** Injected by tests; the default spawns the agent CLI with the environment the runner gives it. */
   spawn?: RunnerSpawn;
+  /** Where Codex keeps its config; the default is `$CODEX_HOME`, or `~/.codex`. */
+  codexHome?: string;
   /** Renders a registered direction by title; null when nothing could render it. */
   render(title: string): Promise<{ errors: readonly string[] } | null>;
   register(input: AddInput): Promise<{ ok: boolean; error?: string }>;
@@ -137,6 +144,33 @@ export type Generations = {
 
 type Outcome = { code: number | null; lines: string[]; error: string | null; timedOut: boolean };
 
+/** Who runs a set's work, and how Leglas talks to them. The CLI is named as the agent is. */
+type Profile = {
+  id: GenerationAgent;
+  name: string;
+  plan(prompt: string): string[];
+  build(prompt: string): string[];
+  result(lines: readonly string[]): string | null;
+};
+
+const CLAUDE: Profile = {
+  id: "claude",
+  name: "Claude",
+  plan: (prompt) => planArgs(prompt),
+  build: (prompt) => buildArgs(prompt),
+  result: resultText,
+};
+
+function codex(servers: readonly string[]): Profile {
+  return {
+    id: "codex",
+    name: "Codex",
+    plan: (prompt) => codexPlanArgs(prompt, servers),
+    build: (prompt) => codexBuildArgs(prompt, servers),
+    result: codexResultText,
+  };
+}
+
 /** A run of the agent CLI. `stop` resolves once the process is gone, escalating to SIGKILL if it lingers. */
 type Run = { done: Promise<Outcome>; stop(): Promise<void> };
 
@@ -157,6 +191,7 @@ type Live = {
   /** The attempt each slot's work currently belongs to; see `begin`. */
   attempts: Map<string, number>;
   base: GenerationBase | null;
+  agent: Profile;
   /** Work still running after the call that started it answered; see `detach`. */
   pending: Set<Promise<void>>;
 };
@@ -267,7 +302,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
     return next;
   };
 
-  const run = (args: string[], deadlineMs: number, onLine?: (line: string) => void): Run => {
+  const run = (
+    agent: Profile,
+    args: string[],
+    deadlineMs: number,
+    onLine?: (line: string) => void,
+  ): Run => {
     const lines: string[] = [];
     let timedOut = false;
     let child: RunnerChild | null = null;
@@ -281,7 +321,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       }
 
       try {
-        child = spawn("claude", args, {
+        child = spawn(agent.id, args, {
           cwd: deps.cwd,
           shell: false,
           stdio: ["ignore", "pipe", "pipe"],
@@ -353,9 +393,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
     };
   };
 
-  const failureOf = (outcome: Outcome): GenerationFailure =>
+  const failureOf = (agent: Profile, outcome: Outcome): GenerationFailure =>
     classifyFailure({
-      agent: "Claude",
+      agent: agent.name,
       error: outcome.error,
       exitCode: outcome.code,
       lines: outcome.lines.slice(-40),
@@ -480,7 +520,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const follow =
     (live: Live, slot: GenerationSlot, attempt: number) =>
     (line: string): void => {
-      const activity = activityFrom("claude", line, deps.cwd);
+      const activity = activityFrom(live.agent.id, line, deps.cwd);
 
       if (activity === null || activity === slot.activity || !owns(live, slot, attempt)) return;
       slot.activity = activity;
@@ -516,7 +556,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
       base: live.base,
     });
 
-    const building = run(buildArgs(prompt), BUILD_DEADLINE_MS, follow(live, slot, attempt));
+    const building = run(
+      live.agent,
+      live.agent.build(prompt),
+      BUILD_DEADLINE_MS,
+      follow(live, slot, attempt),
+    );
 
     live.runs.set(slot.key, building);
     const outcome = await building.done;
@@ -535,7 +580,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         message: `The build took longer than ${BUILD_DEADLINE_MS / 60_000} minutes, so Leglas stopped it.`,
       });
     } else if (outcome.error !== null || outcome.code !== 0) {
-      fail(live, slot, failureOf(outcome));
+      fail(live, slot, failureOf(live.agent, outcome));
     } else if (written === placeholderSource(pascal(slot.key))) {
       fail(live, slot, {
         code: "not-written",
@@ -604,7 +649,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     if (errors.length > 0) {
       const fixing = run(
-        buildArgs(fixPrompt({ file: slot.file, errors })),
+        live.agent,
+        live.agent.build(fixPrompt({ file: slot.file, errors })),
         FIX_DEADLINE_MS,
         follow(live, slot, attempt),
       );
@@ -624,7 +670,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
           slot,
           outcome.timedOut
             ? { code: "too-slow", message: "The fix took too long, so Leglas stopped it." }
-            : failureOf(outcome),
+            : failureOf(live.agent, outcome),
         );
 
         return;
@@ -662,7 +708,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
     const { job } = live;
 
     const planning = run(
-      planArgs(
+      live.agent,
+      live.agent.plan(
         planPrompt({
           surface: job.surface,
           brief: job.brief,
@@ -684,7 +731,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       job.state = "failed";
       job.error = outcome.timedOut
         ? "Planning took too long, so Leglas stopped it."
-        : failureOf(outcome).message;
+        : failureOf(live.agent, outcome).message;
       job.endedAt = now();
       changed();
 
@@ -694,7 +741,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     let concepts: Concept[];
 
     try {
-      concepts = parseConcepts(resultText(outcome.lines) ?? "", job.count);
+      concepts = parseConcepts(live.agent.result(outcome.lines) ?? "", job.count);
     } catch (error) {
       job.state = "failed";
       job.error = error instanceof Error ? error.message : String(error);
@@ -846,11 +893,14 @@ export function createGenerations(deps: GenerationDeps): Generations {
     async start(request) {
       if (closed) return { ok: false, error: "Leglas is closing." };
 
-      if (request.agent.agent !== "claude") {
+      const agent = request.agent.agent;
+
+      // The two agents whose runs Leglas can restrict and hold to a deadline.
+      if (agent !== "claude" && agent !== "codex") {
         return {
           ok: false,
           error:
-            "Building directions runs on Claude for now. Choose Claude as the agent to use it.",
+            "Building directions runs on Claude or Codex. Choose one of them as the agent to use it.",
         };
       }
 
@@ -922,6 +972,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         error: null,
         slots: [],
         basedOn: base?.title ?? null,
+        agent,
       };
 
       const live: Live = {
@@ -934,6 +985,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         stack: await stackOf(deps.cwd, switchPath),
         attempts: new Map(),
         base,
+        agent: agent === "codex" ? codex(await codexServers(deps.codexHome)) : CLAUDE,
         pending: new Set(),
       };
 
@@ -1012,7 +1064,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       const replacing = async (): Promise<void> => {
         const asking = run(
-          planArgs(
+          live.agent,
+          live.agent.plan(
             replacePrompt({
               surface: live.job.surface,
               brief: live.job.brief,
@@ -1032,8 +1085,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
         let concept: Concept;
 
         try {
-          if (outcome.code !== 0) throw new Error(failureOf(outcome).message);
-          concept = parseConcepts(resultText(outcome.lines) ?? "", 1)[0]!;
+          if (outcome.code !== 0) throw new Error(failureOf(live.agent, outcome).message);
+          concept = parseConcepts(live.agent.result(outcome.lines) ?? "", 1)[0]!;
         } catch (error) {
           fail(live, slot, {
             code: "unreadable-plan",

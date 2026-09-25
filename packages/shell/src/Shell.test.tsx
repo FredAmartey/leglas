@@ -105,6 +105,7 @@ function serve(
                 ok: true,
                 job: {
                   basedOn: null,
+                  agent: "claude",
                   ...body,
                   id: "gen-new",
                   state: "planning",
@@ -426,6 +427,7 @@ describe("building directions", () => {
       }),
     ],
     basedOn: null,
+    agent: "claude",
   };
 
   const switchedOn = () =>
@@ -439,7 +441,7 @@ describe("building directions", () => {
   test("switched off, the rail offers no way to build them", async () => {
     await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
 
-    expect(document.querySelector('[aria-label="Build new directions with Claude"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Build a set of new directions"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Building 2 hero directions");
     expect(row("Ledger").closest("li")?.textContent).not.toContain("Building");
   });
@@ -448,7 +450,7 @@ describe("building directions", () => {
     switchedOn();
     const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [] } } });
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
     expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("What should they explore?");
     expect(document.body.textContent).toContain("New hero directions");
 
@@ -477,7 +479,7 @@ describe("building directions", () => {
     const reads: GenerateAnswer = { generate: { ok: true, jobs: [] } };
     const sent = await mount({ previews: HEROES, reads });
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
     const like = must(moreLike(), "the more like chip");
     expect(like.textContent).toBe("More like Table");
     expect(like.getAttribute("aria-pressed")).toBe("false");
@@ -527,7 +529,7 @@ describe("building directions", () => {
     await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
     await after(() => click(row("Ledger")));
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
     expect(document.body.textContent).toContain("New hero directions");
     expect(moreLike()).toBeUndefined();
   });
@@ -604,7 +606,7 @@ describe("building directions", () => {
 
     expect(document.body.textContent).toContain("Building 2 hero directions");
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
     expect(document.querySelector('form button[type="submit"]')).toBeNull();
     expect(document.body.textContent).toContain("A set is being built. Wait for it, or stop it.");
   });
@@ -872,7 +874,7 @@ describe("building directions", () => {
       );
       expect(sent.filter((entry) => entry.path === "/leglas/api/request")).toEqual([]);
 
-      await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+      await after(() => click(find('[aria-label="Build a set of new directions"]')));
       expect(moreLike()).toBeUndefined();
     });
 
@@ -971,7 +973,7 @@ describe("building directions", () => {
 
     const sent = await mount({ previews, reads: { generate: { ok: true, jobs: [] } } });
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
 
     const picker = find<HTMLSelectElement>(
       'select[aria-label="The surface to build directions for"]',
@@ -997,19 +999,56 @@ describe("building directions", () => {
     ]);
   });
 
-  test("with an agent other than Claude, the brief says why it cannot build", async () => {
+  test("with Codex chosen, the brief builds with Codex and its set says so", async () => {
     switchedOn();
+
+    const reads: GenerateAnswer & { agents: JsonValue } = {
+      generate: { ok: true, jobs: [] },
+      agents: { ...AGENTS, choice: "codex" },
+    };
+
+    const sent = await mount({ previews: HEROES, reads });
+
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    expect(find<HTMLButtonElement>('button[type="submit"]').textContent).toBe("Build 3 with Codex");
+    expect(document.body.textContent).toContain(
+      "Runs on your Codex plan. Usually two or three minutes.",
+    );
+
+    await after(() => type(find("textarea"), "Dinner in thirty minutes"));
+    await after(() => {
+      find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      // From here the server lists the set it started, building with Codex.
+      reads.generate = {
+        ok: true,
+        jobs: [{ ...JOB, agent: "codex", slots: [slot("Ledger", "building")] }],
+      };
+    }, 900);
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toHaveLength(1);
+
+    await after(() => click(row("Ledger")));
+    expect(document.body.textContent).toContain("Codex is building Ledger");
+    expect(find('[aria-label="Codex is building this direction"]')).not.toBeNull();
+  });
+
+  test("with an agent other than Claude or Codex, the brief says why it cannot build", async () => {
+    switchedOn();
+
+    const cursor = { id: "cursor", name: "Cursor", available: true, auth: "ok", efforts: [] };
 
     const sent = await mount({
       previews: HEROES,
-      reads: { generate: { ok: true, jobs: [] }, agents: { ...AGENTS, choice: "codex" } },
+      reads: {
+        generate: { ok: true, jobs: [] },
+        agents: { ...AGENTS, agents: [...AGENTS.agents, cursor], choice: "cursor" },
+      },
     });
 
-    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    await after(() => click(find('[aria-label="Build a set of new directions"]')));
     expect(document.querySelector('form button[type="submit"]')).toBeNull();
-    expect(document.body.textContent).toContain("Building directions runs on Claude.");
-    // The picker sits beside the reason, so Claude can be chosen without leaving the brief.
-    expect(find("form").textContent).toContain("Codex");
+    expect(document.body.textContent).toContain("Building directions runs on Claude or Codex.");
+    // The picker sits beside the reason, so another agent can be chosen without leaving the brief.
+    expect(find("form").textContent).toContain("Cursor");
 
     // Enter submits the form even with the button gone; the reason stands there too.
     await after(() => type(find("textarea"), "Dinner in thirty minutes"));

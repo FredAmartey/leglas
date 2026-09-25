@@ -83,12 +83,13 @@ wrong thing.
 
 ## Building a set of directions
 
-Leglas can build directions itself, with Claude, once you turn on **Build
-directions with Claude** in the tools. The `+` at the top of the rail then
-turns the field into a brief: say what the directions should explore, pick
-how many, up to six, and press **Build 3 with Claude**.
+Leglas can build directions itself, with Claude or Codex, once you turn on
+**Build directions with Claude or Codex** in the tools. The `+` at the top of
+the rail then turns the field into a brief: say what the directions should
+explore, pick how many, up to six, and press **Build 3 with Claude**, named
+for whichever of the two is your agent.
 
-Claude plans the whole set first, so the directions differ from each other
+The agent plans the whole set first, so the directions differ from each other
 and from the ones already there, and all of them appear on the rail at
 once. They build side by side. Each row says whether its direction is
 building, being checked, failed or stopped, and the stage shows what a
@@ -99,14 +100,16 @@ Once two are ready, **Compare all** on the card puts the ready ones on the
 stage side by side, each drawn at its own width; a name opens that direction.
 
 To take one further, open the brief while it is on the stage and press
-**More like Menu** in its header. Claude builds variations that keep the
+**More like Menu** in its header. The agent builds variations that keep the
 direction and each change one thing, and they sit under it on the rail.
-The brief is optional there: say what to vary, or leave it to Claude.
+The brief is optional there: say what to vary, or leave it to the agent.
 
-It runs on your own Claude plan at medium effort. On the demo app three
-directions took about a minute and a half and three variations under a
-minute. `npx leglas explore hero --build --brief "…"` does the same from a
-terminal.
+It runs on your own plan at medium effort, with your MCP servers, skills and
+plugins left out. On the demo app Claude built three directions in about a
+minute and a half and three variations in under a minute; Codex took a
+little over two minutes for three directions. Codex also reads the global
+`AGENTS.md` in its home, which nothing lets Leglas leave out.
+`npx leglas explore hero --build --brief "…"` does the same from a terminal.
 
 ## Sharing
 

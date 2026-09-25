@@ -56,7 +56,7 @@ keeps a page in another tab from queueing work for an agent.
 
 | Package | On npm | What it is |
 | --- | --- | --- |
-| `packages/server` | no | The HTTP server: config loading, the proxy, the API, the request queue, the agent runner, screenshots, branch previews, sharing, the update check and building a set of directions with Claude |
+| `packages/server` | no | The HTTP server: config loading, the proxy, the API, the request queue, the agent runner, screenshots, branch previews, sharing, the update check and building a set of directions with Claude or Codex |
 | `packages/shell` | no | The interface: a React application built by Vite into static files |
 | `packages/cli` | `leglas` | The binary. Parses the command line, starts the server and holds every command an agent runs |
 | `packages/mcp` | `leglas-mcp` | A stdio MCP server that exposes those same commands as tools |
@@ -91,7 +91,7 @@ rest by area:
 | `config/` | Finding and loading `leglas.config.ts`, and what is local to one machine: added directions and renames |
 | `branches/` | Deciding whether a direction needs its own branch, and the worktree, install and dev server when it does |
 | `share/` | The share itself and the tunnel it borrows |
-| `generation/` | Building a set of directions with Claude: the plan, the builds, the render check that calls one ready and the slots in the switch file |
+| `generation/` | Building a set of directions with Claude or Codex: each agent's restricted runs, the plan, the builds, the render check that calls one ready and the slots in the switch file |
 
 At the top, `server.ts` is the HTTP server and every API route, `proxy.ts`
 forwards to the dev server, `live.ts` is the WebSocket, `server-info.ts`

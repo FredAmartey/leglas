@@ -10,6 +10,7 @@ const STEP =
  * and the number should be visible, not behind a click.
  */
 export function BriefToolbar({
+  agent,
   count,
   onCount,
   picker,
@@ -17,6 +18,8 @@ export function BriefToolbar({
   ready,
   starting,
 }: {
+  /** Who builds it, by name. */
+  agent: string;
   count: number;
   onCount: (count: number) => void;
   /** The agent picker, beside a reason that asks for a different agent. */
@@ -75,7 +78,7 @@ export function BriefToolbar({
               className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
             />
           )}
-          {buildLabel(count)}
+          {buildLabel(count, agent)}
         </button>
       ) : (
         <span className="flex min-w-0 items-center gap-1.5">

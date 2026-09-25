@@ -15,6 +15,8 @@ import { tagTone } from "./tags.js";
 /** A direction Leglas is building: its slot, and what the row's buttons do about it. */
 export type RowSlot = {
   slot: GenerationSlot;
+  /** Who is building it, by name. */
+  agent: string;
   /** One of its buttons is waiting on the server. */
   acting: boolean;
   onReplace: () => void;
@@ -32,7 +34,7 @@ function rowIdent(title: string): string {
 }
 
 /** A direction Leglas is building, failed or stopped: its badge in place of the row's tag. */
-function SlotBadge({ aside, slot }: { aside: string; slot: GenerationSlot }) {
+function SlotBadge({ agent, aside, slot }: { agent: string; aside: string; slot: GenerationSlot }) {
   return slot.state === "building" || slot.state === "checking" ? (
     <span
       className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
@@ -40,7 +42,7 @@ function SlotBadge({ aside, slot }: { aside: string; slot: GenerationSlot }) {
       <ThinkingOrb
         aria-label={
           slot.state === "building"
-            ? "Claude is building this direction"
+            ? `${agent} is building this direction`
             : "Checking this direction renders"
         }
         size={20}
@@ -73,6 +75,7 @@ function SlotBadge({ aside, slot }: { aside: string; slot: GenerationSlot }) {
  * being checked, and at rest its first tag.
  */
 function RowBadge({
+  agent,
   aside,
   carrying,
   comparing,
@@ -82,6 +85,8 @@ function RowBadge({
   tag,
   working,
 }: {
+  /** Who is building the row's direction, when Leglas is. */
+  agent: string;
   /** How the badge steps aside for the row's buttons, a drag or a rename. */
   aside: string;
   /** Rows folded under this one while it is dragged. */
@@ -106,7 +111,7 @@ function RowBadge({
       Comparing
     </span>
   ) : slot !== null && slot.state !== "ready" ? (
-    <SlotBadge aside={aside} slot={slot} />
+    <SlotBadge agent={agent} aside={aside} slot={slot} />
   ) : working ? (
     <span
       className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
@@ -716,6 +721,7 @@ export function RailRow({
                 </span>
               )}
               <RowBadge
+                agent={slot?.agent ?? ""}
                 aside={badgeAside}
                 carrying={carrying}
                 comparing={comparing}

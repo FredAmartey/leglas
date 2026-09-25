@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  agentName,
   buildLabel,
   cardFor,
   isSlotOf,
@@ -41,6 +42,7 @@ function job(state: GenerationJob["state"], slots: GenerationSlot[], extra = {})
     error: null,
     slots,
     basedOn: null,
+    agent: "claude",
     ...extra,
   };
 }
@@ -221,5 +223,6 @@ test("a row is a slot's only when its address carries the slot's key", () => {
 });
 
 test("the build button says how many and whose plan pays", () => {
-  expect(buildLabel(3)).toBe("Build 3 with Claude");
+  expect(buildLabel(3, agentName("claude"))).toBe("Build 3 with Claude");
+  expect(buildLabel(2, agentName("codex"))).toBe("Build 2 with Codex");
 });

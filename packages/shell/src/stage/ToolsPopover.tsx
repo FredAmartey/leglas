@@ -194,7 +194,7 @@ export function ToolsPopover({
             role="switch"
             type="button"
           >
-            <span>Build directions with Claude</span>
+            <span>Build directions with Claude or Codex</span>
             <Switch on={prefs.buildDirections} />
           </button>
         </>

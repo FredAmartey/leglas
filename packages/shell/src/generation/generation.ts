@@ -33,7 +33,17 @@ export type GenerationJob = {
   slots: GenerationSlot[];
   /** The direction the set varies, or null for a set of new directions. */
   basedOn: string | null;
+  /** Who builds the set. */
+  agent: GenerationAgent;
 };
+
+/** The agents Leglas can build a set with. */
+export type GenerationAgent = "claude" | "codex";
+
+/** An agent as the person reads it. */
+export function agentName(agent: GenerationAgent): string {
+  return agent === "codex" ? "Codex" : "Claude";
+}
 
 export type SlotView = { job: GenerationJob; slot: GenerationSlot };
 
@@ -228,6 +238,6 @@ export function cardFor(job: GenerationJob): GenerationCard {
 }
 
 /** The build button's words: what it will make, and whose plan pays for it. */
-export function buildLabel(count: number): string {
-  return `Build ${count} with Claude`;
+export function buildLabel(count: number, agent: string): string {
+  return `Build ${count} with ${agent}`;
 }

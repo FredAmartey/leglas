@@ -129,7 +129,7 @@ export function RailHeader({
         {onBuild !== null && (
           <Tip label="Build new directions">
             <button
-              aria-label="Build new directions with Claude"
+              aria-label="Build a set of new directions"
               aria-pressed={briefing}
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
                 briefing ? "text-white" : "text-[#9CA3AF]"
