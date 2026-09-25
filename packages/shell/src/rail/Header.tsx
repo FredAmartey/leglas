@@ -65,19 +65,25 @@ function VersionChip({
  */
 export function RailHeader({
   active,
+  briefing,
   compare,
   displayName,
   notify,
+  onBuild,
   onCollapse,
   prefs,
   previews,
   viewing,
 }: {
   active: string;
+  /** The composer is taking a brief for new directions. */
+  briefing: boolean;
   /** The right-hand pane while two are on the stage, so a share can carry both. */
   compare: string | null;
   displayName: (title: string) => string;
   notify: (toast: Omit<Toast, "id">) => void;
+  /** Opens the composer's brief; null while building directions is switched off. */
+  onBuild: (() => void) | null;
   onCollapse: () => void;
   prefs: Prefs;
   previews: Preview[];
@@ -120,6 +126,21 @@ export function RailHeader({
         )}
       </span>
       <span className="flex shrink-0 items-center gap-0.5">
+        {onBuild !== null && (
+          <Tip label="Build new directions">
+            <button
+              aria-label="Build new directions with Claude"
+              aria-pressed={briefing}
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-[#2E2E2E] hover:text-white ${
+                briefing ? "text-white" : "text-[#9CA3AF]"
+              }`}
+              onClick={onBuild}
+              type="button"
+            >
+              <PIcon d={P.plus} size={13} />
+            </button>
+          </Tip>
+        )}
         {/* Sharing sits with the rail it shares. While a share is live
           the control wears the light's own dot, so the fact that
           somebody may be looking is never more than a glance away. */}

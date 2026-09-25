@@ -88,6 +88,11 @@ describe("loadPrefs", () => {
   test("keeps the tools widget on screen until asked otherwise", () => {
     expect(loadPrefs(null, previews).showWidget).toBe(true);
     expect(loadPrefs(stored({ showWidget: false }), previews).showWidget).toBe(false);
+    expect(loadPrefs(null, previews).buildDirections).toBe(false);
+    expect(loadPrefs(stored({ buildDirections: true }), previews).buildDirections).toBe(true);
+    expect(loadPrefs(JSON.stringify({ buildDirections: "yes" }), previews).buildDirections).toBe(
+      false,
+    );
   });
 
   test("survives a corrupt store rather than refusing to start", () => {
