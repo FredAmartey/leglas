@@ -2917,8 +2917,12 @@ describe("startServer", () => {
 
     const res = await fetch(`${server.url}/leglas`);
 
+    const page = await res.text();
+
     expect(res.status).toBe(200);
-    expect((await res.text()).toLowerCase()).toContain("leglas");
+    // Leglas's own page, saying why there is no interface, not the app behind it.
+    expect(page).toMatch(/not been\s+built/);
+    expect(page).not.toContain("<h1>app:");
   });
 
   test("serves a read-only share and keeps its lifecycle on the primary listener", async () => {
