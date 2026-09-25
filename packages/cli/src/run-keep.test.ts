@@ -51,6 +51,18 @@ async function keep(cwd: string, to: string) {
 }
 
 describe("runKeep", () => {
+  // The documented form, docs/agents.md: keep "Aurora" --to src/components/hero.tsx.
+  test("a relative destination lands inside the project", async () => {
+    const cwd = await project();
+
+    const { exitCode, envelope } = await keep(cwd, "src/components/hero.tsx");
+
+    expect(exitCode).toBe(0);
+    expect(envelope.to).toBe("src/components/hero.tsx");
+    expect(existsSync(join(cwd, "src/components/hero.tsx"))).toBe(true);
+    expect(existsSync(join(cwd, ".leglas/variants/hero"))).toBe(false);
+  });
+
   // Agents tend to pass absolute paths. One inside the project names the same
   // file as its relative form, so it lands where the relative one would.
   test("an absolute destination inside the project lands where the relative one would", async () => {
