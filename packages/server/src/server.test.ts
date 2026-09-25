@@ -1,7 +1,6 @@
 import { ChildProcess } from "node:child_process";
 import { boundPort, detectNoAgents } from "./test-helpers.js";
 import http from "node:http";
-import { createHash } from "node:crypto";
 
 import {
   existsSync,
@@ -137,8 +136,9 @@ async function expectConditionalRead(
   const initialBody = await initial.text();
   const initialEtag = initial.headers.get("etag");
 
+  // The validator is opaque (RFC 9110); only its behaviour is checked.
   expect(initial.status).toBe(200);
-  expect(initialEtag).toBe(`"${createHash("sha256").update(initialBody).digest("base64url")}"`);
+  expect(initialEtag).not.toBeNull();
 
   const unchanged = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
   expect(unchanged.status).toBe(304);
@@ -153,7 +153,6 @@ async function expectConditionalRead(
   expect(changed.status).toBe(200);
   expect(changedBody).not.toBe(initialBody);
   expect(changedEtag).not.toBe(initialEtag);
-  expect(changedEtag).toBe(`"${createHash("sha256").update(changedBody).digest("base64url")}"`);
 
   const changedUnchanged = await fetch(url, {
     headers: { "if-none-match": changedEtag ?? "" },
