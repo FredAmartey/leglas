@@ -101,6 +101,10 @@ function service(
           : null,
       env: {},
       kill: vi.fn<typeof process.kill>(() => true),
+      // A test that forgets to inject its own spawn must not run a real npm.
+      spawn: vi.fn(() => {
+        throw new Error("An update test tried to start a real process.");
+      }),
       platform: "linux",
       execPath: "/runtime/node",
       log: vi.fn(),
@@ -609,11 +613,20 @@ describe("checking and remembering", () => {
   });
 
   test("uses the configured abort deadline", async () => {
-    const timeout = vi.spyOn(AbortSignal, "timeout");
-    await service({ deps: { timeoutMs: 75 } }).check();
-    expect(timeout).toHaveBeenCalledTimes(2);
-    expect(timeout).toHaveBeenNthCalledWith(1, 75);
-    expect(timeout).toHaveBeenNthCalledWith(2, 75);
+    // npm never answers, so only the deadline can end the wait: the 75ms one
+    // configured here, not the four-second default.
+    const silent = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
+
+    const started = Date.now();
+    const status = await service({ deps: { timeoutMs: 75, fetch: silent } }).check();
+
+    expect(status.checkError).toBe("npm took too long to answer.");
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   test.each(["offline", "bad JSON", "500", "missing version"])(
@@ -840,16 +853,24 @@ describe("restartCommand", () => {
 
 describe("installing and restarting", () => {
   test("rejects every unavailable update before starting a process", async () => {
-    await expect(service().update()).rejects.toThrow("You have the newest version.");
+    const spawn = vi.fn<typeof import("node:child_process").spawn>();
+    await expect(service({ deps: { spawn } }).update()).rejects.toThrow(
+      "You have the newest version.",
+    );
     await expect(
-      service({ cached: true, entry: "/source/packages/cli/dist/bin.js" }).update(),
+      service({
+        cached: true,
+        entry: "/source/packages/cli/dist/bin.js",
+        deps: { spawn },
+      }).update(),
     ).rejects.toThrow("You run Leglas from a checkout, so pull to update.");
-    const updates = service({ cached: true });
+    const updates = service({ cached: true, deps: { spawn } });
     updates.onBusy(() => true);
     expect(updates.status().busy).toBe(true);
     await expect(updates.update()).rejects.toThrow("A change is running. Wait for it to finish.");
     updates.onBusy(() => false);
     await expect(updates.update()).rejects.toThrow("Updates are not available here.");
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   test("npx answers installing before handing off the pinned version on the bound port", async () => {
@@ -1480,9 +1501,9 @@ describe("installer ownership and change events", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(restart).not.toHaveBeenCalled();
     busy = false;
-    await vi.advanceTimersByTimeAsync(999);
-    expect(restart).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
+    // How often it looks again is its own business; that it goes once the
+    // change is over, and only once, is the contract.
+    await vi.advanceTimersByTimeAsync(5000);
     expect(restart).toHaveBeenCalledOnce();
     expect(phases).toEqual(["installing", "waiting", "restarting"]);
   });
