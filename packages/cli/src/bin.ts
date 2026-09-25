@@ -50,8 +50,8 @@ Options for new
 Options for explore
   --count <n>          How many directions (default 3; up to 6 with --build)
   --based-on <title>     Variants of an existing direction instead of new ones
-  --build              Build the set with your agent (Claude) in the running
-                       Leglas, instead of printing a brief for an agent
+  --build              Build the set with your agent (Claude or Codex) in the
+                       running Leglas, instead of printing a brief for an agent
   --brief <text>       What the directions are for (needs --build; optional
                        with --based-on)
   --port <port>        Running Leglas port (needs --build)

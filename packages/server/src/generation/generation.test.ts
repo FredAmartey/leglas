@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, describe, expect, test } from "vitest";
 
+import { codexResultText, codexServers } from "./codex.js";
 import { factsBlock, readProjectFacts } from "./facts.js";
 import { createGenerations, type GenerationDeps } from "./generation.js";
 import { addSlots } from "./switch-file.js";
@@ -382,7 +383,9 @@ describe("starting a generation", () => {
     });
 
     expect(started.status).toBe(422);
-    expect(String(started.json.error)).toContain("runs on Claude");
+    expect(String(started.json.error)).toBe(
+      "Building directions runs on Claude or Codex. Choose one of them as the agent to use it.",
+    );
   });
 
   test("is refused for a surface with no switch, naming the command that makes one", async () => {
@@ -1719,6 +1722,32 @@ describe("a generation's lifecycle", () => {
     expect(spawned).toHaveLength(before);
   });
 
+  test("two sets asked for at once start only one", async () => {
+    const cwd = await project("claude");
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const ask = () =>
+      generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+    const answers = await Promise.all([ask(), ask()]);
+
+    // Either may win the race; only one may start.
+    expect(answers.filter((answer) => answer.ok)).toHaveLength(1);
+    expect(generations.snapshot()).toHaveLength(1);
+    await generations.close();
+  });
+
   test("a direction that is not in the switch cannot be varied, and nothing starts", async () => {
     const cwd = await project("claude");
 
@@ -1738,5 +1767,220 @@ describe("a generation's lifecycle", () => {
     });
     expect(spawned).toHaveLength(0);
     expect(generations.snapshot()).toEqual([]);
+  });
+});
+
+describe("a set built with Codex", () => {
+  /** A Codex home whose config defines servers the ways people write them. */
+  async function codexHome(): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), "leglas-codex-home-"));
+    cleanups.push(() => rm(home, { recursive: true, force: true }));
+    await writeFile(
+      join(home, "config.toml"),
+      [
+        'model = "some-model"',
+        "",
+        "[mcp_servers.blender]",
+        'command = "uvx"',
+        "",
+        "[mcp_servers.blender.env]",
+        'BLENDER = "1"',
+        "",
+        '[mcp_servers."gmail-organizer"]',
+        'url = "http://127.0.0.1:1/mcp"',
+        "",
+        '[mcp_servers."odd.name"]',
+        'url = "http://127.0.0.1:2/mcp"',
+        "",
+        "[mcp_servers.'paper'] # the design app",
+        'url = "http://127.0.0.1:3/mcp"',
+        "",
+        "[ mcp_servers . spaced ]",
+        'url = "http://127.0.0.1:4/mcp"',
+        "",
+      ].join("\n"),
+    );
+
+    return home;
+  }
+
+  /** Stands in for `codex exec --json`: its warning item first, then an answer or a written file. */
+  function fakeCodex(cwd: string, fails = false) {
+    const calls: { command: string; args: string[] }[] = [];
+    const announced: string[] = [];
+
+    const spawn: RunnerSpawn = (command, args) => {
+      const child = new FakeChild();
+      calls.push({ command, args: [...args] });
+      const prompt = args.at(-1) ?? "";
+      const say = (event: JsonRecord) => child.stdout.write(`${JSON.stringify(event)}\n`);
+
+      setTimeout(() => {
+        say({
+          type: "item.completed",
+          item: { type: "error", message: "Under-development features enabled" },
+        });
+
+        if (args.includes("read-only")) {
+          say({
+            type: "item.completed",
+            item: {
+              type: "agent_message",
+              text: JSON.stringify([{ key: "ledger", title: "Ledger", idea: "Ruled lines." }]),
+            },
+          });
+          child.finish(0);
+
+          return;
+        }
+
+        if (fails) {
+          child.finish(1);
+
+          return;
+        }
+
+        // A fix run answers and leaves the file to the render, as the Claude fake does.
+        if (prompt.startsWith("Leglas rendered ")) {
+          child.finish(0);
+
+          return;
+        }
+
+        const file = /Your file is (\S+)\./.exec(prompt)?.[1] ?? "";
+        const name = /component exported as (\w+)\./.exec(prompt)?.[1] ?? "";
+
+        say({
+          type: "item.started",
+          item: { type: "file_change", changes: [{ path: join(cwd, file), kind: "update" }] },
+        });
+        setTimeout(() => {
+          void writeFile(
+            join(cwd, file),
+            `export function ${name}() {\n  return <h1>${name}</h1>;\n}\n`,
+          ).then(() => child.finish(0));
+        }, 20);
+      }, 5);
+
+      return child;
+    };
+
+    return { calls, announced, spawn };
+  }
+
+  async function run(fails = false, brokenOnce = false) {
+    const cwd = await project("codex");
+    const codex = fakeCodex(cwd, fails);
+    let renders = 0;
+
+    const generations = createGenerations({
+      cwd,
+      codexHome: await codexHome(),
+      spawn: codex.spawn,
+      render: async () => {
+        renders += 1;
+
+        return {
+          errors: brokenOnce && renders === 1 ? ["Transform failed: hero-ledger.tsx:2:3"] : [],
+        };
+      },
+      register: async () => ({ ok: true }),
+      unregister: async () => {},
+      titles: async () => new Set<string>(),
+      onChange: () => {
+        const activity = generations.snapshot()[0]?.slots[0]?.activity;
+
+        if (activity !== null && activity !== undefined) codex.announced.push(activity);
+      },
+    });
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "codex", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready" || value.state === "failed",
+    );
+
+    return { ...codex, job: started.job, slot };
+  }
+
+  test("plans and builds with restricted Codex runs, reading its answer and its steps", async () => {
+    const { calls, announced, job, slot } = await run();
+
+    expect(job.agent).toBe("codex");
+    expect(slot.state).toBe("ready");
+    expect(calls.map((call) => call.command)).toEqual(["codex", "codex"]);
+
+    const [plan, build] = calls.map((call) => call.args.join(" "));
+    expect(plan).toContain("exec --json --ephemeral --skip-git-repo-check");
+    expect(plan).toContain("-s read-only");
+    expect(build).toContain("-s workspace-write");
+
+    for (const args of [plan, build]) {
+      expect(args).toContain("-c model_reasoning_effort=medium");
+      // A version that lacks a feature ignores it here, where `--disable` would refuse to start.
+      expect(args).toContain("-c features.plugins=false");
+      expect(args).not.toContain("--disable");
+      expect(args).toContain("-c mcp_servers.blender.enabled=false");
+      expect(args).toContain("-c mcp_servers.gmail-organizer.enabled=false");
+      expect(args).toContain("-c mcp_servers.paper.enabled=false");
+      expect(args).not.toContain("odd.name");
+    }
+
+    expect(announced).toContain("editing .leglas/variants/hero/hero-ledger.tsx");
+  });
+
+  test("switches off exactly the servers its config defines, however they are written", async () => {
+    expect(await codexServers(await codexHome())).toEqual([
+      "blender",
+      "gmail-organizer",
+      "paper",
+      "spaced",
+    ]);
+  });
+
+  test("a page that fails its check gets a Codex fix run that may write", async () => {
+    const { calls, slot } = await run(false, true);
+
+    expect(slot).toMatchObject({ state: "ready", fixed: true });
+    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
+
+    const fix = calls[2]?.args ?? [];
+    expect(fix.at(-1)).toMatch(/^Leglas rendered /);
+    expect(fix.join(" ")).toContain("-s workspace-write");
+  });
+
+  test("a failed build says Codex failed, not Claude", async () => {
+    const { slot } = await run(true);
+
+    expect(slot.failure?.message).toBe(
+      "Codex exited with code 1. Its last output is in the Leglas terminal.",
+    );
+  });
+
+  test("its answer is the last agent message, whatever Codex reports around it", () => {
+    const line = (event: JsonRecord) => JSON.stringify(event);
+
+    expect(
+      codexResultText([
+        line({ type: "item.completed", item: { type: "agent_message", text: "first" } }),
+        "2026-09-25T07:54:36Z ERROR codex_api: failed to connect",
+        line({ type: "item.completed", item: { type: "agent_message", text: "last" } }),
+        line({ type: "item.completed", item: { type: "error", message: "a warning" } }),
+        line({ type: "turn.completed", usage: { input_tokens: 1 } }),
+      ]),
+    ).toBe("last");
+    expect(codexResultText([line({ type: "turn.completed" })])).toBeNull();
+  });
+
+  test("with no Codex config, no server is named", async () => {
+    expect(await codexServers(join(tmpdir(), "leglas-no-codex-home-here"))).toEqual([]);
   });
 });

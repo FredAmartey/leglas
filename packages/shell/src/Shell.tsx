@@ -111,6 +111,7 @@ import {
   stopGeneration,
 } from "./generation/generation-api.js";
 import {
+  agentName,
   isRunning,
   endingOf,
   isSlotOf,
@@ -647,7 +648,9 @@ export function Shell({
   const rowSlot = (title: string): RowSlot | null => {
     const view = slotFor(title);
 
-    return view === undefined ? null : { slot: view.slot, ...slotActions(view) };
+    return view === undefined
+      ? null
+      : { slot: view.slot, agent: agentName(view.job.agent), ...slotActions(view) };
   };
 
   // A finished set's card goes after ten minutes, on its own; a running one always shows.
@@ -1712,10 +1715,16 @@ export function Shell({
   // single footer slot, which is how a running request could hide the chooser.
   const chip = composerAgent(agentState.choice, agentState.agents, agentState.customRun);
 
+  // Who builds a set: the chosen agent, when it is one Leglas can build with.
+  const briefAgent =
+    chip.kind === "chosen" && (chip.id === "claude" || chip.id === "codex") ? chip.id : null;
+
+  const briefAgentName = briefAgent === null ? "Claude or Codex" : agentName(briefAgent);
+
   // Why the brief cannot build right now, said in the button's place; Enter obeys it too.
   const briefReason =
-    chip.kind !== "chosen" || chip.id !== "claude"
-      ? "Building directions runs on Claude."
+    briefAgent === null
+      ? "Building directions runs on Claude or Codex."
       : runningJob !== null
         ? "A set is being built. Wait for it, or stop it."
         : buildSurface === null
@@ -2554,7 +2563,7 @@ export function Shell({
     window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
   };
 
-  // One picker, in the composer's toolbar or beside the brief's reason when it asks for Claude.
+  // One picker, in the composer's toolbar or beside the brief's reason when it asks for another agent.
   const agentPicker = (
     <AgentPicker
       agents={agentState.agents}
@@ -3150,10 +3159,10 @@ export function Shell({
                     aria-label={
                       briefing
                         ? briefBase !== null
-                          ? `Say what the variations of ${st.displayName(briefBase)} should vary, or leave it to Claude`
+                          ? `Say what the variations of ${st.displayName(briefBase)} should vary, or leave it to ${briefAgentName}`
                           : briefSurface === null
-                            ? "Describe the new directions for Claude to build"
-                            : `Describe the new ${briefSurface} directions for Claude to build`
+                            ? `Describe the new directions for ${briefAgentName} to build`
+                            : `Describe the new ${briefSurface} directions for ${briefAgentName} to build`
                         : gridding
                           ? "Open one of the directions to ask for a change"
                           : st.active
@@ -3228,16 +3237,19 @@ export function Shell({
                     rows={1}
                     value={briefing ? brief : intent}
                   />
-                  {briefing && (
+                  {briefing && briefAgent !== null && (
+                    // Codex took about half as long again as Claude for the same set.
                     <p className="px-2.5 text-[10px] leading-4 text-[#84848C]">
-                      Runs on your Claude plan. Usually a minute or two.
+                      Runs on your {briefAgentName} plan. Usually{" "}
+                      {briefAgent === "codex" ? "two or three minutes" : "a minute or two"}.
                     </p>
                   )}
                   {briefing ? (
                     <BriefToolbar
                       count={briefCount}
                       onCount={setBriefCount}
-                      picker={chip.kind === "chosen" && chip.id === "claude" ? null : agentPicker}
+                      agent={briefAgentName}
+                      picker={briefAgent === null ? agentPicker : null}
                       reason={briefReason}
                       ready={(brief.trim() !== "" || briefBase !== null) && buildSurface !== null}
                       starting={starting}
@@ -3428,6 +3440,7 @@ export function Shell({
               return (
                 <GenerationCover
                   acting={actions.acting}
+                  agent={agentName(view.job.agent)}
                   name={st.displayName(title)}
                   onReplace={actions.onReplace}
                   onRetry={actions.onRetry}

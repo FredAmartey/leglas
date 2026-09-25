@@ -49,7 +49,7 @@ export type Prefs = {
    */
   scaleSplit: boolean;
   /**
-   * Let Leglas build a set of directions itself, with Claude: the "+" in the
+   * Let Leglas build a set of directions itself, with Claude or Codex: the "+" in the
    * rail's header, the brief in the composer and each direction's progress
    * on its row. Off by default while the feature is new, so switching it off
    * takes every part of it away again.
