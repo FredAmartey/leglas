@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import { Mark, P, PIcon, Tip, Toasts } from "./ui/kit.js";
 import { copyText } from "./ui/clipboard.js";
@@ -93,6 +101,17 @@ import {
 import { McpConnectDialog } from "./agents/McpConnectDialog.js";
 import { AgentPicker } from "./agents/AgentPicker.js";
 import { StatusCard } from "./agents/StatusCard.js";
+import { BriefToolbar } from "./generation/BriefToolbar.js";
+import { GenerationCard } from "./generation/GenerationCard.js";
+import { GenerationCover } from "./generation/GenerationCover.js";
+import {
+  replaceDirection,
+  retryDirection,
+  startGeneration,
+  stopGeneration,
+} from "./generation/generation-api.js";
+import { isRunning, slotsByTitle, surfaceOf } from "./generation/generation.js";
+import { useGeneration } from "./generation/useGeneration.js";
 import { AnnotateButton } from "./composer/AnnotateButton.js";
 import { AttachButton } from "./composer/AttachButton.js";
 import { ModeChip } from "./composer/ModeChip.js";
@@ -104,7 +123,7 @@ import { HelpOverlay } from "./HelpOverlay.js";
 import { DeleteRemovedDialog } from "./rail/DeleteRemovedDialog.js";
 import type { Drag, DragMeta } from "./rail/drag.js";
 import { RailHeader } from "./rail/Header.js";
-import { RailRow } from "./rail/Row.js";
+import { RailRow, type RowSlot } from "./rail/Row.js";
 import { Search } from "./rail/Search.js";
 import { ViewerBanner } from "./share/ViewerBanner.js";
 import { isString } from "./json.js";
@@ -477,6 +496,93 @@ export function Shell({
     field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
   }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
+
+  // Building a set of directions: the composer's second use, taking a brief
+  // instead of a change. Its own draft, so switching never loses either text.
+  const buildEnabled = st.prefs.buildDirections && !viewing;
+  const [briefOpen, setBriefOpen] = useState(false);
+  const briefing = briefOpen && buildEnabled;
+  const [brief, setBrief] = useState("");
+  const [briefCount, setBriefCount] = useState(3);
+  const [starting, setStarting] = useState(false);
+  /** The slot key (or "set") whose button is waiting on the server. */
+  const [generationAction, setGenerationAction] = useState<string | null>(null);
+  const [dismissedJob, setDismissedJob] = useState<string | null>(null);
+  const jobs = useGeneration(buildEnabled);
+  const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
+  const latestJob = jobs.at(-1) ?? null;
+  const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
+
+  const actOnGeneration = (key: string, work: () => Promise<void>) => {
+    setGenerationAction(key);
+    void work()
+      .catch((error) =>
+        st.notify({
+          kind: "generation",
+          message: error instanceof Error ? error.message : String(error),
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        }),
+      )
+      .finally(() => setGenerationAction(null));
+  };
+
+  const rowSlot = (title: string): RowSlot | null => {
+    const view = slotViews.get(title);
+
+    if (view === undefined) return null;
+    const { job, slot } = view;
+
+    return {
+      slot,
+      acting: generationAction === slot.key,
+      onReplace: () => actOnGeneration(slot.key, () => replaceDirection(job.id, slot.key)),
+      onRetry: () => actOnGeneration(slot.key, () => retryDirection(job.id, slot.key)),
+      onStop: () => actOnGeneration(slot.key, () => stopGeneration(job.id, slot.key)),
+    };
+  };
+
+  // A set's rows arrive at the end of the rail, often below the fold. The
+  // first is brought into view once, when it exists, so the build is seen
+  // starting; the config read that adds the rows can land after the job's.
+  const revealedJob = useRef<string | null>(null);
+
+  useEffect(() => {
+    const first = latestJob?.slots[0];
+
+    if (latestJob === null || first === undefined || !isRunning(latestJob)) return;
+
+    if (revealedJob.current === latestJob.id) return;
+    const row = document.querySelector(`li[data-title="${CSS.escape(first.title)}"]`);
+
+    if (row === null) return;
+    revealedJob.current = latestJob.id;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "nearest" });
+  }, [latestJob, st.rows]);
+
+  const submitBrief = () => {
+    const value = brief.trim();
+
+    if (value === "" || activeSurface === null || starting) return;
+    setStarting(true);
+    void startGeneration({ surface: activeSurface, brief: value, count: briefCount })
+      .then(() => {
+        setBrief("");
+        setBriefOpen(false);
+        setDismissedJob(null);
+      })
+      .catch((error) =>
+        st.notify({
+          kind: "generation",
+          message: error instanceof Error ? error.message : String(error),
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        }),
+      )
+      .finally(() => setStarting(false));
+  };
+
   /**
    * Reference images riding with the next change.
    *
@@ -2265,9 +2371,19 @@ export function Shell({
         >
           <RailHeader
             active={st.active}
+            briefing={briefing}
             compare={splitting ? compare : null}
             displayName={st.displayName}
             notify={st.notify}
+            onBuild={
+              buildEnabled
+                ? () => {
+                    setBriefOpen(!briefing);
+
+                    if (!briefing) window.requestAnimationFrame(() => requestRef.current?.focus());
+                  }
+                : null
+            }
             onCollapse={() => st.setPrefs((prefs) => ({ ...prefs, collapsed: true }))}
             prefs={st.prefs}
             previews={previews}
@@ -2371,6 +2487,7 @@ export function Shell({
                   tint={tint}
                   title={title}
                   viewing={viewing}
+                  slot={buildEnabled ? rowSlot(title) : null}
                   working={workingTitles.has(title)}
                 />
               ))}
@@ -2488,6 +2605,18 @@ export function Shell({
               composer gives it a height that moves and the toasts stack on
               whatever that height turns out to be. */}
           <div ref={railFooterRef}>
+            {buildEnabled &&
+              latestJob !== null &&
+              latestJob.id !== dismissedJob &&
+              (isRunning(latestJob) ||
+                (latestJob.endedAt !== null && Date.now() - latestJob.endedAt < 10 * 60_000)) && (
+                <GenerationCard
+                  job={latestJob}
+                  onDismiss={() => setDismissedJob(latestJob.id)}
+                  onStop={() => actOnGeneration("set", () => stopGeneration(latestJob.id))}
+                  stopping={generationAction === "set"}
+                />
+              )}
             {!viewing && card !== null && (
               <StatusCard
                 action={requestAction}
@@ -2507,6 +2636,13 @@ export function Shell({
                 className="relative px-3 pb-2.5 pt-2"
                 onSubmit={(event) => {
                   event.preventDefault();
+
+                  if (briefing) {
+                    submitBrief();
+
+                    return;
+                  }
+
                   const value = intent.trim();
                   const title = st.active;
 
@@ -2655,7 +2791,7 @@ export function Shell({
                       : "border-[#232328] focus-within:border-[#D1D5DB]/40 focus-within:ring-1 focus-within:ring-[#D1D5DB]/40"
                   }`}
                   onDragEnter={(event) => {
-                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    if (briefing || !carriesFiles(event.dataTransfer.types)) return;
                     event.preventDefault();
                     dropDepth.current += 1;
                     setDropping(true);
@@ -2672,7 +2808,7 @@ export function Shell({
                     event.dataTransfer.dropEffect = "copy";
                   }}
                   onDrop={(event) => {
-                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    if (briefing || !carriesFiles(event.dataTransfer.types)) return;
                     event.preventDefault();
                     dropDepth.current = 0;
                     setDropping(false);
@@ -2681,35 +2817,77 @@ export function Shell({
                     attachReferences(Array.from(event.dataTransfer.files));
                   }}
                 >
-                  <ReferenceStrip
-                    drafts={references}
-                    onRemove={removeReference}
-                    onRetry={retryReference}
-                  />
+                  {briefing ? (
+                    <div className="flex items-center justify-between pl-2.5 pr-1 pt-1">
+                      <span className="text-[10px] font-medium leading-5 text-[#84848C]">
+                        {activeSurface === null
+                          ? "New directions"
+                          : `New ${activeSurface} directions`}
+                      </span>
+                      <button
+                        aria-label="Close the brief"
+                        className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
+                        onClick={() => setBriefOpen(false)}
+                        type="button"
+                      >
+                        <svg aria-hidden="true" height="10" viewBox="0 0 16 16" width="10">
+                          <path
+                            d="m4 4 8 8M12 4l-8 8"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeWidth="1.75"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <ReferenceStrip
+                      drafts={references}
+                      onRemove={removeReference}
+                      onRetry={retryReference}
+                    />
+                  )}
                   {/* Enter sends and Shift+Enter breaks the line, the contract
                   every chat composer has already taught. */}
                   <textarea
                     aria-label={
-                      st.active
-                        ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                        : "Ask your agent to change a direction"
+                      briefing
+                        ? `Describe the new ${activeSurface ?? ""} directions for Claude to build`
+                        : st.active
+                          ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                          : "Ask your agent to change a direction"
                     }
                     className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={sending || !st.active}
+                    disabled={briefing ? starting : sending || !st.active}
                     onChange={(event) => {
+                      if (briefing) {
+                        setBrief(event.target.value);
+
+                        return;
+                      }
+
                       // The first character is a second signal, for a composer
                       // that kept focus across the idle window and never refocused.
                       if (intent === "" && event.target.value !== "") warmChosenAgent();
                       setIntent(event.target.value);
                     }}
-                    onFocus={warmChosenAgent}
+                    onFocus={briefing ? undefined : warmChosenAgent}
                     onKeyDown={(event) => {
+                      // Escape leaves the brief and keeps its draft for next time.
+                      if (briefing && event.key === "Escape") {
+                        event.preventDefault();
+                        setBriefOpen(false);
+
+                        return;
+                      }
+
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
                     onPaste={(event) => {
+                      if (briefing) return;
                       const files = Array.from(event.clipboardData.files);
 
                       if (files.length === 0) return;
@@ -2719,70 +2897,92 @@ export function Shell({
                       attachReferences(files);
                     }}
                     placeholder={
-                      st.active === null
-                        ? "No direction to change yet"
-                        : dropping
-                          ? "Drop the image here"
-                          : references.length > 0 && activeNotes.length === 0
-                            ? `Say what to take from the ${
-                                references.length === 1 ? "image" : "images"
-                              }…`
-                            : activeNotes.length > 0
-                              ? `Send ${
-                                  activeNotes.length === 1
-                                    ? "the annotation"
-                                    : `${activeNotes.length} annotations`
-                                }, or add words…`
-                              : `Change ${st.displayName(st.active)}…`
+                      briefing
+                        ? activeSurface === null
+                          ? "Pick a direction on the surface first"
+                          : "What should they explore?"
+                        : st.active === null
+                          ? "No direction to change yet"
+                          : dropping
+                            ? "Drop the image here"
+                            : references.length > 0 && activeNotes.length === 0
+                              ? `Say what to take from the ${
+                                  references.length === 1 ? "image" : "images"
+                                }…`
+                              : activeNotes.length > 0
+                                ? `Send ${
+                                    activeNotes.length === 1
+                                      ? "the annotation"
+                                      : `${activeNotes.length} annotations`
+                                  }, or add words…`
+                                : `Change ${st.displayName(st.active)}…`
                     }
                     ref={requestRef}
                     rows={1}
-                    value={intent}
+                    value={briefing ? brief : intent}
                   />
-                  <div className="flex items-center justify-end gap-1.5 p-1">
-                    <ModeChip
-                      mode={mode}
-                      onToggle={() => setMode(mode === "variant" ? "replace" : "variant")}
-                    />
-                    <AttachButton
-                      count={references.length}
-                      disabled={!st.active || sending || references.length >= REFERENCE_CAP}
-                      inputRef={referenceInputRef}
-                      onFiles={attachReferences}
-                    />
-                    <AnnotateButton
-                      annotating={annotating}
-                      count={activeNotes.length}
-                      onToggle={() => (annotating ? stopAnnotating() : setAnnotating(true))}
-                    />
-                    <AgentPicker
-                      agents={agentState.agents}
-                      chip={chip}
-                      chosenSignedOut={chosenSignedOut}
-                      connectRef={mcpConnectTriggerRef}
-                      menuRef={agentMenuRef}
-                      onConnect={() => setMcpConnectOpen(true)}
-                      onPick={pickAgent}
-                      onPickEffort={pickEffort}
-                      onRefresh={refreshAgents}
-                      open={agentMenuOpen}
-                      pickingAgent={pickingAgent}
-                      savingEffort={savingEffort}
-                      selectedAgent={selectedAgent}
-                      selectedEffort={selectedEffort}
-                      setOpen={setAgentMenuOpen}
-                      triggerRef={agentTriggerRef}
-                    />
-                    <SendButton
-                      ready={
-                        (intent.trim() !== "" || activeNotes.length > 0) &&
-                        Boolean(st.active) &&
-                        !sending
+                  {briefing ? (
+                    <BriefToolbar
+                      count={briefCount}
+                      onCount={setBriefCount}
+                      reason={
+                        chip.kind !== "chosen" || chip.id !== "claude"
+                          ? "Building directions runs on Claude. Choose it in the agent menu."
+                          : latestJob !== null && isRunning(latestJob)
+                            ? "A set is being built. Wait for it, or stop it."
+                            : activeSurface === null
+                              ? "Pick a direction on the surface first."
+                              : null
                       }
-                      sending={sending}
-                      target={st.active ? st.displayName(st.active) : null}
+                      ready={brief.trim() !== "" && activeSurface !== null}
+                      starting={starting}
                     />
-                  </div>
+                  ) : (
+                    <div className="flex items-center justify-end gap-1.5 p-1">
+                      <ModeChip
+                        mode={mode}
+                        onToggle={() => setMode(mode === "variant" ? "replace" : "variant")}
+                      />
+                      <AttachButton
+                        count={references.length}
+                        disabled={!st.active || sending || references.length >= REFERENCE_CAP}
+                        inputRef={referenceInputRef}
+                        onFiles={attachReferences}
+                      />
+                      <AnnotateButton
+                        annotating={annotating}
+                        count={activeNotes.length}
+                        onToggle={() => (annotating ? stopAnnotating() : setAnnotating(true))}
+                      />
+                      <AgentPicker
+                        agents={agentState.agents}
+                        chip={chip}
+                        chosenSignedOut={chosenSignedOut}
+                        connectRef={mcpConnectTriggerRef}
+                        menuRef={agentMenuRef}
+                        onConnect={() => setMcpConnectOpen(true)}
+                        onPick={pickAgent}
+                        onPickEffort={pickEffort}
+                        onRefresh={refreshAgents}
+                        open={agentMenuOpen}
+                        pickingAgent={pickingAgent}
+                        savingEffort={savingEffort}
+                        selectedAgent={selectedAgent}
+                        selectedEffort={selectedEffort}
+                        setOpen={setAgentMenuOpen}
+                        triggerRef={agentTriggerRef}
+                      />
+                      <SendButton
+                        ready={
+                          (intent.trim() !== "" || activeNotes.length > 0) &&
+                          Boolean(st.active) &&
+                          !sending
+                        }
+                        sending={sending}
+                        target={st.active ? st.displayName(st.active) : null}
+                      />
+                    </div>
+                  )}
                 </div>
               </form>
             )}
@@ -2921,6 +3121,25 @@ export function Shell({
             }
             boxHeight={boxHeight}
             boxWidth={boxWidth}
+            cover={(() => {
+              const view = buildEnabled ? slotViews.get(title) : undefined;
+
+              if (view === undefined || view.slot.state === "ready") return null;
+              const { job, slot } = view;
+
+              return (
+                <GenerationCover
+                  acting={generationAction === slot.key}
+                  name={st.displayName(title)}
+                  onReplace={() =>
+                    actOnGeneration(slot.key, () => replaceDirection(job.id, slot.key))
+                  }
+                  onRetry={() => actOnGeneration(slot.key, () => retryDirection(job.id, slot.key))}
+                  onStop={() => actOnGeneration(slot.key, () => stopGeneration(job.id, slot.key))}
+                  slot={slot}
+                />
+              );
+            })()}
             branch={st.branchState(title)}
             branchName={st.previewFor(title)?.branch ?? title}
             busy={busy}

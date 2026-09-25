@@ -7,7 +7,7 @@ const SPINNER =
   "size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none";
 
 /** What kind of event the card is about, before a word of it is read. */
-function Glyph({ kind }: { kind: RequestCard["kind"] }) {
+export function Glyph({ kind }: { kind: RequestCard["kind"] }) {
   if (kind === "stopped") {
     // The same square as the button that did it: a stop is not a warning,
     // and the amber triangle said otherwise.
@@ -59,7 +59,7 @@ function Glyph({ kind }: { kind: RequestCard["kind"] }) {
 }
 
 /** One of the card's small buttons: its icon, or a spinner while the server answers. */
-function CardButton({
+export function CardButton({
   busy,
   children,
   disabled,
@@ -92,7 +92,7 @@ function CardButton({
   );
 }
 
-function Icon({ children }: { children: React.ReactNode }) {
+export function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg
       aria-hidden="true"

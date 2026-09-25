@@ -50,7 +50,11 @@ const AGENTS: AgentsPayload = {
 type Sent = { path: string; body: unknown };
 
 /** Answer the interface's reads from a table and remember what it wrote. */
-function serve(requests: RequestStatus[] = [], framing: JsonValue = { framable: true }): Sent[] {
+function serve(
+  requests: RequestStatus[] = [],
+  framing: JsonValue = { framable: true },
+  extra: Record<string, JsonValue> = {},
+): Sent[] {
   const sent: Sent[] = [];
 
   const reads = new Map<string, JsonValue>([
@@ -75,6 +79,8 @@ function serve(requests: RequestStatus[] = [], framing: JsonValue = { framable: 
       },
     ],
   ]);
+
+  for (const [name, value] of Object.entries(extra)) reads.set(name, value);
 
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const path =
@@ -113,8 +119,10 @@ async function mount(props: {
   viewer?: ViewerInfo;
   previews?: Preview[];
   framing?: JsonValue;
+  /** Reads answered differently from the table's defaults, by endpoint name. */
+  reads?: Record<string, JsonValue>;
 }): Promise<Sent[]> {
-  const sent = serve(props.requests, props.framing);
+  const sent = serve(props.requests, props.framing, props.reads);
   document.body.innerHTML = `<div id="root"></div>`;
   root = createRoot(must(document.getElementById("root"), "the root"));
   await act(async () => {
@@ -347,6 +355,120 @@ describe("asking for a change", () => {
 
     await after(() => click(must(codex, "the Codex button")), 900);
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
+  });
+});
+
+describe("building directions", () => {
+  const HEROES: Preview[] = [
+    { title: "Table", url: "/?v-hero=table", note: "The plate fills the frame.", tags: ["Hero"] },
+    { title: "Ledger", url: "/?v-hero=hero-ledger", note: "Ruled lines.", tags: [] },
+    { title: "Pantry", url: "/?v-hero=hero-pantry", note: "What you have.", tags: [] },
+  ];
+
+  const slot = (title: string, state: string, failure: JsonValue = null) => ({
+    key: `hero-${title.toLowerCase()}`,
+    title,
+    idea: `${title}, the idea.`,
+    file: `src/heroes/hero-${title.toLowerCase()}.tsx`,
+    state,
+    startedAt: 1_789_999_990_000,
+    endedAt: null,
+    failure,
+    fixed: false,
+  });
+
+  const JOB = {
+    id: "gen-1",
+    surface: "hero",
+    brief: "Dinner in thirty minutes",
+    count: 2,
+    state: "building",
+    startedAt: 1_789_999_990_000,
+    plannedAt: 1_789_999_995_000,
+    endedAt: null,
+    error: null,
+    slots: [
+      slot("Ledger", "building"),
+      slot("Pantry", "failed", {
+        code: "provider-overloaded",
+        message: "Claude's provider was overloaded and gave up.",
+      }),
+    ],
+  };
+
+  const switchedOn = () =>
+    localStorage.setItem("leglas:a-project", JSON.stringify({ buildDirections: true }));
+
+  test("switched off, the rail offers no way to build them", async () => {
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+
+    expect(document.querySelector('[aria-label="Build new directions with Claude"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Building 2 hero directions");
+    expect(row("Ledger").closest("li")?.textContent).not.toContain("Building");
+  });
+
+  test("the + takes a brief and asks for the set, then the composer goes back to changes", async () => {
+    switchedOn();
+    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [] } } });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("What should they explore?");
+    expect(document.body.textContent).toContain("New hero directions");
+
+    await after(() => type(find("textarea"), "Dinner in thirty minutes"));
+    await after(() => click(find('[aria-label="One direction more"]')));
+    expect(find<HTMLButtonElement>('button[type="submit"]').textContent).toBe(
+      "Build 4 with Claude",
+    );
+
+    await after(
+      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      900,
+    );
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
+      {
+        path: "/leglas/api/generate",
+        body: { surface: "hero", brief: "Dinner in thirty minutes", count: 4 },
+      },
+    ]);
+    expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("Change Table…");
+  });
+
+  test("each direction says how it is going, on its row and on the stage", async () => {
+    switchedOn();
+    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+
+    expect(row("Ledger").closest("li")?.textContent).toContain("Building");
+    expect(row("Pantry").closest("li")?.textContent).toContain("Failed");
+    expect(document.body.textContent).toContain("Building 2 hero directions");
+
+    await after(() => click(row("Pantry")));
+    expect(document.body.textContent).toContain("Pantry didn’t build");
+    expect(document.body.textContent).toContain("Claude's provider was overloaded and gave up.");
+
+    const newIdea = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Try a new idea",
+    );
+
+    await after(() => click(must(newIdea, "the new idea button")));
+    expect(sent.filter((entry) => entry.path.startsWith("/leglas/api/generate/"))).toEqual([
+      { path: "/leglas/api/generate/replace", body: { id: "gen-1", slot: "hero-pantry" } },
+    ]);
+  });
+
+  test("with an agent other than Claude, the brief says why it cannot build", async () => {
+    switchedOn();
+    await mount({
+      previews: HEROES,
+      reads: { generate: { ok: true, jobs: [] }, agents: { ...AGENTS, choice: "codex" } },
+    });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    expect(document.querySelector('form button[type="submit"]')).toBeNull();
+    expect(document.body.textContent).toContain(
+      "Building directions runs on Claude. Choose it in the agent menu.",
+    );
   });
 });
 

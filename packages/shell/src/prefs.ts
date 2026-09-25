@@ -49,6 +49,13 @@ export type Prefs = {
    */
   scaleSplit: boolean;
   /**
+   * Let Leglas build a set of directions itself, with Claude: the "+" in the
+   * rail's header, the brief in the composer and each direction's progress
+   * on its row. Off by default while the feature is new, so switching it off
+   * takes every part of it away again.
+   */
+  buildDirections: boolean;
+  /**
    * Show the tools widget over the stage. Turning it off leaves the stage to
    * the previews alone; T reopens the tools, so the switch is never a trap.
    */
@@ -58,6 +65,7 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
+  buildDirections: false,
   collapsed: false,
   collapsedFamilies: [],
   deleted: [],
@@ -128,6 +136,9 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
         ? saved.showDevOverlays
         : DEFAULT_PREFS.showDevOverlays,
       showWidget: isBoolean(saved.showWidget) ? saved.showWidget : DEFAULT_PREFS.showWidget,
+      buildDirections: isBoolean(saved.buildDirections)
+        ? saved.buildDirections
+        : DEFAULT_PREFS.buildDirections,
       viewport:
         VIEWPORTS.map((viewport) => viewport.width).find((width) => width === saved.viewport) ??
         null,

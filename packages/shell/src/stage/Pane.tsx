@@ -62,6 +62,7 @@ function PaneOverlay({
  */
 export function Pane({
   annotate,
+  cover = null,
   boxHeight,
   boxWidth,
   branch,
@@ -94,6 +95,8 @@ export function Pane({
 }: {
   /** The layer notes are left on, while this pane is the one being annotated. */
   annotate: React.ReactNode;
+  /** Said over the whole frame instead of the page, such as a direction still being built. */
+  cover?: React.ReactNode;
   boxHeight: number;
   boxWidth: number;
   /** Set for a direction on its own branch; the frame waits until it is ready. */
@@ -256,6 +259,7 @@ export function Pane({
             src={src}
           />
         )}
+        {cover}
         {/* A pane that loaded before the server died keeps showing that
             render. Saying so is the difference between a stale preview
             and a lie — but only for panes the server rendered. A file

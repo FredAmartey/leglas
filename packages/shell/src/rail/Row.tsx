@@ -1,5 +1,7 @@
 import { ThinkingOrb } from "thinking-orbs";
 
+import { Icon } from "../agents/StatusCard.js";
+import type { GenerationSlot } from "../generation/generation.js";
 import { Gutter } from "../lineage/Gutter.js";
 import type { Segment } from "../lineage/lineage.js";
 import { EASE } from "../prefs.js";
@@ -10,6 +12,16 @@ import type { Drag, DragMeta } from "./drag.js";
 import { RowCard } from "./RowCard.js";
 import { tagTone } from "./tags.js";
 
+/** A direction Leglas is building: its slot, and what the row's buttons do about it. */
+export type RowSlot = {
+  slot: GenerationSlot;
+  /** One of its buttons is waiting on the server. */
+  acting: boolean;
+  onReplace: () => void;
+  onRetry: () => void;
+  onStop: () => void;
+};
+
 /** A title as a CSS identifier, for a row's view-transition-name. */
 function rowIdent(title: string): string {
   let hash = 0;
@@ -19,11 +31,46 @@ function rowIdent(title: string): string {
   return Math.abs(hash).toString(36);
 }
 
+/** A direction Leglas is building, failed or stopped: its badge in place of the row's tag. */
+function SlotBadge({ aside, slot }: { aside: string; slot: GenerationSlot }) {
+  return slot.state === "building" || slot.state === "checking" ? (
+    <span
+      className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
+    >
+      <ThinkingOrb
+        aria-label={
+          slot.state === "building"
+            ? "Claude is building this direction"
+            : "Checking this direction renders"
+        }
+        size={20}
+        state={MOOD}
+        theme="dark"
+      />
+      {slot.state === "building" ? "Building" : "Checking"}
+    </span>
+  ) : slot.state === "failed" ? (
+    <Tip label={slot.failure?.message ?? "It did not build."}>
+      <span
+        className={`shrink-0 rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-normal text-amber-300/90 ${aside}`}
+      >
+        Failed
+      </span>
+    </Tip>
+  ) : (
+    <span
+      className={`shrink-0 rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-normal text-[#84848C] ${aside}`}
+    >
+      Stopped
+    </span>
+  );
+}
+
 /**
  * What is happening to a direction, in the corner of its row. One thing at a
  * time, the most pressing first: being carried by a drag, being compared,
- * being worked on, rendering the same as another, being checked, and at rest
- * its first tag.
+ * being built by Leglas, being worked on, rendering the same as another,
+ * being checked, and at rest its first tag.
  */
 function RowBadge({
   aside,
@@ -31,6 +78,7 @@ function RowBadge({
   comparing,
   same,
   scanning,
+  slot,
   tag,
   working,
 }: {
@@ -41,6 +89,7 @@ function RowBadge({
   comparing: boolean;
   same: readonly string[] | undefined;
   scanning: boolean;
+  slot: GenerationSlot | null;
   tag: string | undefined;
   working: boolean;
 }) {
@@ -56,6 +105,8 @@ function RowBadge({
     >
       Comparing
     </span>
+  ) : slot !== null && slot.state !== "ready" ? (
+    <SlotBadge aside={aside} slot={slot} />
   ) : working ? (
     <span
       className={`flex h-5 shrink-0 items-center gap-1 rounded bg-white/[0.04] pl-0.5 pr-1.5 text-[10px] font-medium leading-none text-[#84848C]/80 ${aside}`}
@@ -92,6 +143,88 @@ function RowBadge({
   );
 }
 
+/** The buttons on a direction that is not ready: stop it, or build it again, try another idea, remove it. */
+function SlotActions({
+  className,
+  name,
+  onRemove,
+  slot,
+}: {
+  className: string;
+  name: string;
+  onRemove: () => void;
+  slot: RowSlot;
+}) {
+  const running = slot.slot.state === "building" || slot.slot.state === "checking";
+
+  return (
+    <div className={className}>
+      {running ? (
+        <Tip label="Stop building">
+          <button
+            aria-label={`Stop building the ${name} direction`}
+            className={`${ICON_BUTTON} disabled:cursor-wait disabled:opacity-40`}
+            disabled={slot.acting}
+            onClick={(event) => {
+              event.stopPropagation();
+              slot.onStop();
+            }}
+            type="button"
+          >
+            <span className="block size-2 rounded-[2px] bg-current" />
+          </button>
+        </Tip>
+      ) : (
+        <>
+          <Tip label={slot.slot.state === "failed" ? "Try again" : "Build it"}>
+            <button
+              aria-label={`Build the ${name} direction again`}
+              className={`${ICON_BUTTON} disabled:cursor-wait disabled:opacity-40`}
+              disabled={slot.acting}
+              onClick={(event) => {
+                event.stopPropagation();
+                slot.onRetry();
+              }}
+              type="button"
+            >
+              <Icon>
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+                <path d="M13.7 1.8v2.7H11" />
+              </Icon>
+            </button>
+          </Tip>
+          <Tip label="Try a new idea">
+            <button
+              aria-label={`Replace the ${name} direction with a new idea`}
+              className={`${ICON_BUTTON} disabled:cursor-wait disabled:opacity-40`}
+              disabled={slot.acting}
+              onClick={(event) => {
+                event.stopPropagation();
+                slot.onReplace();
+              }}
+              type="button"
+            >
+              <Icon>
+                <path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7Z" />
+              </Icon>
+            </button>
+          </Tip>
+          <Tip label="Remove from list">
+            <button
+              aria-label={`Remove the ${name} direction from the list`}
+              className={ICON_BUTTON}
+              onClick={onRemove}
+              type="button"
+            >
+              <PIcon d={P.trash} size={12} />
+            </button>
+          </Tip>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * The buttons that act on a direction, floating over the end of its row and
  * only there under the pointer or the keyboard's focus.
@@ -101,6 +234,7 @@ function RowActions({
   dragging,
   onToggleCompare,
   renaming,
+  slot,
   st,
   title,
   viewing,
@@ -110,20 +244,34 @@ function RowActions({
   onToggleCompare: () => void;
   /** This row's name is being edited, so the buttons stand down. */
   renaming: boolean;
+  slot: RowSlot | null;
   st: ShellState;
   title: string;
   viewing: boolean;
 }) {
+  const floating = `pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
+    renaming ? "invisible" : ""
+  } ${
+    dragging
+      ? ""
+      : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
+  }`;
+
+  // A direction still being built, or one that failed or was stopped, has
+  // nothing to compare, link or rename yet: its buttons are about the build.
+  if (slot !== null && slot.slot.state !== "ready" && !viewing) {
+    return (
+      <SlotActions
+        className={floating}
+        name={st.displayName(title)}
+        onRemove={() => st.hide(title)}
+        slot={slot}
+      />
+    );
+  }
+
   return (
-    <div
-      className={`pointer-events-none absolute right-2 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 ${
-        renaming ? "invisible" : ""
-      } ${
-        dragging
-          ? ""
-          : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
-      }`}
-    >
+    <div className={floating}>
       {/* Choosing the second direction belongs where the directions are.
         The active row is the left pane, so this only appears on the
         others. */}
@@ -257,6 +405,7 @@ export function RailRow({
   st,
   tint,
   title,
+  slot,
   viewing,
   working,
 }: {
@@ -284,6 +433,8 @@ export function RailRow({
   /** This row is being checked for duplicates right now. */
   scanning: boolean;
   shiftFor: (index: number) => number;
+  /** Set while Leglas builds this direction, or after it failed or was stopped. */
+  slot: RowSlot | null;
   st: ShellState;
   tint: string;
   title: string;
@@ -292,7 +443,8 @@ export function RailRow({
   working: boolean;
 }) {
   const isActive = title === st.active;
-  const isWorking = working;
+  const building = slot?.slot.state === "building" || slot?.slot.state === "checking";
+  const isWorking = working || building;
   const preview = st.previewFor(title);
   const isDragged = dragging && drag?.title === title;
   const shift = dragging && !isDragged ? shiftFor(index) : 0;
@@ -564,6 +716,7 @@ export function RailRow({
                 comparing={comparing}
                 same={same}
                 scanning={scanning}
+                slot={slot?.slot ?? null}
                 tag={preview?.tags[0]}
                 working={isWorking}
               />
@@ -598,6 +751,7 @@ export function RailRow({
         dragging={dragging}
         onToggleCompare={onToggleCompare}
         renaming={renamingThis}
+        slot={slot}
         st={st}
         title={title}
         viewing={viewing}

@@ -178,6 +178,22 @@ export function ToolsPopover({
         <span>Show Leglas overlay</span>
         <Switch on={prefs.showWidget} />
       </button>
+      {/* New, so it starts off and switching it off takes all of it away:
+        the "+" in the rail's header, the brief and the progress on rows. */}
+      {!viewing && (
+        <button
+          aria-checked={prefs.buildDirections}
+          className={`${ROW_BUTTON} ${prefs.buildDirections ? "text-white" : "text-[#9CA3AF]"}`}
+          onClick={() =>
+            setPrefs((current) => ({ ...current, buildDirections: !current.buildDirections }))
+          }
+          role="switch"
+          type="button"
+        >
+          <span>Build directions with Claude</span>
+          <Switch on={prefs.buildDirections} />
+        </button>
+      )}
 
       {!viewing && (
         <button

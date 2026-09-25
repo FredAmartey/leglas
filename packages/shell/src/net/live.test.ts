@@ -69,9 +69,12 @@ function manualTimers() {
 describe("what a frame can say", () => {
   // Every kind the server sends, as packages/server/src/live.ts declares
   // them. This test used to list three, and the shell dropped `update`.
-  test.each(["config", "requests", "health", "share", "update"])("reads %s", (kind) => {
-    expect(changeFrom(JSON.stringify({ changed: kind }))).toBe(kind);
-  });
+  test.each(["config", "requests", "health", "share", "update", "generation"])(
+    "reads %s",
+    (kind) => {
+      expect(changeFrom(JSON.stringify({ changed: kind }))).toBe(kind);
+    },
+  );
 
   test("refuses everything else", () => {
     // Annotations are not a kind. They ride "requests" on purpose, so the
