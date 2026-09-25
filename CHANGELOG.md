@@ -12,6 +12,88 @@ same time are the same release. Each entry says who a change actually reaches,
 because most reach only one of the three, and each release heading says what
 it was about.
 
+## Unreleased
+
+### Added
+
+- **Build a set of directions from a brief, with Claude or Codex.** Turn
+  on **Build directions with Claude or Codex** under Labs in the tools,
+  press **+** at the top of the rail, say what the directions should
+  explore, pick how many, up to six, and press **Build 3 with Claude**,
+  named for whichever of the two is your agent. The agent plans the whole
+  set first, so the directions differ from each other and from the ones
+  already there, and all of them appear on the rail at once and build side
+  by side. Each row says whether its direction is building, being checked,
+  failed or stopped, and you can stop it, try it again or ask for a new idea
+  from its row or the stage. Leglas opens every direction before calling it
+  ready and gives one that does not render one attempt to fix itself. It
+  runs on your own plan at medium effort, with your MCP servers, skills and
+  plugins left out: on the demo app Claude built three directions in about
+  a minute and a half, and Codex in a little over two minutes.
+  `leglas explore hero --build --brief "…"` does the same from a terminal.
+  (`leglas`)
+
+- **See a set side by side, and ask for more like one.** Once two
+  directions of a set are ready, **Compare all** on its card puts the ready
+  ones on the stage side by side, each at the width it was drawn for. To
+  take one further, open the brief while it is on the stage and press
+  **More like Menu**, named for it: the agent builds variations that keep
+  the direction and each change one thing, and they sit under it on the
+  rail. What to vary is optional there. From a terminal, add
+  `--based-on "Menu"` to `explore --build`.
+  (`leglas`)
+
+- **`leglas watch --json` prints one line per event.** The instructions
+  `leglas init` writes into every project, the plugin's skill and the docs
+  all said every command takes `--json`, but `watch` refused it, so an agent
+  following its own instructions got an error. Now `watch --json` prints one
+  JSON object per line as it works: when it starts watching, when it hands a
+  change to the agent, when that change is done or fails, when reading the
+  queue goes wrong, and when it stops. The agent's own output moves to
+  stderr, so stdout carries only those lines. Without `--json`, `watch`
+  prints what it always did.
+  (`leglas`, plugin)
+
+### Fixed
+
+- **The update chip hears about an update as it happens.** The server tells
+  the interface when an update check settles, an install starts or an
+  install fails, but since the update check arrived in 1.1.0 the interface
+  ignored those messages and only caught up on its next scheduled look: up
+  to fifteen seconds later with the panel open, up to fifteen minutes with
+  it closed. It reacts straight away now.
+  (`leglas`)
+
+- **A failed update says what npm said.** When an update from the panel
+  failed, the reason under it was one of npm's fields rather than its
+  message: `syscall mkdir` for a permissions problem, `syscall getaddrinfo`
+  when you were offline. It now shows npm's own message, such as
+  `Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'`.
+  (`leglas`)
+
+- **`keep --to` takes a full path.** An absolute destination, which is how
+  agents usually write paths, was nested inside the project instead of used:
+  `--to /home/me/app/src/hero.tsx` wrote `app/home/me/app/src/hero.tsx`. A
+  full path inside the project now lands where its short form would, and
+  one outside the project is refused with "The destination has to be inside
+  the project."
+  (`leglas`, `leglas-mcp`)
+
+- **The starting point `leglas new` writes no longer breaks your page.**
+  Without `--from`, `leglas new` writes a placeholder for your current
+  design, with a note on how to replace it. The note's example code was read
+  as code rather than text, so the placeholder used a component it never
+  imported, and the page threw `Hero is not defined` until you replaced it.
+  The note is plain text now. It had been this way since 0.1.0.
+  (`leglas`, `leglas-mcp`)
+
+- **The agents guide names the project the MCP server really uses.** It
+  said the server in an Agent Plugins client takes the host's workspace and
+  falls back to `LEGLAS_PROJECT_DIR`. It is the other way round, as the
+  release that added the variable said: `LEGLAS_PROJECT_DIR` wins when it
+  is set, and the host's workspace is used otherwise.
+  (`leglas-mcp`)
+
 ## 1.2.1 (2026-09-24): Screenshots wait for late fonts, pictures and code
 
 ### Changed
