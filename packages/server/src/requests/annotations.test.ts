@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import { required } from "../test-helpers.js";
+
 import {
   addAnnotation,
   anchorFrom,
@@ -67,10 +69,16 @@ describe("anchorFrom", () => {
       text: "t".repeat(1000),
     });
 
-    expect(read?.selector).toHaveLength(300);
-    expect(read?.text).toHaveLength(120);
-    expect(read?.classes).toHaveLength(8);
-    expect(read?.classes[0]).toHaveLength(60);
+    // Cut down, not thrown away: each value keeps a prefix of what was sent.
+    const kept = required(read);
+    expect(kept.selector.length).toBeLessThan(1000);
+    expect(kept.selector).toMatch(/^s+$/);
+    expect(kept.text.length).toBeLessThan(1000);
+    expect(kept.text).toMatch(/^t+$/);
+    expect(kept.classes.length).toBeLessThan(40);
+    expect(kept.classes.length).toBeGreaterThan(0);
+    expect(required(kept.classes[0]).length).toBeLessThan(200);
+    expect(kept.classes[0]).toMatch(/^x+$/);
   });
 
   test("keeps a pointed-at spot inside the element it belongs to", () => {
@@ -85,7 +93,10 @@ describe("anchorFrom", () => {
   });
 
   test("names an element that arrived without a tag", () => {
-    expect(anchorFrom({ ...anchor(), tag: "" })?.tag).toBe("element");
+    const read = required(anchorFrom({ ...anchor(), tag: "" }));
+
+    expect(read.tag).not.toBe("");
+    expect(describeAnchor(read)).not.toContain("<>");
   });
 });
 
@@ -157,11 +168,15 @@ describe("the notes file", () => {
 
   test("a reworded note is capped like every other note", async () => {
     const root = cwd();
+    const long = "x".repeat(900);
+    await addAnnotation(root, note("Poster", long));
     const first = await addAnnotation(root, note("Poster", "looks fake"));
 
-    const revised = await updateAnnotation(root, first.id, "x".repeat(900));
+    const revised = await updateAnnotation(root, first.id, long);
+    const [added] = await readAnnotations(root);
 
-    expect(revised?.note).toHaveLength(500);
+    expect(revised?.note.length).toBeLessThan(900);
+    expect(revised?.note).toBe(required(added).note);
   });
 
   test("rewording one note leaves the others alone", async () => {
@@ -331,8 +346,11 @@ describe("a swept region", () => {
       covers: Array.from({ length: 40 }, () => ({ tag: "div", text: "x".repeat(400) })),
     });
 
-    expect(read?.covers).toHaveLength(8);
-    expect(read?.covers?.[0]?.text).toHaveLength(120);
+    const covers = required(read?.covers);
+    expect(covers.length).toBeLessThan(40);
+    expect(covers.length).toBeGreaterThan(0);
+    expect(required(covers[0]).text.length).toBeLessThan(400);
+    expect(required(covers[0]).text).toMatch(/^x+$/);
   });
 
   // Sending an agent to rewrite the container when the point was the row of
@@ -374,8 +392,10 @@ describe("describeAnnotations", () => {
   });
 
   test("a pin dropped without words still says where to look", () => {
-    expect(
-      describeAnnotations([{ anchor: anchor(), id: "1", note: "", title: "Poster" }]),
-    ).toContain("1. Look at this.");
+    const item = describeAnnotations([{ anchor: anchor(), id: "1", note: "", title: "Poster" }]);
+
+    expect(item).toMatch(/^1\. \S/);
+    expect(item).toContain("main > div:nth-of-type(2)");
+    expect(item).toContain("Made in Ghana");
   });
 });

@@ -71,8 +71,11 @@ describe("composeEntry", () => {
     });
 
     // The heading, the summary line, and nothing else about it.
-    expect(entry.markdown).not.toContain("Asked for");
-    expect(entry.markdown).not.toContain("Marked on the design");
+    const lines = entry.markdown.split("\n").filter((line) => line.trim() !== "");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^# hero/);
+    expect(lines[1]).toContain("**Bare**");
+    expect(lines[2]).toMatch(/^## Bare/);
     expect(entry.pictures).toEqual([]);
   });
 
