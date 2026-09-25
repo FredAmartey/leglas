@@ -428,7 +428,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
     // Stopped or replaced between being accepted and starting: the newer attempt stands.
     if (concept === undefined || !owns(live, slot, attempt)) return;
     slot.state = "building";
-    slot.startedAt = now();
+
+    // A retry or a new idea stamped its start when it was asked for; the wait for its plan counts.
+    if (slot.startedAt === null) slot.startedAt = now();
     slot.endedAt = null;
     slot.failure = null;
     slot.fixed = false;
