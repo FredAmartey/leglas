@@ -192,20 +192,3 @@ export function railOrder(order: readonly string[], titles: readonly string[]): 
 
   return [...kept, ...titles.filter((title) => !listed.has(title))];
 }
-
-/** Reorder `title` to sit at `toIndex` among the visible rows. */
-export function reorder(
-  prefs: Prefs,
-  previews: readonly Preview[],
-  title: string,
-  toIndex: number,
-): string[] {
-  const titles = previews.map((preview) => preview.title);
-  const order = (prefs.order.length ? prefs.order : titles).filter((entry) => entry !== title);
-  const visible = order.filter((entry) => !prefs.hidden.includes(entry));
-  const before = visible[toIndex];
-  const insertAt = before === undefined ? order.length : order.indexOf(before);
-  order.splice(insertAt, 0, title);
-
-  return order;
-}

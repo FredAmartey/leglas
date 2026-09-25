@@ -89,7 +89,7 @@ describe("previews backed by a branch", () => {
   });
 
   test("defaults the install command, since a fresh checkout has no dependencies", () => {
-    expect(ok({ previews: [] }).installCommand).toBeTruthy();
+    expect(ok({ previews: [] }).installCommand).toBe("npm install");
   });
 });
 

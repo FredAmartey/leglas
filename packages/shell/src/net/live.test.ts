@@ -1,5 +1,9 @@
+/// <reference types="node" />
 import { describe, expect, test, vi } from "vitest";
 
+// The server's side of the protocol, for the kinds it can send. Its module
+// imports Node built-ins, hence the reference above.
+import type { LiveChange as ServerChange } from "../../../server/src/live.js";
 import type { TimerHandle } from "./timers.js";
 
 import {
@@ -66,15 +70,25 @@ function manualTimers() {
   };
 }
 
+/**
+ * Every kind the server nudges with, keyed by the server's own type, so this
+ * list and that one cannot drift apart without failing `pnpm typecheck`, which
+ * sees this file only because the shell's tsconfig includes its tests. It used
+ * to be written out by hand, three kinds long, and the shell dropped `update`.
+ */
+const SENT = {
+  config: true,
+  requests: true,
+  health: true,
+  share: true,
+  update: true,
+  generation: true,
+} satisfies Record<ServerChange, true>;
+
 describe("what a frame can say", () => {
-  // Every kind the server sends, as packages/server/src/live.ts declares
-  // them. This test used to list three, and the shell dropped `update`.
-  test.each(["config", "requests", "health", "share", "update", "generation"])(
-    "reads %s",
-    (kind) => {
-      expect(changeFrom(JSON.stringify({ changed: kind }))).toBe(kind);
-    },
-  );
+  test.each(Object.keys(SENT))("reads %s", (kind) => {
+    expect(changeFrom(JSON.stringify({ changed: kind }))).toBe(kind);
+  });
 
   test("refuses everything else", () => {
     // Annotations are not a kind. They ride "requests" on purpose, so the
@@ -243,31 +257,41 @@ describe("startLive", () => {
     const sockets: FakeSocket[] = [];
     const timers = manualTimers();
 
-    const live = startLive({
-      connect: () => {
-        const socket = new FakeSocket();
-        sockets.push(socket);
+    const start = () =>
+      startLive({
+        connect: () => {
+          const socket = new FakeSocket();
+          sockets.push(socket);
 
-        return socket;
-      },
-      url: "ws://x/live",
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
+          return socket;
+        },
+        url: "ws://x/live",
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout,
+      });
 
-    const heard = vi.fn();
-    live.on("config", heard);
+    // Stopped while its socket is open, it closes that socket.
+    const open = start();
     sockets[0]?.emit("open");
-    sockets[0]?.emit("close");
+    open.stop();
+    expect(sockets[0]?.closes).toBe(1);
+    expect(open.connected).toBe(false);
+
+    // Stopped while waiting to redial, it never dials again.
+    const redialling = start();
+    const heard = vi.fn();
+    redialling.on("config", heard);
+    sockets[1]?.emit("open");
+    sockets[1]?.emit("close");
     expect(timers.waiting).toBe(1);
 
-    live.stop();
+    redialling.stop();
 
     expect(timers.waiting).toBe(0);
     timers.advance(MAX_RETRY_MS * 2);
-    expect(sockets).toHaveLength(1);
+    expect(sockets).toHaveLength(2);
     // A frame arriving from a socket nobody closed in time reaches nobody.
-    sockets[0]?.emit("message", { data: JSON.stringify({ changed: "config" }) });
+    sockets[1]?.emit("message", { data: JSON.stringify({ changed: "config" }) });
     expect(heard).not.toHaveBeenCalled();
   });
 });

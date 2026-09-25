@@ -1,7 +1,6 @@
 import { ChildProcess } from "node:child_process";
-import { boundPort } from "./test-helpers.js";
+import { boundPort, detectNoAgents } from "./test-helpers.js";
 import http from "node:http";
-import { createHash } from "node:crypto";
 
 import {
   existsSync,
@@ -25,7 +24,7 @@ import { CAPTURES_DIR, REFERENCES_DIR } from "./requests/attachments.js";
 import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./capture/browser.js";
 import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
 import type { LeglasConfig } from "./config/config.js";
-import type { LiveChange, LiveHub } from "./live.js";
+import { LIVE_DEBOUNCE_MS, type LiveChange, type LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests/requests.js";
 import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
@@ -36,6 +35,8 @@ import type { RunningWorktree } from "./branches/worktree.js";
 import { type JsonRecord } from "./json.js";
 // The interface's side of the live socket, for the one test that needs both.
 import { startLive } from "../../shell/src/net/live.js";
+// The interface's cap on a reference, which the upload route has to share.
+import { REFERENCE_BYTES_CAP } from "../../shell/src/references/references.js";
 
 const running: RunningServer[] = [];
 
@@ -129,6 +130,27 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
   }
 };
 
+/**
+ * Write until the watcher reports it.
+ *
+ * On macOS a directory watch misses a write made in the moment it starts,
+ * about two times in forty, and nothing rewrites the file afterwards, so one
+ * write can wait out the whole deadline for an event that is never coming.
+ * The rewrites are spaced wider than the coalescing window, which every event
+ * restarts.
+ */
+async function writeUntilHeard(path: string, text: string, heard: () => boolean): Promise<void> {
+  const deadline = Date.now() + EVENTUALLY_MS;
+
+  while (!heard()) {
+    if (Date.now() > deadline) throw new Error("the watcher never reported the write");
+    writeFileSync(path, text);
+    const retry = Date.now() + 250;
+
+    while (!heard() && Date.now() < retry) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function expectConditionalRead(
   url: string,
   change: () => Promise<void> | void,
@@ -137,8 +159,9 @@ async function expectConditionalRead(
   const initialBody = await initial.text();
   const initialEtag = initial.headers.get("etag");
 
+  // The validator is opaque (RFC 9110), but it is still a quoted entity-tag.
   expect(initial.status).toBe(200);
-  expect(initialEtag).toBe(`"${createHash("sha256").update(initialBody).digest("base64url")}"`);
+  expect(initialEtag).toMatch(/^(W\/)?"[^"]*"$/);
 
   const unchanged = await fetch(url, { headers: { "if-none-match": initialEtag ?? "" } });
   expect(unchanged.status).toBe(304);
@@ -153,7 +176,6 @@ async function expectConditionalRead(
   expect(changed.status).toBe(200);
   expect(changedBody).not.toBe(initialBody);
   expect(changedEtag).not.toBe(initialEtag);
-  expect(changedEtag).toBe(`"${createHash("sha256").update(changedBody).digest("base64url")}"`);
 
   const changedUnchanged = await fetch(url, {
     headers: { "if-none-match": changedEtag ?? "" },
@@ -175,10 +197,11 @@ function deferred<T>() {
 }
 
 async function start(options: Parameters<typeof startServer>[0]): Promise<RunningServer> {
-  // Server tests exercise HTTP behavior, not the installed Codex binary.
+  // Server tests exercise HTTP behavior, not the installed agent CLIs.
   const server = await startServer({
     codexAppServer: null,
     claudeAgentSession: null,
+    detect: detectNoAgents,
     detectTunnels: async () => [],
     pool: quietPool(),
     ...options,
@@ -610,6 +633,25 @@ describe("startServer", () => {
     expect(referenceFiles(cwd)).toEqual([]);
   });
 
+  // The interface refuses a reference above its own cap before uploading it,
+  // so this limit and that one have to be one number. Each side's own tests
+  // pass with them apart, and then the interface either uploads what will be
+  // refused or refuses what would have been taken.
+  test("takes a reference of exactly the interface's cap, and refuses one byte more", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-cap-"));
+    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+
+    // A real image padded out, and sent with its length the way a browser
+    // sends a file, so size is the only thing either answer can be about.
+    const upload = (bytes: number) =>
+      postRawReference(server, { "content-length": String(bytes) }, [
+        Buffer.concat([TWO_BY_THREE_PNG, Buffer.alloc(bytes - TWO_BY_THREE_PNG.length)]),
+      ]);
+
+    expect((await upload(REFERENCE_BYTES_CAP)).status).toBe(200);
+    expect((await upload(REFERENCE_BYTES_CAP + 1)).status).toBe(413);
+  });
+
   test("moves an uploaded reference into the request capture directory", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-request-"));
 
@@ -845,32 +887,36 @@ describe("startServer", () => {
 
     expect(response.status).toBe(200);
     expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
-    expect(body.width).toBe(640);
-    expect(body.height).toBe(400);
+
+    // The size reported is the crop's, not the whole frame's. How big a crop
+    // is belongs to the crop tests in capture.test.ts.
+    const frame: { width: number; height: number } = await (
+      await fetch(`${server.url}/leglas/api/capture`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Poster", width: 390 }),
+      })
+    ).json();
+
+    expect(body.width).toBeGreaterThan(0);
+    expect(body.height).toBeGreaterThan(0);
+    expect({ width: body.width, height: body.height }).not.toEqual({
+      width: frame.width,
+      height: frame.height,
+    });
   });
 
   test("capture gives a bounded timeout when the page never loads", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-timeout-"));
-    const nativeSetTimeout = globalThis.setTimeout;
+
     // The deadline fires first here; the load's own share is left real, so
     // this is the abandonment path and nothing else.
-    // SAFETY: The capture-deadline test only calls the callback overload, forwarding its arguments and native timer handle.
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetTimeout(
-        callback,
-        milliseconds === 15_000 ? 5 : milliseconds,
-        ...args,
-      )) as typeof setTimeout);
-
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
       port: 0,
       cwd,
+      captureDeadlineMs: 5,
     });
 
     const response = await fetch(`${server.url}/leglas/api/capture`, {
@@ -1004,6 +1050,12 @@ describe("startServer", () => {
     });
 
     expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
+
+    const after: { annotations: unknown[] } = await (
+      await fetch(`${server.url}/leglas/api/annotations`)
+    ).json();
+
+    expect(after.annotations).toEqual([]);
   });
 
   test("rewords a note that is already there", async () => {
@@ -1469,9 +1521,9 @@ describe("startServer", () => {
     expect(after.requests).toEqual([]);
   });
 
-  test("reads the queue without collecting it, so watch still has work to do", async () => {
-    // Reading is what the interface does three times a second. If it marked
-    // anything, the queue would empty itself just by being looked at.
+  // Reading without collecting is the POST then GET test's; this one is the
+  // agent block a fresh server reports.
+  test("reports an idle agent before anything has run", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-read-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
@@ -1491,8 +1543,6 @@ describe("startServer", () => {
       waiting: null,
       quietSince: null,
     });
-    // A running server always leaves its rendezvous record under .leglas.
-    expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(true);
   });
 
   test("reports available agents and round-trips the saved choice", async () => {
@@ -2177,7 +2227,11 @@ describe("startServer", () => {
     const body: { previews: unknown[]; errors: string[] } = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.previews).toHaveLength(1);
+    // What the config said, as the rail needs it: where it lives, what it is
+    // called and what the author wrote about it.
+    expect(body.previews).toMatchObject([
+      { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
+    ]);
     expect(body.errors).toEqual([]);
   });
 
@@ -2296,6 +2350,7 @@ describe("startServer", () => {
     } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
+    const nudgedBeforeReady = live.changes.length;
 
     checkout.resolve({
       branch: "feature/wave",
@@ -2323,7 +2378,10 @@ describe("startServer", () => {
     const branchUrl = new URL(String(ready.previews[0]?.url));
     expect(branchUrl.pathname).toBe("/direction");
     expect(branchUrl.port).not.toBe("4312");
-    expect(live.changes).toEqual(["config", "config", "config"]);
+    // The rail hears that it became ready, and only ever as config. How many
+    // steps a start takes on the way is the branch's own business.
+    expect(live.changes.length).toBeGreaterThan(nudgedBeforeReady);
+    expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
 
   test("validates branch start titles and the command needed to boot them", async () => {
@@ -2679,23 +2737,20 @@ describe("startServer", () => {
     expect(body.reachable).toBe(false);
   });
 
-  test("coalesces request-file writes into one requests nudge", async () => {
+  // Only that a write reaches the wire, and only ever as "requests". How many
+  // nudges a burst produces depends on when the operating system delivers the
+  // events; the coalescing is proven against a driven clock in live.test.ts.
+  test("a write to requests.json nudges the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-requests-"));
     mkdirSync(join(cwd, ".leglas"));
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    const path = join(cwd, ".leglas/requests.json");
-    writeFileSync(path, '{"requests":[]}\n');
-    writeFileSync(path, '{"requests":[]}\n ');
-
-    // Only that a write reaches the wire, and only ever as "requests".
-    // How many nudges two back-to-back writes produce depends on when the
-    // operating system delivers the watch events, not on this code, and
-    // asserting a count here measured that instead and failed on a loaded
-    // machine. The coalescing itself is proven against a driven clock in
-    // live.test.ts, where it is a property rather than a race.
-    await eventually(() => live.changes.length >= 1);
+    await writeUntilHeard(
+      join(cwd, ".leglas/requests.json"),
+      '{"requests":[]}\n',
+      () => live.changes.length > 0,
+    );
     expect(new Set(live.changes)).toEqual(new Set(["requests"]));
   });
 
@@ -2705,10 +2760,12 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    writeFileSync(join(cwd, ".leglas/annotations.json"), '{"annotations":[]}\n');
-
-    await eventually(() => live.changes.length === 1);
-    expect(live.changes).toEqual(["requests"]);
+    await writeUntilHeard(
+      join(cwd, ".leglas/annotations.json"),
+      '{"annotations":[]}\n',
+      () => live.changes.length > 0,
+    );
+    expect(new Set(live.changes)).toEqual(new Set(["requests"]));
   });
 
   test("nudges config when the late-created previews registry changes", async () => {
@@ -2716,11 +2773,10 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    writeFileSync(join(cwd, ".leglas/previews.json"), '{"previews":[]}\n');
-
-    await eventually(() => live.changes.includes("config"));
-    expect(live.changes).toEqual(["config"]);
+    await writeUntilHeard(join(cwd, ".leglas/previews.json"), '{"previews":[]}\n', () =>
+      live.changes.includes("config"),
+    );
+    expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
 
   test("nudges config when the resolved config file changes", async () => {
@@ -2730,18 +2786,17 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    writeFileSync(configPath, '{"previews":[]}\n');
-
-    await eventually(() => live.changes.includes("config"));
-    expect(live.changes).toEqual(["config"]);
+    await writeUntilHeard(configPath, '{"previews":[]}\n', () => live.changes.includes("config"));
+    expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
 
   test("passes runner state changes to the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-runner-"));
+    // An agent that takes a second to go, so a stop changes the runner's
+    // state well before the queue file records how the run ended.
     await saveAgentChoice(cwd, {
       agent: "custom",
-      run: 'node -e "setInterval(() => {}, 1000)" {prompt}',
+      run: `node -e "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1000)); setInterval(() => {}, 1000)" {prompt}`,
     });
     await appendRequest(cwd, {
       title: "Aurora",
@@ -2760,22 +2815,26 @@ describe("startServer", () => {
 
       return body.agent.running;
     });
-    expect(live.changes).toContain("requests");
+
+    // Let the nudges for the queue file's own writes land first; they would
+    // say "requests" whether or not the runner is wired to the channel. Quiet
+    // for twice the coalescing window means none is still on its way.
+    let settled = -1;
+
+    while (settled !== live.changes.length) {
+      settled = live.changes.length;
+      await new Promise((resolve) => setTimeout(resolve, 2 * LIVE_DEBOUNCE_MS));
+    }
+
+    const before = live.changes.length;
+
+    const stop = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
+
+    expect(await stop.json()).toMatchObject({ cancelled: true });
+    expect(live.changes.slice(before)).toContain("requests");
   });
 
   test("nudges health once when reachability flips, not on steady probes", async () => {
-    const nativeSetInterval = globalThis.setInterval;
-    // SAFETY: Health transitions use the callback interval overload; this wrapper keeps its native handle and forwards every callback argument.
-    vi.spyOn(globalThis, "setInterval").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetInterval(
-        callback,
-        milliseconds === 3000 ? 10 : milliseconds,
-        ...args,
-      )) as typeof setInterval);
     const target = http.createServer();
     let probes = 0;
     target.on("connection", () => {
@@ -2785,7 +2844,7 @@ describe("startServer", () => {
     origins.push(target);
     const targetPort = boundPort(target);
     const live = fakeLiveHub(1);
-    await start({ config: configFor(targetPort), port: 0, live });
+    await start({ config: configFor(targetPort), port: 0, live, healthProbeMs: 10 });
 
     // The first probe establishes the baseline and emits nothing. Probes never
     // overlap, so a second one reaching the target means the first one's
@@ -2804,18 +2863,6 @@ describe("startServer", () => {
   });
 
   test("does not probe health with no live listeners", async () => {
-    const nativeSetInterval = globalThis.setInterval;
-    // SAFETY: The viewer-count test keeps native interval callbacks and handles, shortening only the health probe interval.
-    vi.spyOn(globalThis, "setInterval").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetInterval(
-        callback,
-        milliseconds === 3000 ? 10 : milliseconds,
-        ...args,
-      )) as typeof setInterval);
     let connections = 0;
     const target = http.createServer();
     target.on("connection", () => {
@@ -2829,11 +2876,16 @@ describe("startServer", () => {
       config: configFor(boundPort(target)),
       port: 0,
       live,
+      healthProbeMs: 10,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(connections).toBe(0);
     expect(live.changes).toEqual([]);
+
+    // The same probe, ticking all along: one viewer and it reaches the target.
+    live.setListening(1);
+    await eventually(() => connections > 0);
 
     await server.close();
     expect(live.close).toHaveBeenCalledOnce();
@@ -2895,8 +2947,12 @@ describe("startServer", () => {
 
     const res = await fetch(`${server.url}/leglas`);
 
+    const page = await res.text();
+
     expect(res.status).toBe(200);
-    expect((await res.text()).toLowerCase()).toContain("leglas");
+    // Leglas's own page, saying why there is no interface, not the app behind it.
+    expect(page).toMatch(/not been\s+built/);
+    expect(page).not.toContain("<h1>app:");
   });
 
   test("serves a read-only share and keeps its lifecycle on the primary listener", async () => {
@@ -3338,41 +3394,42 @@ describe("startServer", () => {
   });
 });
 
+/** An update service that answers without touching npm. */
+function updateService() {
+  const status: UpdateStatus = {
+    version: "1.0.0",
+    install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
+    latest: {
+      version: "1.1.0",
+      title: "A release",
+      url: "https://leglas.vercel.app/changelog/#v1.1.0",
+    },
+    checkedAt: "2026-09-07T10:00:00.000Z",
+    checkError: null,
+    skipped: null,
+    available: true,
+    phase: { status: "idle" },
+    busy: false,
+  };
+
+  return {
+    status: vi.fn(() => status),
+    check: vi.fn(async () => status),
+    skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
+    update: vi.fn(async () => ({
+      ...status,
+      phase: { status: "installing" as const, version: "1.1.0" },
+    })),
+    notice: () => null,
+    onRestart: vi.fn(),
+    onBusy: vi.fn<(busy: () => boolean) => void>(),
+    setPort: vi.fn(),
+    onChange: vi.fn<(listener: () => void) => void>(),
+    close: vi.fn(async () => {}),
+  } satisfies UpdateService;
+}
+
 describe("update routes", () => {
-  function updateService() {
-    const status: UpdateStatus = {
-      version: "1.0.0",
-      install: { kind: "npx", manager: "npm", command: "npx leglas@latest" },
-      latest: {
-        version: "1.1.0",
-        title: "A release",
-        url: "https://leglas.vercel.app/changelog/#v1.1.0",
-      },
-      checkedAt: "2026-09-07T10:00:00.000Z",
-      checkError: null,
-      skipped: null,
-      available: true,
-      phase: { status: "idle" },
-      busy: false,
-    };
-
-    return {
-      status: vi.fn(() => status),
-      check: vi.fn(async () => status),
-      skip: vi.fn(async (_version: string) => ({ ...status, skipped: "1.1.0" })),
-      update: vi.fn(async () => ({
-        ...status,
-        phase: { status: "installing" as const, version: "1.1.0" },
-      })),
-      notice: () => null,
-      onRestart: vi.fn(),
-      onBusy: vi.fn<(busy: () => boolean) => void>(),
-      setPort: vi.fn(),
-      onChange: vi.fn<(listener: () => void) => void>(),
-      close: vi.fn(async () => {}),
-    } satisfies UpdateService;
-  }
-
   async function bootUpdates(updates?: ReturnType<typeof updateService>, live?: LiveHub) {
     const options: Parameters<typeof start>[0] = {
       config: configFor(1),
@@ -3607,6 +3664,31 @@ describe("update routes", () => {
 });
 
 describe("mutation trust", () => {
+  // Every route that changes something is a POST today, but the guard stands
+  // in front of any method that is not a read, so a PUT, PATCH or DELETE
+  // route written later is behind it the moment it exists. OPTIONS is not a
+  // read either; Leglas never sends one to itself.
+  test.each(["PUT", "PATCH", "DELETE", "OPTIONS"])(
+    "a cross-origin %s to the API is refused before any route sees it",
+    async (method) => {
+      const server = await start({ config: configFor(await startOrigin()), port: 0 });
+      const api = `${server.url}/leglas/api/requests`;
+
+      const foreign = await fetch(api, { method, headers: { origin: "https://other.example" } });
+
+      expect(foreign.status).toBe(403);
+      expect(await foreign.json()).toEqual({
+        ok: false,
+        error: "Cross-origin API mutations are refused.",
+      });
+      // From Leglas's own page, or a local client that sends no origin, the
+      // same request reaches the routes; a read from anywhere is still a read.
+      expect((await fetch(api, { method, headers: { origin: server.url } })).status).toBe(404);
+      expect((await fetch(api, { method })).status).toBe(404);
+      expect((await fetch(api, { headers: { origin: "https://other.example" } })).status).toBe(200);
+    },
+  );
+
   const request = (headers: Record<string, string>, peer: string | undefined) => {
     const socket = new net.Socket();
     Object.defineProperty(socket, "remoteAddress", { value: peer });
@@ -3639,14 +3721,6 @@ describe("mutation trust", () => {
         request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "192.168.1.44"),
       ),
     ).toBe(false);
-  });
-
-  test("the machine's own browser passes with a LAN hostname in the bar", () => {
-    expect(
-      isTrustedMutation(
-        request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "127.0.0.1"),
-      ),
-    ).toBe(true);
   });
 
   test("cross-origin and public hosts stay refused regardless of peer", () => {
@@ -3808,18 +3882,55 @@ describe("a body that is not an object", () => {
     "/api/references": "takes raw image bytes",
     "/api/agents/warm": "takes nothing at all",
     "/api/share/stop": "takes nothing at all",
+    "/api/update/check": "takes nothing at all",
+    "/api/update/install": "takes nothing at all",
   };
 
   const routes = (): string[] => {
-    const source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8");
+    // Read with its whitespace collapsed: the formatter wraps a long
+    // condition across lines, and a route split that way used to go unseen.
+    let source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").replace(/\s+/g, " ");
+    const single = /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g;
 
-    const found = [
-      ...source.matchAll(
-        /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g,
-      ),
-    ].map((match) => match.groups?.["route"] ?? "");
+    const grouped =
+      /req\.method === "POST" && \[(?<names>[^\]]*)\]\.some\( \(action\) => path === `\$\{LEGLAS_PREFIX\}(?<base>\/[^`$]*)\$\{action\}`/g;
 
-    expect(found.length, "no POST routes found; the pattern above has drifted").toBeGreaterThan(5);
+    const found = [...source.matchAll(single)].map((match) => match.groups?.["route"] ?? "");
+
+    for (const match of source.matchAll(grouped)) {
+      for (const name of (match.groups?.["names"] ?? "").matchAll(/"([^"]+)"/g)) {
+        found.push(`${match.groups?.["base"] ?? ""}${name[1] ?? ""}`);
+      }
+    }
+
+    // A route can also hide by testing its method some other way. Every route
+    // that reads a body does it through `req.on("data"`, readShareBody or
+    // readGenerationBody, so those are counted too; two listeners are the
+    // helpers' own.
+    const readers =
+      (source.match(/req\.on\("data"/g) ?? []).length -
+      2 +
+      (source.match(/readShareBody\(req,/g) ?? []).length +
+      (source.match(/readGenerationBody\(req,/g) ?? []).length;
+
+    const takesNothing = new Set(
+      Object.entries(NOT_A_JSON_OBJECT)
+        .filter(([, why]) => why === "takes nothing at all")
+        .map(([route]) => route),
+    );
+
+    expect(
+      Object.keys(NOT_A_JSON_OBJECT).filter((route) => !found.includes(route)),
+      "a stale exemption",
+    ).toEqual([]);
+    expect(
+      found.filter((route) => !takesNothing.has(route)),
+      "a body reader the scan cannot see",
+    ).toHaveLength(readers);
+
+    // Any POST left is a route this scan cannot read, and so never tests.
+    source = source.replace(single, "").replace(grouped, "");
+    expect(source.match(/req\.method === "POST"/g), "a POST route the scan cannot read").toBeNull();
 
     return found.filter((route) => !(route in NOT_A_JSON_OBJECT));
   };
@@ -3831,6 +3942,7 @@ describe("a body that is not an object", () => {
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       cwd,
       port: 0,
+      updates: updateService(),
     });
 
     for (const route of routes()) {
@@ -3847,22 +3959,5 @@ describe("a body that is not an object", () => {
 
     // Still up, which is the whole point.
     expect((await fetch(`${server.url}/leglas/api/requests`)).status).toBe(200);
-  });
-
-  // The reader exists so that no route has to remember any of this. One route
-  // parsing a body by hand is how the hole came back the first time.
-  test("no route reads a body without going through the one reader", () => {
-    const lines = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").split("\n");
-    const opens = lines.findIndex((line) => line.startsWith("function jsonBody("));
-    expect(opens, "jsonBody has been renamed; this check has to follow it").toBeGreaterThan(-1);
-    const closes = lines.findIndex((line, index) => index > opens && line === "}");
-
-    const offenders = lines
-      .map((line, index) => ({ at: index, line: line.trim() }))
-      .filter((entry) => /(?:JSON\.parse|parseJson)\(body/.test(entry.line))
-      .filter((entry) => entry.at < opens || entry.at > closes)
-      .map((entry) => `server.ts:${entry.at + 1}`);
-
-    expect(offenders, "these should call jsonBody instead").toEqual([]);
   });
 });

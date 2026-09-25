@@ -3,13 +3,19 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { UpdateService, UpdateStatus } from "@leglas/server";
+import { startServer, type UpdateService, type UpdateStatus } from "@leglas/server";
+
+import { detectNoAgents } from "../../server/src/test-helpers.js";
 
 import { run, runWithServices, type RunDeps } from "./run.js";
 
 import type { inspectLocalDevServer } from "./dev-server-owner.js";
 
 const inspectDevServer = vi.fn<typeof inspectLocalDevServer>();
+
+/** A real server that runs no agent CLI to ask about logins. */
+const quietServer: typeof startServer = (options) =>
+  startServer({ ...options, detect: detectNoAgents });
 
 const stopping: Array<() => Promise<void>> = [];
 
@@ -100,7 +106,7 @@ async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {
       ...options,
     },
     deps,
-    { inspectLocalDevServer: inspectDevServer },
+    { inspectLocalDevServer: inspectDevServer, startServer: quietServer },
   );
 
   stopping.push(result.stop);
@@ -273,7 +279,7 @@ describe("startup update notice", () => {
 
       const output: string[] = [];
 
-      const result = await run(
+      const result = await runWithServices(
         { cwd, json, open: true, port: 0, userPort: undefined, configPath: undefined },
         {
           updates,
@@ -284,6 +290,7 @@ describe("startup update notice", () => {
             expect(output.some((line) => line === notice)).toBe(false);
           },
         },
+        { startServer: quietServer },
       );
 
       stopping.push(result.stop);

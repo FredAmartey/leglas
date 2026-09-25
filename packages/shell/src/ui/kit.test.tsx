@@ -84,7 +84,9 @@ test("inside a modal dialog the label stays in the dialog, which is the top laye
 });
 
 test("with no shell around it the label goes to the body, and leaves when the pointer does", () => {
-  document.body.innerHTML = `<div id="app"></div>`;
+  // A shell elsewhere on the page is not around the control, so it is not
+  // where the label belongs either.
+  document.body.innerHTML = `<main data-leglas-shell=""></main><div id="app"></div>`;
   const app = must(document.getElementById("app"), "the app");
   root = createRoot(app);
   act(() =>
@@ -97,8 +99,10 @@ test("with no shell around it the label goes to the body, and leaves when the po
   const control = must(app.querySelector("button"), "the button");
 
   hover(control);
-  const label = document.querySelector(".leglas-tip");
-  expect(label?.parentElement?.parentElement?.parentElement).toBe(document.body);
+  const label = must(document.querySelector(".leglas-tip"), "the label");
+  expect(document.body.contains(label)).toBe(true);
+  expect(app.contains(label)).toBe(false);
+  expect(label.closest("[data-leglas-shell]")).toBeNull();
 
   act(() => {
     control.dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));

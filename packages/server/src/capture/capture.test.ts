@@ -297,7 +297,7 @@ describe("capturePage", () => {
     ).rejects.toThrow("The page did not load: the app answered HTTP 502.");
   });
 
-  test("throws a navigation error and drops an unusable recorded rectangle", async () => {
+  test("throws a navigation error when the page does not load", async () => {
     const page = new FakePage();
     const original = page.send.bind(page);
     page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {

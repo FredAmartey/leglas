@@ -1186,11 +1186,13 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("a viewer who gives up while waiting frees the place they held", async () => {
-    let started = 0;
+    const reached: string[] = [];
     const holding: Array<() => void> = [];
+    // Twelve fetches at once can take longer than a second on a loaded machine.
+    const patience = { timeout: 15_000 };
 
-    const share = await shareWith((res) => {
-      started += 1;
+    const share = await shareWith((res, req) => {
+      reached.push(req.url ?? "");
       holding.push(() => {
         res.writeHead(200, { "content-type": "text/plain" });
         res.end("ok");
@@ -1198,21 +1200,29 @@ describe("the ceiling on viewer traffic", () => {
     });
 
     const inside = Array.from({ length: VIEWER_CONCURRENCY }, (_, i) => share.get(`/in-${i}`));
-    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
+    await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY), patience);
 
     const giveUp = new AbortController();
     const abandoned = share.get("/abandoned", { signal: giveUp.signal });
     const following = share.get("/after");
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(started).toBe(VIEWER_CONCURRENCY);
+    expect(reached).toHaveLength(VIEWER_CONCURRENCY);
     giveUp.abort();
     await abandoned.catch(() => undefined);
+    // The share hears the viewer leave when the closed socket reaches it, in
+    // the event loop's next poll. The wait covers a busy loop; the turns after
+    // it make sure a poll has run since, however long the process was paused.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
 
     holding.shift()?.();
     // The freed slot goes to the request behind it, not to the one that left.
-    await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY + 1));
+    await vi.waitFor(() => expect(reached).toHaveLength(VIEWER_CONCURRENCY + 1), patience);
+    expect(reached.at(-1)).toBe("/after");
     await drain(holding, VIEWER_CONCURRENCY + 1);
     await Promise.all([...inside, following].map((pending) => pending.catch(() => undefined)));
+    expect(reached).not.toContain("/abandoned");
   });
 });
 
