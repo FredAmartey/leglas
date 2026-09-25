@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 
 import {
   DEFAULT_LOG_DIR,
@@ -108,7 +108,11 @@ export async function runKeep(
 
   if (!resolved.ok) return fail(resolved.error);
 
-  const plan = planKeep({ title: resolved.title, previews, to: options.to });
+  // An absolute destination inside the project names the same file as its
+  // relative form, which is what agents tend to pass. One outside comes out
+  // as `..` or still absolute, and planKeep refuses both.
+  const destination = isAbsolute(options.to) ? relative(options.cwd, options.to) : options.to;
+  const plan = planKeep({ title: resolved.title, previews, to: destination });
 
   if (!plan.ok) return fail(plan.error);
 

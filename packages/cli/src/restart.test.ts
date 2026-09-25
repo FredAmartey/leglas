@@ -5,7 +5,7 @@ import type { RestartCommand } from "@leglas/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createHandoff } from "./restart.js";
-import { installShutdown, SHUTDOWN_SIGNALS } from "./shutdown.js";
+import { SHUTDOWN_SIGNALS } from "./shutdown.js";
 
 const command: RestartCommand = {
   file: "npx",
@@ -86,25 +86,18 @@ describe("handOff", () => {
     },
   );
 
-  test.each(SHUTDOWN_SIGNALS)(
-    "forwards %s to the child while ordinary shutdown stays out",
-    async (signal) => {
-      const deps = harness();
-      const { handOff, handedOff } = createHandoff();
-      const stop = vi.fn(async () => {});
-      installShutdown(async () => {
-        if (handedOff()) return;
-        await stop();
-        deps.exit(0);
-      }, deps.target);
-      await handOff(command, stop, deps);
-      deps.target.emit(signal);
-      expect(deps.child.kill).toHaveBeenCalledExactlyOnceWith(signal);
-      expect(stop).toHaveBeenCalledOnce();
-      expect(deps.exit).not.toHaveBeenCalled();
-      deps.child.emit("exit", 0);
-    },
-  );
+  // The ordinary shutdown staying out is startViewer's guard, tested there.
+  test.each(SHUTDOWN_SIGNALS)("forwards %s to the child", async (signal) => {
+    const deps = harness();
+    const { handOff } = createHandoff();
+    const stop = vi.fn(async () => {});
+    await handOff(command, stop, deps);
+    deps.target.emit(signal);
+    expect(deps.child.kill).toHaveBeenCalledExactlyOnceWith(signal);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(deps.exit).not.toHaveBeenCalled();
+    deps.child.emit("exit", 0);
+  });
 
   test.each([
     [0, null, 0],
