@@ -3411,9 +3411,10 @@ describe("update routes", () => {
     live.on("update", () => (heard += 1));
 
     try {
-      await vi.waitFor(() => expect(live.connected).toBe(true));
+      // Deadlines bound a hang on a loaded machine; they are not about speed.
+      await vi.waitFor(() => expect(live.connected).toBe(true), { timeout: 15_000 });
       updates.onChange.mock.calls[0]![0]();
-      await vi.waitFor(() => expect(heard).toBe(1), { timeout: 2000 });
+      await vi.waitFor(() => expect(heard).toBe(1), { timeout: 15_000 });
     } finally {
       live.stop();
     }
