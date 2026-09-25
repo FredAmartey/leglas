@@ -1075,9 +1075,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const path = url.split("?")[0] ?? "/";
     const query = new URLSearchParams(url.includes("?") ? url.slice(url.indexOf("?") + 1) : "");
 
+    // Anything but a read counts as a mutation, whatever routes exist today.
     if (
       !context.remote &&
-      req.method === "POST" &&
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
       path.startsWith(`${LEGLAS_PREFIX}/api/`) &&
       !isTrustedMutation(req)
     ) {
