@@ -80,8 +80,6 @@ function serve(
     ],
   ]);
 
-  for (const [name, value] of Object.entries(extra)) reads.set(name, value);
-
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const path =
       String(input)
@@ -97,8 +95,11 @@ function serve(
       return new Response(JSON.stringify(answer), { status: 200 });
     }
 
-    return new Response(JSON.stringify(reads.get(name) ?? {}), {
-      status: reads.has(name) ? 200 : 404,
+    // Extra answers are read at request time, so a test can change one mid-way.
+    const answer = name in extra ? extra[name] : reads.get(name);
+
+    return new Response(JSON.stringify(answer ?? {}), {
+      status: answer === undefined ? 404 : 200,
     });
   });
   vi.stubGlobal(
@@ -358,6 +359,9 @@ describe("asking for a change", () => {
   });
 });
 
+/** The generate endpoint's answer, which a test can swap while the shell is mounted. */
+type GenerateAnswer = { generate: JsonValue };
+
 describe("building directions", () => {
   const HEROES: Preview[] = [
     { title: "Table", url: "/?v-hero=table", note: "The plate fills the frame.", tags: ["Hero"] },
@@ -457,9 +461,45 @@ describe("building directions", () => {
     ]);
   });
 
+  test("a new idea under a new title keeps the stage on that direction", async () => {
+    switchedOn();
+    const reads: GenerateAnswer = { generate: { ok: true, jobs: [JOB] } };
+    await mount({ previews: HEROES, reads });
+    await after(() => click(row("Pantry")));
+
+    // The replacement arrives: Pantry leaves the rail and Market takes its slot.
+    reads.generate = {
+      ok: true,
+      jobs: [
+        {
+          ...JOB,
+          slots: [
+            slot("Ledger", "building"),
+            { ...slot("Pantry", "building"), title: "Market", idea: "A market stall at dusk." },
+          ],
+        },
+      ],
+    };
+
+    const next = HEROES.map((preview) =>
+      preview.title === "Pantry" ? { ...preview, title: "Market" } : preview,
+    );
+
+    await act(async () => {
+      root.render(
+        <Shell previews={next} project="a-project" scanPreviews={false} viewer={undefined} />,
+      );
+      await vi.advanceTimersByTimeAsync(16_000);
+    });
+
+    expect(row("Market").getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain("Claude is building Market");
+  });
+
   test("with an agent other than Claude, the brief says why it cannot build", async () => {
     switchedOn();
-    await mount({
+
+    const sent = await mount({
       previews: HEROES,
       reads: { generate: { ok: true, jobs: [] }, agents: { ...AGENTS, choice: "codex" } },
     });
@@ -469,6 +509,14 @@ describe("building directions", () => {
     expect(document.body.textContent).toContain(
       "Building directions runs on Claude. Choose it in the agent menu.",
     );
+
+    // Enter submits the form even with the button gone; the reason stands there too.
+    await after(() => type(find("textarea"), "Dinner in thirty minutes"));
+    await after(
+      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      900,
+    );
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([]);
   });
 });
 

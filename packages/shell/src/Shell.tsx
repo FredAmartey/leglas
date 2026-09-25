@@ -485,16 +485,6 @@ export function Shell({
    * which one is armed is never a guess.
    */
   const [mode, setMode] = useState<"variant" | "replace">("variant");
-  // The field is a textarea that wears one row until the words need more,
-  // then grows line by line to a cap. Measured from scrollHeight because
-  // wrapping depends on the rail width and the face the user picked.
-  useEffect(() => {
-    const field = requestRef.current;
-
-    if (field === null) return;
-    field.style.height = "0px";
-    field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
-  }, [intent, st.prefs.width]);
   const [sending, setSending] = useState(false);
 
   // Building a set of directions: the composer's second use, taking a brief
@@ -512,6 +502,17 @@ export function Shell({
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
   const latestJob = jobs.at(-1) ?? null;
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
+
+  // The field is a textarea that wears one row until the words need more,
+  // then grows line by line to a cap. Measured from scrollHeight because
+  // wrapping depends on the rail width and the face the user picked.
+  useEffect(() => {
+    const field = requestRef.current;
+
+    if (field === null) return;
+    field.style.height = "0px";
+    field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
+  }, [intent, brief, briefing, st.prefs.width]);
 
   const actOnGeneration = (key: string, work: () => Promise<void>) => {
     setGenerationAction(key);
@@ -560,6 +561,37 @@ export function Shell({
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     row.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "nearest" });
   }, [latestJob, st.rows]);
+
+  // "Try a new idea" brings the replacement under a new title and the old
+  // one leaves the rail. The stage follows the slot to its new title instead
+  // of falling back to the app's own page; picking another row lets it go.
+  const followedSlot = useRef<{ key: string; title: string } | null>(null);
+
+  useEffect(() => {
+    const view = st.active === null ? undefined : slotViews.get(st.active);
+
+    if (view !== undefined) {
+      followedSlot.current = { key: view.slot.key, title: view.slot.title };
+
+      return;
+    }
+
+    const last = followedSlot.current;
+
+    if (last === null || st.active !== last.title) {
+      followedSlot.current = null;
+
+      return;
+    }
+
+    const renamed = [...slotViews.values()].find((candidate) => candidate.slot.key === last.key);
+
+    if (renamed === undefined || renamed.slot.title === last.title) return;
+
+    if (st.previewFor(renamed.slot.title) === undefined) return;
+    followedSlot.current = { key: renamed.slot.key, title: renamed.slot.title };
+    st.setActive(renamed.slot.title);
+  }, [slotViews, st, previews]);
 
   const submitBrief = () => {
     const value = brief.trim();
@@ -1514,6 +1546,17 @@ export function Shell({
   // to, the card says what is happening right now. They used to fight over a
   // single footer slot, which is how a running request could hide the chooser.
   const chip = composerAgent(agentState.choice, agentState.agents, agentState.customRun);
+
+  // Why the brief cannot build right now, said in the button's place; Enter obeys it too.
+  const briefReason =
+    chip.kind !== "chosen" || chip.id !== "claude"
+      ? "Building directions runs on Claude. Choose it in the agent menu."
+      : latestJob !== null && isRunning(latestJob)
+        ? "A set is being built. Wait for it, or stop it."
+        : activeSurface === null
+          ? "Pick a direction on the surface first."
+          : null;
+
   // Focus on the composer is the first honest sign a request is coming, and
   // the seconds spent typing it are where the agent's start-up cost hides.
   // Nothing is warmed before this: a saved choice is not a request.
@@ -2638,7 +2681,7 @@ export function Shell({
                   event.preventDefault();
 
                   if (briefing) {
-                    submitBrief();
+                    if (briefReason === null) submitBrief();
 
                     return;
                   }
@@ -2803,7 +2846,7 @@ export function Shell({
                     if (dropDepth.current === 0) setDropping(false);
                   }}
                   onDragOver={(event) => {
-                    if (!carriesFiles(event.dataTransfer.types)) return;
+                    if (briefing || !carriesFiles(event.dataTransfer.types)) return;
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "copy";
                   }}
@@ -2925,15 +2968,7 @@ export function Shell({
                     <BriefToolbar
                       count={briefCount}
                       onCount={setBriefCount}
-                      reason={
-                        chip.kind !== "chosen" || chip.id !== "claude"
-                          ? "Building directions runs on Claude. Choose it in the agent menu."
-                          : latestJob !== null && isRunning(latestJob)
-                            ? "A set is being built. Wait for it, or stop it."
-                            : activeSurface === null
-                              ? "Pick a direction on the surface first."
-                              : null
-                      }
+                      reason={briefReason}
                       ready={brief.trim() !== "" && activeSurface !== null}
                       starting={starting}
                     />
