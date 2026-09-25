@@ -10,6 +10,7 @@ import { saveAgentChoice } from "./agents.js";
 import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
+import { required } from "../test-helpers.js";
 import { appendRequest, readRequests } from "../requests/requests.js";
 import { IDLE_RELEASE_MS, startRunner, type RunnerSpawn } from "./runner.js";
 import { QUIET_NOTICE_MS, SILENCE_CEILING_MS } from "./silence.js";
@@ -140,23 +141,26 @@ describe("startRunner", () => {
     await appendRequest(cwd, input("Observed"));
     const clock = manualClock();
     const spawned = spawner();
-    const onChange = vi.fn();
+    // What each call saw, so the hook is held to "tells you when state
+    // changed", not to how many updates the runner happens to make.
+    const seen: boolean[] = [];
 
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
-      onChange,
+      onChange: () => seen.push(runner.snapshot().running),
       spawn: spawned.spawn,
       setInterval: clock.setInterval,
       clearInterval: clock.clearInterval,
     });
 
     await until(() => runner.snapshot().running);
-    expect(onChange).toHaveBeenCalledOnce();
+    expect(seen).toContain(true);
 
     spawned.children[0]?.close(0);
     await until(() => !runner.snapshot().running);
-    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(seen.at(-1)).toBe(false);
+    expect(seen.indexOf(true)).toBeLessThan(seen.lastIndexOf(false));
     await runner.stop();
   });
 
@@ -812,14 +816,15 @@ describe("startRunner", () => {
   });
 
   test("a child that will not go is stopped anyway, and the queue moves on", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    // An error the runner catches and logs must fail this test, not vanish.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-wedge-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     await appendRequest(cwd, input("Poster"));
     await appendRequest(cwd, input("Next"));
     const clock = manualClock();
     const spawned = spawner();
-    let grace: (() => void) | null = null;
+    const timers: Array<() => void> = [];
 
     const runner = startRunner({
       cwd,
@@ -827,10 +832,7 @@ describe("startRunner", () => {
       spawn: spawned.spawn,
       setInterval: clock.setInterval,
       clearInterval: clock.clearInterval,
-      setTimeout: (callback, milliseconds) => {
-        expect(milliseconds).toBe(5000);
-        grace = callback;
-      },
+      setTimeout: (callback) => void timers.push(callback),
     });
 
     await until(() => spawned.children.length === 1);
@@ -841,6 +843,7 @@ describe("startRunner", () => {
 
     if (stubborn !== undefined) stubborn.child.kill = vi.fn(() => true);
 
+    const armed = timers.length;
     expect(runner.cancel()).toBe(true);
     // The card stops claiming a live run immediately, before the child goes.
     expect(runner.snapshot().stopping).toBe(true);
@@ -851,7 +854,12 @@ describe("startRunner", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(runner.snapshot().running).toBe(true);
 
-    grace?.();
+    // The stop armed its own escalation; its grace running out is the only
+    // thing that frees the runner now.
+    const grace = timers.slice(armed);
+    expect(grace).not.toEqual([]);
+
+    for (const fire of grace) fire();
     await until(() => !runner.snapshot().running);
     expect(stubborn?.child.kill).toHaveBeenCalledWith("SIGKILL");
     expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
@@ -861,6 +869,9 @@ describe("startRunner", () => {
     expect(spawned.calls[1]?.[1]).toContain("prompt for Next");
     spawned.children[1]?.close(0);
     await runner.stop();
+    expect(
+      logged.mock.calls.flat().filter((line) => String(line).startsWith("Leglas runner:")),
+    ).toEqual([]);
   });
 
   test.skipIf(process.platform === "win32")(
@@ -1397,6 +1408,27 @@ describe("warm transports", () => {
 
   const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
+  /** A clock that only moves when told to, firing whatever falls due in order. */
+  const timeline = () => {
+    const scheduled: { callback: () => void; at: number }[] = [];
+    let now = 0;
+
+    return {
+      setTimeout: (callback: () => void, ms: number) => {
+        scheduled.push({ callback, at: now + ms });
+      },
+      async advance(ms: number) {
+        now += ms;
+        scheduled.sort((a, b) => a.at - b.at);
+
+        while (scheduled[0] !== undefined && scheduled[0].at <= now) {
+          required(scheduled.shift()).callback();
+          await settle();
+        }
+      },
+    };
+  };
+
   test("leaves every transport cold until something asks for it", async () => {
     // A saved choice is not a request. Warming at boot spawned the vendor
     // process, and with it every MCP server the user has configured, for a
@@ -1486,9 +1518,8 @@ describe("warm transports", () => {
     // composer's second focus would be undone by the first one's timer.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-stale-release-"));
     const clock = manualClock();
-    const later = deferrals();
+    const time = timeline();
     const sdk = claudeStub();
-    const idle: (() => void)[] = [];
 
     const runner = startRunner({
       cwd,
@@ -1497,21 +1528,20 @@ describe("warm transports", () => {
       codexAppServer: null,
       setInterval: clock.setInterval,
       clearInterval: clock.clearInterval,
-      setTimeout: (callback, ms) => {
-        if (ms === IDLE_RELEASE_MS) idle.push(callback);
-        else later.setTimeout(callback, ms);
-      },
+      setTimeout: time.setTimeout,
     });
 
     runner.prepare("claude");
+    await settle();
+    await time.advance(60_000);
     runner.prepare("claude");
     await settle();
-    expect(idle).toHaveLength(2);
-    idle[0]?.();
-    await settle();
+
+    // The first ask's window has long run out; the second's has not.
+    await time.advance(IDLE_RELEASE_MS - 1);
     expect(sdk.release).not.toHaveBeenCalled();
-    idle[1]?.();
-    await settle();
+
+    await time.advance(1);
     expect(sdk.release).toHaveBeenCalledOnce();
     await runner.stop();
   });
@@ -1675,15 +1705,20 @@ describe("warm transports", () => {
 
     await until(() => children.length === 1);
     expect(runner.snapshot().running).toBe(true);
-    later.fireIdle();
+    // The composer asks again mid-run, which arms an idle clock that will run
+    // out while the run is still going.
+    runner.prepare("claude");
+    await settle();
+    expect(later.fireIdle()).toBeGreaterThan(0);
     await settle();
     expect(sdk.release).not.toHaveBeenCalled();
 
     children[0]?.close(0);
-    // The run's end re-arms the clock, and the next idle window lets go. Wait
-    // on the clock itself: the queue file empties a beat before the run's
-    // tail has finished, and a read that lands mid-write sees it empty early.
-    await until(() => later.armed() > 0);
+    // The run's end arms a clock of its own beside the one the mid-run ask
+    // re-armed, and the next idle window lets go. Wait on the clock itself:
+    // the queue file empties a beat before the run's tail has finished, and a
+    // read that lands mid-write sees it empty early.
+    await until(() => later.armed() > 1);
     expect((await readRequests(cwd)).length).toBe(0);
     expect(later.fireIdle()).toBeGreaterThan(0);
     await settle();
