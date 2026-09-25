@@ -95,10 +95,18 @@ building, being checked, failed or stopped, and the stage shows what a
 direction still being built is meant to be. Leglas opens every one before
 calling it ready and gives one that does not render one attempt to fix
 itself. Stop it, retry it or ask for a new idea from its row or the stage.
+Once two are ready, **Compare all** on the card puts the ready ones on the
+stage side by side, each drawn at its own width; a name opens that direction.
 
-It runs on your own Claude plan at medium effort; three directions took
-about a minute and a half on the demo app. `npx leglas explore hero --build
---brief "…"` does the same from a terminal.
+To take one further, open the brief while it is on the stage and press
+**More like Menu** in its header. Claude builds variations that keep the
+direction and each change one thing, and they sit under it on the rail.
+The brief is optional there: say what to vary, or leave it to Claude.
+
+It runs on your own Claude plan at medium effort. On the demo app three
+directions took about a minute and a half and three variations under a
+minute. `npx leglas explore hero --build --brief "…"` does the same from a
+terminal.
 
 ## Sharing
 

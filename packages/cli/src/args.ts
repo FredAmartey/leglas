@@ -626,11 +626,12 @@ export function parseArgs(argv: string[]): ParseResult {
       };
     }
 
-    if (build && brief === null) {
+    // Variations have their direction to go on, so only a new set needs a brief.
+    if (build && brief === null && basedOn === null) {
       return {
         kind: "error",
         message:
-          'leglas explore --build needs a brief, for example: npx leglas explore hero --build --brief "A hero for a cooking app"',
+          'leglas explore --build needs a brief, for example: npx leglas explore hero --build --brief "A hero for a cooking app". To vary a direction instead, name it with --based-on "<title>".',
       };
     }
 
@@ -639,10 +640,6 @@ export function parseArgs(argv: string[]): ParseResult {
         kind: "error",
         message: "--brief goes with --build: add --build to have Leglas build the set.",
       };
-    }
-
-    if (build && basedOn !== null) {
-      return { kind: "error", message: "--based-on does not combine with --build yet." };
     }
 
     return { kind: "explore", surface, count, basedOn, json, build, brief, port };

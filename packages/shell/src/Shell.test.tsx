@@ -109,6 +109,7 @@ function serve(
             ? {
                 ok: true,
                 job: {
+                  basedOn: null,
                   ...body,
                   id: "gen-new",
                   state: "planning",
@@ -448,6 +449,7 @@ describe("building directions", () => {
     endedAt: null,
     failure,
     fixed: false,
+    activity: null,
   });
 
   const JOB = {
@@ -467,10 +469,16 @@ describe("building directions", () => {
         message: "Claude's provider was overloaded and gave up.",
       }),
     ],
+    basedOn: null,
   };
 
   const switchedOn = () =>
     localStorage.setItem("leglas:a-project", JSON.stringify({ buildDirections: true }));
+
+  const moreLike = () =>
+    [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.startsWith("More like "),
+    );
 
   test("switched off, the rail offers no way to build them", async () => {
     await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
@@ -506,6 +514,66 @@ describe("building directions", () => {
       },
     ]);
     expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("Change Table…");
+  });
+
+  test("the brief can ask for more like the direction on the stage, with nothing typed", async () => {
+    switchedOn();
+    const reads: GenerateAnswer = { generate: { ok: true, jobs: [] } };
+    const sent = await mount({ previews: HEROES, reads });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    const like = must(moreLike(), "the more like chip");
+    expect(like.textContent).toBe("More like Table");
+    expect(like.getAttribute("aria-pressed")).toBe("false");
+    expect(find<HTMLButtonElement>('button[type="submit"]').disabled).toBe(true);
+
+    await after(() => click(like));
+    expect(like.getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain("Variations of Table");
+    expect(document.body.textContent).not.toContain("New hero directions");
+    expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe(
+      "What should they vary? Optional",
+    );
+    expect(find<HTMLButtonElement>('button[type="submit"]').disabled).toBe(false);
+
+    await after(() => {
+      find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      // From here the server lists the set it started.
+      reads.generate = {
+        ok: true,
+        jobs: [
+          {
+            ...JOB,
+            id: "gen-new",
+            brief: "",
+            count: 3,
+            state: "planning",
+            slots: [],
+            basedOn: "Table",
+          },
+        ],
+      };
+    }, 900);
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
+      {
+        path: "/leglas/api/generate",
+        body: { surface: "hero", brief: "", count: 3, basedOn: "Table" },
+      },
+    ]);
+    expect(document.body.textContent).toContain("Planning 3 variations of Table…");
+    // Nothing was typed, so the card quotes nothing.
+    expect(document.body.textContent).not.toContain("“”");
+  });
+
+  test("a direction still being built has nothing to vary yet", async () => {
+    switchedOn();
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    await after(() => click(row("Ledger")));
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    expect(document.body.textContent).toContain("New hero directions");
+    expect(moreLike()).toBeUndefined();
   });
 
   test("each direction says how it is going, on its row and on the stage", async () => {
@@ -733,6 +801,244 @@ describe("building directions", () => {
     await after(() => undefined, 16_000);
     expect(scrolled).toHaveBeenCalledTimes(1);
     scrolled.mockRestore();
+  });
+
+  test("a finished set can go on the stage whole, and each name opens its direction", async () => {
+    switchedOn();
+
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    const compareAll = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Compare all 2",
+    );
+
+    await after(() => click(must(compareAll, "the compare button")));
+    expect(
+      [...document.querySelectorAll('button[aria-label$="on its own"]')].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Open Ledger on its own", "Open Pantry on its own"]);
+
+    await after(() => click(find('[aria-label="Open Pantry on its own"]')));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
+    expect(row("Pantry").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("the card counts only the finished directions still on the rail", async () => {
+    switchedOn();
+
+    // Chalk was removed from the rail after it was built.
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready"), slot("Chalk", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    expect([...document.querySelectorAll("button")].map((button) => button.textContent)).toContain(
+      "Compare all 2",
+    );
+  });
+
+  test("picking a row ends the whole set, so coming back shows one direction", async () => {
+    switchedOn();
+
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    const compareAll = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Compare all 2",
+    );
+
+    await after(() => click(must(compareAll, "the compare button")));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
+
+    await after(() => click(row("Ledger")));
+    await after(() => click(row("Table")));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
+  });
+
+  describe("a set shown whole", () => {
+    const whole = async (typed = ""): Promise<Sent[]> => {
+      switchedOn();
+
+      const done = {
+        ...JOB,
+        state: "done",
+        endedAt: 1_789_999_999_000,
+        slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+      };
+
+      const sent = await mount({
+        previews: HEROES,
+        reads: { generate: { ok: true, jobs: [done] } },
+      });
+
+      if (typed !== "") await after(() => type(find("textarea"), typed));
+
+      const compareAll = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent === "Compare all 2",
+      );
+
+      await after(() => click(must(compareAll, "the compare button")));
+      expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
+
+      return sent;
+    };
+
+    const shownWhole = () => document.querySelectorAll('button[aria-label$="on its own"]').length;
+
+    test("takes no change for a direction that is off the stage, and offers no variations of it", async () => {
+      // Words typed for Table before the set went up must not go to it unseen.
+      const sent = await whole("Make it warmer");
+      const field = find<HTMLTextAreaElement>("textarea");
+
+      expect(field.disabled).toBe(true);
+      expect(field.placeholder).toBe("Open one of them to ask for a change");
+
+      await after(() =>
+        find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      );
+      expect(sent.filter((entry) => entry.path === "/leglas/api/request")).toEqual([]);
+
+      await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+      expect(moreLike()).toBeUndefined();
+    });
+
+    test("gives way to comparing two when a row's compare is pressed", async () => {
+      await whole();
+
+      await after(() => click(find('[aria-label="Compare Pantry with Table"]')));
+      expect(shownWhole()).toBe(0);
+      expect(
+        [...document.querySelectorAll("iframe")].map((frame) => frame.getAttribute("title")),
+      ).toEqual(["Preview: Table", "Preview: Pantry"]);
+    });
+
+    test("ends when the row it was opened from is picked again", async () => {
+      await whole();
+
+      await after(() => click(row("Table")));
+      expect(shownWhole()).toBe(0);
+    });
+
+    test("stays while Escape is taken by a modal or the search field", async () => {
+      await whole();
+
+      const connect = [...document.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("Connect agent via MCP"),
+      );
+
+      await after(() => click(must(connect, "the MCP connect button")));
+      expect(document.activeElement?.closest("dialog")).not.toBeNull();
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(2);
+
+      await after(() => find<HTMLInputElement>('input[placeholder="Search directions…"]').focus());
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(2);
+    });
+
+    test("stays while Escape closes a popover over it", async () => {
+      await whole();
+      await after(() => key("t"));
+      expect(tools().getAttribute("aria-hidden")).toBe("false");
+
+      await after(() => key("Escape"));
+      expect(tools().getAttribute("aria-hidden")).toBe("true");
+      expect(shownWhole()).toBe(2);
+
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(0);
+    });
+  });
+
+  test("a fix run's step shows while the page is checked, and otherwise the page is being opened", async () => {
+    switchedOn();
+
+    const checking = (activity: string | null) => ({
+      ...JOB,
+      slots: [{ ...slot("Ledger", "checking"), activity }],
+    });
+
+    const reads: GenerateAnswer = { generate: { ok: true, jobs: [checking(null)] } };
+    await mount({ previews: HEROES, reads });
+    await after(() => click(row("Ledger")));
+    expect(document.body.textContent).toContain("opening the page");
+
+    reads.generate = {
+      ok: true,
+      jobs: [checking("editing src/heroes/hero-ledger.tsx")],
+    };
+    await after(() => undefined, 16_000);
+    expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
+    expect(document.body.textContent).not.toContain("opening the page");
+  });
+
+  test("a direction being built says what its build is doing", async () => {
+    switchedOn();
+
+    const building = {
+      ...JOB,
+      slots: [{ ...slot("Ledger", "building"), activity: "editing src/heroes/hero-ledger.tsx" }],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [building] } } });
+
+    await after(() => click(row("Ledger")));
+    expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
+    expect(document.body.textContent).toContain("usually a minute or two");
+  });
+
+  test("with more than one surface, the brief can build for another", async () => {
+    switchedOn();
+
+    const previews: Preview[] = [
+      ...HEROES,
+      { title: "Plans", url: "/pricing?v-pricing=plans", tags: [] },
+    ];
+
+    const sent = await mount({ previews, reads: { generate: { ok: true, jobs: [] } } });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+
+    const picker = find<HTMLSelectElement>(
+      'select[aria-label="The surface to build directions for"]',
+    );
+
+    expect([...picker.options].map((option) => option.value)).toEqual(["hero", "pricing"]);
+
+    await after(() => {
+      picker.value = "pricing";
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await after(() => type(find("textarea"), "Plans that feel fair"));
+    await after(
+      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      900,
+    );
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
+      {
+        path: "/leglas/api/generate",
+        body: { surface: "pricing", brief: "Plans that feel fair", count: 3 },
+      },
+    ]);
   });
 
   test("with an agent other than Claude, the brief says why it cannot build", async () => {

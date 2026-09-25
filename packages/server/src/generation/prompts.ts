@@ -10,11 +10,15 @@ import { isJsonRecord, isString, parseJson, type JsonValue } from "../json.js";
 
 export type Concept = { key: string; title: string; idea: string };
 
+/** The direction a set varies, which every variation must stay recognisably. */
+export type Base = { title: string; idea: string };
+
 export type PlanInput = {
   surface: string;
   brief: string;
   count: number;
   existing: readonly string[];
+  base?: Base | null;
 };
 
 export type BuildInput = {
@@ -26,12 +30,34 @@ export type BuildInput = {
   name: string;
   stack: string;
   facts: string;
+  base?: Base | null;
 };
+
+/** A base as prompts name it: its title, then its idea when it has one. */
+function described(base: Base): string {
+  const idea = base.idea.replace(/\.$/, "");
+
+  return idea === "" ? `"${base.title}"` : `"${base.title}" (${idea})`;
+}
+
+/** What a variation set was asked to lean towards, as a sentence, when anything was typed. */
+function steer(brief: string): string {
+  if (brief === "") return ".";
+
+  return `. What to explore: ${/[.!?]$/.test(brief) ? brief : `${brief}.`}`;
+}
 
 const ANSWER =
   "Answer from this brief alone: do not read, search or run anything. Reply with only a JSON array of objects with key (kebab-case), title and idea (one line).";
 
 export function planPrompt(input: PlanInput): string {
+  const { base } = input;
+
+  // Variations have the opposite failure to a spread: drift, not sameness.
+  if (base !== undefined && base !== null) {
+    return `Propose ${input.count} variations of the ${input.surface} direction ${described(base)}${steer(input.brief)} Every variation stays recognisably ${base.title} and changes one deliberate thing; name each for what it changes. Decide them together so no two change the same thing. ${ANSWER}`;
+  }
+
   const already =
     input.existing.length === 0
       ? ""
@@ -45,8 +71,14 @@ export function replacePrompt(input: {
   surface: string;
   brief: string;
   avoid: readonly Concept[];
+  base?: Base | null;
 }): string {
   const avoid = input.avoid.map((concept) => `${concept.title} (${concept.idea})`).join("; ");
+  const { base } = input;
+
+  if (base !== undefined && base !== null) {
+    return `Propose 1 more variation of the ${input.surface} direction ${described(base)}${steer(input.brief)} It stays recognisably ${base.title} and changes something none of these change: ${avoid}. ${ANSWER}`;
+  }
 
   return `Propose 1 design direction for the ${input.surface} of this product: ${input.brief} It must not look like any of these: ${avoid}. ${ANSWER}`;
 }
@@ -54,12 +86,23 @@ export function replacePrompt(input: {
 export function buildPrompt(input: BuildInput): string {
   const others = input.others.map((other) => `${other.title} (${other.idea})`).join("; ");
 
+  const { base } = input;
+  const varying = base !== undefined && base !== null;
+
   const rivals =
     others === ""
       ? ""
-      : ` The other directions are ${others}; yours must not look like any of them.`;
+      : varying
+        ? ` The other variations are ${others}; change something different from them.`
+        : ` The other directions are ${others}; yours must not look like any of them.`;
 
-  return `Build this design direction for the ${input.surface}: ${input.concept.title}, ${input.concept.idea.replace(/\.$/, "")}. The product: ${input.brief}${rivals}
+  const what = varying
+    ? `Build this variation of the ${input.surface} direction "${base.title}": ${input.concept.title}, ${input.concept.idea.replace(/\.$/, "")}. Keep it recognisably ${base.title} and change only what the variation names.`
+    : `Build this design direction for the ${input.surface}: ${input.concept.title}, ${input.concept.idea.replace(/\.$/, "")}.`;
+
+  const product = varying ? steer(input.brief).slice(1) : ` The product: ${input.brief}`;
+
+  return `${what}${product}${rivals}
 
 Everything you need is in this message, so do not look around the project. It is ${input.stack}. Your file is ${input.file}. It holds a placeholder: read it once, then replace it in a single write with a component exported as ${input.name}. Keep every new style in that file, in a <style> element or inline.
 

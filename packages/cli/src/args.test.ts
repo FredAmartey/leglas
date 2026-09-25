@@ -383,13 +383,23 @@ describe("the explore command", () => {
     });
   });
 
-  test("--build without a brief is refused, naming the flag it needs", () => {
+  test("--build without a brief is refused, naming the flags that would do", () => {
     const result = parseArgs(["explore", "hero", "--build"]);
 
     expect(result.kind).toBe("error");
 
     if (result.kind !== "error") return;
     expect(result.message).toContain("--brief");
+    expect(result.message).toContain("--based-on");
+  });
+
+  test("--build with --based-on builds variations, and the brief becomes optional", () => {
+    expect(parseArgs(["explore", "hero", "--build", "--based-on", "Menu"])).toMatchObject({
+      kind: "explore",
+      build: true,
+      basedOn: "Menu",
+      brief: null,
+    });
   });
 
   test("a brief without --build is refused rather than silently ignored", () => {

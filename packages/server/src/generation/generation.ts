@@ -15,10 +15,11 @@ import {
 } from "./prompts.js";
 import { addSlots, directionKeys, findSwitch, isFile, placeholderSource } from "./switch-file.js";
 
-import { agentEnvironment, type SavedAgentChoice } from "../agents/agents.js";
+import { activityFrom, agentEnvironment, type SavedAgentChoice } from "../agents/agents.js";
 import { classifyFailure, type FailureCode } from "../agents/failure.js";
 import { ownGroup, signalTree } from "../agents/process-tree.js";
 import type { RunnerChild, RunnerSpawn } from "../agents/runner.js";
+import type { Preview } from "../config/config.js";
 import type { AddInput } from "../config/local-previews.js";
 import { isJsonRecord, isString, parseJson } from "../json.js";
 
@@ -77,6 +78,8 @@ export type GenerationSlot = {
   failure: GenerationFailure | null;
   /** Whether the page failed to render once and a fix run repaired it. */
   fixed: boolean;
+  /** What the build is doing right now, from its own stream; null when nothing is running. */
+  activity: string | null;
 };
 
 export type GenerationJob = {
@@ -90,13 +93,20 @@ export type GenerationJob = {
   endedAt: number | null;
   error: string | null;
   slots: GenerationSlot[];
+  /** The direction this set varies, or null for a set of new ones. */
+  basedOn: string | null;
 };
+
+/** The direction a set varies, as the rail has it: its title, its key in the switch and its idea. */
+export type GenerationBase = { title: string; key: string; idea: string };
 
 export type GenerationRequest = {
   surface: string;
   brief: string;
   count: number;
   agent: SavedAgentChoice;
+  /** Build variations of this direction instead of new ones. */
+  basedOn?: GenerationBase | null;
 };
 
 export type GenerationDeps = {
@@ -146,6 +156,7 @@ type Live = {
   stack: string;
   /** The attempt each slot's work currently belongs to; see `begin`. */
   attempts: Map<string, number>;
+  base: GenerationBase | null;
   /** Work still running after the call that started it answered; see `detach`. */
   pending: Set<Promise<void>>;
 };
@@ -156,6 +167,26 @@ export function surfaceSlug(surface: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/** What a rail direction gives a set of variations: the key its address picks in the surface's switch, or null when it picks none. */
+export function baseOf(
+  preview: Pick<Preview, "title" | "url" | "note">,
+  surface: string,
+): GenerationBase | null {
+  let key: string | null;
+
+  try {
+    key = new URL(preview.url, "http://leglas.invalid").searchParams.get(
+      `v-${surfaceSlug(surface)}`,
+    );
+  } catch {
+    return null;
+  }
+
+  return key === null || key === ""
+    ? null
+    : { title: preview.title, key, idea: preview.note ?? "" };
 }
 
 async function stackOf(cwd: string, switchPath: string): Promise<string> {
@@ -186,6 +217,22 @@ async function stackOf(cwd: string, switchPath: string): Promise<string> {
   if (deps.vite !== undefined) return `a Vite app with ${react}${typescript}`;
 
   return `an app with ${react}${typescript}`;
+}
+
+/**
+ * What a generated direction carries on the rail after its job is gone: the
+ * brief it came from, which the row's card shows, and its surface as a tag,
+ * so it sits with the directions made by hand for the same place.
+ */
+function provenance(job: GenerationJob): Pick<AddInput, "askedFor" | "basedOn" | "tags"> {
+  const words = job.surface.replace(/-/g, " ");
+
+  return {
+    askedFor: job.brief === "" ? undefined : job.brief,
+    // Variations sit under the direction they vary, as any family does on the rail.
+    basedOn: job.basedOn ?? undefined,
+    tags: [words.charAt(0).toUpperCase() + words.slice(1)],
+  };
 }
 
 function copy(job: GenerationJob): GenerationJob {
@@ -220,7 +267,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     return next;
   };
 
-  const run = (args: string[], deadlineMs: number): Run => {
+  const run = (args: string[], deadlineMs: number, onLine?: (line: string) => void): Run => {
     const lines: string[] = [];
     let timedOut = false;
     let child: RunnerChild | null = null;
@@ -258,6 +305,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
         const parts = buffered.split("\n");
         buffered = parts.pop() ?? "";
         lines.push(...parts);
+
+        if (onLine !== undefined) for (const line of parts) onLine(line);
       };
 
       child.stdout.on("data", take);
@@ -314,6 +363,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   const settle = (live: Live): void => {
     const { job } = live;
+
+    // A checking slot's step is its fix run's, which `check` clears itself.
+    for (const slot of job.slots) {
+      if (slot.state !== "building" && slot.state !== "checking") slot.activity = null;
+    }
 
     if (job.state === "planning" || job.state === "failed") return;
 
@@ -422,6 +476,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
     changed();
   };
 
+  /** A run's own stream says what it is doing; only a change is worth a nudge, and only while the attempt holds the slot. */
+  const follow =
+    (live: Live, slot: GenerationSlot, attempt: number) =>
+    (line: string): void => {
+      const activity = activityFrom("claude", line, deps.cwd);
+
+      if (activity === null || activity === slot.activity || !owns(live, slot, attempt)) return;
+      slot.activity = activity;
+      changed();
+    };
+
   const build = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
     const concept = live.concepts.get(slot.key);
 
@@ -434,6 +499,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     slot.endedAt = null;
     slot.failure = null;
     slot.fixed = false;
+    slot.activity = null;
     changed();
 
     const others = [...live.concepts.values()].filter((other) => other !== concept);
@@ -447,9 +513,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       name: pascal(slot.key),
       stack: live.stack,
       facts: live.facts ?? "",
+      base: live.base,
     });
 
-    const building = run(buildArgs(prompt), BUILD_DEADLINE_MS);
+    const building = run(buildArgs(prompt), BUILD_DEADLINE_MS, follow(live, slot, attempt));
+
     live.runs.set(slot.key, building);
     const outcome = await building.done;
 
@@ -474,7 +542,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
         message: "The build finished without writing its file.",
       });
     } else {
+      // The build's last step is over; until a fix run says otherwise, the page is being opened.
       slot.state = "checking";
+      slot.activity = null;
       changed();
       await check(live, slot, attempt);
     }
@@ -533,12 +603,18 @@ export function createGenerations(deps: GenerationDeps): Generations {
     if (errors === null) return;
 
     if (errors.length > 0) {
-      const fixing = run(buildArgs(fixPrompt({ file: slot.file, errors })), FIX_DEADLINE_MS);
+      const fixing = run(
+        buildArgs(fixPrompt({ file: slot.file, errors })),
+        FIX_DEADLINE_MS,
+        follow(live, slot, attempt),
+      );
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
 
       if (!owns(live, slot, attempt)) return;
+      slot.activity = null;
+      changed();
 
       if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
 
@@ -586,7 +662,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
     const { job } = live;
 
     const planning = run(
-      planArgs(planPrompt({ surface: job.surface, brief: job.brief, count: job.count, existing })),
+      planArgs(
+        planPrompt({
+          surface: job.surface,
+          brief: job.brief,
+          count: job.count,
+          existing,
+          base: live.base,
+        }),
+      ),
       PLAN_DEADLINE_MS,
     );
 
@@ -620,7 +704,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       return;
     }
 
-    live.facts = factsBlock(await readProjectFacts(deps.cwd, live.switchPath), job.surface);
+    live.facts = factsBlock(
+      await readProjectFacts(deps.cwd, live.switchPath, live.base?.key ?? null),
+      job.surface,
+      live.base,
+    );
     const slug = surfaceSlug(job.surface);
     const keys = new Set(existing);
     const titles = new Set(await deps.titles());
@@ -654,6 +742,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         endedAt: null,
         failure: null,
         fixed: false,
+        activity: null,
       });
     }
 
@@ -678,7 +767,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
     // One at a time: registration rewrites one file, and parallel writers would lose entries.
     for (const slot of slots) {
       await serially(() =>
-        deps.register({ title: slot.title, url: `/?v-${slug}=${slot.key}`, note: slot.idea }),
+        deps.register({
+          title: slot.title,
+          url: `/?v-${slug}=${slot.key}`,
+          note: slot.idea,
+          ...provenance(job),
+        }),
       );
     }
 
@@ -767,8 +861,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       }
 
       const brief = request.brief.trim();
+      const base = request.basedOn ?? null;
 
-      if (brief === "") return { ok: false, error: "Describe what the directions are for." };
+      // A variation has its direction to go on; a new set has only the brief.
+      if (brief === "" && base === null)
+        return { ok: false, error: "Describe what the directions are for." };
       const slug = surfaceSlug(request.surface);
 
       if (slug === "") return { ok: false, error: "Name the surface to build directions for." };
@@ -789,6 +886,30 @@ export function createGenerations(deps: GenerationDeps): Generations {
         };
       }
 
+      const existing = directionKeys(await readFile(join(deps.cwd, switchPath), "utf8"));
+
+      if (base !== null && !existing.includes(base.key)) {
+        return {
+          ok: false,
+          error: `${base.title} is not a direction of the ${slug}, so Leglas cannot build variations of it.`,
+        };
+      }
+
+      // A direction that failed or was stopped holds its placeholder again: nothing to vary.
+      const unbuilt =
+        base === null
+          ? undefined
+          : lives
+              .flatMap((kept) => kept.job.slots)
+              .find((slot) => slot.key === base.key && slot.state !== "ready");
+
+      if (base !== null && unbuilt !== undefined) {
+        return {
+          ok: false,
+          error: `${base.title} has no finished design yet, so there is nothing to vary. Retry it first.`,
+        };
+      }
+
       const job: GenerationJob = {
         id: `gen-${now().toString(36)}`,
         surface: slug,
@@ -800,6 +921,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         endedAt: null,
         error: null,
         slots: [],
+        basedOn: base?.title ?? null,
       };
 
       const live: Live = {
@@ -811,14 +933,13 @@ export function createGenerations(deps: GenerationDeps): Generations {
         facts: null,
         stack: await stackOf(deps.cwd, switchPath),
         attempts: new Map(),
+        base,
         pending: new Set(),
       };
 
       lives.push(live);
 
       while (lives.length > KEPT_JOBS) lives.shift();
-
-      const existing = directionKeys(await readFile(join(deps.cwd, switchPath), "utf8"));
 
       changed();
 
@@ -896,6 +1017,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
               surface: live.job.surface,
               brief: live.job.brief,
               avoid: [...live.concepts.values()],
+              base: live.base,
             }),
           ),
           PLAN_DEADLINE_MS,
@@ -935,6 +1057,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
             title,
             url: `/?v-${surfaceSlug(live.job.surface)}=${slot.key}`,
             note: concept.idea,
+            ...provenance(live.job),
           });
         });
         // The rail shows the new concept from here on, so the slot does too, whoever holds it now.

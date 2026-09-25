@@ -26,12 +26,21 @@ async function post(path: string, body: Record<string, string | number>, fallbac
   return response;
 }
 
-export async function startGeneration(body: {
+/** `basedOn` is the title of the direction to build variations of, or null for new directions. */
+export async function startGeneration({
+  basedOn,
+  ...body
+}: {
   surface: string;
   brief: string;
   count: number;
+  basedOn: string | null;
 }): Promise<GenerationJob> {
-  const response = await post("", body, "Leglas could not start building the directions.");
+  const response = await post(
+    "",
+    basedOn === null ? body : { ...body, basedOn },
+    "Leglas could not start building the directions.",
+  );
 
   return (await readJson<{ job: GenerationJob }>(response)).job;
 }

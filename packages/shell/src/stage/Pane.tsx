@@ -4,6 +4,9 @@ import { previewFrameIsReady } from "../preview/preview-frame.js";
 import type { BranchPreviewState } from "../types.js";
 import { BranchOverlay, ErrorOverlay, RefusedOverlay, SkeletonOverlay } from "../ui/kit.js";
 
+const CHIP =
+  "rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur";
+
 /**
  * What is said over a pane's frame: why it failed, why the page refused it,
  * or the skeleton until it has drawn.
@@ -63,6 +66,7 @@ function PaneOverlay({
 export function Pane({
   annotate,
   cover = null,
+  onOpen = null,
   boxHeight,
   boxWidth,
   branch,
@@ -97,6 +101,8 @@ export function Pane({
   annotate: React.ReactNode;
   /** Said over the whole frame instead of the page, such as a direction still being built. */
   cover?: React.ReactNode;
+  /** In a set shown whole, the name opens this direction on its own. */
+  onOpen?: (() => void) | null;
   boxHeight: number;
   boxWidth: number;
   /** Set for a direction on its own branch; the frame waits until it is ready. */
@@ -137,6 +143,19 @@ export function Pane({
   title: string;
   viewport: number | null;
 }) {
+  // Say the scale rather than let it be guessed from the type looking small.
+  // The width is the useful half: it is what the design is actually drawn at.
+  const label = (
+    <>
+      {name}
+      {scaling && (
+        <span className="ml-1.5 font-normal text-[#8E8E96]">
+          {Math.round(designWidth)}px · {Math.round(paneScale * 100)}%
+        </span>
+      )}
+    </>
+  );
+
   return (
     <div
       className={
@@ -169,17 +188,18 @@ export function Pane({
               : "pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3"
           }
         >
-          <span className="rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur">
-            {name}
-            {/* Say the scale rather than let it be guessed from the type
-                looking small. The width is the useful half: it is what
-                the design is actually being drawn at. */}
-            {scaling && (
-              <span className="ml-1.5 font-normal text-[#8E8E96]">
-                {Math.round(designWidth)}px · {Math.round(paneScale * 100)}%
-              </span>
-            )}
-          </span>
+          {onOpen === null ? (
+            <span className={CHIP}>{label}</span>
+          ) : (
+            <button
+              aria-label={`Open ${name} on its own`}
+              className={`${CHIP} pointer-events-auto transition-colors hover:bg-[#2E2E2E] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60`}
+              onClick={onOpen}
+              type="button"
+            >
+              {label}
+            </button>
+          )}
         </div>
       )}
       <div

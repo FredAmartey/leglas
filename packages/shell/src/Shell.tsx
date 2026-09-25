@@ -26,7 +26,7 @@ import {
   nextHealthState,
   type HealthState,
 } from "./preview/health.js";
-import { nextCompare, paneGeometry, paneTitles } from "./preview/compare.js";
+import { nextCompare, paneGeometry, paneTitles, setLayout } from "./preview/compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./preview/overlays.js";
 import { paintSample, renderedSignature, twinsOf, visualSample } from "./preview/rendered.js";
 import {
@@ -115,6 +115,7 @@ import {
   endingOf,
   isSlotOf,
   lastEnded,
+  surfacesOf,
   runStartedAt,
   slotsByTitle,
   surfaceOf,
@@ -158,6 +159,9 @@ const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
  * this only covers the frame before that observer reports.
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
+
+/** Room kept around each design in a set shown whole, so neighbours read as separate artboards. */
+const GRID_INSET = 32;
 
 /** How long a finished set's card stays above the composer. */
 const CARD_KEEP_MS = 10 * 60_000;
@@ -507,6 +511,8 @@ export function Shell({
   const briefing = briefOpen && buildEnabled;
   const [brief, setBrief] = useState("");
   const [briefCount, setBriefCount] = useState(3);
+  /** The brief builds variations of the active direction rather than new directions. */
+  const [briefLike, setBriefLike] = useState(false);
   const [starting, setStarting] = useState(false);
   /**
    * Buttons waiting on the server, by `job:slot` (or `job:set`), each with
@@ -519,6 +525,8 @@ export function Shell({
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   /** The ending of a set the person dismissed; a later ending of the same set shows again. */
   const [dismissedEnding, setDismissedEnding] = useState<string | null>(null);
+  /** A set shown whole on the stage, and the direction that was there when it opened. */
+  const [grid, setGrid] = useState<{ job: string; from: string } | null>(null);
   const { jobs, noteJob } = useGeneration(buildEnabled);
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
   // A retry or a new idea can set an older set running again; that one leads,
@@ -526,6 +534,15 @@ export function Shell({
   const runningJob = jobs.find(isRunning) ?? null;
   const cardJob = runningJob ?? lastEnded(jobs);
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
+  // Every surface the project's directions sit on. The brief builds for the
+  // one on the stage unless another is picked in its header.
+  const surfaces = useMemo(() => surfacesOf(previews.map((preview) => preview.url)), [previews]);
+  const [pickedSurface, setPickedSurface] = useState<string | null>(null);
+
+  const briefSurface =
+    pickedSurface !== null && surfaces.includes(pickedSurface)
+      ? pickedSurface
+      : (activeSurface ?? (surfaces.length === 1 ? (surfaces[0] ?? null) : null));
 
   // The field is a textarea that wears one row until the words need more,
   // then grows line by line to a cap. Measured from scrollHeight because
@@ -575,6 +592,44 @@ export function Shell({
 
     return view !== undefined && isSlotOf(st.urlFor(title), view) ? view : undefined;
   };
+
+  // A set shown whole, one cell per ready direction. It holds only while the
+  // direction that was on the stage when it opened stays there: picking any
+  // row ends it, so coming back to that direction shows it alone. Cleared
+  // while rendering, since every way of moving the stage passes through here.
+  if (grid !== null && grid.from !== st.active) setGrid(null);
+
+  /** A set's finished directions that are still on the rail: what showing it whole shows. */
+  const shownWhole = (job: GenerationJob | undefined): string[] =>
+    job === undefined
+      ? []
+      : job.slots.flatMap((slot) =>
+          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
+        );
+
+  const gridSet =
+    grid !== null && grid.from === st.active ? jobs.find((job) => job.id === grid.job) : undefined;
+
+  const gridTitles = shownWhole(gridSet);
+  const cardWhole = shownWhole(cardJob ?? undefined);
+
+  const gridding = gridTitles.length >= 2;
+
+  // Variations need a direction on a surface with a file to start from, so a
+  // direction still being built, or one that failed, has nothing to offer yet.
+  // With a set shown whole, the direction it was opened from is off the stage.
+  const activeSlot = st.active === null ? undefined : slotFor(st.active);
+
+  const likeTitle =
+    !gridding &&
+    st.active !== null &&
+    activeSurface !== null &&
+    (activeSlot === undefined || activeSlot.slot.state === "ready")
+      ? st.active
+      : null;
+
+  const briefBase = briefLike ? likeTitle : null;
+  const buildSurface = briefBase === null ? briefSurface : activeSurface;
 
   const slotActions = (view: SlotView) => {
     const key = `${view.job.id}:${view.slot.key}`;
@@ -674,9 +729,14 @@ export function Shell({
   const submitBrief = () => {
     const value = brief.trim();
 
-    if (value === "" || activeSurface === null || starting) return;
+    if ((value === "" && briefBase === null) || buildSurface === null || starting) return;
     setStarting(true);
-    void startGeneration({ surface: activeSurface, brief: value, count: briefCount })
+    void startGeneration({
+      surface: buildSurface,
+      brief: value,
+      count: briefCount,
+      basedOn: briefBase,
+    })
       .then((job) => {
         noteJob(job);
         setBrief("");
@@ -1301,7 +1361,29 @@ export function Shell({
     rows: st.rows,
   });
 
-  const visible = paneTitles({ active: st.active, compare, split });
+  const visible = gridding ? gridTitles : paneTitles({ active: st.active, compare, split });
+  const gridLayout = gridding ? setLayout(visible.length) : { columns: visible.length, rows: 1 };
+  // Escape leaves a set shown whole, unless something nearer the key took it.
+  useEffect(() => {
+    if (!gridding) return;
+
+    const leave = (event: KeyboardEvent) => {
+      // A popover, a modal or a field with the focus takes Escape first, whichever
+      // listener runs first: a native dialog only cancels after this has run.
+      const nearer =
+        document.activeElement instanceof Element &&
+        document.activeElement.closest(
+          'dialog[open], [role="dialog"], [role="alertdialog"], input, textarea',
+        ) !== null;
+
+      if (event.key === "Escape" && !event.defaultPrevented && !nearer) setGrid(null);
+    };
+
+    window.addEventListener("keydown", leave);
+
+    return () => window.removeEventListener("keydown", leave);
+  }, [gridding]);
+
   /** Where each direction on the stage sits, left to right. */
   const stagePlace = new Map(visible.map((title, index) => [title, index]));
   const splitting = visible.length > 1;
@@ -1419,8 +1501,12 @@ export function Shell({
     scaling,
   } = paneGeometry({
     gutter: FRAME_GUTTER,
-    panes: visible.length,
-    scaleSplit: st.prefs.scaleSplit,
+    panes: gridLayout.columns,
+    rows: gridLayout.rows,
+    inset: gridding ? GRID_INSET : 0,
+    // A set shown whole is always scaled: reflowed into small cells, every
+    // design would be judged at a width nobody ships.
+    scaleSplit: gridding || st.prefs.scaleSplit,
     stageHeight: stage.height,
     stageWidth: stage.width,
     viewport: st.prefs.viewport,
@@ -1632,7 +1718,7 @@ export function Shell({
       ? "Building directions runs on Claude."
       : runningJob !== null
         ? "A set is being built. Wait for it, or stop it."
-        : activeSurface === null
+        : buildSurface === null
           ? "Pick a direction on the surface first."
           : null;
 
@@ -2516,7 +2602,7 @@ export function Shell({
           <RailHeader
             active={st.active}
             briefing={briefing}
-            compare={splitting ? compare : null}
+            compare={splitting && !gridding ? compare : null}
             displayName={st.displayName}
             notify={st.notify}
             onBuild={
@@ -2596,7 +2682,7 @@ export function Shell({
               {st.rows.map((title, index) => (
                 <RailRow
                   arriving={arriving}
-                  comparing={splitting && title === compare}
+                  comparing={splitting && !gridding && title === compare}
                   crumbBloom={crumbBloom}
                   drag={drag}
                   dragMeta={dragMeta}
@@ -2613,9 +2699,14 @@ export function Shell({
                   }}
                   onFold={() => foldFamily(title)}
                   onOpenAlone={() => openAlone(title)}
+                  // Picking the row a set was opened from shows that direction alone again.
+                  onPick={() => setGrid(null)}
                   onPointerDown={onRowPointerDown(title, index)}
                   onToggleCompare={() => {
-                    if (splitting && title === compare) {
+                    // Comparing two is a different view from the set shown whole.
+                    setGrid(null);
+
+                    if (splitting && !gridding && title === compare) {
                       setSplit(false);
 
                       return;
@@ -2756,6 +2847,20 @@ export function Shell({
                   cardJob.endedAt !== null &&
                   Date.now() - cardJob.endedAt < CARD_KEEP_MS)) && (
                 <GenerationCard
+                  compare={
+                    cardWhole.length >= 2
+                      ? {
+                          count: cardWhole.length,
+                          toggle: () =>
+                            setGrid(
+                              gridding && gridSet?.id === cardJob.id
+                                ? null
+                                : { from: st.active, job: cardJob.id },
+                            ),
+                        }
+                      : null
+                  }
+                  comparing={gridding && gridSet?.id === cardJob.id}
                   job={cardJob}
                   onDismiss={() => setDismissedEnding(endingOf(cardJob))}
                   onStop={() =>
@@ -2797,7 +2902,8 @@ export function Shell({
 
                   // A note carries its own words and its own address, so pins
                   // alone are a request. Nothing at all still is not.
-                  if ((!value && activeNotes.length === 0) || !title || sending) return;
+                  // A set shown whole has no one direction to change; its names open one.
+                  if ((!value && activeNotes.length === 0) || !title || sending || gridding) return;
                   const name = st.displayName(title);
                   // An image still uploading lands in a moment; one that failed
                   // needs a decision, because sending without it would quietly
@@ -2967,27 +3073,69 @@ export function Shell({
                   }}
                 >
                   {briefing ? (
-                    <div className="flex items-center justify-between pl-2.5 pr-1 pt-1">
-                      <span className="text-[10px] font-medium leading-5 text-[#84848C]">
-                        {activeSurface === null
-                          ? "New directions"
-                          : `New ${activeSurface} directions`}
+                    <div className="flex items-center justify-between gap-2 pl-2.5 pr-1 pt-1">
+                      {briefBase !== null ? (
+                        <span className="min-w-0 truncate text-[10px] font-medium leading-5 text-[#84848C]">
+                          Variations of {st.displayName(briefBase)}
+                        </span>
+                      ) : surfaces.length > 1 && briefSurface !== null ? (
+                        <label className="flex items-center gap-1 text-[10px] font-medium leading-5 text-[#84848C]">
+                          New
+                          <select
+                            aria-label="The surface to build directions for"
+                            className="rounded bg-white/[0.06] px-1 text-[10px] font-medium text-[#D1D5DB] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60"
+                            onChange={(event) => setPickedSurface(event.target.value)}
+                            value={briefSurface}
+                          >
+                            {surfaces.map((surface) => (
+                              <option key={surface} value={surface}>
+                                {surface}
+                              </option>
+                            ))}
+                          </select>
+                          directions
+                        </label>
+                      ) : (
+                        <span className="text-[10px] font-medium leading-5 text-[#84848C]">
+                          {briefSurface === null
+                            ? "New directions"
+                            : `New ${briefSurface} directions`}
+                        </span>
+                      )}
+                      <span className="flex min-w-0 shrink-0 items-center gap-0.5">
+                        {/* The label on the left always says what Enter builds; this only switches it. */}
+                        {likeTitle !== null &&
+                          (briefBase !== null || briefSurface === activeSurface) && (
+                            <button
+                              aria-pressed={briefBase !== null}
+                              className={`h-5 max-w-36 truncate rounded px-1.5 text-[10px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60 ${
+                                briefBase === null
+                                  ? "text-[#84848C] hover:bg-white/[0.06] hover:text-[#D1D5DB]"
+                                  : "bg-white/[0.08] text-[#E8E8EA] hover:bg-white/[0.12]"
+                              }`}
+                              disabled={starting}
+                              onClick={() => setBriefLike(briefBase === null)}
+                              type="button"
+                            >
+                              More like {st.displayName(likeTitle)}
+                            </button>
+                          )}
+                        <button
+                          aria-label="Close the brief"
+                          className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
+                          onClick={() => setBriefOpen(false)}
+                          type="button"
+                        >
+                          <svg aria-hidden="true" height="10" viewBox="0 0 16 16" width="10">
+                            <path
+                              d="m4 4 8 8M12 4l-8 8"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeWidth="1.75"
+                            />
+                          </svg>
+                        </button>
                       </span>
-                      <button
-                        aria-label="Close the brief"
-                        className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
-                        onClick={() => setBriefOpen(false)}
-                        type="button"
-                      >
-                        <svg aria-hidden="true" height="10" viewBox="0 0 16 16" width="10">
-                          <path
-                            d="m4 4 8 8M12 4l-8 8"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeWidth="1.75"
-                          />
-                        </svg>
-                      </button>
                     </div>
                   ) : (
                     <ReferenceStrip
@@ -3001,15 +3149,19 @@ export function Shell({
                   <textarea
                     aria-label={
                       briefing
-                        ? activeSurface === null
-                          ? "Describe the new directions for Claude to build"
-                          : `Describe the new ${activeSurface} directions for Claude to build`
-                        : st.active
-                          ? `Ask your agent to change the ${st.displayName(st.active)} direction`
-                          : "Ask your agent to change a direction"
+                        ? briefBase !== null
+                          ? `Say what the variations of ${st.displayName(briefBase)} should vary, or leave it to Claude`
+                          : briefSurface === null
+                            ? "Describe the new directions for Claude to build"
+                            : `Describe the new ${briefSurface} directions for Claude to build`
+                        : gridding
+                          ? "Open one of the directions to ask for a change"
+                          : st.active
+                            ? `Ask your agent to change the ${st.displayName(st.active)} direction`
+                            : "Ask your agent to change a direction"
                     }
                     className="block w-full resize-none overflow-y-auto bg-transparent px-2.5 pb-1 pt-2 text-xs leading-4 text-white placeholder:text-[#84848C] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={briefing ? starting : sending || !st.active}
+                    disabled={briefing ? starting : sending || !st.active || gridding}
                     onChange={(event) => {
                       if (briefing) {
                         setBrief(event.target.value);
@@ -3049,36 +3201,45 @@ export function Shell({
                     }}
                     placeholder={
                       briefing
-                        ? activeSurface === null
-                          ? "Pick a direction on the surface first"
-                          : "What should they explore?"
-                        : st.active === null
-                          ? "No direction to change yet"
-                          : dropping
-                            ? "Drop the image here"
-                            : references.length > 0 && activeNotes.length === 0
-                              ? `Say what to take from the ${
-                                  references.length === 1 ? "image" : "images"
-                                }…`
-                              : activeNotes.length > 0
-                                ? `Send ${
-                                    activeNotes.length === 1
-                                      ? "the annotation"
-                                      : `${activeNotes.length} annotations`
-                                  }, or add words…`
-                                : `Change ${st.displayName(st.active)}…`
+                        ? briefBase !== null
+                          ? "What should they vary? Optional"
+                          : briefSurface === null
+                            ? "Pick a direction on the surface first"
+                            : "What should they explore?"
+                        : gridding
+                          ? "Open one of them to ask for a change"
+                          : st.active === null
+                            ? "No direction to change yet"
+                            : dropping
+                              ? "Drop the image here"
+                              : references.length > 0 && activeNotes.length === 0
+                                ? `Say what to take from the ${
+                                    references.length === 1 ? "image" : "images"
+                                  }…`
+                                : activeNotes.length > 0
+                                  ? `Send ${
+                                      activeNotes.length === 1
+                                        ? "the annotation"
+                                        : `${activeNotes.length} annotations`
+                                    }, or add words…`
+                                  : `Change ${st.displayName(st.active)}…`
                     }
                     ref={requestRef}
                     rows={1}
                     value={briefing ? brief : intent}
                   />
+                  {briefing && (
+                    <p className="px-2.5 text-[10px] leading-4 text-[#84848C]">
+                      Runs on your Claude plan. Usually a minute or two.
+                    </p>
+                  )}
                   {briefing ? (
                     <BriefToolbar
                       count={briefCount}
                       onCount={setBriefCount}
                       picker={chip.kind === "chosen" && chip.id === "claude" ? null : agentPicker}
                       reason={briefReason}
-                      ready={brief.trim() !== "" && activeSurface !== null}
+                      ready={(brief.trim() !== "" || briefBase !== null) && buildSurface !== null}
                       starting={starting}
                     />
                   ) : (
@@ -3226,8 +3387,18 @@ export function Shell({
       </span>
 
       <div
-        className={`relative min-w-0 flex-1 ${splitting ? "flex" : "overflow-auto"}`}
+        className={`relative min-w-0 flex-1 ${
+          gridding ? "grid gap-px bg-[#232328]" : splitting ? "flex" : "overflow-auto"
+        }`}
         ref={attachStage}
+        style={
+          gridding
+            ? {
+                gridTemplateColumns: `repeat(${gridLayout.columns}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${gridLayout.rows}, minmax(0, 1fr))`,
+              }
+            : undefined
+        }
       >
         {mounted.map((title) => (
           <Pane
@@ -3287,11 +3458,19 @@ export function Shell({
               );
             }}
             onStartBranch={() => st.startBranch(title)}
+            onOpen={
+              gridding
+                ? () => {
+                    setGrid(null);
+                    st.setActive(title);
+                  }
+                : null
+            }
             order={stagePlace.get(title) ?? -1}
             paneScale={paneScale}
             refusal={refused[title] ?? null}
             scaling={scaling}
-            second={title === compare}
+            second={!gridding && title === compare}
             serverUp={health.reachable}
             shown={stagePlace.has(title)}
             splitting={splitting}

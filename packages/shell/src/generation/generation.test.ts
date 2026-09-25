@@ -8,6 +8,7 @@ import {
   runStartedAt,
   slotsByTitle,
   surfaceOf,
+  surfacesOf,
   type GenerationJob,
   type GenerationSlot,
 } from "./generation.js";
@@ -23,6 +24,7 @@ function slot(title: string, state: GenerationSlot["state"]): GenerationSlot {
     endedAt: null,
     failure: state === "failed" ? { code: "agent-error", message: "It went wrong." } : null,
     fixed: false,
+    activity: null,
   };
 }
 
@@ -38,6 +40,7 @@ function job(state: GenerationJob["state"], slots: GenerationSlot[], extra = {})
     endedAt: null,
     error: null,
     slots,
+    basedOn: null,
     ...extra,
   };
 }
@@ -46,6 +49,12 @@ describe("the surface a direction belongs to", () => {
   test("is the v- parameter its address carries", () => {
     expect(surfaceOf("/?v-hero=table")).toBe("hero");
     expect(surfaceOf("/pricing?ref=nav&v-pricing-page=a")).toBe("pricing-page");
+  });
+
+  test("lists every surface once, in the order the directions name them", () => {
+    expect(
+      surfacesOf(["/?v-hero=table", "/", "/pricing?v-pricing=a", "/?v-hero=menu", "/?ref=x"]),
+    ).toEqual(["hero", "pricing"]);
   });
 
   test("is none for an address that is not on a switch", () => {
@@ -81,6 +90,21 @@ describe("the card above the composer", () => {
       tone: "working",
       text: "Building 1 hero direction",
     });
+  });
+
+  test("calls a set of variations what it is, from planning to its end", () => {
+    const like = { basedOn: "Table" };
+
+    expect(cardFor(job("planning", [], like)).text).toBe("Planning 3 variations of Table…");
+    expect(cardFor(job("building", [slot("Ledger", "building")], like)).text).toBe(
+      "Building 1 variation of Table",
+    );
+    expect(
+      cardFor(
+        job("done", [slot("Ledger", "ready"), slot("Steam", "ready")], { ...like, endedAt: 9_000 }),
+      ).text,
+    ).toBe("2 variations of Table ready in 8 s");
+    expect(cardFor(job("stopped", [], like)).text).toBe("Stopped the variations of Table");
   });
 
   test("gives the time a finished set took", () => {

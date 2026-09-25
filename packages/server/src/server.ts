@@ -85,7 +85,10 @@ import {
 } from "./requests/requests.js";
 import { startRunner, type RunnerSpawn, type RunningAgent } from "./agents/runner.js";
 import {
+  baseOf,
   createGenerations,
+  surfaceSlug,
+  type GenerationBase,
   type GenerationDeps,
   type Generations,
 } from "./generation/generation.js";
@@ -1183,11 +1186,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
 
+        let basedOn: GenerationBase | null = null;
+
+        // Variations name their direction as the rail does; its switch key is in its address.
+        if (parsed.basedOn !== undefined && parsed.basedOn !== null && parsed.basedOn !== "") {
+          const title = parsed.basedOn;
+
+          const preview = isString(title)
+            ? (await livePreviews()).find((entry) => entry.title === title)
+            : undefined;
+
+          basedOn = preview === undefined ? null : baseOf(preview, parsed.surface);
+
+          if (basedOn === null) {
+            return sendJson(res, 422, {
+              ok: false,
+              error: `${isString(title) ? title : "That"} is not a direction of the ${surfaceSlug(parsed.surface)}, so Leglas cannot build variations of it.`,
+            });
+          }
+        }
+
         const started = await running.start({
           surface: parsed.surface,
           brief: parsed.brief,
           count: isNumber(parsed.count) ? parsed.count : 3,
           agent: await readAgentChoice(cwd),
+          basedOn,
         });
 
         return started.ok

@@ -62,6 +62,24 @@ const UNSCALED = 0.999;
 /** A pane can be dragged narrow enough to divide by almost nothing. */
 const FLOOR = 0.05;
 
+/** What a scaled frame needs above it in a grid cell: the name it wears and the gap under it. */
+export const LABEL_ROOM = 40;
+
+/**
+ * How a set shown whole is arranged: one row for up to three, so each stays
+ * as large as a split's, then two rows. Four sit two by two rather than three
+ * and one, which would leave a lone design and a hole.
+ */
+export type SetLayout = { columns: number; rows: number };
+
+export function setLayout(count: number): SetLayout {
+  if (count <= 3) return { columns: Math.max(1, count), rows: 1 };
+
+  if (count === 4) return { columns: 2, rows: 2 };
+
+  return { columns: 3, rows: Math.ceil(count / 3) };
+}
+
 /**
  * How one side of a split is drawn.
  *
@@ -85,7 +103,12 @@ const FLOOR = 0.05;
 export function paneGeometry(state: {
   /** How much breathing room a framed preset sits in, both sides together. */
   gutter: number;
+  /** Panes side by side in a row. */
   panes: number;
+  /** Rows of them, for a set shown whole; one otherwise. */
+  rows?: number;
+  /** Room kept clear around each frame, so designs side by side read as separate artboards. */
+  inset?: number;
   scaleSplit: boolean;
   stageHeight: number;
   stageWidth: number;
@@ -93,6 +116,8 @@ export function paneGeometry(state: {
   viewport: number | null;
 }): PaneGeometry {
   const { gutter, panes, scaleSplit, stageHeight, stageWidth, viewport } = state;
+  const rows = state.rows ?? 1;
+  const inset = state.inset ?? 0;
 
   // One pixel of divider sits between each pair of panes.
   const paneWidth = panes > 1 ? (stageWidth - (panes - 1)) / panes : stageWidth;
@@ -101,7 +126,7 @@ export function paneGeometry(state: {
   // split than it is on its own: a hair's difference, and a hair is still the
   // disagreement this function exists to remove.
   const designWidth = viewport ?? stageWidth;
-  const room = paneWidth - (viewport !== null ? gutter : 0);
+  const room = paneWidth - (viewport !== null ? gutter : 0) - inset;
 
   // A framed preset is inset by the same gutter top and bottom, so its height
   // alone is the stage less that gutter, not the whole stage. Scaling it from
@@ -110,10 +135,14 @@ export function paneGeometry(state: {
   // function exists to remove.
   const designHeight = stageHeight - (viewport !== null ? gutter : 0);
 
-  const fits = scaleSplit && panes > 1 && stageWidth > 0 && designWidth > 0;
+  const fits = scaleSplit && (panes > 1 || rows > 1) && stageWidth > 0 && designWidth > 0;
+  // In a grid the frame has to fit the cell's height as well, below its name;
+  // in one row the proportions already guarantee that.
+  const cellHeight = (stageHeight - (rows - 1)) / rows;
+  const byHeight = rows > 1 ? (cellHeight - LABEL_ROOM - inset) / designHeight : 1;
   // Never scale up. A design asked for 1440 does not get better at 1600, and a
   // single pane is already showing the design at its own size.
-  const scale = fits ? Math.max(FLOOR, Math.min(1, room / designWidth)) : 1;
+  const scale = fits ? Math.max(FLOOR, Math.min(1, room / designWidth, byHeight)) : 1;
   const scaling = scale < UNSCALED;
 
   return {

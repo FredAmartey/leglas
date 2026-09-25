@@ -16,6 +16,8 @@ export type GenerationSlot = {
   failure: { code: string; message: string } | null;
   /** Its first version did not render and a fix run repaired it. */
   fixed: boolean;
+  /** What its build is doing right now, such as "editing src/heroes/hero-ledger.tsx". */
+  activity: string | null;
 };
 
 export type GenerationJob = {
@@ -29,6 +31,8 @@ export type GenerationJob = {
   endedAt: number | null;
   error: string | null;
   slots: GenerationSlot[];
+  /** The direction the set varies, or null for a set of new directions. */
+  basedOn: string | null;
 };
 
 export type SlotView = { job: GenerationJob; slot: GenerationSlot };
@@ -126,12 +130,28 @@ export function endingOf(job: GenerationJob): string {
   return `${job.id}@${job.endedAt ?? ""}`;
 }
 
+/** Every surface the project's directions sit on, in the order they first appear. */
+export function surfacesOf(urls: readonly string[]): string[] {
+  const found = new Set<string>();
+
+  for (const url of urls) {
+    const surface = surfaceOf(url);
+
+    if (surface !== null) found.add(surface);
+  }
+
+  return [...found];
+}
+
 export function isRunning(job: GenerationJob): boolean {
   return job.state === "planning" || job.state === "building";
 }
 
-function directions(count: number, surface: string): string {
-  return `${count} ${surface} ${count === 1 ? "direction" : "directions"}`;
+/** A set in words: so many of its surface's directions, or so many variations of the one it varies. */
+function directions(count: number, job: GenerationJob): string {
+  return job.basedOn === null
+    ? `${count} ${job.surface} ${count === 1 ? "direction" : "directions"}`
+    : `${count} ${count === 1 ? "variation" : "variations"} of ${job.basedOn}`;
 }
 
 function names(slots: readonly GenerationSlot[]): string {
@@ -154,7 +174,7 @@ export function cardFor(job: GenerationJob): GenerationCard {
   const stopped = job.slots.filter((slot) => slot.state === "stopped");
 
   if (job.state === "planning") {
-    return { tone: "working", text: `Planning ${directions(job.count, job.surface)}…` };
+    return { tone: "working", text: `Planning ${directions(job.count, job)}…` };
   }
 
   if (job.state === "building") {
@@ -162,7 +182,7 @@ export function cardFor(job: GenerationJob): GenerationCard {
 
     return {
       tone: "working",
-      text: `Building ${directions(job.slots.length, job.surface)}${progress}`,
+      text: `Building ${directions(job.slots.length, job)}${progress}`,
     };
   }
 
@@ -171,7 +191,13 @@ export function cardFor(job: GenerationJob): GenerationCard {
   }
 
   if (job.slots.length === 0 || stopped.length === job.slots.length) {
-    return { tone: "stopped", text: `Stopped the ${job.surface} directions` };
+    return {
+      tone: "stopped",
+      text:
+        job.basedOn === null
+          ? `Stopped the ${job.surface} directions`
+          : `Stopped the variations of ${job.basedOn}`,
+    };
   }
 
   if (ready.length === job.slots.length) {
@@ -183,7 +209,7 @@ export function cardFor(job: GenerationJob): GenerationCard {
 
     return {
       tone: "done",
-      text: `${directions(ready.length, job.surface)} ready${seconds === null ? "" : ` in ${seconds} s`}`,
+      text: `${directions(ready.length, job)} ready${seconds === null ? "" : ` in ${seconds} s`}`,
     };
   }
 
