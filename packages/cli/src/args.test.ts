@@ -361,6 +361,45 @@ describe("the explore command", () => {
     if (result.kind !== "error") return;
     expect(result.message).toContain("--based-on");
   });
+
+  test("--build with a brief asks the running Leglas to build the set", () => {
+    const result = parseArgs([
+      "explore",
+      "hero",
+      "--build",
+      "--brief",
+      "A hero for a cooking app",
+      "--port",
+      "4321",
+    ]);
+
+    expect(result).toMatchObject({
+      kind: "explore",
+      surface: "hero",
+      build: true,
+      brief: "A hero for a cooking app",
+      port: 4321,
+      count: 3,
+    });
+  });
+
+  test("--build without a brief is refused, naming the flag it needs", () => {
+    const result = parseArgs(["explore", "hero", "--build"]);
+
+    expect(result.kind).toBe("error");
+
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--brief");
+  });
+
+  test("a brief without --build is refused rather than silently ignored", () => {
+    const result = parseArgs(["explore", "hero", "--brief", "Anything"]);
+
+    expect(result.kind).toBe("error");
+
+    if (result.kind !== "error") return;
+    expect(result.message).toContain("--build");
+  });
 });
 
 describe("add --based-on", () => {

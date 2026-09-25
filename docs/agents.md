@@ -42,7 +42,7 @@ existing file's behaviour, builds on its own git branch instead.
 
 | Command | What it does |
 | --- | --- |
-| `leglas explore <surface> --count 6` | Briefs the exploration: what the set is for, and why it only works if the six genuinely disagree. `--based-on "Aurora"` flips it to six deliberate variants of one you like. The designs are the agent's; Leglas prescribes none. |
+| `leglas explore <surface> --count 6` | Briefs the exploration: what the set is for, and why it only works if the six genuinely disagree. `--based-on "Aurora"` flips it to six deliberate variants of one you like. The designs are the agent's; Leglas prescribes none. With `--build --brief "..."`, Leglas builds the set itself with Claude instead: it plans the directions together, puts them on the rail at once and builds them all in parallel, each run restricted to writing its own file at the effort Leglas sets. On a real project, three took about 80 seconds. It needs a running Leglas and a surface whose switch is already rendered. |
 | `leglas new <surface> --from src/Hero.tsx` | Scaffolds a switcher under `.leglas/variants/`, with the baseline re-exporting your real component. Prints the one line to add and does not edit your file. Scaffolded branch points return the fallback in production builds. |
 | `leglas classify --change … --rewrite …` | Says where a direction should live before it is written: in-app, where switching is instant, or on its own branch. |
 | `leglas add --title … --url …` | Registers a direction on this machine. |

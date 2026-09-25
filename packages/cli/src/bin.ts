@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "./args.js";
 import { runClassify } from "./run-classify.js";
 import { runExplore } from "./run-explore.js";
+import { runExploreBuild } from "./run-explore-build.js";
 import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
 import { runNew } from "./run-new.js";
@@ -22,7 +23,7 @@ Usage
   leglas init                Prepare a project and teach its agents
   leglas [options]           Start the server and open the interface
   leglas new <surface>       Scaffold a branch point for a surface
-  leglas explore <surface>   Brief an agent's exploration of a surface
+  leglas explore <surface>   Brief an agent's exploration of a surface, or build it
   leglas classify            Decide where a direction should live
   leglas add --title T --url U   Register a preview on this machine
   leglas list                Show every preview, shared and local
@@ -47,8 +48,12 @@ Options for new
   --from <path>        Use an existing component as the baseline
 
 Options for explore
-  --count <n>          How many directions (default 3)
+  --count <n>          How many directions (default 3; up to 6 with --build)
   --based-on <title>     Variants of an existing direction instead of new ones
+  --build              Build the set with your agent (Claude) in the running
+                       Leglas, instead of printing a brief for an agent
+  --brief <text>       What the directions are for (needs --build)
+  --port <port>        Running Leglas port (needs --build)
 
 Options for watch
   --run <command>      Your agent, with {prompt} where the request goes, for
@@ -172,6 +177,25 @@ if (parsed.kind === "keep") {
   const outcome = await runKeep(
     { title: parsed.title, to: parsed.to, json: parsed.json, cwd: process.cwd() },
     previewDeps,
+  );
+
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "explore" && parsed.build) {
+  const outcome = await runExploreBuild(
+    {
+      surface: parsed.surface,
+      brief: parsed.brief ?? "",
+      count: parsed.count,
+      json: parsed.json,
+      cwd: process.cwd(),
+      port: parsed.port,
+    },
+    {
+      log: (line) => process.stdout.write(`${line}\n`),
+      error: (line) => process.stderr.write(`${line}\n`),
+    },
   );
 
   process.exit(outcome.exitCode);

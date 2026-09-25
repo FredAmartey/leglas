@@ -82,6 +82,7 @@ const SENT = {
   health: true,
   share: true,
   update: true,
+  generation: true,
 } satisfies Record<ServerChange, true>;
 
 describe("what a frame can say", () => {

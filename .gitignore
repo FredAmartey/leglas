@@ -9,3 +9,6 @@ dist/
 
 # Harbor job output (logs, trajectories)
 evals/jobs/
+
+# Artifacts E2E tests leave behind to look at
+test/artifacts/

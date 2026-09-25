@@ -55,6 +55,7 @@ import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./conf
 import { findConfigFile } from "./config/find-config.js";
 import {
   LOCAL_PREVIEWS_PATH,
+  addLocalPreview,
   dropLocalPreviews,
   readLocalPreviews,
 } from "./config/local-previews.js";
@@ -82,7 +83,12 @@ import {
   type PendingRequest,
   type RequestMode,
 } from "./requests/requests.js";
-import { startRunner, type RunningAgent } from "./agents/runner.js";
+import { startRunner, type RunnerSpawn, type RunningAgent } from "./agents/runner.js";
+import {
+  createGenerations,
+  type GenerationDeps,
+  type Generations,
+} from "./generation/generation.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
 import { createShareManager, type ShareResult } from "./share/share.js";
 import {
@@ -197,6 +203,8 @@ export type ServerOptions = {
   startTunnel?: typeof startShareTunnel;
   /** Branch checkout lifecycle, injectable so server tests need no real git worktree. */
   startWorktree?: StartBranchWorktree;
+  /** Generation runs' process spawn, injected by tests so no real agent CLI ever runs. */
+  generationSpawn?: RunnerSpawn;
   /**
    * Update checks and installs, supplied by the CLI. Hosts without a service
    * answer 404; the CLI service also learns the actual port for its restart.
@@ -953,6 +961,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let lastSeen: number | null = null;
   const externallyAttached = () => lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
   let runner: RunningAgent | null = null;
+  let generations: Generations | null = null;
 
   /**
    * Agent detection asks every vendor CLI for its login status, which costs
@@ -1066,6 +1075,53 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   };
 
+  /**
+   * A generate route's body: JSON or a 400, and a 503 until the generations
+   * exist. One call per route, so the scan in server.test.ts sees each of them.
+   */
+  const readGenerationBody = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    run: (body: JsonRecord, running: Generations) => void | Promise<void>,
+  ): void => {
+    if (!hasJsonBody(req)) {
+      return sendJson(res, 400, { ok: false, error: "A generation request must be JSON." });
+    }
+
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const parsed = jsonBody(body);
+
+      if (parsed === null) return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
+
+      if (generations === null)
+        return sendJson(res, 503, { ok: false, error: "Leglas is still starting." });
+      void run(parsed, generations);
+    });
+  };
+
+  /** Stop, retry or replace: a set by its id, and a direction by its slot. */
+  const actOnGeneration = async (
+    res: http.ServerResponse,
+    action: string,
+    parsed: JsonRecord,
+    act: (id: string, slot: string | undefined) => boolean | Promise<boolean>,
+  ): Promise<void> => {
+    if (!isString(parsed.id) || (parsed.slot !== undefined && !isString(parsed.slot))) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: "Name the generation by its id, and the direction by its slot.",
+      });
+    }
+
+    const done = await act(parsed.id, isString(parsed.slot) ? parsed.slot : undefined);
+
+    return done
+      ? sendJson(res, 200, { ok: true })
+      : sendJson(res, 409, { ok: false, error: `Nothing to ${action} there right now.` });
+  };
+
   const handleRequest = (
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -1112,6 +1168,54 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
     if (context.remote && path.startsWith(`${LEGLAS_PREFIX}/api/`)) {
       return sendJson(res, 403, { error: "Not available to viewers." });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate` && req.method === "GET") {
+      return sendJson(res, 200, { ok: true, jobs: generations?.snapshot() ?? [] });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate` && req.method === "POST") {
+      return void readGenerationBody(req, res, async (parsed, running) => {
+        if (!isString(parsed.surface) || !isString(parsed.brief)) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: "Name a surface and describe the directions in a brief.",
+          });
+        }
+
+        const started = await running.start({
+          surface: parsed.surface,
+          brief: parsed.brief,
+          count: isNumber(parsed.count) ? parsed.count : 3,
+          agent: await readAgentChoice(cwd),
+        });
+
+        return started.ok
+          ? sendJson(res, 202, { ok: true, job: started.job })
+          : sendJson(res, 422, { ok: false, error: started.error });
+      });
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/stop` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "stop", parsed, (id, slot) => running.stop(id, slot)),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/retry` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "retry", parsed, (id, slot) =>
+          slot === undefined ? false : running.retry(id, slot),
+        ),
+      );
+    }
+
+    if (path === `${LEGLAS_PREFIX}/api/generate/replace` && req.method === "POST") {
+      return void readGenerationBody(req, res, (parsed, running) =>
+        actOnGeneration(res, "replace", parsed, (id, slot) =>
+          slot === undefined ? false : running.replace(id, slot),
+        ),
+      );
     }
 
     if (
@@ -2611,6 +2715,61 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (options.claudeAgentSession !== undefined)
     runnerOptions.claudeAgentSession = options.claudeAgentSession;
   runner = startRunner(runnerOptions);
+
+  /**
+   * Render one direction the way `show --screenshot` does and report what
+   * the page said. A generation calls a direction ready only once this is
+   * clean; no browser means it cannot tell, and says so by returning null.
+   */
+  const renderDirection = async (title: string): Promise<{ errors: readonly string[] } | null> => {
+    const preview = (await livePreviews()).find((entry) => entry.title === title);
+
+    if (preview === undefined) return null;
+    const browser = await browserPool.acquire();
+
+    if (browser === null) return null;
+    const address = server.address();
+
+    const renderPort =
+      address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
+
+    try {
+      const captured = await capturePage(browser, {
+        url: previewUrl(`http://127.0.0.1:${renderPort}`, preview),
+        width: 1440,
+        timeoutMs: CAPTURE_LOAD_MS,
+      });
+
+      return { errors: captured.errors };
+    } catch (error) {
+      return { errors: [error instanceof Error ? error.message : String(error)] };
+    }
+  };
+
+  const generationDeps: GenerationDeps = {
+    cwd,
+    render: renderDirection,
+    register: (input) =>
+      addLocalPreview(
+        cwd,
+        input,
+        (config?.previews ?? []).filter((entry) => entry.local !== true),
+      ),
+    unregister: async (titles) => {
+      await dropLocalPreviews(cwd, titles);
+    },
+    titles: async () => {
+      const local = await readLocalPreviews(cwd).catch(() => null);
+
+      return new Set(
+        [...(config?.previews ?? []), ...(local?.previews ?? [])].map((entry) => entry.title),
+      );
+    },
+    onChange: () => live.nudge("generation"),
+  };
+
+  if (options.generationSpawn !== undefined) generationDeps.spawn = options.generationSpawn;
+  generations = createGenerations(generationDeps);
   options.updates?.onBusy(() => runner?.snapshot().running ?? false);
   options.updates?.onChange(() => live.nudge("update"));
 
@@ -2632,6 +2791,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           shares?.close() ?? Promise.resolve(),
           branches.stop(),
           runner.stop(),
+          generations?.close() ?? Promise.resolve(),
           browserPool.close(),
           live.close(),
         ]);

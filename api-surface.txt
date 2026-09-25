@@ -125,6 +125,10 @@ export type ParseResult = {
     count: number;
     basedOn: string | null;
     json: boolean;
+    /** Build the set with the configured agent instead of printing a brief for one. */
+    build: boolean;
+    brief: string | null;
+    port: number | null;
 } | {
     kind: "keep";
     title: string;
