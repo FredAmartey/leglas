@@ -1722,6 +1722,31 @@ describe("a generation's lifecycle", () => {
     expect(spawned).toHaveLength(before);
   });
 
+  test("two sets asked for at once start only one", async () => {
+    const cwd = await project("claude");
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const ask = () =>
+      generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+    const answers = await Promise.all([ask(), ask()]);
+
+    expect(answers.map((answer) => answer.ok)).toEqual([true, false]);
+    expect(generations.snapshot()).toHaveLength(1);
+    await generations.close();
+  });
+
   test("a direction that is not in the switch cannot be varied, and nothing starts", async () => {
     const cwd = await project("claude");
 
@@ -1769,6 +1794,9 @@ describe("a set built with Codex", () => {
         "[mcp_servers.'paper'] # the design app",
         'url = "http://127.0.0.1:3/mcp"',
         "",
+        "[ mcp_servers . spaced ]",
+        'url = "http://127.0.0.1:4/mcp"',
+        "",
       ].join("\n"),
     );
 
@@ -1811,6 +1839,13 @@ describe("a set built with Codex", () => {
           return;
         }
 
+        // A fix run answers and leaves the file to the render, as the Claude fake does.
+        if (prompt.startsWith("Leglas rendered ")) {
+          child.finish(0);
+
+          return;
+        }
+
         const file = /Your file is (\S+)\./.exec(prompt)?.[1] ?? "";
         const name = /component exported as (\w+)\./.exec(prompt)?.[1] ?? "";
 
@@ -1832,15 +1867,22 @@ describe("a set built with Codex", () => {
     return { calls, announced, spawn };
   }
 
-  async function run(fails = false) {
+  async function run(fails = false, brokenOnce = false) {
     const cwd = await project("codex");
     const codex = fakeCodex(cwd, fails);
+    let renders = 0;
 
     const generations = createGenerations({
       cwd,
       codexHome: await codexHome(),
       spawn: codex.spawn,
-      render: async () => ({ errors: [] }),
+      render: async () => {
+        renders += 1;
+
+        return {
+          errors: brokenOnce && renders === 1 ? ["Transform failed: hero-ledger.tsx:2:3"] : [],
+        };
+      },
       register: async () => ({ ok: true }),
       unregister: async () => {},
       titles: async () => new Set<string>(),
@@ -1889,10 +1931,29 @@ describe("a set built with Codex", () => {
       expect(args).toContain("-c mcp_servers.gmail-organizer.enabled=false");
       expect(args).toContain("-c mcp_servers.paper.enabled=false");
       expect(args).not.toContain("odd.name");
-      expect(args).not.toContain("blender.env");
     }
 
     expect(announced).toContain("editing .leglas/variants/hero/hero-ledger.tsx");
+  });
+
+  test("switches off exactly the servers its config defines, however they are written", async () => {
+    expect(await codexServers(await codexHome())).toEqual([
+      "blender",
+      "gmail-organizer",
+      "paper",
+      "spaced",
+    ]);
+  });
+
+  test("a page that fails its check gets a Codex fix run that may write", async () => {
+    const { calls, slot } = await run(false, true);
+
+    expect(slot).toMatchObject({ state: "ready", fixed: true });
+    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
+
+    const fix = calls[2]?.args ?? [];
+    expect(fix.at(-1)).toMatch(/^Leglas rendered /);
+    expect(fix.join(" ")).toContain("-s workspace-write");
   });
 
   test("a failed build says Codex failed, not Claude", async () => {

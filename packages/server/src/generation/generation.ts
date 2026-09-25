@@ -51,6 +51,8 @@ const OWN_FAILURES: ReadonlySet<string> = new Set([
 ]);
 
 /** Jobs kept for the interface after they finish. */
+const BUSY = "A set of directions is already being built. Wait for it, or stop it first.";
+
 const KEPT_JOBS = 5;
 
 export type SlotState = "building" | "checking" | "ready" | "failed" | "stopped";
@@ -289,6 +291,10 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   const lives: Live[] = [];
   let closed = false;
+
+  /** One set at a time: its builds share the switch file and the machine. */
+  const busy = (): boolean =>
+    lives.some((live) => live.job.state === "planning" || live.job.state === "building");
 
   const changed = (): void => deps.onChange();
 
@@ -920,12 +926,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       if (slug === "") return { ok: false, error: "Name the surface to build directions for." };
 
-      if (lives.some((live) => live.job.state === "planning" || live.job.state === "building")) {
-        return {
-          ok: false,
-          error: "A set of directions is already being built. Wait for it, or stop it first.",
-        };
-      }
+      if (busy()) return { ok: false, error: BUSY };
 
       const switchPath = await findSwitch(deps.cwd, slug);
 
@@ -988,6 +989,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
         agent: agent === "codex" ? codex(await codexServers(deps.codexHome)) : CLAUDE,
         pending: new Set(),
       };
+
+      // Checked again: another request may have started a set during the awaits above.
+      if (busy()) return { ok: false, error: BUSY };
 
       lives.push(live);
 

@@ -64,7 +64,7 @@ export async function codexServers(home: string = defaultCodexHome()): Promise<s
   const names = new Set<string>();
 
   for (const match of config.matchAll(
-    /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\]\s*(?:#.*)?$/gm,
+    /^\s*\[\s*mcp_servers\s*\.\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*\]\s*(?:#.*)?$/gm,
   )) {
     const name = match[1] ?? match[2] ?? match[3] ?? "";
 
