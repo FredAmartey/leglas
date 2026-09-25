@@ -1,6 +1,8 @@
+/// <reference types="node" />
 import { describe, expect, test, vi } from "vitest";
 
-// The server's side of the protocol, for the kinds it can send.
+// The server's side of the protocol, for the kinds it can send. Its module
+// imports Node built-ins, hence the reference above.
 import type { LiveChange as ServerChange } from "../../../server/src/live.js";
 import type { TimerHandle } from "./timers.js";
 
@@ -70,9 +72,9 @@ function manualTimers() {
 
 /**
  * Every kind the server nudges with, keyed by the server's own type, so this
- * list and that one cannot drift apart without failing `pnpm typecheck`. It
- * used to be written out by hand, three kinds long, and the shell dropped
- * `update`.
+ * list and that one cannot drift apart without failing `pnpm typecheck`, which
+ * sees this file only because the shell's tsconfig includes its tests. It used
+ * to be written out by hand, three kinds long, and the shell dropped `update`.
  */
 const SENT = {
   config: true,
