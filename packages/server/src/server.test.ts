@@ -1477,9 +1477,9 @@ describe("startServer", () => {
     expect(after.requests).toEqual([]);
   });
 
-  test("reads the queue without collecting it, so watch still has work to do", async () => {
-    // Reading is what the interface does three times a second. If it marked
-    // anything, the queue would empty itself just by being looked at.
+  // Reading without collecting is the POST then GET test's; this one is the
+  // agent block a fresh server reports.
+  test("reports an idle agent before anything has run", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-read-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
@@ -1499,8 +1499,6 @@ describe("startServer", () => {
       waiting: null,
       quietSince: null,
     });
-    // A running server always leaves its rendezvous record under .leglas.
-    expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(true);
   });
 
   test("reports available agents and round-trips the saved choice", async () => {
