@@ -530,7 +530,7 @@ class FakeChild extends EventEmitter {
   }
 }
 
-type Behaviour = "write" | "hang";
+type Behaviour = "write" | "hang" | "fail";
 
 function orchestrator(
   cwd: string,
@@ -553,12 +553,25 @@ function orchestrator(
         child.say(JSON.stringify(concepts));
         child.finish(0);
       }, 5);
+    } else if (prompt.startsWith("Leglas rendered ")) {
+      // A fix run answers and leaves the file as it was; the render decides.
+      builds.push(child);
+      setTimeout(() => child.finish(0), 5);
     } else {
       builds.push(child);
       const behaviour = behaviours[Math.min(buildIndex, behaviours.length - 1)];
       buildIndex += 1;
       const file = /Your file is (\S+)\./.exec(prompt)?.[1] ?? "";
       const name = /component exported as (\w+)\./.exec(prompt)?.[1] ?? "";
+
+      if (behaviour === "fail") {
+        setTimeout(() => {
+          void writeFile(
+            join(cwd, file),
+            `export function ${name}() {\n  return <h1>half</div>;\n}\n`,
+          ).then(() => child.finish(1));
+        }, 5);
+      }
 
       if (behaviour === "write") {
         setTimeout(() => {
@@ -1073,6 +1086,117 @@ describe("a generation's lifecycle", () => {
       (value) => value.state === "failed",
     );
     expect(spawned).toHaveLength(0);
+  });
+
+  test("a page broken by another direction still being written waits for it instead of blaming this one", async () => {
+    const cwd = await project("claude");
+    const steamFile = join(".leglas", "variants", "hero", "hero-steam.tsx");
+    let steamBroken = true;
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [
+        { key: "ledger", title: "Ledger", idea: "Ruled lines." },
+        { key: "steam", title: "Steam", idea: "A pan, close." },
+      ],
+      ["write", "hang"],
+      async (title) => ({
+        errors:
+          title === "Ledger" && steamBroken
+            ? [
+                `Failed to load resource: the server responded with a status of 500 (Internal Server Error) (/${steamFile})`,
+              ]
+            : [],
+      }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "checking",
+    );
+    // Long enough to look at the page twice, both times blaming Steam's file while Steam is written.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(builds).toHaveLength(2);
+    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("checking");
+
+    steamBroken = false;
+
+    const ready = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(ready.fixed).toBe(false);
+    expect(builds).toHaveLength(2);
+  });
+
+  test("a failed draft goes back to the placeholder, so it cannot break the others' pages", async () => {
+    const cwd = await project("claude");
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["fail"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const failed = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await readFile(join(cwd, failed.file), "utf8")).toBe(
+      "export function HeroLedger() {\n  return null;\n}\n",
+    );
+  });
+
+  test("two drafts that fail their render check do not stop the rest", async () => {
+    const cwd = await project("claude");
+
+    const { generations } = orchestrator(
+      cwd,
+      [
+        { key: "ledger", title: "Ledger", idea: "Ruled lines." },
+        { key: "steam", title: "Steam", idea: "A pan, close." },
+        { key: "timer", title: "Timer", idea: "Thirty minutes." },
+      ],
+      ["write", "write", "hang"],
+      async (title) => ({ errors: title === "Timer" ? [] : ["Uncaught Error: still broken"] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 3,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    await settled(
+      () => generations.snapshot()[0]?.slots,
+      (slots) => slots[0]?.state === "failed" && slots[1]?.state === "failed",
+    );
+    expect(generations.snapshot()[0]?.slots[2]?.state).toBe("building");
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {

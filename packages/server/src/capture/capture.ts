@@ -181,6 +181,23 @@ function validBox(value: JsonValue | undefined): value is Box {
   );
 }
 
+/**
+ * A log line with the path of the resource it is about. Chrome's "Failed to
+ * load resource" names no file, and without one a module that does not
+ * compile cannot be told apart from the page that imports it.
+ */
+function resourced(text: JsonValue | undefined, url: JsonValue | undefined): string {
+  const line = String(text ?? "");
+
+  if (!isString(url) || url === "") return line;
+
+  try {
+    return `${line} (${new URL(url).pathname})`;
+  } catch {
+    return line;
+  }
+}
+
 function locatorExpression(focus: Focus): string {
   return `${LOCATOR}(${JSON.stringify(focus.selector)}, ${JSON.stringify(focus.text)}, ${JSON.stringify(focus.tag)})`;
 }
@@ -269,7 +286,8 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       );
     }),
     page.on("Log.entryAdded", (params) => {
-      if (params?.entry?.level === "error") remember(params.entry.text);
+      if (params?.entry?.level === "error")
+        remember(resourced(params.entry.text, params.entry.url));
     }),
   ];
 

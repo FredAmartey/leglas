@@ -13,7 +13,7 @@ import {
 } from "./browser.js";
 import { CROP_MIN, FRAME_MAX_HEIGHT, capturePage, cropBox, type Focus } from "./capture.js";
 
-import { type JsonRecord, isJsonRecord } from "../json.js";
+import { type JsonRecord, isJsonRecord, isString } from "../json.js";
 
 /**
  * A live test's ceiling, derived rather than chosen.
@@ -64,8 +64,8 @@ class FakePage implements CdpPage {
   found = { x: 500, y: 100, width: 100, height: 40 };
   /** What the main document answered with. */
   documentStatus = 200;
-  /** Load errors to emit instead of the default console line. */
-  loadErrors: string[] | null = null;
+  /** Load errors to emit instead of the default console line, as text or with the resource they are about. */
+  loadErrors: (string | { text: string; url: string })[] | null = null;
 
   async send<T = unknown>(method: string, params: JsonRecord = {}): Promise<T> {
     this.sent.push({ method, params });
@@ -84,8 +84,10 @@ class FakePage implements CdpPage {
           });
           this.emit("Log.entryAdded", { entry: { level: "error", text: "favicon.ico failed" } });
         } else {
-          for (const text of this.loadErrors) {
-            this.emit("Log.entryAdded", { entry: { level: "error", text } });
+          for (const error of this.loadErrors) {
+            this.emit("Log.entryAdded", {
+              entry: { level: "error", ...(isString(error) ? { text: error } : error) },
+            });
           }
         }
 
@@ -195,6 +197,33 @@ describe("capturePage", () => {
     );
 
     expect(metrics?.params).toMatchObject({ width: 320, height: 900, deviceScaleFactor: 1 });
+  });
+
+  test("a resource that failed to load is named by its path, and a missing favicon is not an error", async () => {
+    const page = new FakePage();
+
+    page.loadErrors = [
+      {
+        text: "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        url: "http://localhost:3200/src/heroes/hero-timer.tsx?t=1727229000",
+      },
+      {
+        text: "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        url: "http://localhost:3200/favicon.ico",
+      },
+    ];
+
+    const browser: Browser = {
+      closed: false,
+      close: async () => {},
+      withPage: async (work) => work(page),
+    };
+
+    const captured = await capturePage(browser, { url: "http://127.0.0.1/page", width: 1440 });
+
+    expect(captured.errors).toEqual([
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error) (/src/heroes/hero-timer.tsx)",
+    ]);
   });
 
   test("keeps hydration evidence after the console error cap", async () => {

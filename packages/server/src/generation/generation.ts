@@ -37,6 +37,17 @@ const FIX_DEADLINE_MS = 3 * 60_000;
 
 const KILL_GRACE_MS = 5000;
 
+/** How long a render check waits before looking again at a page another direction broke. */
+const RECHECK_MS = 1500;
+
+/** Failures that say nothing about the other directions: each draft fails its own way. */
+const OWN_FAILURES: ReadonlySet<string> = new Set([
+  "broken",
+  "not-written",
+  "too-slow",
+  "unexpected",
+]);
+
 /** Jobs kept for the interface after they finish. */
 const KEPT_JOBS = 5;
 
@@ -380,6 +391,10 @@ export function createGenerations(deps: GenerationDeps): Generations {
     slot.state = "failed";
     slot.failure = failure;
     slot.endedAt = now();
+    // The switch imports every direction, so a draft left not compiling would break the others' pages.
+    detach(live, restore(slot), () => {});
+
+    if (OWN_FAILURES.has(failure.code)) return;
 
     // Two builds failing the same way means the rest will too; stop spending the person's plan on them.
     const same = live.job.slots.filter((other) => other.failure?.code === failure.code).length;
@@ -467,22 +482,56 @@ export function createGenerations(deps: GenerationDeps): Generations {
   };
 
   /**
+   * The direction's own errors on its page, or null once the slot is no
+   * longer this attempt's. The switch imports every direction, so a file
+   * another build is still writing breaks every page; while the errors name
+   * only such a file, the check waits for it instead of blaming this one.
+   */
+  const ownErrors = async (
+    live: Live,
+    slot: GenerationSlot,
+    attempt: number,
+  ): Promise<string[] | null> => {
+    const others = live.job.slots.filter((other) => other !== slot);
+    const until = now() + BUILD_DEADLINE_MS + FIX_DEADLINE_MS;
+
+    for (;;) {
+      const report = await deps.render(slot.title);
+
+      if (!owns(live, slot, attempt)) return null;
+      const errors = report?.errors ?? [];
+      const names = (file: string): boolean => errors.some((error) => error.includes(file));
+
+      const waiting =
+        !names(slot.file) &&
+        others.some(
+          (other) =>
+            (other.state === "building" || other.state === "checking") && names(other.file),
+        );
+
+      if (!waiting || now() >= until) {
+        return errors.filter((error) => !others.some((other) => error.includes(other.file)));
+      }
+
+      await wait(RECHECK_MS);
+
+      if (!owns(live, slot, attempt)) return null;
+    }
+  };
+
+  /**
    * Render the direction before calling it ready. One measured build in six
    * wrote broken JSX first; a page that reports errors gets one fix run
    * carrying the error, and still broken means failed, never a broken
    * direction presented as done.
    */
   const check = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
-    let report = await deps.render(slot.title);
+    let errors = await ownErrors(live, slot, attempt);
 
-    // A stop, or a stop and a retry, can land while the page renders.
-    if (!owns(live, slot, attempt)) return;
+    if (errors === null) return;
 
-    if (report !== null && report.errors.length > 0) {
-      const fixing = run(
-        buildArgs(fixPrompt({ file: slot.file, errors: report.errors })),
-        FIX_DEADLINE_MS,
-      );
+    if (errors.length > 0) {
+      const fixing = run(buildArgs(fixPrompt({ file: slot.file, errors })), FIX_DEADLINE_MS);
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
@@ -504,14 +553,14 @@ export function createGenerations(deps: GenerationDeps): Generations {
       }
 
       slot.fixed = true;
-      report = await deps.render(slot.title);
+      errors = await ownErrors(live, slot, attempt);
 
-      if (!owns(live, slot, attempt)) return;
+      if (errors === null) return;
 
-      if (report !== null && report.errors.length > 0) {
+      if (errors.length > 0) {
         fail(live, slot, {
           code: "broken",
-          message: `The page still reports: ${report.errors[0] ?? ""}`,
+          message: `The page still reports: ${errors[0] ?? ""}`,
         });
 
         return;
