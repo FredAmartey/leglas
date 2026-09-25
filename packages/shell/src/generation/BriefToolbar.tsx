@@ -12,12 +12,15 @@ const STEP =
 export function BriefToolbar({
   count,
   onCount,
+  picker,
   reason,
   ready,
   starting,
 }: {
   count: number;
   onCount: (count: number) => void;
+  /** The agent picker, beside a reason that asks for a different agent. */
+  picker: React.ReactNode;
   /** Why it cannot build right now, said in place of the button's promise. */
   reason: string | null;
   ready: boolean;
@@ -75,9 +78,12 @@ export function BriefToolbar({
           {buildLabel(count)}
         </button>
       ) : (
-        <p className="min-w-0 truncate text-right text-[10px] leading-snug text-[#84848C]">
-          {reason}
-        </p>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <p className="min-w-0 truncate text-right text-[10px] leading-snug text-[#84848C]">
+            {reason}
+          </p>
+          {picker}
+        </span>
       )}
     </div>
   );

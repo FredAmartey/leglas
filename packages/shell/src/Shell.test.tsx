@@ -49,6 +49,9 @@ const AGENTS: AgentsPayload = {
 
 type Sent = { path: string; body: unknown };
 
+/** Every endpoint the interface read, by name, since the last serve. */
+let reads: string[] = [];
+
 /** Answer the interface's reads from a table and remember what it wrote. */
 function serve(
   requests: RequestStatus[] = [],
@@ -56,8 +59,9 @@ function serve(
   extra: Record<string, JsonValue> = {},
 ): Sent[] {
   const sent: Sent[] = [];
+  reads = [];
 
-  const reads = new Map<string, JsonValue>([
+  const table = new Map<string, JsonValue>([
     ["previews/framing", framing],
     ["agents", AGENTS],
     ["annotations", { annotations: [] }],
@@ -89,14 +93,35 @@ function serve(
     const name = path.replace("/leglas/api/", "");
 
     if ((init?.method ?? "GET") !== "GET") {
-      sent.push({ path, body: JSON.parse(String(init?.body ?? "null")) });
-      const answer = name === "request" ? { ok: true, prompt: "the prompt" } : { ok: true };
+      const body = JSON.parse(String(init?.body ?? "null"));
+      sent.push({ path, body });
+
+      // A started set comes back as the planning job, the way the server answers.
+      const answer =
+        name === "request"
+          ? { ok: true, prompt: "the prompt" }
+          : name === "generate"
+            ? {
+                ok: true,
+                job: {
+                  ...body,
+                  id: "gen-new",
+                  state: "planning",
+                  startedAt: 0,
+                  plannedAt: null,
+                  endedAt: null,
+                  error: null,
+                  slots: [],
+                },
+              }
+            : { ok: true };
 
       return new Response(JSON.stringify(answer), { status: 200 });
     }
 
+    reads.push(name);
     // Extra answers are read at request time, so a test can change one mid-way.
-    const answer = name in extra ? extra[name] : reads.get(name);
+    const answer = name in extra ? extra[name] : table.get(name);
 
     return new Response(JSON.stringify(answer ?? {}), {
       status: answer === undefined ? 404 : 200,
@@ -496,6 +521,94 @@ describe("building directions", () => {
     expect(document.body.textContent).toContain("Claude is building Market");
   });
 
+  test("an older set that is running again leads the card and holds the brief", async () => {
+    switchedOn();
+
+    const newer = {
+      ...JOB,
+      id: "gen-2",
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB, newer] } } });
+
+    expect(document.body.textContent).toContain("Building 2 hero directions");
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+    expect(document.querySelector('form button[type="submit"]')).toBeNull();
+    expect(document.body.textContent).toContain("A set is being built. Wait for it, or stop it.");
+  });
+
+  test("a dismissed card comes back when its set runs again", async () => {
+    switchedOn();
+
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [
+        slot("Ledger", "ready"),
+        slot("Pantry", "failed", { code: "agent-error", message: "It went wrong." }),
+      ],
+    };
+
+    const answers: GenerateAnswer = { generate: { ok: true, jobs: [done] } };
+    await mount({ previews: HEROES, reads: answers });
+
+    await after(() => click(find('[aria-label="Dismiss this set\'s summary"]')));
+    expect(document.body.textContent).not.toContain("1 of 2 ready");
+
+    answers.generate = {
+      ok: true,
+      jobs: [
+        {
+          ...done,
+          state: "building",
+          endedAt: null,
+          slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
+        },
+      ],
+    };
+    await after(() => undefined, 61_000);
+    expect(document.body.textContent).toContain("Building 2 hero directions, 1 ready");
+  });
+
+  test("a retry is sent once while the set catches up", async () => {
+    switchedOn();
+    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    const retry = () => find<HTMLButtonElement>('[aria-label="Build the Pantry direction again"]');
+
+    await after(() => click(retry()));
+    await after(() => click(retry()));
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate/retry")).toEqual([
+      { path: "/leglas/api/generate/retry", body: { id: "gen-1", slot: "hero-pantry" } },
+    ]);
+    expect(retry().disabled).toBe(true);
+  });
+
+  test("nothing reads the sets when the switch is off, or for somebody else's rail", async () => {
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    await after(() => click(row("Pantry")));
+    expect(reads).not.toContain("generate");
+    expect(document.body.textContent).not.toContain("didn’t build");
+
+    await act(async () => root.unmount());
+    switchedOn();
+    await mount({
+      previews: HEROES,
+      reads: { generate: { ok: true, jobs: [JOB] } },
+      viewer: {
+        scope: "rail",
+        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
+      },
+    });
+    await after(() => undefined, 61_000);
+    expect(reads).not.toContain("generate");
+  });
+
   test("with an agent other than Claude, the brief says why it cannot build", async () => {
     switchedOn();
 
@@ -506,9 +619,9 @@ describe("building directions", () => {
 
     await after(() => click(find('[aria-label="Build new directions with Claude"]')));
     expect(document.querySelector('form button[type="submit"]')).toBeNull();
-    expect(document.body.textContent).toContain(
-      "Building directions runs on Claude. Choose it in the agent menu.",
-    );
+    expect(document.body.textContent).toContain("Building directions runs on Claude.");
+    // The picker sits beside the reason, so Claude can be chosen without leaving the brief.
+    expect(find("form").textContent).toContain("Codex");
 
     // Enter submits the form even with the button gone; the reason stands there too.
     await after(() => type(find("textarea"), "Dinner in thirty minutes"));

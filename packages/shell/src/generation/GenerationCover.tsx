@@ -58,7 +58,7 @@ export function GenerationCover({
           {slot.state === "failed" ? `${name} didn’t build` : `${name} was stopped`}
         </p>
         <p className="mt-1 text-xs leading-snug text-neutral-500">
-          {slot.state === "failed" ? (slot.failure?.message ?? slot.idea) : slot.idea}
+          {slot.state === "failed" ? (slot.failure?.message ?? "It did not build.") : slot.idea}
         </p>
       </div>
       <div className="flex gap-2">

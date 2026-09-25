@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { FALLBACK_MS, liveConnection } from "../net/live.js";
 import { startPoll } from "../net/poll.js";
@@ -11,13 +11,21 @@ import { isRunning, type GenerationJob } from "./generation.js";
  */
 export const IDLE_GENERATION_MS = 60_000;
 
+const NONE: GenerationJob[] = [];
+
 /**
  * The sets Leglas is building or built, kept current by the server's
  * `generation` nudge, which it sends on every step of a job. Off for share
  * viewers, who cannot read the endpoint, and while the feature is switched
  * off.
  */
-export function useGeneration(enabled: boolean): GenerationJob[] {
+export type Generations = {
+  jobs: GenerationJob[];
+  /** A job this shell just started, shown before the next read brings it. */
+  noteJob: (job: GenerationJob) => void;
+};
+
+export function useGeneration(enabled: boolean): Generations {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const running = jobs.some(isRunning);
 
@@ -49,5 +57,13 @@ export function useGeneration(enabled: boolean): GenerationJob[] {
     };
   }, [enabled, running]);
 
-  return enabled ? jobs : [];
+  const noteJob = useCallback((job: GenerationJob) => {
+    setJobs((current) =>
+      current.some((known) => known.id === job.id)
+        ? current.map((known) => (known.id === job.id ? job : known))
+        : [...current, job],
+    );
+  }, []);
+
+  return { jobs: enabled ? jobs : NONE, noteJob };
 }

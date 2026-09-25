@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { CardButton, Glyph, Icon } from "../agents/StatusCard.js";
 import { formatElapsed } from "../agents/request-status.js";
-import { cardFor, isRunning, type GenerationJob } from "./generation.js";
+import { cardFor, isRunning, runStartedAt, type GenerationJob } from "./generation.js";
 
 function Done() {
   return (
@@ -72,7 +72,7 @@ export function GenerationCard({
         </div>
         {running && (
           <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
-            {formatElapsed(clock - job.startedAt)}
+            {formatElapsed(clock - runStartedAt(job))}
           </span>
         )}
         {running ? (

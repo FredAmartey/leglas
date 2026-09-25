@@ -71,6 +71,42 @@ export function slotsByTitle(jobs: readonly GenerationJob[]): Map<string, SlotVi
   return views;
 }
 
+/**
+ * Whether a direction's address is this slot's, `v-<surface>=<key>`. A title
+ * alone is not enough: once a failed direction is deleted, a hand-made one
+ * may take its title, and the old slot must not speak for it.
+ */
+export function isSlotOf(url: string, view: SlotView): boolean {
+  try {
+    return (
+      new URL(url, "http://leglas.invalid").searchParams.get(`v-${view.job.surface}`) ===
+      view.slot.key
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How long after planning a slot may start and still belong to the set's
+ * first run. Builds start together, within milliseconds of the plan; a later
+ * start is a retry or a new idea.
+ */
+const RESTART_GAP_MS = 2000;
+
+/** When the set's current run began: its latest retry or new idea, or else the set itself. */
+export function runStartedAt(job: GenerationJob): number {
+  let latest = job.startedAt;
+
+  for (const slot of job.slots) {
+    if (slot.startedAt === null || job.plannedAt === null) continue;
+
+    if (slot.startedAt - job.plannedAt > RESTART_GAP_MS) latest = Math.max(latest, slot.startedAt);
+  }
+
+  return latest;
+}
+
 export function isRunning(job: GenerationJob): boolean {
   return job.state === "planning" || job.state === "building";
 }
@@ -120,8 +156,11 @@ export function cardFor(job: GenerationJob): GenerationCard {
   }
 
   if (ready.length === job.slots.length) {
+    // After a retry the set's own start says nothing about how long it took.
     const seconds =
-      job.endedAt === null ? null : Math.max(1, Math.round((job.endedAt - job.startedAt) / 1000));
+      job.endedAt === null || runStartedAt(job) !== job.startedAt
+        ? null
+        : Math.max(1, Math.round((job.endedAt - job.startedAt) / 1000));
 
     return {
       tone: "done",
@@ -129,7 +168,12 @@ export function cardFor(job: GenerationJob): GenerationCard {
     };
   }
 
-  const parts = [`${ready.length} of ${job.slots.length} ready`];
+  const parts =
+    ready.length > 0
+      ? [`${ready.length} of ${job.slots.length} ready`]
+      : job.slots.length > 1
+        ? [`None of the ${job.slots.length} were built`]
+        : [];
 
   if (failed.length > 0) parts.push(`${names(failed)} failed`);
 

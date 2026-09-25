@@ -110,7 +110,15 @@ import {
   startGeneration,
   stopGeneration,
 } from "./generation/generation-api.js";
-import { isRunning, slotsByTitle, surfaceOf } from "./generation/generation.js";
+import {
+  isRunning,
+  isSlotOf,
+  runStartedAt,
+  slotsByTitle,
+  surfaceOf,
+  type GenerationJob,
+  type SlotView,
+} from "./generation/generation.js";
 import { useGeneration } from "./generation/useGeneration.js";
 import { AnnotateButton } from "./composer/AnnotateButton.js";
 import { AttachButton } from "./composer/AttachButton.js";
@@ -148,6 +156,9 @@ const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
  * this only covers the frame before that observer reports.
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
+
+/** How long a finished set's card stays above the composer. */
+const CARD_KEEP_MS = 10 * 60_000;
 
 const IDLE_AGENT: AgentStatus = {
   attached: false,
@@ -495,12 +506,20 @@ export function Shell({
   const [brief, setBrief] = useState("");
   const [briefCount, setBriefCount] = useState(3);
   const [starting, setStarting] = useState(false);
-  /** The slot key (or "set") whose button is waiting on the server. */
-  const [generationAction, setGenerationAction] = useState<string | null>(null);
+  /**
+   * Buttons waiting on the server, by `job:slot` (or `job:set`), each with
+   * the mark it was pressed at. A button stays busy until a read shows the
+   * mark has moved on, not only until the request answers, so a second press
+   * cannot land between the two.
+   */
+  const [pending, setPending] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [dismissedJob, setDismissedJob] = useState<string | null>(null);
-  const jobs = useGeneration(buildEnabled);
+  const { jobs, noteJob } = useGeneration(buildEnabled);
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
   const latestJob = jobs.at(-1) ?? null;
+  // A retry or a new idea can set an older set running again; that one leads.
+  const runningJob = jobs.find(isRunning) ?? null;
+  const cardJob = runningJob ?? latestJob;
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
 
   // The field is a textarea that wears one row until the words need more,
@@ -514,34 +533,64 @@ export function Shell({
     field.style.height = `${Math.min(field.scrollHeight, 96)}px`;
   }, [intent, brief, briefing, st.prefs.width]);
 
-  const actOnGeneration = (key: string, work: () => Promise<void>) => {
-    setGenerationAction(key);
-    void work()
-      .catch((error) =>
-        st.notify({
-          kind: "generation",
-          message: error instanceof Error ? error.message : String(error),
-          tone: "danger",
-          ttl: TOAST_TTL.action,
-        }),
-      )
-      .finally(() => setGenerationAction(null));
+  /** What a slot's button waits to see change: its state and when it last started. */
+  const slotMark = (view: SlotView) => `${view.slot.state}@${view.slot.startedAt ?? ""}`;
+
+  /** The same for the whole set: its state and when its current run began. */
+  const setMark = (job: GenerationJob) => `${job.state}@${runStartedAt(job)}`;
+
+  // A wait whose mark no longer matches has been answered; it stays in the
+  // map, harmless, until the next press on that button replaces it.
+  const actOnGeneration = (key: string, mark: string, work: () => Promise<void>) => {
+    if (pending.get(key) === mark) return;
+    setPending((current) => new Map(current).set(key, mark));
+    void work().catch((error) => {
+      setPending((current) => new Map([...current].filter(([held]) => held !== key)));
+      st.notify({
+        kind: "generation",
+        message: error instanceof Error ? error.message : String(error),
+        tone: "danger",
+        ttl: TOAST_TTL.action,
+      });
+    });
   };
 
-  const rowSlot = (title: string): RowSlot | null => {
+  /** A title's slot, when the direction under that title really is the slot's. */
+  const slotFor = (title: string): SlotView | undefined => {
     const view = slotViews.get(title);
 
-    if (view === undefined) return null;
+    return view !== undefined && isSlotOf(st.urlFor(title), view) ? view : undefined;
+  };
+
+  const slotActions = (view: SlotView) => {
+    const key = `${view.job.id}:${view.slot.key}`;
+    const mark = slotMark(view);
     const { job, slot } = view;
 
     return {
-      slot,
-      acting: generationAction === slot.key,
-      onReplace: () => actOnGeneration(slot.key, () => replaceDirection(job.id, slot.key)),
-      onRetry: () => actOnGeneration(slot.key, () => retryDirection(job.id, slot.key)),
-      onStop: () => actOnGeneration(slot.key, () => stopGeneration(job.id, slot.key)),
+      acting: pending.get(key) === mark,
+      onReplace: () => actOnGeneration(key, mark, () => replaceDirection(job.id, slot.key)),
+      onRetry: () => actOnGeneration(key, mark, () => retryDirection(job.id, slot.key)),
+      onStop: () => actOnGeneration(key, mark, () => stopGeneration(job.id, slot.key)),
     };
   };
+
+  const rowSlot = (title: string): RowSlot | null => {
+    const view = slotFor(title);
+
+    return view === undefined ? null : { slot: view.slot, ...slotActions(view) };
+  };
+
+  // A finished set's card goes after ten minutes, on its own; a running one always shows.
+  useEffect(() => {
+    if (cardJob === null || isRunning(cardJob) || cardJob.endedAt === null) return;
+    const left = cardJob.endedAt + CARD_KEEP_MS - Date.now();
+
+    if (left <= 0) return;
+    const timer = window.setTimeout(() => setDismissedJob(cardJob.id), left);
+
+    return () => window.clearTimeout(timer);
+  }, [cardJob]);
 
   // A set's rows arrive at the end of the rail, often below the fold. The
   // first is brought into view once, when it exists, so the build is seen
@@ -549,29 +598,29 @@ export function Shell({
   const revealedJob = useRef<string | null>(null);
 
   useEffect(() => {
-    const first = latestJob?.slots[0];
+    const first = runningJob?.slots[0];
 
-    if (latestJob === null || first === undefined || !isRunning(latestJob)) return;
+    if (runningJob === null || first === undefined) return;
 
-    if (revealedJob.current === latestJob.id) return;
+    if (revealedJob.current === runningJob.id) return;
     const row = document.querySelector(`li[data-title="${CSS.escape(first.title)}"]`);
 
     if (row === null) return;
-    revealedJob.current = latestJob.id;
+    revealedJob.current = runningJob.id;
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     row.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "nearest" });
-  }, [latestJob, st.rows]);
+  }, [runningJob, st.rows]);
 
   // "Try a new idea" brings the replacement under a new title and the old
   // one leaves the rail. The stage follows the slot to its new title instead
   // of falling back to the app's own page; picking another row lets it go.
-  const followedSlot = useRef<{ key: string; title: string } | null>(null);
+  const followedSlot = useRef<{ job: string; key: string; title: string } | null>(null);
 
   useEffect(() => {
     const view = st.active === null ? undefined : slotViews.get(st.active);
 
     if (view !== undefined) {
-      followedSlot.current = { key: view.slot.key, title: view.slot.title };
+      followedSlot.current = { job: view.job.id, key: view.slot.key, title: view.slot.title };
 
       return;
     }
@@ -584,12 +633,14 @@ export function Shell({
       return;
     }
 
-    const renamed = [...slotViews.values()].find((candidate) => candidate.slot.key === last.key);
+    const renamed = [...slotViews.values()].find(
+      (candidate) => candidate.job.id === last.job && candidate.slot.key === last.key,
+    );
 
     if (renamed === undefined || renamed.slot.title === last.title) return;
 
     if (st.previewFor(renamed.slot.title) === undefined) return;
-    followedSlot.current = { key: renamed.slot.key, title: renamed.slot.title };
+    followedSlot.current = { job: last.job, key: renamed.slot.key, title: renamed.slot.title };
     st.setActive(renamed.slot.title);
   }, [slotViews, st, previews]);
 
@@ -599,7 +650,8 @@ export function Shell({
     if (value === "" || activeSurface === null || starting) return;
     setStarting(true);
     void startGeneration({ surface: activeSurface, brief: value, count: briefCount })
-      .then(() => {
+      .then((job) => {
+        noteJob(job);
         setBrief("");
         setBriefOpen(false);
         setDismissedJob(null);
@@ -1550,8 +1602,8 @@ export function Shell({
   // Why the brief cannot build right now, said in the button's place; Enter obeys it too.
   const briefReason =
     chip.kind !== "chosen" || chip.id !== "claude"
-      ? "Building directions runs on Claude. Choose it in the agent menu."
-      : latestJob !== null && isRunning(latestJob)
+      ? "Building directions runs on Claude."
+      : runningJob !== null
         ? "A set is being built. Wait for it, or stop it."
         : activeSurface === null
           ? "Pick a direction on the surface first."
@@ -2389,6 +2441,28 @@ export function Shell({
     window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
   };
 
+  // One picker, in the composer's toolbar or beside the brief's reason when it asks for Claude.
+  const agentPicker = (
+    <AgentPicker
+      agents={agentState.agents}
+      chip={chip}
+      chosenSignedOut={chosenSignedOut}
+      connectRef={mcpConnectTriggerRef}
+      menuRef={agentMenuRef}
+      onConnect={() => setMcpConnectOpen(true)}
+      onPick={pickAgent}
+      onPickEffort={pickEffort}
+      onRefresh={refreshAgents}
+      open={agentMenuOpen}
+      pickingAgent={pickingAgent}
+      savingEffort={savingEffort}
+      selectedAgent={selectedAgent}
+      selectedEffort={selectedEffort}
+      setOpen={setAgentMenuOpen}
+      triggerRef={agentTriggerRef}
+    />
+  );
+
   return (
     <main
       className={`flex h-dvh bg-[#1C1C20] text-white antialiased selection:bg-[#E6E8EC] selection:text-[#17181B] ${
@@ -2649,15 +2723,20 @@ export function Shell({
               whatever that height turns out to be. */}
           <div ref={railFooterRef}>
             {buildEnabled &&
-              latestJob !== null &&
-              latestJob.id !== dismissedJob &&
-              (isRunning(latestJob) ||
-                (latestJob.endedAt !== null && Date.now() - latestJob.endedAt < 10 * 60_000)) && (
+              cardJob !== null &&
+              (isRunning(cardJob) ||
+                (cardJob.id !== dismissedJob &&
+                  cardJob.endedAt !== null &&
+                  Date.now() - cardJob.endedAt < CARD_KEEP_MS)) && (
                 <GenerationCard
-                  job={latestJob}
-                  onDismiss={() => setDismissedJob(latestJob.id)}
-                  onStop={() => actOnGeneration("set", () => stopGeneration(latestJob.id))}
-                  stopping={generationAction === "set"}
+                  job={cardJob}
+                  onDismiss={() => setDismissedJob(cardJob.id)}
+                  onStop={() =>
+                    actOnGeneration(`${cardJob.id}:set`, setMark(cardJob), () =>
+                      stopGeneration(cardJob.id),
+                    )
+                  }
+                  stopping={pending.get(`${cardJob.id}:set`) === setMark(cardJob)}
                 />
               )}
             {!viewing && card !== null && (
@@ -2895,7 +2974,9 @@ export function Shell({
                   <textarea
                     aria-label={
                       briefing
-                        ? `Describe the new ${activeSurface ?? ""} directions for Claude to build`
+                        ? activeSurface === null
+                          ? "Describe the new directions for Claude to build"
+                          : `Describe the new ${activeSurface} directions for Claude to build`
                         : st.active
                           ? `Ask your agent to change the ${st.displayName(st.active)} direction`
                           : "Ask your agent to change a direction"
@@ -2968,6 +3049,7 @@ export function Shell({
                     <BriefToolbar
                       count={briefCount}
                       onCount={setBriefCount}
+                      picker={chip.kind === "chosen" && chip.id === "claude" ? null : agentPicker}
                       reason={briefReason}
                       ready={brief.trim() !== "" && activeSurface !== null}
                       starting={starting}
@@ -2989,24 +3071,7 @@ export function Shell({
                         count={activeNotes.length}
                         onToggle={() => (annotating ? stopAnnotating() : setAnnotating(true))}
                       />
-                      <AgentPicker
-                        agents={agentState.agents}
-                        chip={chip}
-                        chosenSignedOut={chosenSignedOut}
-                        connectRef={mcpConnectTriggerRef}
-                        menuRef={agentMenuRef}
-                        onConnect={() => setMcpConnectOpen(true)}
-                        onPick={pickAgent}
-                        onPickEffort={pickEffort}
-                        onRefresh={refreshAgents}
-                        open={agentMenuOpen}
-                        pickingAgent={pickingAgent}
-                        savingEffort={savingEffort}
-                        selectedAgent={selectedAgent}
-                        selectedEffort={selectedEffort}
-                        setOpen={setAgentMenuOpen}
-                        triggerRef={agentTriggerRef}
-                      />
+                      {agentPicker}
                       <SendButton
                         ready={
                           (intent.trim() !== "" || activeNotes.length > 0) &&
@@ -3157,21 +3222,19 @@ export function Shell({
             boxHeight={boxHeight}
             boxWidth={boxWidth}
             cover={(() => {
-              const view = buildEnabled ? slotViews.get(title) : undefined;
+              const view = buildEnabled ? slotFor(title) : undefined;
 
               if (view === undefined || view.slot.state === "ready") return null;
-              const { job, slot } = view;
+              const actions = slotActions(view);
 
               return (
                 <GenerationCover
-                  acting={generationAction === slot.key}
+                  acting={actions.acting}
                   name={st.displayName(title)}
-                  onReplace={() =>
-                    actOnGeneration(slot.key, () => replaceDirection(job.id, slot.key))
-                  }
-                  onRetry={() => actOnGeneration(slot.key, () => retryDirection(job.id, slot.key))}
-                  onStop={() => actOnGeneration(slot.key, () => stopGeneration(job.id, slot.key))}
-                  slot={slot}
+                  onReplace={actions.onReplace}
+                  onRetry={actions.onRetry}
+                  onStop={actions.onStop}
+                  slot={view.slot}
                 />
               );
             })()}
