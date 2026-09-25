@@ -294,7 +294,11 @@ describe("the rail and the stage", () => {
 
     expect([...folded.keys()]).toEqual(["Table", "Menu", "Counter"]);
 
-    for (const [title, indent] of folded) expect(indent, title).toBe(open.get(title));
+    // Each card is indented at all, so equal cannot mean both empty.
+    for (const [title, indent] of folded) {
+      expect(indent, title).toMatch(/^\d+px$/);
+      expect(indent, title).toBe(open.get(title));
+    }
   });
 });
 
