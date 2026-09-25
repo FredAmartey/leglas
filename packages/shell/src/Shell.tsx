@@ -1368,12 +1368,15 @@ export function Shell({
     if (!gridding) return;
 
     const leave = (event: KeyboardEvent) => {
-      // A popover or menu with the focus closes first, whichever listener runs first.
-      const inDialog =
+      // A popover, a modal or a field with the focus takes Escape first, whichever
+      // listener runs first: a native dialog only cancels after this has run.
+      const nearer =
         document.activeElement instanceof Element &&
-        document.activeElement.closest('[role="dialog"]') !== null;
+        document.activeElement.closest(
+          'dialog[open], [role="dialog"], [role="alertdialog"], input, textarea',
+        ) !== null;
 
-      if (event.key === "Escape" && !event.defaultPrevented && !inDialog) setGrid(null);
+      if (event.key === "Escape" && !event.defaultPrevented && !nearer) setGrid(null);
     };
 
     window.addEventListener("keydown", leave);

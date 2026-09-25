@@ -364,8 +364,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const settle = (live: Live): void => {
     const { job } = live;
 
+    // A checking slot's step is its fix run's, which `check` clears itself.
     for (const slot of job.slots) {
-      if (slot.state !== "building") slot.activity = null;
+      if (slot.state !== "building" && slot.state !== "checking") slot.activity = null;
     }
 
     if (job.state === "planning" || job.state === "failed") return;
@@ -613,6 +614,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       if (!owns(live, slot, attempt)) return;
       slot.activity = null;
+      changed();
 
       if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
 

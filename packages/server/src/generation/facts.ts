@@ -33,13 +33,16 @@ const VARIED_LINES = 600;
 
 /** The first `limit` lines, saying so when there were more, so a build never takes a cut file for the whole. */
 function clip(source: string, limit: number): string {
-  const lines = source.split("\n");
+  // A file's last newline ends its last line; it does not start another.
+  const lines = source.replace(/\n$/, "").split("\n");
 
   if (lines.length <= limit) return source;
+  const hidden = lines.length - limit;
 
-  return [...lines.slice(0, limit), `// … ${lines.length - limit} more lines, not shown`].join(
-    "\n",
-  );
+  return [
+    ...lines.slice(0, limit),
+    `// … ${hidden} more ${hidden === 1 ? "line" : "lines"}, not shown`,
+  ].join("\n");
 }
 
 /** Short enough that a direction this size is a re-export, not a design. */

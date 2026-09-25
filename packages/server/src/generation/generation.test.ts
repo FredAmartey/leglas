@@ -348,6 +348,13 @@ describe("the facts a builder is given", () => {
 
     expect(lines).toHaveLength(601);
     expect(lines.at(-1)).toBe("// … 100 more lines, not shown");
+
+    // One line over, ending in a newline as files do: one line hidden, said as one.
+    const one = ["export function HeroA() {", ...body.slice(0, 599), "}", ""].join("\n");
+    await writeFile(join(cwd, ".leglas", "variants", "hero", "hero-a.tsx"), one);
+    const cut = await readProjectFacts(cwd, ".leglas/variants/hero/switch.tsx", "hero-a");
+
+    expect(cut.example?.source.split("\n").at(-1)).toBe("// … 1 more line, not shown");
   });
 
   test("name the example as the direction being varied only when it was read from it", async () => {
@@ -643,6 +650,7 @@ function orchestrator(
   const builds: FakeChild[] = [];
   const spawned: FakeChild[] = [];
   const prompts: string[] = [];
+  const announced: ReturnType<ReturnType<typeof createGenerations>["snapshot"]>[] = [];
   let buildIndex = 0;
 
   const fakeSpawn: RunnerSpawn = (_command, args) => {
@@ -697,10 +705,11 @@ function orchestrator(
     register,
     unregister: async () => {},
     titles: async () => new Set<string>(),
-    onChange: () => {},
+    // What every nudge would carry to the interface, in order.
+    onChange: () => void announced.push(generations.snapshot()),
   });
 
-  return { generations, builds, spawned, prompts };
+  return { generations, builds, spawned, prompts, announced };
 }
 
 async function settled<T>(read: () => T | undefined, holds: (value: T) => boolean): Promise<T> {
@@ -1424,7 +1433,7 @@ describe("a generation's lifecycle", () => {
     const edit = (tool: string) =>
       `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: tool, input: { file_path: file } }] } })}\n`;
 
-    const { generations, builds } = orchestrator(
+    const { generations, builds, announced } = orchestrator(
       cwd,
       [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
       ["hang"],
@@ -1480,14 +1489,92 @@ describe("a generation's lifecycle", () => {
       () => reports[1],
       () => true,
     );
-    // Opening the page again, the fix run's last step is over too.
+    // Opening the page again, the fix run's last step is over too, and the interface is told.
     expect(slot()?.activity).toBeNull();
+    expect(announced.at(-1)?.[0]?.slots[0]?.activity).toBeNull();
     reports[1]!({ errors: [] });
 
     expect(await settled(slot, (value) => value.state === "ready")).toMatchObject({
       activity: null,
       fixed: true,
     });
+  });
+
+  test("another direction finishing leaves a fix run's step on its cover", async () => {
+    const cwd = await project("claude");
+    const reports: ((report: { errors: readonly string[] }) => void)[] = [];
+    const folder = join(cwd, ".leglas", "variants", "hero");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [
+        { key: "ledger", title: "Ledger", idea: "Ruled lines." },
+        { key: "steam", title: "Steam", idea: "A pan." },
+      ],
+      ["hang", "hang"],
+      (title) =>
+        title === "Ledger"
+          ? new Promise((resolve) => reports.push(resolve))
+          : Promise.resolve({ errors: [] }),
+      undefined,
+      "hang",
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const slots = () => generations.snapshot()[0]?.slots ?? [];
+    await settled(
+      () => builds[1],
+      () => true,
+    );
+    const [ledger, steam] = [builds[0]!, builds[1]!];
+
+    await writeFile(
+      join(folder, "hero-ledger.tsx"),
+      "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n",
+    );
+    ledger.finish(0);
+    await settled(
+      () => reports[0],
+      () => true,
+    );
+    reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
+
+    const fix = await settled(
+      () => builds[2],
+      () => true,
+    );
+
+    fix.stdout.write(
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(folder, "hero-ledger.tsx") } }] } })}\n`,
+    );
+    await settled(
+      () => slots()[0],
+      (value) => value.activity !== null,
+    );
+
+    await writeFile(
+      join(folder, "hero-steam.tsx"),
+      "export function HeroSteam() {\n  return <h1>Steam</h1>;\n}\n",
+    );
+    steam.finish(0);
+    await settled(
+      () => slots()[1],
+      (value) => value.state === "ready",
+    );
+
+    expect(slots()[0]).toMatchObject({
+      state: "checking",
+      activity: "editing .leglas/variants/hero/hero-ledger.tsx",
+    });
+    await generations.stop(started.job.id);
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {

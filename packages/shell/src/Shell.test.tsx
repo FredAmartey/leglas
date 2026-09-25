@@ -893,6 +893,23 @@ describe("building directions", () => {
       expect(shownWhole()).toBe(0);
     });
 
+    test("stays while Escape is taken by a modal or the search field", async () => {
+      await whole();
+
+      const connect = [...document.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("Connect agent via MCP"),
+      );
+
+      await after(() => click(must(connect, "the MCP connect button")));
+      expect(document.activeElement?.closest("dialog")).not.toBeNull();
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(2);
+
+      await after(() => find<HTMLInputElement>('input[placeholder="Search directions…"]').focus());
+      await after(() => key("Escape"));
+      expect(shownWhole()).toBe(2);
+    });
+
     test("stays while Escape closes a popover over it", async () => {
       await whole();
       await after(() => key("t"));
