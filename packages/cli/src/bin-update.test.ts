@@ -1,3 +1,5 @@
+import { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 
 import type { createUpdateService, UpdateService } from "@leglas/server";
@@ -98,14 +100,59 @@ describe("CLI update wiring", () => {
       expect(stderr.mock.calls.map(([line]) => line)).toEqual(
         json ? ["Updating Leglas.\n", "Restarting Leglas.\n"] : [],
       );
-      expect(mocked.shutdown).toHaveBeenCalledOnce();
-      expect(service.onRestart).toHaveBeenCalledOnce();
-      expect(mocked.run).toHaveBeenCalledWith(
-        expect.objectContaining({ json, open: false }),
-        expect.objectContaining({ updates: service }),
-      );
     },
   );
+
+  // A restart hands the process to a new Leglas. A Ctrl-C after that belongs
+  // to the child, so the ordinary shutdown must not stop or exit a second time.
+  test("after a restart hands off, a shutdown signal goes to the child alone", async () => {
+    process.argv = [process.execPath, "/invoked/leglas", "--no-open"];
+    vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const target = new EventEmitter();
+    const child = new ChildProcess();
+    const kill = vi.spyOn(child, "kill").mockReturnValue(true);
+    const exit = vi.fn<(code: number) => void>();
+    let shutdown = async (): Promise<void> => {};
+
+    mocked.shutdown.mockImplementation((onSignal) => {
+      shutdown = onSignal;
+    });
+
+    await startViewer(
+      {
+        cwd: process.cwd(),
+        json: false,
+        open: false,
+        port: undefined,
+        userPort: undefined,
+        configPath: undefined,
+      },
+      {
+        entry,
+        version: "1.0.0",
+        open: async () => {},
+        realpath: mocked.realpath,
+        createUpdateService: mocked.create,
+        run: mocked.run,
+        installShutdown: mocked.shutdown,
+        handoff: { spawn: () => child, exit, target },
+      },
+    );
+
+    const { stop } = await mocked.run.mock.results[0]!.value;
+    const restart = service.onRestart.mock.calls[0]![0];
+    await restart({ file: "npx", args: ["-y", "leglas@1.1.0"], shell: false });
+
+    target.emit("SIGINT");
+    await shutdown();
+
+    expect(kill).toHaveBeenCalledExactlyOnceWith("SIGINT");
+    expect(stop).toHaveBeenCalledOnce();
+    expect(exit).not.toHaveBeenCalled();
+
+    child.emit("exit", 0);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
 
   test("starts with the unresolved entry when realpath fails", async () => {
     process.argv = [process.execPath, "/invoked/leglas", "--no-open"];

@@ -358,43 +358,14 @@ describe("runWatch", () => {
     expect(d.lines.join("\n")).toContain("not retried");
   });
 
+  // --help: the --run command is "Remembered after first use".
   test("remembers the template for the next flagless run", async () => {
     const root = cwd();
-    const controller = new AbortController();
+    await startAndStop(root, "node {prompt}");
 
-    const running = runWatch(
-      { run: "node {prompt}", port: DEAD_PORT, cwd: root, signal: controller.signal },
-      deps(),
-    );
+    const lines = await startAndStop(root);
 
-    await until(() => {
-      try {
-        return (
-          JSON.parse(readFileSync(join(root, ".leglas/watch.json"), "utf8")).run === "node {prompt}"
-        );
-      } catch {
-        return false;
-      }
-    });
-    controller.abort();
-    await running;
-  });
-
-  // The watcher hears a stop from the moment it is asked for, not from the
-  // moment it has finished starting. Its own template write is what these
-  // tests wait for, so a stop can land between that file appearing on disk
-  // and the loop being wired to listen for one, and the loop that missed it
-  // ran until the test around it timed out.
-  test("a stop that lands during startup is still a stop", async () => {
-    const controller = new AbortController();
-    controller.abort();
-
-    const outcome = await runWatch(
-      { run: "node {prompt}", port: DEAD_PORT, cwd: cwd(), signal: controller.signal },
-      deps(),
-    );
-
-    expect(outcome.exitCode).toBe(0);
+    expect(lines).toContain("Watching for change requests. Each one runs: node {prompt}");
   });
 });
 
@@ -453,9 +424,11 @@ describe("leglas watch --json, as a process", () => {
 describe("stopping before the loop is listening", () => {
   test("a signal that fired during startup still stops the watcher", async () => {
     // Everything before the loop is awaited work, and a caller can abort
-    // inside that window. A listener added to an already-aborted signal is
-    // never called, so this used to leave the watcher running with nobody to
-    // stop it and the caller waiting on a promise that never settled.
+    // inside that window: the tests here wait for the template write, so a
+    // stop can land after that file appears and before the loop listens. A
+    // listener added to an already-aborted signal is never called, so this
+    // used to leave the watcher running with nobody to stop it and the caller
+    // waiting on a promise that never settled.
     const root = cwd();
     const controller = new AbortController();
     controller.abort();
