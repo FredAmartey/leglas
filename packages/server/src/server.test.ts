@@ -128,6 +128,27 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
   }
 };
 
+/**
+ * Write until the watcher reports it.
+ *
+ * On macOS a directory watch misses a write made in the moment it starts,
+ * about two times in forty, and nothing rewrites the file afterwards, so one
+ * write can wait out the whole deadline for an event that is never coming.
+ * The rewrites are spaced wider than the coalescing window, which every event
+ * restarts.
+ */
+async function writeUntilHeard(path: string, text: string, heard: () => boolean): Promise<void> {
+  const deadline = Date.now() + EVENTUALLY_MS;
+
+  while (!heard()) {
+    if (Date.now() > deadline) throw new Error("the watcher never reported the write");
+    writeFileSync(path, text);
+    const retry = Date.now() + 250;
+
+    while (!heard() && Date.now() < retry) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function expectConditionalRead(
   url: string,
   change: () => Promise<void> | void,
@@ -2693,23 +2714,20 @@ describe("startServer", () => {
     expect(body.reachable).toBe(false);
   });
 
-  test("coalesces request-file writes into one requests nudge", async () => {
+  // Only that a write reaches the wire, and only ever as "requests". How many
+  // nudges a burst produces depends on when the operating system delivers the
+  // events; the coalescing is proven against a driven clock in live.test.ts.
+  test("a write to requests.json nudges the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-requests-"));
     mkdirSync(join(cwd, ".leglas"));
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    const path = join(cwd, ".leglas/requests.json");
-    writeFileSync(path, '{"requests":[]}\n');
-    writeFileSync(path, '{"requests":[]}\n ');
-
-    // Only that a write reaches the wire, and only ever as "requests".
-    // How many nudges two back-to-back writes produce depends on when the
-    // operating system delivers the watch events, not on this code, and
-    // asserting a count here measured that instead and failed on a loaded
-    // machine. The coalescing itself is proven against a driven clock in
-    // live.test.ts, where it is a property rather than a race.
-    await eventually(() => live.changes.length >= 1);
+    await writeUntilHeard(
+      join(cwd, ".leglas/requests.json"),
+      '{"requests":[]}\n',
+      () => live.changes.length > 0,
+    );
     expect(new Set(live.changes)).toEqual(new Set(["requests"]));
   });
 
@@ -2719,10 +2737,12 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    writeFileSync(join(cwd, ".leglas/annotations.json"), '{"annotations":[]}\n');
-
-    await eventually(() => live.changes.length === 1);
-    expect(live.changes).toEqual(["requests"]);
+    await writeUntilHeard(
+      join(cwd, ".leglas/annotations.json"),
+      '{"annotations":[]}\n',
+      () => live.changes.length > 0,
+    );
+    expect(new Set(live.changes)).toEqual(new Set(["requests"]));
   });
 
   test("nudges config when the late-created previews registry changes", async () => {
@@ -2730,11 +2750,10 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    writeFileSync(join(cwd, ".leglas/previews.json"), '{"previews":[]}\n');
-
-    await eventually(() => live.changes.includes("config"));
-    expect(live.changes).toEqual(["config"]);
+    await writeUntilHeard(join(cwd, ".leglas/previews.json"), '{"previews":[]}\n', () =>
+      live.changes.includes("config"),
+    );
+    expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
 
   test("nudges config when the resolved config file changes", async () => {
@@ -2744,11 +2763,8 @@ describe("startServer", () => {
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    writeFileSync(configPath, '{"previews":[]}\n');
-
-    await eventually(() => live.changes.includes("config"));
-    expect(live.changes).toEqual(["config"]);
+    await writeUntilHeard(configPath, '{"previews":[]}\n', () => live.changes.includes("config"));
+    expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
 
   test("passes runner state changes to the requests channel", async () => {
