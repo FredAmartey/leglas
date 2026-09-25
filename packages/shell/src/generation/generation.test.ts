@@ -4,6 +4,7 @@ import {
   buildLabel,
   cardFor,
   isSlotOf,
+  lastEnded,
   runStartedAt,
   slotsByTitle,
   surfaceOf,
@@ -149,6 +150,14 @@ describe("a set built again in part", () => {
   test("runs from its latest retry, not from when the set began", () => {
     expect(runStartedAt(retried())).toBe(640_000);
     expect(runStartedAt(job("planning", [], { plannedAt: null }))).toBe(1_000);
+    // Stopped before its plan landed, then tried again: no plan time, so the start is a retry.
+    expect(
+      runStartedAt(
+        job("building", [{ ...slot("Ledger", "building"), startedAt: 900_000 }], {
+          plannedAt: null,
+        }),
+      ),
+    ).toBe(900_000);
   });
 
   test("does not claim the whole set took the time since it began", () => {
@@ -169,6 +178,14 @@ test("a set with nothing built says so instead of counting zero", () => {
     tone: "failed",
     text: "Pantry failed",
   });
+});
+
+test("once nothing runs, the card speaks for the set that ended last, not the newest", () => {
+  const older = job("done", [], { id: "gen-1", endedAt: 900_000 });
+  const newer = job("done", [], { id: "gen-2", endedAt: 400_000 });
+
+  expect(lastEnded([older, newer])?.id).toBe("gen-1");
+  expect(lastEnded([job("planning", [])])).toBeNull();
 });
 
 test("a row is a slot's only when its address carries the slot's key", () => {

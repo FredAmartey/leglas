@@ -11,7 +11,7 @@ import { isRunning, type GenerationJob } from "./generation.js";
  */
 export const IDLE_GENERATION_MS = 60_000;
 
-const NONE: GenerationJob[] = [];
+const NONE: readonly GenerationJob[] = [];
 
 /**
  * The sets Leglas is building or built, kept current by the server's
@@ -20,7 +20,7 @@ const NONE: GenerationJob[] = [];
  * off.
  */
 export type Generations = {
-  jobs: GenerationJob[];
+  jobs: readonly GenerationJob[];
   /** A job this shell just started, shown before the next read brings it. */
   noteJob: (job: GenerationJob) => void;
 };

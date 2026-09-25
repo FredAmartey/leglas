@@ -99,12 +99,31 @@ export function runStartedAt(job: GenerationJob): number {
   let latest = job.startedAt;
 
   for (const slot of job.slots) {
-    if (slot.startedAt === null || job.plannedAt === null) continue;
+    if (slot.startedAt === null) continue;
 
-    if (slot.startedAt - job.plannedAt > RESTART_GAP_MS) latest = Math.max(latest, slot.startedAt);
+    // A set stopped before its plan landed has no plan time; any start there is a retry.
+    if (job.plannedAt === null || slot.startedAt - job.plannedAt > RESTART_GAP_MS) {
+      latest = Math.max(latest, slot.startedAt);
+    }
   }
 
   return latest;
+}
+
+/** The set whose result the card should show once nothing runs: the one that ended last. */
+export function lastEnded(jobs: readonly GenerationJob[]): GenerationJob | null {
+  let last: GenerationJob | null = null;
+
+  for (const job of jobs) {
+    if (job.endedAt !== null && (last === null || job.endedAt > (last.endedAt ?? 0))) last = job;
+  }
+
+  return last;
+}
+
+/** One ending of a set, so dismissing it does not hide a later ending of the same set. */
+export function endingOf(job: GenerationJob): string {
+  return `${job.id}@${job.endedAt ?? ""}`;
 }
 
 export function isRunning(job: GenerationJob): boolean {

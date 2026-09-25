@@ -609,6 +609,88 @@ describe("building directions", () => {
     expect(reads).not.toContain("generate");
   });
 
+  test("a set dismissed and then retried shows its new result, not the newest set's", async () => {
+    switchedOn();
+    const failed = slot("Pantry", "failed", { code: "agent-error", message: "It went wrong." });
+
+    const older = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_995_000,
+      slots: [slot("Ledger", "ready"), failed],
+    };
+
+    const newer = {
+      ...JOB,
+      id: "gen-2",
+      count: 1,
+      state: "done",
+      endedAt: 1_789_999_990_000,
+      slots: [slot("Menu", "ready")],
+    };
+
+    const answers: GenerateAnswer = { generate: { ok: true, jobs: [older, newer] } };
+    await mount({ previews: HEROES, reads: answers });
+
+    expect(document.body.textContent).toContain("1 of 2 ready. Pantry failed");
+    await after(() => click(find('[aria-label="Dismiss this set\'s summary"]')));
+
+    answers.generate = {
+      ok: true,
+      jobs: [
+        {
+          ...older,
+          state: "building",
+          endedAt: null,
+          slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
+        },
+        newer,
+      ],
+    };
+    await after(() => undefined, 61_000);
+    expect(document.body.textContent).toContain("Building 2 hero directions, 1 ready");
+
+    // The retry ends later than the newest set did, and its ending was never dismissed.
+    answers.generate = {
+      ok: true,
+      jobs: [
+        {
+          ...older,
+          endedAt: 1_790_000_070_000,
+          slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+        },
+        newer,
+      ],
+    };
+    await after(() => undefined, 16_000);
+    expect(document.body.textContent).toContain("2 hero directions ready");
+  });
+
+  test("only a new set brings its first row into view, never a retry on an older one", async () => {
+    switchedOn();
+    const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
+    const answers: GenerateAnswer = { generate: { ok: true, jobs: [JOB] } };
+    await mount({ previews: HEROES, reads: answers });
+    expect(scrolled).not.toHaveBeenCalled();
+
+    const fresh = { ...JOB, id: "gen-3", state: "planning", slots: [] };
+    answers.generate = {
+      ok: true,
+      jobs: [{ ...JOB, state: "done", endedAt: 1_790_000_010_000 }, fresh],
+    };
+    await after(() => undefined, 16_000);
+    answers.generate = {
+      ok: true,
+      jobs: [
+        { ...JOB, state: "done", endedAt: 1_790_000_010_000 },
+        { ...fresh, state: "building", slots: [slot("Ledger", "building")] },
+      ],
+    };
+    await after(() => undefined, 16_000);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    scrolled.mockRestore();
+  });
+
   test("with an agent other than Claude, the brief says why it cannot build", async () => {
     switchedOn();
 

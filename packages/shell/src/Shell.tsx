@@ -112,7 +112,9 @@ import {
 } from "./generation/generation-api.js";
 import {
   isRunning,
+  endingOf,
   isSlotOf,
+  lastEnded,
   runStartedAt,
   slotsByTitle,
   surfaceOf,
@@ -513,13 +515,16 @@ export function Shell({
    * cannot land between the two.
    */
   const [pending, setPending] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const [dismissedJob, setDismissedJob] = useState<string | null>(null);
+  /** Presses whose request has not answered yet; busy whatever the set does meanwhile. */
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
+  /** The ending of a set the person dismissed; a later ending of the same set shows again. */
+  const [dismissedEnding, setDismissedEnding] = useState<string | null>(null);
   const { jobs, noteJob } = useGeneration(buildEnabled);
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
-  const latestJob = jobs.at(-1) ?? null;
-  // A retry or a new idea can set an older set running again; that one leads.
+  // A retry or a new idea can set an older set running again; that one leads,
+  // and once nothing runs the card shows whichever set ended last.
   const runningJob = jobs.find(isRunning) ?? null;
-  const cardJob = runningJob ?? latestJob;
+  const cardJob = runningJob ?? lastEnded(jobs);
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
 
   // The field is a textarea that wears one row until the words need more,
@@ -542,18 +547,27 @@ export function Shell({
   // A wait whose mark no longer matches has been answered; it stays in the
   // map, harmless, until the next press on that button replaces it.
   const actOnGeneration = (key: string, mark: string, work: () => Promise<void>) => {
-    if (pending.get(key) === mark) return;
+    if (inFlight.has(key) || pending.get(key) === mark) return;
     setPending((current) => new Map(current).set(key, mark));
-    void work().catch((error) => {
-      setPending((current) => new Map([...current].filter(([held]) => held !== key)));
-      st.notify({
-        kind: "generation",
-        message: error instanceof Error ? error.message : String(error),
-        tone: "danger",
-        ttl: TOAST_TTL.action,
-      });
-    });
+    setInFlight((current) => new Set(current).add(key));
+    void work()
+      .catch((error) => {
+        setPending((current) => new Map([...current].filter(([held]) => held !== key)));
+        st.notify({
+          kind: "generation",
+          message: error instanceof Error ? error.message : String(error),
+          tone: "danger",
+          ttl: TOAST_TTL.action,
+        });
+      })
+      .finally(() =>
+        setInFlight((current) => new Set([...current].filter((held) => held !== key))),
+      );
   };
+
+  /** A button is busy while its request is out, and until a read shows its mark moved on. */
+  const generationBusy = (key: string, mark: string) =>
+    inFlight.has(key) || pending.get(key) === mark;
 
   /** A title's slot, when the direction under that title really is the slot's. */
   const slotFor = (title: string): SlotView | undefined => {
@@ -568,7 +582,7 @@ export function Shell({
     const { job, slot } = view;
 
     return {
-      acting: pending.get(key) === mark,
+      acting: generationBusy(key, mark),
       onReplace: () => actOnGeneration(key, mark, () => replaceDirection(job.id, slot.key)),
       onRetry: () => actOnGeneration(key, mark, () => retryDirection(job.id, slot.key)),
       onStop: () => actOnGeneration(key, mark, () => stopGeneration(job.id, slot.key)),
@@ -587,7 +601,7 @@ export function Shell({
     const left = cardJob.endedAt + CARD_KEEP_MS - Date.now();
 
     if (left <= 0) return;
-    const timer = window.setTimeout(() => setDismissedJob(cardJob.id), left);
+    const timer = window.setTimeout(() => setDismissedEnding(endingOf(cardJob)), left);
 
     return () => window.clearTimeout(timer);
   }, [cardJob]);
@@ -596,13 +610,20 @@ export function Shell({
   // first is brought into view once, when it exists, so the build is seen
   // starting; the config read that adds the rows can land after the job's.
   const revealedJob = useRef<string | null>(null);
+  // Only a new set is revealed, one seen planning; a retry on an older set
+  // must not scroll the row just pressed out from under the pointer.
+  const plannedHere = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const job of jobs) if (job.state === "planning") plannedHere.current.add(job.id);
+  }, [jobs]);
 
   useEffect(() => {
     const first = runningJob?.slots[0];
 
     if (runningJob === null || first === undefined) return;
 
-    if (revealedJob.current === runningJob.id) return;
+    if (revealedJob.current === runningJob.id || !plannedHere.current.has(runningJob.id)) return;
     const row = document.querySelector(`li[data-title="${CSS.escape(first.title)}"]`);
 
     if (row === null) return;
@@ -617,7 +638,13 @@ export function Shell({
   const followedSlot = useRef<{ job: string; key: string; title: string } | null>(null);
 
   useEffect(() => {
-    const view = st.active === null ? undefined : slotViews.get(st.active);
+    // The same test as slotFor, inline so the effect depends only on what it reads.
+    const found = st.active === null ? undefined : slotViews.get(st.active);
+
+    const view =
+      found !== undefined && st.active !== null && isSlotOf(st.urlFor(st.active), found)
+        ? found
+        : undefined;
 
     if (view !== undefined) {
       followedSlot.current = { job: view.job.id, key: view.slot.key, title: view.slot.title };
@@ -654,7 +681,7 @@ export function Shell({
         noteJob(job);
         setBrief("");
         setBriefOpen(false);
-        setDismissedJob(null);
+        setDismissedEnding(null);
       })
       .catch((error) =>
         st.notify({
@@ -2725,18 +2752,18 @@ export function Shell({
             {buildEnabled &&
               cardJob !== null &&
               (isRunning(cardJob) ||
-                (cardJob.id !== dismissedJob &&
+                (endingOf(cardJob) !== dismissedEnding &&
                   cardJob.endedAt !== null &&
                   Date.now() - cardJob.endedAt < CARD_KEEP_MS)) && (
                 <GenerationCard
                   job={cardJob}
-                  onDismiss={() => setDismissedJob(cardJob.id)}
+                  onDismiss={() => setDismissedEnding(endingOf(cardJob))}
                   onStop={() =>
                     actOnGeneration(`${cardJob.id}:set`, setMark(cardJob), () =>
                       stopGeneration(cardJob.id),
                     )
                   }
-                  stopping={pending.get(`${cardJob.id}:set`) === setMark(cardJob)}
+                  stopping={generationBusy(`${cardJob.id}:set`, setMark(cardJob))}
                 />
               )}
             {!viewing && card !== null && (
