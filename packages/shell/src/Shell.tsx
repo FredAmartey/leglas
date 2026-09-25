@@ -1338,17 +1338,24 @@ export function Shell({
   });
 
   // A set shown whole, one cell per ready direction. It holds only while the
-  // direction that was on the stage when it opened stays there, so picking
-  // any row in the rail ends it without anything having to notice.
+  // direction that was on the stage when it opened stays there: picking any
+  // row ends it, so coming back to that direction shows it alone. Cleared
+  // while rendering, since every way of moving the stage passes through here.
+  if (grid !== null && grid.from !== st.active) setGrid(null);
+
+  /** A set's finished directions that are still on the rail: what showing it whole shows. */
+  const shownWhole = (job: GenerationJob | undefined): string[] =>
+    job === undefined
+      ? []
+      : job.slots.flatMap((slot) =>
+          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
+        );
+
   const gridSet =
     grid !== null && grid.from === st.active ? jobs.find((job) => job.id === grid.job) : undefined;
 
-  const gridTitles =
-    gridSet === undefined
-      ? []
-      : gridSet.slots.flatMap((slot) =>
-          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
-        );
+  const gridTitles = shownWhole(gridSet);
+  const cardWhole = shownWhole(cardJob ?? undefined);
 
   const gridding = gridTitles.length >= 2;
   const visible = gridding ? gridTitles : paneTitles({ active: st.active, compare, split });
@@ -2824,18 +2831,21 @@ export function Shell({
                   cardJob.endedAt !== null &&
                   Date.now() - cardJob.endedAt < CARD_KEEP_MS)) && (
                 <GenerationCard
-                  comparing={gridding && gridSet?.id === cardJob.id}
-                  job={cardJob}
-                  onCompare={
-                    cardJob.slots.filter((slot) => slot.state === "ready").length >= 2
-                      ? () =>
-                          setGrid(
-                            gridding && gridSet?.id === cardJob.id
-                              ? null
-                              : { from: st.active, job: cardJob.id },
-                          )
+                  compare={
+                    cardWhole.length >= 2
+                      ? {
+                          count: cardWhole.length,
+                          toggle: () =>
+                            setGrid(
+                              gridding && gridSet?.id === cardJob.id
+                                ? null
+                                : { from: st.active, job: cardJob.id },
+                            ),
+                        }
                       : null
                   }
+                  comparing={gridding && gridSet?.id === cardJob.id}
+                  job={cardJob}
                   onDismiss={() => setDismissedEnding(endingOf(cardJob))}
                   onStop={() =>
                     actOnGeneration(`${cardJob.id}:set`, setMark(cardJob), () =>

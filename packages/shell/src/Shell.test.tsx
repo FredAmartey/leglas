@@ -787,6 +787,48 @@ describe("building directions", () => {
     expect(row("Pantry").getAttribute("aria-pressed")).toBe("true");
   });
 
+  test("the card counts only the finished directions still on the rail", async () => {
+    switchedOn();
+
+    // Chalk was removed from the rail after it was built.
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready"), slot("Chalk", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    expect([...document.querySelectorAll("button")].map((button) => button.textContent)).toContain(
+      "Compare all 2",
+    );
+  });
+
+  test("picking a row ends the whole set, so coming back shows one direction", async () => {
+    switchedOn();
+
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    const compareAll = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Compare all 2",
+    );
+
+    await after(() => click(must(compareAll, "the compare button")));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
+
+    await after(() => click(row("Ledger")));
+    await after(() => click(row("Table")));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
+  });
+
   test("a direction being built says what its build is doing", async () => {
     switchedOn();
 

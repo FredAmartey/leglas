@@ -30,18 +30,18 @@ function Done() {
  * state is on its row; this card is the set as a whole.
  */
 export function GenerationCard({
+  compare,
   comparing,
   job,
-  onCompare,
   onDismiss,
   onStop,
   stopping,
 }: {
+  /** How many would be shown whole, and the switch between that and one; null while fewer than two can be. */
+  compare: { count: number; toggle: () => void } | null;
   /** The set is on the stage whole. */
   comparing: boolean;
   job: GenerationJob;
-  /** Shows the set whole, or goes back to one; null while fewer than two are ready. */
-  onCompare: (() => void) | null;
   onDismiss: () => void;
   onStop: () => void;
   stopping: boolean;
@@ -86,16 +86,14 @@ export function GenerationCard({
             {formatElapsed(clock - runStartedAt(job))}
           </span>
         )}
-        {onCompare !== null && (
+        {compare !== null && (
           <button
             aria-pressed={comparing}
             className="h-6 shrink-0 rounded-md bg-white/[0.06] px-2 text-[10px] font-medium text-[#D1D5DB] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.1] hover:text-white active:scale-[0.96] motion-reduce:transition-none"
-            onClick={onCompare}
+            onClick={compare.toggle}
             type="button"
           >
-            {comparing
-              ? "Show one"
-              : `Compare all ${job.slots.filter((slot) => slot.state === "ready").length}`}
+            {comparing ? "Show one" : `Compare all ${compare.count}`}
           </button>
         )}
         {running ? (

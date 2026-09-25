@@ -882,6 +882,21 @@ export function createGenerations(deps: GenerationDeps): Generations {
         };
       }
 
+      // A direction that failed or was stopped holds its placeholder again: nothing to vary.
+      const unbuilt =
+        base === null
+          ? undefined
+          : lives
+              .flatMap((kept) => kept.job.slots)
+              .find((slot) => slot.key === base.key && slot.state !== "ready");
+
+      if (base !== null && unbuilt !== undefined) {
+        return {
+          ok: false,
+          error: `${base.title} has no finished design yet, so there is nothing to vary. Retry it first.`,
+        };
+      }
+
       const job: GenerationJob = {
         id: `gen-${now().toString(36)}`,
         surface: slug,

@@ -1492,6 +1492,45 @@ describe("a generation's lifecycle", () => {
     );
   });
 
+  test("a direction that failed to build cannot be varied until it is built", async () => {
+    const cwd = await project("claude");
+
+    const { generations, spawned } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["fail"],
+      async () => ({ errors: [] }),
+    );
+
+    const first = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!first.ok) throw new Error(first.error);
+    await settled(
+      () => generations.snapshot()[0],
+      (value) => value.state === "done" && value.slots[0]?.state === "failed",
+    );
+    const before = spawned.length;
+
+    const varied = await generations.start({
+      surface: "hero",
+      brief: "",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+      basedOn: { title: "Ledger", key: "hero-ledger", idea: "Ruled lines." },
+    });
+
+    expect(varied).toEqual({
+      ok: false,
+      error: "Ledger has no finished design yet, so there is nothing to vary. Retry it first.",
+    });
+    expect(spawned).toHaveLength(before);
+  });
+
   test("a direction that is not in the switch cannot be varied, and nothing starts", async () => {
     const cwd = await project("claude");
 
