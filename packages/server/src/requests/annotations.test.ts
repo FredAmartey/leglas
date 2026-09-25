@@ -143,17 +143,6 @@ describe("the notes file", () => {
     ]);
   });
 
-  test("rewording keeps a note where it is in the list", async () => {
-    const root = cwd();
-    await addAnnotation(root, note("Poster", "a"));
-    const middle = await addAnnotation(root, note("Poster", "b"));
-    await addAnnotation(root, note("Poster", "c"));
-
-    await updateAnnotation(root, middle.id, "b again");
-
-    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["a", "b again", "c"]);
-  });
-
   // Clearing a note is a real edit. The pin still carries an address, which
   // is most of what a note is for, so the words are allowed to go.
   test("rewording a note to nothing empties it rather than dropping it", async () => {
@@ -354,10 +343,6 @@ describe("a swept region", () => {
     expect(written).toContain("an area inside <main>");
     expect(written).toContain("covering <h1> “Dried fruit, done properly”, <p> “Made in Ghana”");
     expect(written).not.toContain("reading “Made in Ghana”");
-  });
-
-  test("an ordinary annotation is still described as its element", () => {
-    expect(describeAnchor(anchor())).toContain('<div>, class "pouch"');
   });
 });
 

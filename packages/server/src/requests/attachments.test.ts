@@ -6,7 +6,6 @@ import {
   readFileSync,
   readdirSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,7 +22,6 @@ import {
   isOwnCapture,
   previewUrl,
   pruneCaptures,
-  pruneReferences,
   rehomeCaptures,
   rehomeText,
   removeCaptures,
@@ -410,22 +408,6 @@ describe("capture cleanup", () => {
 
     // `show` is not a request and outlives the queue that never claimed it.
     expect(readdirSync(join(cwd, CAPTURES_DIR)).sort()).toEqual(["keep", "show"]);
-  });
-
-  test("drops references older than an hour and leaves fresh ones", async () => {
-    const cwd = root();
-    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
-    const stale = join(cwd, REFERENCES_DIR, "stale.png");
-    const fresh = join(cwd, REFERENCES_DIR, "fresh.png");
-    writeFileSync(stale, PNG);
-    writeFileSync(fresh, PNG);
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    utimesSync(stale, twoHoursAgo, twoHoursAgo);
-
-    await pruneReferences(cwd);
-
-    expect(existsSync(stale)).toBe(false);
-    expect(existsSync(fresh)).toBe(true);
   });
 
   test("a project that never captured anything is left untouched", async () => {

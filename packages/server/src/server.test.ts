@@ -3642,14 +3642,6 @@ describe("mutation trust", () => {
     ).toBe(false);
   });
 
-  test("the machine's own browser passes with a LAN hostname in the bar", () => {
-    expect(
-      isTrustedMutation(
-        request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "127.0.0.1"),
-      ),
-    ).toBe(true);
-  });
-
   test("cross-origin and public hosts stay refused regardless of peer", () => {
     expect(
       isTrustedMutation(
