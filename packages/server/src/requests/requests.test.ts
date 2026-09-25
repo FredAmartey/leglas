@@ -370,7 +370,8 @@ describe("composeRequest", () => {
   test("tells the agent to change only this direction, not its siblings", () => {
     const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
 
-    expect(prompt.toLowerCase()).toContain("only");
+    expect(prompt).toContain('change only the "Aurora" design direction');
+    expect(prompt).toContain("Leave every other direction exactly as it is");
   });
 
   test("does not ask the agent to re-register a direction that already exists", () => {
