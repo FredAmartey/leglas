@@ -2183,7 +2183,11 @@ describe("startServer", () => {
     const body: { previews: unknown[]; errors: string[] } = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.previews).toHaveLength(1);
+    // What the config said, as the rail needs it: where it lives, what it is
+    // called and what the author wrote about it.
+    expect(body.previews).toMatchObject([
+      { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
+    ]);
     expect(body.errors).toEqual([]);
   });
 
