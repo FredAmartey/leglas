@@ -81,6 +81,25 @@ to trust first, because the design moves under them by design. A pin whose
 element has since gone turns amber rather than pointing confidently at the
 wrong thing.
 
+## Building a set of directions
+
+Leglas can build directions itself, with Claude, once you turn on **Build
+directions with Claude** in the tools. The `+` at the top of the rail then
+turns the field into a brief: say what the directions should explore, pick
+how many, up to six, and press **Build 3 with Claude**.
+
+Claude plans the whole set first, so the directions differ from each other
+and from the ones already there, and all of them appear on the rail at
+once. They build side by side. Each row says whether its direction is
+building, being checked, failed or stopped, and the stage shows what a
+direction still being built is meant to be. Leglas opens every one before
+calling it ready and gives one that does not render one attempt to fix
+itself. Stop it, retry it or ask for a new idea from its row or the stage.
+
+It runs on your own Claude plan at medium effort; three directions took
+about a minute and a half on the demo app. `npx leglas explore hero --build
+--brief "…"` does the same from a terminal.
+
 ## Sharing
 
 The rail is local, and the person who most needs to see it often has no
