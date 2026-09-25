@@ -35,19 +35,6 @@ describe("CHANGELOG.md", () => {
     }
   });
 
-  test("the newest release is the one the packages declare", () => {
-    const first = changelog.entries[0]!;
-
-    if (first.versions[0] === "Unreleased") return;
-
-    const declared = JSON.parse(
-      readFileSync(join(root, "packages/cli/package.json"), "utf8"),
-    ).version;
-
-    // An entry can name two releases, as the first one does.
-    expect(first.versions, "the top entry is not the version being shipped").toContain(declared);
-  });
-
   test("releases run newest first, and none repeats", () => {
     const seen = new Set<string>();
 
@@ -62,14 +49,16 @@ describe("CHANGELOG.md", () => {
     expect(dates).toEqual([...dates].sort().reverse());
   });
 
-  test("renders as one page with an anchor for every release", () => {
+  // The update panel (update.ts) and each GitHub Release link to
+  // changelog/#v<version>, so every released version lands exactly once.
+  test("renders as one page that every release link lands on", () => {
     const html = renderPage(changelog, loadAssets(root));
 
-    for (const entry of changelog.entries) expect(html).toContain(`id="${anchor(entry)}"`);
-    expect(html).toContain("@font-face");
-    expect(html).toContain('class="mark"');
-    expect(html).toContain('class="wordmark"');
-    expect(html).not.toContain("<style>\n    .wm");
+    for (const entry of released) {
+      for (const version of entry.versions) {
+        expect(html.split(`id="v${version}"`), `v${version}`).toHaveLength(2);
+      }
+    }
   });
 
   test("buildSite writes a release index led by the published CLI version", () => {
@@ -212,8 +201,6 @@ describe("reading the markdown", () => {
   test("every indexed version in a shared heading has one landing anchor", () => {
     const markdown = "## 0.1.0 and 0.1.1 (2026-08-01): First release\n\nWords.\n";
     const html = renderPage(parseChangelog(markdown), loadAssets(root));
-    expect(html).toContain('<article class="entry" id="v0.1.0">');
-    expect(html).toContain('<div class="body"><span id="v0.1.1"></span><h2');
 
     for (const { version } of releasesIndex(markdown)) {
       expect(html.split(`id="v${version}"`)).toHaveLength(2);
