@@ -627,6 +627,22 @@ describe("checking and remembering", () => {
 
     expect(status.checkError).toBe("npm took too long to answer.");
     expect(Date.now() - started).toBeLessThan(2000);
+
+    // The changelog site going quiet costs the same deadline, and only the title.
+    const slowReleases = vi.fn<typeof fetch>((input, init) =>
+      String(input) === REGISTRY
+        ? Promise.resolve(Response.json({ version: "1.1.0" }))
+        : new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+    );
+
+    const titled = Date.now();
+    const answered = await service({ deps: { timeoutMs: 75, fetch: slowReleases } }).check();
+
+    expect(answered.checkError).toBeNull();
+    expect(answered.latest).toMatchObject({ version: "1.1.0", title: null });
+    expect(Date.now() - titled).toBeLessThan(2000);
   });
 
   test.each(["offline", "bad JSON", "500", "missing version"])(
