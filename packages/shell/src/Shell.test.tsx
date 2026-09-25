@@ -497,7 +497,17 @@ describe("building directions", () => {
       // From here the server lists the set it started.
       reads.generate = {
         ok: true,
-        jobs: [{ ...JOB, id: "gen-new", count: 3, state: "planning", slots: [], basedOn: "Table" }],
+        jobs: [
+          {
+            ...JOB,
+            id: "gen-new",
+            brief: "",
+            count: 3,
+            state: "planning",
+            slots: [],
+            basedOn: "Table",
+          },
+        ],
       };
     }, 900);
 
@@ -508,6 +518,8 @@ describe("building directions", () => {
       },
     ]);
     expect(document.body.textContent).toContain("Planning 3 variations of Table…");
+    // Nothing was typed, so the card quotes nothing.
+    expect(document.body.textContent).not.toContain("“”");
   });
 
   test("a direction still being built has nothing to vary yet", async () => {

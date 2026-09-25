@@ -74,7 +74,12 @@ export function GenerationCard({
           <p className="truncate text-[11px] font-medium leading-tight text-[#D1D5DB]">
             {card.text}
           </p>
-          <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">“{job.brief}”</p>
+          {/* Variations may be asked for with nothing typed; their title says enough. */}
+          {job.brief !== "" && (
+            <p className="mt-0.5 truncate text-[10px] leading-tight text-[#84848C]">
+              “{job.brief}”
+            </p>
+          )}
         </div>
         {running && (
           <span className="shrink-0 text-[10px] tabular-nums text-[#84848C]">
