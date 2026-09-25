@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { nextCompare, paneGeometry, paneTitles } from "./compare.js";
+import { LABEL_ROOM, setLayout, nextCompare, paneGeometry, paneTitles } from "./compare.js";
 
 describe("nextCompare", () => {
   test("opens against whatever you were just looking at", () => {
@@ -151,6 +151,38 @@ describe("how one side of a split is drawn", () => {
     expect(geometry.designWidth).toBe(1440);
     // 1440 has to fit a ~678px pane minus its gutter.
     expect(geometry.scale).toBeCloseTo((678.5 - 48) / 1440, 2);
+  });
+
+  test("a set shown whole keeps the design's width and fits each cell, name included", () => {
+    // Six in three columns: a cell is (1358 - 2) / 3 wide, and width binds.
+    const six = paneGeometry({ ...stage, panes: 3, rows: 2 });
+    expect(six.designWidth).toBe(1358);
+    expect(six.scale).toBeCloseTo(452 / 1358, 3);
+
+    // Four sit two by two: a cell is 678.5 wide but only (950 - 1) / 2 tall,
+    // so its height, less the name above the frame, is what binds.
+    const four = paneGeometry({ ...stage, panes: 2, rows: 2 });
+    expect(four.scale).toBeCloseTo((474.5 - LABEL_ROOM) / 950, 3);
+    expect(four.boxHeight + LABEL_ROOM).toBeCloseTo(474.5, 1);
+    expect(four.boxWidth).toBeLessThan(678.5);
+  });
+
+  test("an inset keeps room around each frame in a set shown whole", () => {
+    const tight = paneGeometry({ ...stage, panes: 3 });
+    const spaced = paneGeometry({ ...stage, panes: 3, inset: 32 });
+
+    expect(tight.boxWidth).toBeCloseTo(452, 0);
+    expect(spaced.boxWidth).toBeCloseTo(452 - 32, 0);
+  });
+
+  test("a set is laid out one row for up to three, then two rows, never three and one", () => {
+    expect([2, 3, 4, 5, 6].map((count) => setLayout(count))).toEqual([
+      { columns: 2, rows: 1 },
+      { columns: 3, rows: 1 },
+      { columns: 2, rows: 2 },
+      { columns: 3, rows: 2 },
+      { columns: 3, rows: 2 },
+    ]);
   });
 
   test("a preset narrower than the pane is never scaled up", () => {

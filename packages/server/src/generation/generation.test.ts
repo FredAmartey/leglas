@@ -15,6 +15,7 @@ import { createGenerations, type GenerationDeps } from "./generation.js";
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
+import type { AddInput } from "../config/local-previews.js";
 import { START_TIMEOUT_MS, findBrowser } from "../capture/browser.js";
 import { isJsonRecord, isString, parseJson, type JsonRecord, type JsonValue } from "../json.js";
 import { startServer, type RunningServer } from "../server.js";
@@ -1232,6 +1233,84 @@ describe("a generation's lifecycle", () => {
       () => true,
     );
     expect(generations.snapshot()[0]?.slots[0]?.startedAt).toBe(asked);
+  });
+
+  test("a generated direction carries its brief and its surface onto the rail", async () => {
+    const cwd = await project("claude");
+    const registered: AddInput[] = [];
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      async (input) => {
+        registered.push(input);
+
+        return { ok: true };
+      },
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner in thirty minutes",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(registered).toEqual([
+      {
+        title: "Ledger",
+        url: "/?v-hero=hero-ledger",
+        note: "Ruled lines.",
+        askedFor: "Dinner in thirty minutes",
+        tags: ["Hero"],
+      },
+    ]);
+  });
+
+  test("a building direction says what its build is doing", async () => {
+    const cwd = await project("claude");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const child = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
+
+    child.stdout.write(
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: file, content: "" } }] } })}\n`,
+    );
+
+    const building = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.activity !== null,
+    );
+
+    expect(building.activity).toBe("editing .leglas/variants/hero/hero-ledger.tsx");
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {

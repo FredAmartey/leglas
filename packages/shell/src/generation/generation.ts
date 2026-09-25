@@ -16,6 +16,8 @@ export type GenerationSlot = {
   failure: { code: string; message: string } | null;
   /** Its first version did not render and a fix run repaired it. */
   fixed: boolean;
+  /** What its build is doing right now, such as "editing src/heroes/hero-ledger.tsx". */
+  activity: string | null;
 };
 
 export type GenerationJob = {
@@ -124,6 +126,19 @@ export function lastEnded(jobs: readonly GenerationJob[]): GenerationJob | null 
 /** One ending of a set, so dismissing it does not hide a later ending of the same set. */
 export function endingOf(job: GenerationJob): string {
   return `${job.id}@${job.endedAt ?? ""}`;
+}
+
+/** Every surface the project's directions sit on, in the order they first appear. */
+export function surfacesOf(urls: readonly string[]): string[] {
+  const found = new Set<string>();
+
+  for (const url of urls) {
+    const surface = surfaceOf(url);
+
+    if (surface !== null) found.add(surface);
+  }
+
+  return [...found];
 }
 
 export function isRunning(job: GenerationJob): boolean {

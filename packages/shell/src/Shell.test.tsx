@@ -404,6 +404,7 @@ describe("building directions", () => {
     endedAt: null,
     failure,
     fixed: false,
+    activity: null,
   });
 
   const JOB = {
@@ -689,6 +690,85 @@ describe("building directions", () => {
     await after(() => undefined, 16_000);
     expect(scrolled).toHaveBeenCalledTimes(1);
     scrolled.mockRestore();
+  });
+
+  test("a finished set can go on the stage whole, and each name opens its direction", async () => {
+    switchedOn();
+
+    const done = {
+      ...JOB,
+      state: "done",
+      endedAt: 1_789_999_999_000,
+      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+
+    const compareAll = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Compare all 2",
+    );
+
+    await after(() => click(must(compareAll, "the compare button")));
+    expect(
+      [...document.querySelectorAll('button[aria-label$="on its own"]')].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Open Ledger on its own", "Open Pantry on its own"]);
+
+    await after(() => click(find('[aria-label="Open Pantry on its own"]')));
+    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
+    expect(row("Pantry").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("a direction being built says what its build is doing", async () => {
+    switchedOn();
+
+    const building = {
+      ...JOB,
+      slots: [{ ...slot("Ledger", "building"), activity: "editing src/heroes/hero-ledger.tsx" }],
+    };
+
+    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [building] } } });
+
+    await after(() => click(row("Ledger")));
+    expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
+    expect(document.body.textContent).toContain("usually a minute or two");
+  });
+
+  test("with more than one surface, the brief can build for another", async () => {
+    switchedOn();
+
+    const previews: Preview[] = [
+      ...HEROES,
+      { title: "Plans", url: "/pricing?v-pricing=plans", tags: [] },
+    ];
+
+    const sent = await mount({ previews, reads: { generate: { ok: true, jobs: [] } } });
+
+    await after(() => click(find('[aria-label="Build new directions with Claude"]')));
+
+    const picker = find<HTMLSelectElement>(
+      'select[aria-label="The surface to build directions for"]',
+    );
+
+    expect([...picker.options].map((option) => option.value)).toEqual(["hero", "pricing"]);
+
+    await after(() => {
+      picker.value = "pricing";
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await after(() => type(find("textarea"), "Plans that feel fair"));
+    await after(
+      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      900,
+    );
+
+    expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
+      {
+        path: "/leglas/api/generate",
+        body: { surface: "pricing", brief: "Plans that feel fair", count: 3 },
+      },
+    ]);
   });
 
   test("with an agent other than Claude, the brief says why it cannot build", async () => {

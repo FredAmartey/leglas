@@ -26,7 +26,7 @@ import {
   nextHealthState,
   type HealthState,
 } from "./preview/health.js";
-import { nextCompare, paneGeometry, paneTitles } from "./preview/compare.js";
+import { nextCompare, paneGeometry, paneTitles, setLayout } from "./preview/compare.js";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./preview/overlays.js";
 import { paintSample, renderedSignature, twinsOf, visualSample } from "./preview/rendered.js";
 import {
@@ -115,6 +115,7 @@ import {
   endingOf,
   isSlotOf,
   lastEnded,
+  surfacesOf,
   runStartedAt,
   slotsByTitle,
   surfaceOf,
@@ -158,6 +159,9 @@ const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
  * this only covers the frame before that observer reports.
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
+
+/** Room kept around each design in a set shown whole, so neighbours read as separate artboards. */
+const GRID_INSET = 32;
 
 /** How long a finished set's card stays above the composer. */
 const CARD_KEEP_MS = 10 * 60_000;
@@ -519,6 +523,8 @@ export function Shell({
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   /** The ending of a set the person dismissed; a later ending of the same set shows again. */
   const [dismissedEnding, setDismissedEnding] = useState<string | null>(null);
+  /** A set shown whole on the stage, and the direction that was there when it opened. */
+  const [grid, setGrid] = useState<{ job: string; from: string } | null>(null);
   const { jobs, noteJob } = useGeneration(buildEnabled);
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
   // A retry or a new idea can set an older set running again; that one leads,
@@ -526,6 +532,15 @@ export function Shell({
   const runningJob = jobs.find(isRunning) ?? null;
   const cardJob = runningJob ?? lastEnded(jobs);
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
+  // Every surface the project's directions sit on. The brief builds for the
+  // one on the stage unless another is picked in its header.
+  const surfaces = useMemo(() => surfacesOf(previews.map((preview) => preview.url)), [previews]);
+  const [pickedSurface, setPickedSurface] = useState<string | null>(null);
+
+  const briefSurface =
+    pickedSurface !== null && surfaces.includes(pickedSurface)
+      ? pickedSurface
+      : (activeSurface ?? (surfaces.length === 1 ? (surfaces[0] ?? null) : null));
 
   // The field is a textarea that wears one row until the words need more,
   // then grows line by line to a cap. Measured from scrollHeight because
@@ -674,9 +689,9 @@ export function Shell({
   const submitBrief = () => {
     const value = brief.trim();
 
-    if (value === "" || activeSurface === null || starting) return;
+    if (value === "" || briefSurface === null || starting) return;
     setStarting(true);
-    void startGeneration({ surface: activeSurface, brief: value, count: briefCount })
+    void startGeneration({ surface: briefSurface, brief: value, count: briefCount })
       .then((job) => {
         noteJob(job);
         setBrief("");
@@ -1301,7 +1316,35 @@ export function Shell({
     rows: st.rows,
   });
 
-  const visible = paneTitles({ active: st.active, compare, split });
+  // A set shown whole, one cell per ready direction. It holds only while the
+  // direction that was on the stage when it opened stays there, so picking
+  // any row in the rail ends it without anything having to notice.
+  const gridSet =
+    grid !== null && grid.from === st.active ? jobs.find((job) => job.id === grid.job) : undefined;
+
+  const gridTitles =
+    gridSet === undefined
+      ? []
+      : gridSet.slots.flatMap((slot) =>
+          slot.state === "ready" && slotFor(slot.title) !== undefined ? [slot.title] : [],
+        );
+
+  const gridding = gridTitles.length >= 2;
+  const visible = gridding ? gridTitles : paneTitles({ active: st.active, compare, split });
+  const gridLayout = gridding ? setLayout(visible.length) : { columns: visible.length, rows: 1 };
+  // Escape leaves a set shown whole, unless something nearer the key took it.
+  useEffect(() => {
+    if (!gridding) return;
+
+    const leave = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) setGrid(null);
+    };
+
+    window.addEventListener("keydown", leave);
+
+    return () => window.removeEventListener("keydown", leave);
+  }, [gridding]);
+
   /** Where each direction on the stage sits, left to right. */
   const stagePlace = new Map(visible.map((title, index) => [title, index]));
   const splitting = visible.length > 1;
@@ -1419,8 +1462,12 @@ export function Shell({
     scaling,
   } = paneGeometry({
     gutter: FRAME_GUTTER,
-    panes: visible.length,
-    scaleSplit: st.prefs.scaleSplit,
+    panes: gridLayout.columns,
+    rows: gridLayout.rows,
+    inset: gridding ? GRID_INSET : 0,
+    // A set shown whole is always scaled: reflowed into small cells, every
+    // design would be judged at a width nobody ships.
+    scaleSplit: gridding || st.prefs.scaleSplit,
     stageHeight: stage.height,
     stageWidth: stage.width,
     viewport: st.prefs.viewport,
@@ -1632,7 +1679,7 @@ export function Shell({
       ? "Building directions runs on Claude."
       : runningJob !== null
         ? "A set is being built. Wait for it, or stop it."
-        : activeSurface === null
+        : briefSurface === null
           ? "Pick a direction on the surface first."
           : null;
 
@@ -2596,7 +2643,7 @@ export function Shell({
               {st.rows.map((title, index) => (
                 <RailRow
                   arriving={arriving}
-                  comparing={splitting && title === compare}
+                  comparing={splitting && !gridding && title === compare}
                   crumbBloom={crumbBloom}
                   drag={drag}
                   dragMeta={dragMeta}
@@ -2756,7 +2803,18 @@ export function Shell({
                   cardJob.endedAt !== null &&
                   Date.now() - cardJob.endedAt < CARD_KEEP_MS)) && (
                 <GenerationCard
+                  comparing={gridding && gridSet?.id === cardJob.id}
                   job={cardJob}
+                  onCompare={
+                    cardJob.slots.filter((slot) => slot.state === "ready").length >= 2
+                      ? () =>
+                          setGrid(
+                            gridding && gridSet?.id === cardJob.id
+                              ? null
+                              : { from: st.active, job: cardJob.id },
+                          )
+                      : null
+                  }
                   onDismiss={() => setDismissedEnding(endingOf(cardJob))}
                   onStop={() =>
                     actOnGeneration(`${cardJob.id}:set`, setMark(cardJob), () =>
@@ -2968,11 +3026,30 @@ export function Shell({
                 >
                   {briefing ? (
                     <div className="flex items-center justify-between pl-2.5 pr-1 pt-1">
-                      <span className="text-[10px] font-medium leading-5 text-[#84848C]">
-                        {activeSurface === null
-                          ? "New directions"
-                          : `New ${activeSurface} directions`}
-                      </span>
+                      {surfaces.length > 1 && briefSurface !== null ? (
+                        <label className="flex items-center gap-1 text-[10px] font-medium leading-5 text-[#84848C]">
+                          New
+                          <select
+                            aria-label="The surface to build directions for"
+                            className="rounded bg-white/[0.06] px-1 text-[10px] font-medium text-[#D1D5DB] focus:outline-none focus-visible:ring-1 focus-visible:ring-[#D1D5DB]/60"
+                            onChange={(event) => setPickedSurface(event.target.value)}
+                            value={briefSurface}
+                          >
+                            {surfaces.map((surface) => (
+                              <option key={surface} value={surface}>
+                                {surface}
+                              </option>
+                            ))}
+                          </select>
+                          directions
+                        </label>
+                      ) : (
+                        <span className="text-[10px] font-medium leading-5 text-[#84848C]">
+                          {briefSurface === null
+                            ? "New directions"
+                            : `New ${briefSurface} directions`}
+                        </span>
+                      )}
                       <button
                         aria-label="Close the brief"
                         className="flex size-5 items-center justify-center rounded text-[#84848C] transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -3001,9 +3078,9 @@ export function Shell({
                   <textarea
                     aria-label={
                       briefing
-                        ? activeSurface === null
+                        ? briefSurface === null
                           ? "Describe the new directions for Claude to build"
-                          : `Describe the new ${activeSurface} directions for Claude to build`
+                          : `Describe the new ${briefSurface} directions for Claude to build`
                         : st.active
                           ? `Ask your agent to change the ${st.displayName(st.active)} direction`
                           : "Ask your agent to change a direction"
@@ -3049,7 +3126,7 @@ export function Shell({
                     }}
                     placeholder={
                       briefing
-                        ? activeSurface === null
+                        ? briefSurface === null
                           ? "Pick a direction on the surface first"
                           : "What should they explore?"
                         : st.active === null
@@ -3072,13 +3149,18 @@ export function Shell({
                     rows={1}
                     value={briefing ? brief : intent}
                   />
+                  {briefing && (
+                    <p className="px-2.5 text-[10px] leading-4 text-[#84848C]">
+                      Runs on your Claude plan. Usually a minute or two.
+                    </p>
+                  )}
                   {briefing ? (
                     <BriefToolbar
                       count={briefCount}
                       onCount={setBriefCount}
                       picker={chip.kind === "chosen" && chip.id === "claude" ? null : agentPicker}
                       reason={briefReason}
-                      ready={brief.trim() !== "" && activeSurface !== null}
+                      ready={brief.trim() !== "" && briefSurface !== null}
                       starting={starting}
                     />
                   ) : (
@@ -3226,8 +3308,18 @@ export function Shell({
       </span>
 
       <div
-        className={`relative min-w-0 flex-1 ${splitting ? "flex" : "overflow-auto"}`}
+        className={`relative min-w-0 flex-1 ${
+          gridding ? "grid gap-px bg-[#232328]" : splitting ? "flex" : "overflow-auto"
+        }`}
         ref={attachStage}
+        style={
+          gridding
+            ? {
+                gridTemplateColumns: `repeat(${gridLayout.columns}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${gridLayout.rows}, minmax(0, 1fr))`,
+              }
+            : undefined
+        }
       >
         {mounted.map((title) => (
           <Pane
@@ -3287,11 +3379,19 @@ export function Shell({
               );
             }}
             onStartBranch={() => st.startBranch(title)}
+            onOpen={
+              gridding
+                ? () => {
+                    setGrid(null);
+                    st.setActive(title);
+                  }
+                : null
+            }
             order={stagePlace.get(title) ?? -1}
             paneScale={paneScale}
             refusal={refused[title] ?? null}
             scaling={scaling}
-            second={title === compare}
+            second={!gridding && title === compare}
             serverUp={health.reachable}
             shown={stagePlace.has(title)}
             splitting={splitting}
