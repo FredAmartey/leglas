@@ -65,11 +65,16 @@ export const FALLBACK_MS = 15_000;
  * shares nothing with the queue. Folding it into `config` would make every
  * viewer count re-read the rail.
  *
+ * `generation` is a set of directions being built: the server nudges it on
+ * every step of a job (planned, a direction ready, failed or stopped), and
+ * the rail reads the jobs again. Like `share`, it is its own read, and only
+ * while the feature is switched on.
+ *
  * The type above is read off this list. They used to be written out
  * separately, and `update` reached the type but not the list, so the shell
  * threw away every update frame the server sent.
  */
-const CHANGES = ["config", "requests", "health", "share", "update"] as const;
+const CHANGES = ["config", "requests", "health", "share", "update", "generation"] as const;
 
 export function isLiveChange(value: unknown): value is LiveChange {
   return CHANGES.some((change) => change === value);

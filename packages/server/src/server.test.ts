@@ -3904,12 +3904,14 @@ describe("a body that is not an object", () => {
     }
 
     // A route can also hide by testing its method some other way. Every route
-    // that reads a body does it through `req.on("data"` or readShareBody, so
-    // those are counted too; one listener is readShareBody's own.
+    // that reads a body does it through `req.on("data"`, readShareBody or
+    // readGenerationBody, so those are counted too; two listeners are the
+    // helpers' own.
     const readers =
       (source.match(/req\.on\("data"/g) ?? []).length -
-      1 +
-      (source.match(/readShareBody\(req,/g) ?? []).length;
+      2 +
+      (source.match(/readShareBody\(req,/g) ?? []).length +
+      (source.match(/readGenerationBody\(req,/g) ?? []).length;
 
     const takesNothing = new Set(
       Object.entries(NOT_A_JSON_OBJECT)
