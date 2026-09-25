@@ -2769,9 +2769,11 @@ describe("startServer", () => {
 
   test("passes runner state changes to the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-runner-"));
+    // An agent that takes a second to go, so a stop changes the runner's
+    // state well before the queue file records how the run ended.
     await saveAgentChoice(cwd, {
       agent: "custom",
-      run: 'node -e "setInterval(() => {}, 1000)" {prompt}',
+      run: `node -e "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1000)); setInterval(() => {}, 1000)" {prompt}`,
     });
     await appendRequest(cwd, {
       title: "Aurora",
@@ -2790,7 +2792,16 @@ describe("startServer", () => {
 
       return body.agent.running;
     });
-    expect(live.changes).toContain("requests");
+
+    // Let the nudges for the queue file's own writes land first; they would
+    // say "requests" whether or not the runner is wired to the channel.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const before = live.changes.length;
+
+    const stop = await fetch(`${server.url}/leglas/api/requests/cancel`, { method: "POST" });
+
+    expect(await stop.json()).toMatchObject({ cancelled: true });
+    expect(live.changes.slice(before)).toContain("requests");
   });
 
   test("nudges health once when reachability flips, not on steady probes", async () => {
