@@ -2805,18 +2805,6 @@ describe("startServer", () => {
   });
 
   test("nudges health once when reachability flips, not on steady probes", async () => {
-    const nativeSetInterval = globalThis.setInterval;
-    // SAFETY: Health transitions use the callback interval overload; this wrapper keeps its native handle and forwards every callback argument.
-    vi.spyOn(globalThis, "setInterval").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetInterval(
-        callback,
-        milliseconds === 3000 ? 10 : milliseconds,
-        ...args,
-      )) as typeof setInterval);
     const target = http.createServer();
     let probes = 0;
     target.on("connection", () => {
@@ -2826,7 +2814,7 @@ describe("startServer", () => {
     origins.push(target);
     const targetPort = boundPort(target);
     const live = fakeLiveHub(1);
-    await start({ config: configFor(targetPort), port: 0, live });
+    await start({ config: configFor(targetPort), port: 0, live, healthProbeMs: 10 });
 
     // The first probe establishes the baseline and emits nothing. Probes never
     // overlap, so a second one reaching the target means the first one's
@@ -2845,18 +2833,6 @@ describe("startServer", () => {
   });
 
   test("does not probe health with no live listeners", async () => {
-    const nativeSetInterval = globalThis.setInterval;
-    // SAFETY: The viewer-count test keeps native interval callbacks and handles, shortening only the health probe interval.
-    vi.spyOn(globalThis, "setInterval").mockImplementation(((
-      callback: (...args: any[]) => void,
-      milliseconds?: number,
-      ...args: any[]
-    ) =>
-      nativeSetInterval(
-        callback,
-        milliseconds === 3000 ? 10 : milliseconds,
-        ...args,
-      )) as typeof setInterval);
     let connections = 0;
     const target = http.createServer();
     target.on("connection", () => {
@@ -2870,11 +2846,16 @@ describe("startServer", () => {
       config: configFor(boundPort(target)),
       port: 0,
       live,
+      healthProbeMs: 10,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(connections).toBe(0);
     expect(live.changes).toEqual([]);
+
+    // The same probe, ticking all along: one viewer and it reaches the target.
+    live.setListening(1);
+    await eventually(() => connections > 0);
 
     await server.close();
     expect(live.close).toHaveBeenCalledOnce();
