@@ -89,7 +89,7 @@ Each entry ends with which of the three it reaches.
   `leglas new` writes exported a helper beside the component, which stops hot
   reload swapping the file in, so every direction an agent added reloaded the
   page you were looking at. A switch file written before this release keeps
-  the old shape until you write it again with `leglas new`. (`leglas`)
+  the old shape; one written from now on doesn't. (`leglas`)
 
 ## 1.2.0 (2026-09-22): Share from a terminal, and an agent that goes quiet says so
 
@@ -197,7 +197,7 @@ Each entry ends with which of the three it reaches.
 - **Several links, each turned off on its own.** A share holds up to sixteen
   named links. The panel lists each with its time left and its sessions.
   Turning one off ends it at once, even mid-page, and tells whoever was on it.
-  A link lasts a day and one click adds another. An expired link can't be
+  A link lasts a day, and one click gives it another. An expired link can't be
   brought back, because every copy of it would come back too, so make a new
   one. **Replace all** ends every link and gives the share a new address. A
   link belongs to a browser, not a person: a second link opened in the same
@@ -248,7 +248,7 @@ Each entry ends with which of the three it reaches.
 
 ## 0.8.0 (2026-08-28): An exploration writes down what it decided
 
-For code that imports `leglas`: its exports changed.
+For code that imports `leglas`: `ParseResult` gained a `log` kind.
 
 ### Added
 
@@ -299,9 +299,9 @@ For code that imports `leglas`: its exports changed.
 ### Fixed
 
 - **Branch previews start on a default Vite project.** Leglas waited for a
-  branch's dev server on `127.0.0.1` only, but Vite on current macOS and Node
-  listens on `::1`, so every branch timed out after 90 seconds and its
-  checkout was deleted. The wait now tries both addresses. A project's own
+  branch's dev server on `127.0.0.1` only, but Vite's default on current macOS
+  and Node listens on `::1`, so every branch timed out after 90 seconds and
+  its checkout was deleted. The wait now tries both addresses. A project's own
   `devCommand` had the same problem and is fixed too. (`leglas`)
 
 ## 0.7.2 (2026-08-27): The interface stops polling
@@ -323,9 +323,9 @@ For code that imports `leglas`: its exports changed.
 - **A malformed request body can't stop the server.** 0.7.0 made every route
   that reads a body refuse anything but a JSON object, but
   `POST /api/capture`, added in the same release, skipped that check: `null`
-  sent to it ended the server and the run under way. It uses the check now,
-  and so does `/api/annotations/update`, which already checked inline.
-  (`leglas`)
+  sent to it from this machine ended the server and the run under way. It uses
+  the check now, and so does `/api/annotations/update`, which already checked
+  inline. (`leglas`)
 - **A route added later can't miss that check**: the test reads the routes out
   of the server rather than from a list. (`leglas`)
 
@@ -420,7 +420,8 @@ dependency on the Claude Agent SDK.
 - **Leglas warns when your dev server's port looks like another project.** At
   startup it checks where the process on that port runs, and if that's outside
   the project, the terminal and interface say so and point to `devServer` or
-  `--user-port`. (`leglas`)
+  `--user-port`. It's best effort, skipped where the process can't be read,
+  and never blocks previews. (`leglas`)
 - **A request sent as a run finishes starts right away**, instead of waiting
   for the next two-second poll. (`leglas`)
 - **Reading the agent list doesn't wait on a slow login check.** Leglas checks
@@ -601,8 +602,8 @@ the type gained `failure`, `mode` and `notes`.
   doesn't run tests on a design tweak. A typical small change went from about
   a minute to under thirty seconds. (`leglas`)
 - Changes through `/leglas/api/` are only accepted from your own machine:
-  every POST needs a loopback connection and an Origin matching its Host.
-  Shared links still open and view directions. (`leglas`)
+  every POST needs a loopback connection, and a browser's Origin has to match
+  its Host. Shared links still open and view directions. (`leglas`)
 
 ## 0.3.0 (2026-08-09): Installable as one thing
 
