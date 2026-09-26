@@ -87,7 +87,7 @@ rest by area:
 | --- | --- |
 | `agents/` | Finding the agents on the machine, the three ways to reach one, the runner that drains the queue and the reasons a run can end |
 | `requests/` | The queue, the notes left on a preview and the images that ride with a request |
-| `capture/` | Finding and driving a browser over the DevTools protocol, the screenshot and its crops, hydration evidence |
+| `capture/` | Finding and driving a browser over the DevTools protocol, the screenshot and its crops, hydration evidence, and text on the page that overlaps or is cut off |
 | `config/` | Finding and loading `leglas.config.ts`, and what is local to one machine: added directions and renames |
 | `branches/` | Deciding whether a direction needs its own branch, and the worktree, install and dev server when it does |
 | `share/` | The share itself and the tunnel it borrows |

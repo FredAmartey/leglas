@@ -110,8 +110,21 @@ This is a first draft for someone comparing directions side by side, not a finis
 }
 
 /** The one follow-up a build gets when its page fails to render. */
-export function fixPrompt(input: { file: string; errors: readonly string[] }): string {
-  return `Leglas rendered ${input.file} and the page reported: ${input.errors.slice(0, 3).join(" | ")}. Fix what your file causes, in as few edits as you can, and change nothing else. If nothing in your file causes it, change nothing. Do not look around the project.`;
+export function fixPrompt(input: {
+  file: string;
+  errors: readonly string[];
+  layout?: readonly string[];
+}): string {
+  const layout = input.layout ?? [];
+  const reported = `Leglas rendered ${input.file} and the page reported: ${input.errors.slice(0, 3).join(" | ")}.`;
+
+  if (layout.length === 0) {
+    return `${reported} Fix what your file causes, in as few edits as you can, and change nothing else. If nothing in your file causes it, change nothing. Do not look around the project.`;
+  }
+
+  const opening = input.errors.length === 0 ? `Leglas rendered ${input.file}.` : reported;
+
+  return `${opening} At 1440 by 900, text a person would see runs into other text or is cut off: ${layout.slice(0, 5).join("; ")}. Fix it where it happens: move, wrap or re-set that text, or nudge what crowds it. Keep the design's scale and composition, and never shrink the design or its type to make room. A crop or an overlap of shapes and pictures can stay. If nothing in your file causes it, change nothing. Do not look around the project.`;
 }
 
 function kebab(value: string): string {
