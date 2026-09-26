@@ -4,19 +4,12 @@ import { dirname, join } from "node:path";
 import { isJsonRecord, parseJson } from "../json.js";
 
 /**
- * What a direction is called on this machine, when that differs from its title
- * in the config.
- *
- * Renaming happens in the rail, and the name that comes out of it is the one
- * the user then says out loud: "make Sunrise warmer". Leglas cannot write that
- * back into leglas.config.ts, because it does not edit files it did not write.
- * So the name lives here instead, beside the other machine-local state, and
- * every command resolves through it. Without this, the CLI answers a name its
- * own interface taught the user with "no direction called that", and an agent
- * following that answer concludes the direction is gone.
- *
- * Keyed by config title, because that is the identity everything else uses and
- * the one thing a rename cannot change.
+ * What a direction is called on this machine when that differs from its config
+ * title. Rail renames can't go back into leglas.config.ts, since Leglas doesn't
+ * edit files it didn't write, so they live here and every command resolves
+ * through them. Otherwise the CLI answers a name its own interface taught with
+ * "no direction called that". Keyed by config title, which a rename can't
+ * change.
  */
 export const RENAMES_PATH = ".leglas/renames.json";
 
@@ -30,16 +23,15 @@ export async function readRenames(cwd: string): Promise<Renames> {
     if (!isJsonRecord(parsed) || (!isJsonRecord(parsed.renames) && !Array.isArray(parsed.renames)))
       return {};
 
-    // Anything not a string pair is dropped rather than trusted: this file is
-    // written by a browser and read by commands that act on real source.
+    // Anything but a string pair is dropped: a browser writes this and commands
+    // acting on real source read it.
     return Object.fromEntries(
       Object.entries(parsed.renames).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "",
       ),
     );
   } catch {
-    // Never renamed anything, or the file is unreadable. Neither is worth
-    // reporting: the config titles still work.
+    // Nothing renamed, or unreadable; the config titles still work.
     return {};
   }
 }
@@ -57,13 +49,10 @@ export type TitleResolution =
   | { ok: false; reason: "ambiguous"; matches: string[] };
 
 /**
- * Turn whatever name someone typed into the config title commands address by.
- *
- * A config title always wins, even when another direction has been renamed to
- * that same word: the shared config is what a teammate sees, and a local
- * nickname must not shadow it. Only then are the local names considered, and
- * two directions renamed to one word is refused rather than guessed at, since
- * guessing here edits the wrong direction.
+ * Turns a typed name into the config title commands use. A config title always
+ * wins, even over a local rename to the same word, since teammates see the
+ * config. Two directions renamed to one word is refused, since a guess edits
+ * the wrong one.
  */
 export function resolveTitle(
   input: string,

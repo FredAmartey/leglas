@@ -38,33 +38,21 @@ const POLL_MS = 2000;
 const OUTPUT_LINES = 20;
 
 /**
- * How long a warm transport outlives the last thing that used or asked for it.
- *
- * A warm transport is a vendor process and everything it loads: the Claude
- * Agent SDK brings up Claude Code and, through the user's own settings, every
- * MCP server they have configured. Measured at close to 600MB on a machine
- * with a handful of them, held for the life of the server, whether or not a
- * request was ever sent. Five minutes covers reading two directions and
- * coming back to the composer; a Leglas left open overnight is a Node process
- * and nothing else.
+ * How long a warm transport outlives its last use or ask. A warm transport is a
+ * vendor process plus every MCP server the user configured, close to 600MB with
+ * a handful of them. Five minutes covers reading two directions and coming back
+ * to the composer.
  */
 export const IDLE_RELEASE_MS = 5 * 60_000;
 
 /**
- * How long a stopped run has to end itself before Leglas stops waiting.
- *
- * SIGTERM is the polite ask and an agent that honours it is gone in well
- * under a second. A spawned agent gets both signals with its whole process
- * group, so what it started goes with it. What this bounds is the run that
- * does not end: a CLI that traps the signal, or a transport's turn that
- * ignores its interrupt, or something the agent started that left the group
- * and still holds the output pipe open, in which case the "close" event
- * never arrives at all.
- * Until this existed that wedged the runner for the life of the process: the
- * card said a stopped run was still going, no verdict was ever written, and
- * every request queued behind it waited on a child that was never coming
- * back. The escalation only ever follows a stop: the user's, or the silence
- * ceiling's.
+ * How long a stopped run has to end before Leglas stops waiting. An agent that
+ * honours SIGTERM is gone in under a second, and a spawned agent's whole
+ * process group gets the signal. This bounds the run that doesn't end: a CLI
+ * that traps the signal, a transport turn that ignores its interrupt, or a
+ * stray process holding the output pipe so "close" never comes. That used to
+ * wedge the runner for good. Escalation only follows a stop, the user's or the
+ * silence ceiling's.
  */
 const CANCEL_GRACE_MS = 5000;
 
@@ -77,17 +65,14 @@ export type RunnerState = {
   /** True between a stop being asked for and the child actually going. */
   stopping: boolean;
   /**
-   * The retry the vendor CLI is sitting in, while it is sitting in one. This
-   * is the difference between a run that looks wedged and a run that says it
-   * is waiting on an overloaded provider; Leglas cannot shorten the vendor's
-   * backoff, but it can stop the wait being a mystery.
+   * The retry the vendor CLI is sitting in, if any, so a run waiting on an
+   * overloaded provider doesn't look wedged.
    */
   waiting: RetryNotice | null;
   /**
-   * When the agent last said anything, once it has been quiet past the notice;
-   * null while it is talking. The card reads the silence off this against its
-   * own clock, so a stall shows as a stall instead of as the last thing the
-   * agent happened to be doing.
+   * When the agent last said anything, once it's been quiet past the notice;
+   * null while it's talking. The card reads the silence against its own clock,
+   * so a stall shows as a stall.
    */
   quietSince: number | null;
   failedIds: readonly string[];
@@ -137,10 +122,9 @@ export type RunnerOptions = {
   /** Injected by tests so half an hour of silence does not cost half an hour. */
   now?: () => number;
   /**
-   * How a fork's prompt names the registration CLI, exactly as the prompt
-   * composer received it. It feeds the pre-approval a non-interactive CLI
-   * needs to run that command; absent, no allowance is granted and a fork
-   * behaves as it did before the allowance existed.
+   * How a fork's prompt names the registration CLI, as the prompt composer got
+   * it. Feeds the pre-approval a non-interactive CLI needs to run it; absent,
+   * no allowance is granted.
    */
   leglasCommand?: string;
 };
@@ -173,10 +157,9 @@ type ObservedTurn = { sessionId: string | null; edited: boolean; retry: RetryNot
 type ChildOutcome = { ok: true; code: number } | { ok: false; error: string };
 
 /**
- * How many requests may share one vendor session before the next one starts
- * fresh. Every resumed turn carries the whole conversation back to the
- * model, so an unbounded session quietly makes each request dearer than the
- * last; eight keeps the discount while capping the freight.
+ * How many requests share one vendor session before a fresh one. Each resumed
+ * turn sends the whole conversation back, so an unbounded session makes each
+ * request dearer; eight keeps the discount and caps the cost.
  */
 const SESSION_TURNS_CAP = 8;
 
@@ -189,8 +172,8 @@ function resolveCommand(
 ): ResolvedCommand | null {
   if (choice.agent === null) return null;
 
-  // A custom template is the user's own command, and its permissions are
-  // theirs to configure; nothing is appended to an argv Leglas did not write.
+  // A custom template is the user's own command and permissions; nothing is
+  // appended to it.
   if (choice.agent === "custom") {
     if (choice.run === null) return null;
     const parsed = parseTemplate(choice.run);
@@ -271,11 +254,9 @@ function defaultSpawn(
 }
 
 /**
- * Run queued requests through the chosen local agent, one at a time.
- *
- * The external watcher gets first refusal because it is already showing the
- * agent's live output in a terminal. Starting a second agent here would make
- * both processes edit the same tree and charge the user for duplicate work.
+ * Runs queued requests through the chosen local agent, one at a time. An
+ * attached watcher goes first, since it already shows the agent's output in a
+ * terminal and a second agent would edit the same tree.
  */
 export function startRunner(options: RunnerOptions): RunningAgent {
   const spawn = options.spawn ?? defaultSpawn;
@@ -309,8 +290,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   const setLater =
     options.setTimeout ??
     ((callback: () => void, milliseconds: number) => {
-      // Unrefed: a grace period still counting down must never be the reason
-      // a process stays alive.
+      // Unrefed, so a grace period counting down never keeps the process alive.
       setTimeout(callback, milliseconds).unref?.();
     });
 
@@ -336,10 +316,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
   let stopped = false;
   let ticking: Promise<void> | null = null;
-  // Requests can land while the previous tick is removing its completed queue
-  // entry. Count those nudges rather than dropping or coalescing them: each
-  // accepted queue addition deserves one immediate successor tick, without
-  // ever overlapping the active agent.
+  // Requests can land while the previous tick removes its finished entry.
+  // Nudges are counted, not coalesced: each queued addition gets one immediate
+  // successor tick, never overlapping the active agent.
   let pendingNudges = 0;
   let stopPromise: Promise<void> | null = null;
 
@@ -354,10 +333,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     heardAt: number;
     /** True once Leglas has ended the run for saying nothing. */
     silenced: boolean;
-    /**
-     * True when the child is a process Leglas spawned, which leads its own
-     * process group, rather than a transport's turn.
-     */
+    /** True when the child is a spawned process leading its own group, not a transport's turn. */
     spawned: boolean;
   } | null = null;
 
@@ -382,10 +358,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * Release every transport once nothing has used or asked for one in a
-   * while. A generation counter rather than a cleared timer: the injected
-   * setTimeout hands back nothing, and an unref'd real one costs nothing to
-   * let fire and ignore.
+   * Releases every transport after an idle spell. A generation counter, not a
+   * cleared timer: the injected setTimeout returns nothing, and an unref'd real
+   * one can fire and be ignored.
    */
   let idleGeneration = 0;
 
@@ -395,7 +370,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     setLater(() => {
       if (generation !== idleGeneration || stopped) return;
 
-      // A run in flight is exactly what the process is for; look again later.
+      // A run in flight is what the process is for; check again later.
       if (active !== null) {
         armIdleRelease();
 
@@ -409,20 +384,17 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * Warm one vendor and let the other go.
-   *
-   * Warming is paid on intent, when an agent is chosen or the composer takes
-   * focus, and never at boot: a saved choice is not a request, and a session
-   * that never sends one should not carry a vendor process for its whole
-   * life. One transport at a time for the same reason. A quick switch back
-   * costs a re-warm, hidden behind typing the request out.
+   * Warms one vendor and releases the other. Paid on intent (an agent chosen,
+   * the composer focused), never at boot, since a saved choice isn't a request.
+   * One transport at a time; a quick switch back costs a re-warm hidden behind
+   * typing.
    */
   const prepare = (agent: AgentChoice): void => {
     if (stopped) return;
     desiredAgent = agent;
     releaseAllBut(agent);
-    // Warmed for the conversation the next request will continue, so a
-    // session released while idle is loaded again before Enter is pressed.
+    // Warmed for the conversation the next request continues, so a released
+    // session is loaded again before Enter.
     void transportFor(agent)
       ?.warm(resumable(agent))
       .catch(() => {});
@@ -430,11 +402,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * The vendor session each agent may continue, per this server process.
-   * In memory on purpose: a session that outlives the process would come
-   * back stale after days, and the vendor may have cleaned it up anyway.
-   * Dropped on any failure or cancel so a wedged conversation cannot taint
-   * the requests after it.
+   * The vendor session each agent may continue, in memory on purpose: one
+   * outliving the process would be stale, and the vendor may have cleaned it
+   * up. Dropped on any failure or cancel so a wedged conversation can't taint
+   * later requests.
    */
   const sessions = new Map<AgentChoice, { id: string; turns: number }>();
 
@@ -465,12 +436,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * Write the verdict where the interface and the next process can both read
-   * it, and put the agent's own last words in the terminal running Leglas.
-   *
-   * The output stays here rather than travelling to the browser: twenty lines
-   * of vendor log can carry a prompt, a path or a token, and the card only
-   * needs to say what happened and what to do about it.
+   * Writes the verdict where the interface and the next process can read it,
+   * and puts the agent's last words in Leglas's terminal. The output stays
+   * here: vendor logs can carry a prompt, a path or a token.
    */
   const reportFailure = async (
     request: PendingRequest,
@@ -478,12 +446,11 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     lines: readonly string[],
   ): Promise<void> => {
     await markFailed(options.cwd, request.id, failure).catch(() => {
-      // The queue is unwritable; the in-memory record below still stops a
-      // rerun for the life of this process, which is what it did before any
-      // of this.
+      // The queue is unwritable; the in-memory record still stops a rerun for
+      // this process's life.
     });
-    // Do not expose the in-memory verdict before the durable one. Consumers
-    // use failedIds as the signal that the queue is ready to read.
+    // The in-memory verdict must not show before the durable one: consumers
+    // read failedIds as "the queue is ready".
     failed.add(request.id);
 
     if (failure.code === "cancelled") {
@@ -523,18 +490,17 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       spawned: false,
     };
 
-    // Cancellation has to exist before an embedded transport starts. Warming,
-    // thread creation and turn startup all await vendor work before there is a
-    // synthetic child to signal, which previously made Stop a no-op here.
+    // Cancellation must exist before an embedded transport starts. Warming,
+    // thread creation and turn start all await vendor work before there's a
+    // child to signal, which made Stop a no-op here.
     active = current;
     activeAgent = resolved.agent;
 
     const cancelled = (): ChildOutcome => ({ ok: false, error: "cancelled" });
     const silent = (): ChildOutcome => ({ ok: false, error: "silent" });
 
-    // Any line at all, on either stream, is the agent still being there. The
-    // state only changes when a notice is showing, so a chatty run costs no
-    // extra reads.
+    // Any line on either stream means the agent is still there. State only
+    // changes while a notice shows, so a chatty run costs nothing extra.
     const heard = () => {
       current.heardAt = now();
 
@@ -558,11 +524,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
       return new Promise<RunnerChild>((resolve, reject) => {
         // A compliant transport rejects only after its startup cleanup ends.
-        // The grace path tears down the process of a transport that ignores
-        // its abort signal, so the queue never advances while a late process
-        // can still appear. Released rather than closed: the transport is
-        // still the right one for the next request, and closing it here left
-        // every later run on the cold CLI path for the life of the server.
+        // The grace path tears down the process of one that ignores its abort,
+        // so the queue never advances while a late process can still appear.
+        // Released, not closed: closing it left every later run on the cold CLI
+        // path.
         current.abandon = () => {
           void persistent
             .release()
@@ -591,8 +556,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       });
     };
 
-    // Its own process group, so a stop reaches whatever the agent started
-    // as well as the agent: a dev server, a watcher, a wrapper's child.
+    // Its own process group, so a stop reaches whatever the agent started too.
     const spawnAgent = (): RunnerChild => {
       const child = spawn(resolved.command, resolved.args, {
         cwd: options.cwd,
@@ -612,14 +576,14 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       try {
         child = persistent !== null ? await startPersistent() : spawnAgent();
       } catch (error) {
-        // A transport ended for its silence must not fall back to the CLI
-        // behind it: that would be the same unanswered question, asked again.
+        // A transport ended for silence must not fall back to the CLI behind
+        // it, which would ask the same unanswered question.
         if (current.silenced) return silent();
 
         if (current.cancelled || stopped || controller.signal.aborted) return cancelled();
 
-        // A missing SDK, older Codex build or failed persistent handshake keeps
-        // the exact vendor CLI behavior Leglas shipped before this optimization.
+        // A missing SDK, older Codex or failed handshake keeps the plain vendor
+        // CLI path.
         if (persistent !== null) {
           try {
             child = spawnAgent();
@@ -668,8 +632,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (activity !== null) {
           if (activity.startsWith("editing")) observed.edited = true;
 
-          // Work resuming ends the wait: the backoff is over the moment the
-          // agent says anything else.
+          // Any other output ends the wait.
           if (active === current) {
             setState((value) => ({ ...value, activity, waiting: null }));
           }
@@ -694,9 +657,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
         current.abandon = () => settle(current.silenced ? silent() : cancelled());
 
-        // An error on the way out, a signal Node could not deliver, belongs to
-        // the ending Leglas already chose. Only an error nobody asked for is
-        // the agent's own failure.
+        // An error on the way out, such as a signal Node couldn't deliver,
+        // belongs to the ending Leglas chose. Only an unasked-for error is the
+        // agent's own failure.
         child.once("error", (error) => {
           if (current.cancelled) return settle(cancelled());
 
@@ -730,9 +693,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
             ...(request.mode === "variant" ? [registrationCommand(options.leglasCommand)] : []),
           ];
 
-    // The queue read already keeps attachments inside the request's own
-    // directory by name. This is the same fence with the links resolved, at
-    // the point the path leaves Leglas for a transport that will read it.
+    // The queue read already keeps attachments inside the request's directory
+    // by name; this is the same fence with links resolved, where the path
+    // leaves for a transport.
     const images = (
       await Promise.all(
         (request.attachments ?? []).map(async (attachment) =>
@@ -756,14 +719,13 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     const lines: string[] = [];
 
     try {
-      // If an external collector won the race after the queue read, it owns
-      // this request. The false return is the lock we get from the queue file.
+      // An external collector that won the race owns this request. The false
+      // return is the queue file's lock.
       if (!(await markPickedUp(options.cwd, request.id))) return;
 
-      // Stop may have landed while the queue write was in flight, before a
-      // child existed for cancel() to signal. Record the handoff as ended by
-      // the shutdown instead of starting new work, and instead of leaving a
-      // picked-up request the next process would read as live.
+      // Stop may have landed during the queue write, before any child existed
+      // to cancel. Record it as ended by the shutdown rather than start work or
+      // leave it picked-up.
       if (stopped) {
         await reportFailure(
           request,
@@ -774,8 +736,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         return;
       }
 
-      // Wall-clock rather than injected time: the value only feeds the elapsed
-      // counter in the shell, which reads it against its own Date.now anyway.
+      // Wall clock, not injected time: it only feeds the shell's elapsed
+      // counter, which reads its own Date.now.
       setState({
         running: true,
         requestId: request.id,
@@ -793,12 +755,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         retry: null,
       };
 
-      // A fork's one observable outcome is the previews file gaining its
-      // entry, so the file as it stood before the run is what exit 0 gets
-      // judged against.
+      // A fork's one observable outcome is its previews entry, so exit 0 is
+      // judged against the file as it was before the run.
       const before = request.mode === "variant" ? await registered() : null;
-      // The name is read once: a cold rerun resolves the same vendor, and a
-      // closure over the mutable binding would only be harder to read.
+      // Read once: a cold rerun resolves the same vendor.
       const agent = resolved.name;
       let outcome = await runChild(request, resolved, lines, observed);
 
@@ -817,34 +777,26 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
       let failure = verdict();
 
-      // A resume that died without touching a file is a session problem, not
-      // a request problem: the vendor may simply have cleaned the session up.
-      // One cold retry keeps that invisible to the user. A resume that edited
-      // and then failed is treated as any failure, because rerunning it could
-      // stack half-applied changes. The edited flag leans on activityFrom
-      // labelling every edit attempt; a vendor event stripped of its path
-      // data would slip past it, which is accepted, documented coupling.
+      // A resume that died without touching a file is a session problem (the
+      // vendor may have cleaned it up), so one cold retry hides it. A resume
+      // that edited and failed isn't retried, since rerunning could stack
+      // half-applied changes. The edited flag relies on activityFrom labelling
+      // every edit; an event without path data slips past, which is accepted.
       //
-      // The verdict gates it too, and that is the difference between one
-      // provider turn and two: an overloaded provider, a spent limit, a
-      // signed-out CLI or a refused directory answers the second run exactly
-      // as it answered the first. Claude alone retries an overload ten times
-      // over roughly 200 seconds before it exits, so a blind rerun aims a
-      // second ladder at a provider that is already down, on the user's
-      // account.
+      // The verdict gates it too: an overloaded provider, a spent limit, a
+      // signed-out CLI or a refused directory answers the second run the same
+      // way. Claude alone retries an overload ten times over about 200 seconds.
       if (
         !(outcome.ok && outcome.code === 0) &&
         resolved.resumed &&
         !observed.edited &&
-        // The edited flag is only evidence where Leglas has read the vendor's
-        // real output. Where it has not, "did not edit" means "was not seen
-        // to edit", and rerunning on that is how a half-applied change gets
-        // applied twice. Such a vendor keeps the failure card and its Retry.
+        // The edited flag is evidence only where Leglas has read the vendor's
+        // real output; elsewhere "didn't edit" means "wasn't seen to edit".
+        // Those vendors keep the failure card and its Retry.
         activityVerified(resolved.agent) &&
         conversationFailure(failure.code) &&
-        // Not redundant with the verdict: a stop that lands between the first
-        // child settling and the retry starting finds no child to cancel, so
-        // nothing says "cancelled". Stopped still means stopped.
+        // Not redundant: a stop between the first child settling and the retry
+        // starting finds no child to cancel.
         !stopped
       ) {
         sessions.delete(resolved.agent);
@@ -854,7 +806,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           resolved = cold;
           observed.sessionId = null;
           observed.retry = null;
-          // The failed attempt's last activity must not caption the fresh one.
+          // The failed attempt's activity must not caption the fresh one.
           setState((value) => ({ ...value, activity: null, waiting: null }));
           outcome = await runChild(request, resolved, lines, observed);
           failure = verdict();
@@ -862,11 +814,10 @@ export function startRunner(options: RunnerOptions): RunningAgent {
       }
 
       if (outcome.ok && outcome.code === 0) {
-        // An exit 0 that registered nothing is a run that could not or would
-        // not finish its last step, and counting it as success is how three
-        // runs once vanished without a trace: request removed, card gone, rail
-        // unchanged, the agent's explanation discarded. The conversation
-        // ignored its final instruction, so it is not resumed either.
+        // An exit 0 that registered nothing didn't finish its last step.
+        // Counting it as success made three runs vanish: request removed, card
+        // gone, rail unchanged. The conversation ignored its final instruction,
+        // so it isn't resumed either.
         if (request.mode === "variant" && (await registered()) === before) {
           sessions.delete(resolved.agent);
           await reportFailure(request, classifyFailure({ agent, error: "not-registered" }), lines);
@@ -882,10 +833,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
           });
         }
 
-        // A change made in place answered its notes by rewriting the design
-        // they were left on, so keeping them would leave pins pointing at
-        // something that no longer exists. A fork leaves them alone: the
-        // direction they point at is exactly as it was.
+        // A change in place answered its notes by rewriting the design they
+        // pin, so the notes go. A fork leaves them; their direction is
+        // unchanged.
         if (request.mode === "replace" && request.notes !== undefined) {
           await removeAnnotations(options.cwd, request.notes).catch(() => 0);
         }
@@ -900,9 +850,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     } finally {
       idle();
       activeAgent = null;
-      // A switch made during the run kept this vendor alive for the run's
-      // sake. With it over, only the vendor last asked for stays warm; with
-      // nothing asked for since boot, that is the one that just ran.
+      // A switch during the run kept this vendor alive for it. Now only the
+      // vendor last asked for stays warm, or the one that just ran.
       releaseAllBut(desiredAgent ?? choice.agent);
       // The run is the last thing that used the transport; its clock starts now.
       armIdleRelease();
@@ -948,8 +897,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * A process Leglas spawned is signalled with everything it started; a
-   * transport's turn has no process of its own, and its kill is an interrupt.
+   * A spawned process is signalled with everything it started; a transport's
+   * turn has no process, so its kill is an interrupt.
    */
   const signalChild = (current: NonNullable<typeof active>, value: NodeJS.Signals): void => {
     const { child } = current;
@@ -960,7 +909,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     else child.kill(value);
   };
 
-  /** Ask the run in flight to go, and make sure it has gone once the grace period is up. */
+  /** Asks the run in flight to stop, and makes sure it's gone once the grace period is up. */
   const end = (current: NonNullable<typeof active>): void => {
     current.controller.abort();
 
@@ -971,7 +920,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     }
 
     setLater(() => {
-      // Already settled: the child went, and this run is somebody else's now.
+      // Already settled: the child went and this slot belongs to another run.
       if (active !== current) return;
 
       try {
@@ -985,10 +934,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   };
 
   /**
-   * Check on the run in flight, once a poll. Quiet past the notice, the card
-   * learns when the agent last spoke; quiet past the ceiling, the run is ended
-   * the way a stop ends it, under a verdict of its own rather than the
-   * user's. Any output resets both, so a run that keeps talking is never cut.
+   * Checks the run in flight once a poll. Past the notice the card learns when
+   * the agent last spoke; past the ceiling the run ends like a stop, under its
+   * own verdict. Any output resets both.
    */
   const listen = (): void => {
     const current = active;
@@ -1017,20 +965,16 @@ export function startRunner(options: RunnerOptions): RunningAgent {
   schedule();
 
   const cancel = (id?: string): boolean => {
-    // A run Leglas is already ending for its silence keeps that verdict: the
-    // stop would only rename why it ended.
+    // A run already ending for silence keeps that verdict.
     if (active === null || active.cancelled || active.silenced) return false;
 
-    // A stop aimed at a specific request must not land on its successor: in
-    // the gap between one run ending and the next starting, the card the user
-    // clicked may describe a run that no longer exists. Refusing the mismatch
-    // makes that click a no-op instead of a misfire.
+    // A stop for a specific request must not hit its successor: between runs,
+    // the card clicked may describe a run that no longer exists.
     if (id !== undefined && active.requestId !== id) return false;
     const current = active;
     current.cancelled = true;
     failed.add(current.requestId);
-    // The card stops claiming the run is live the moment the stop is asked
-    // for, rather than whenever the child gets around to going.
+    // The card stops claiming the run is live as soon as the stop is asked for.
     setState((value) => ({ ...value, stopping: true, waiting: null, quietSince: null }));
     end(current);
 
@@ -1055,9 +999,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
     snapshot: () => ({ ...state, failedIds: [...failed] }),
     cancel,
     prepare,
-    // A nudge during a tick is latched and checked as soon as that tick
-    // settles; a nudge between ticks starts immediately. Neither can overlap
-    // the active agent.
+    // A nudge during a tick is latched until the tick settles; between ticks it
+    // starts one at once. Neither overlaps the active agent.
     nudge: () => schedule(true),
   };
 }

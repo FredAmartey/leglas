@@ -16,14 +16,8 @@ import { CROP_MIN, FRAME_MAX_HEIGHT, capturePage, cropBox, type Focus } from "./
 import { type JsonRecord, isJsonRecord, isString } from "../json.js";
 
 /**
- * A live test's ceiling, derived rather than chosen.
- *
- * It has to sit above launchBrowser's own deadline, or vitest kills
- * the test before the launch can either succeed or say why, and the
- * log gets a bare timeout instead of the browser's last words. Double
- * leaves the rest of the test more room than it has ever needed, and
- * deriving it means raising the launch deadline for a slower runner
- * never silently re-inverts the pair.
+ * Derived from launchBrowser's own deadline and above it, so vitest never kills
+ * the test before the launch can succeed or say why.
  */
 const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
@@ -109,8 +103,8 @@ class FakePage implements CdpPage {
     }
 
     if (method === "Runtime.evaluate") {
-      // Only the locator is counted. The readiness waits evaluate too, and
-      // counting those would hand the first note the second answer.
+      // Only the locator is counted; counting the readiness evaluations would
+      // hand the first note the second answer.
       const expression = String(params.expression);
 
       if (expression.includes("requestAnimationFrame")) {
@@ -330,8 +324,8 @@ describe("capturePage", () => {
       const answer = await original<T>(method, params);
 
       if (method === "Page.navigate") {
-        // Asked for once the page has loaded, as a client-rendered page
-        // asks for everything it draws with. One arrives, one fails.
+        // Asked for after load, as a client-rendered page asks for what it
+        // draws with. One arrives, one fails.
         queueMicrotask(() => {
           page.emit("Network.requestWillBeSent", { requestId: "sheet", type: "Stylesheet" });
           page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
@@ -453,8 +447,8 @@ describe("capturePage", () => {
               }, finishes);
             }
 
-            // The same image takes 60 ms in the original test, so only a
-            // script requested after load should make that capture slower.
+            // The same image takes 60 ms in the original test, so only a script
+            // requested after load should slow this capture.
             page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
             setTimeout(() => page.emit("Network.loadingFinished", { requestId: "picture" }), image);
           });
@@ -633,9 +627,9 @@ describe.skipIf(executable === null)("two captures of one design", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "agree, even when the page fades itself in after load",
     async () => {
-      // An entrance animation is what makes a still design come back
-      // different every time. Caught mid-fade the bytes differ, and an agent
-      // asked to judge the same direction twice sees two designs.
+      // An entrance animation makes a still design come back different each
+      // time; caught mid-fade, an agent judging one direction twice sees two
+      // designs.
       const server = http.createServer((_req, res) => {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(`<style>
@@ -662,8 +656,7 @@ describe.skipIf(executable === null)("two captures of one design", () => {
         shots.push(await capturePage(browser, { url: `http://127.0.0.1:${port}/`, width: 400 }));
       }
 
-      // Byte-identical, and settled rather than blank: the panel is at full
-      // opacity, so the frame is the design at rest.
+      // Byte-identical and at rest, not blank: the panel is at full opacity.
       expect(shots[1]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
       expect(shots[2]?.frame.png.equals(shots[0]?.frame.png ?? Buffer.alloc(0))).toBe(true);
       expect(shots[0]?.frame.png.length).toBeGreaterThan(100);
@@ -676,12 +669,11 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "is shot with the script, stylesheet, web font and image it asked for",
     async () => {
-      // A React direction in a Vite app renders after the load event, so the
-      // code, stylesheets, fonts and images it asks for are all requested
-      // after it. This page asks the same way, slowly, as a font host
-      // answers. Its words wait for their stylesheet, as React waits for a
-      // stylesheet with a precedence, and only then ask for their font. Its
-      // picture waits for a script, as a lazy component waits for its code.
+      // A React direction in Vite renders after load, so its code, stylesheets,
+      // fonts and images are all requested after it. This page does the same,
+      // slowly: its words wait for a stylesheet (as React does for one with a
+      // precedence), then ask for their font, and its picture waits for a
+      // script, as a lazy component waits for its code.
       const font = await readFile(
         new URL("../../../shell/src/fonts/Satoshi-Regular.woff2", import.meta.url),
       );
@@ -696,7 +688,7 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
       const picture = '<img src="/picture.svg" width="200" height="100" alt="">';
 
       const pages = new Map([
-        // Everything in the markup, so the load event waits for all of it.
+        // Everything in the markup, so load waits for all of it.
         ["/reference", `<link rel="stylesheet" href="/face.css">${style}${words}${picture}`],
         [
           "/late",
@@ -713,12 +705,12 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
             });
           </script>`,
         ],
-        // What a shot taken too early shows: the fallback font and no picture.
+        // What an early shot shows: the fallback font and no picture.
         ["/bare", `${style}${words}`],
       ]);
 
-      // The script is the slowest, slower than the stylesheet and the font
-      // together, so nothing else in flight covers for it.
+      // The script is the slowest, slower than the stylesheet and font
+      // together, so nothing else covers for it.
       const assets = new Map([
         [
           "/face.css",
@@ -777,7 +769,8 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
 
       const reference = await shot("/reference");
 
-      // The font and the picture change the pixels, or the comparison below proves nothing.
+      // The font and picture must change the pixels or the comparison proves
+      // nothing.
       expect(reference.equals(await shot("/bare"))).toBe(false);
       expect((await shot("/late")).equals(reference)).toBe(true);
     },
@@ -787,10 +780,9 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "is shot after a lazy script reveals its content",
     async () => {
-      // React holds a lazy component's content back for up to 300 ms after
-      // showing its fallback, with nothing in flight to wait on. This page's
-      // late script does the same: it shows a placeholder, then the real
-      // words 250 ms later, with no request between the two.
+      // React can hold a lazy component's content up to 300 ms after its
+      // fallback with nothing in flight. This page's late script does the same:
+      // a placeholder, then the real words 250 ms later, no request between.
       const style = `<style>
         body { margin: 0; padding: 24px; background: #fff; }
         h1 { font: 64px/1.1 sans-serif; margin: 0; }
@@ -844,7 +836,8 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
 
       const reference = await shot("/reference");
 
-      // The placeholder changes the pixels, or the comparison below proves nothing.
+      // The placeholder must change the pixels or the comparison proves
+      // nothing.
       expect(reference.equals(await shot("/placeholder"))).toBe(false);
       expect((await shot("/late")).equals(reference)).toBe(true);
     },

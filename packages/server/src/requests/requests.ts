@@ -10,18 +10,11 @@ import type { Failure, FailureCode } from "../agents/failure.js";
 import { isString, isJsonRecord, parseJson, type JsonValue, type JsonRecord } from "../json.js";
 
 /**
- * What a change does to the direction it was sent at.
- *
- * `variant` builds a new direction beside the old one and leaves the old one
- * standing; `replace` edits it where it lies. Variant is the interface's
- * default because the whole tool is a comparison, and a change that overwrites
- * its own baseline destroys the thing being compared. Replace stays one click
- * away because not every change is a fork: a typo, a colour that is simply
- * wrong, or another pass at a variant made a minute ago all want the file
- * they already have.
- *
- * No default is assumed here. The two produce different work and one of them
- * cannot be undone, so the caller has to say which it means.
+ * What a change does to its direction. `variant` builds a new direction beside
+ * it; `replace` edits it in place. Variant is the interface's default, since
+ * overwriting the baseline destroys the comparison; replace suits a typo, a
+ * wrong colour or another pass at a fresh variant. No default here: the two
+ * differ and one can't be undone, so the caller says which.
  */
 export type RequestMode = "variant" | "replace";
 
@@ -33,11 +26,9 @@ const SAFE_SEGMENT = /^[a-z0-9][a-z0-9-]*$/i;
 export type VariantSlot = { surface: string; option: string };
 
 /**
- * The surface and option a scaffold-generated URL names, if it names one.
- *
- * `/?v-hero=aurora` is the convention `leglas new` writes and `leglas explore`
- * teaches: surface "hero", option "aurora". Both halves are checked against
- * the scaffold's own naming before either is handed to a path or a command.
+ * The surface and option a scaffold URL names, if any: `/?v-hero=aurora` is
+ * surface "hero", option "aurora". Both are checked against the scaffold's
+ * naming before reaching a path or command.
  */
 export function variantSlot(url: string): VariantSlot | null {
   if (!url.startsWith("/")) return null;
@@ -65,13 +56,10 @@ export function variantSlot(url: string): VariantSlot | null {
 }
 
 /**
- * The file behind a preview, when the URL was produced by `leglas new`.
- *
- * The scaffold's own convention pays off here: `/?v-hero=aurora` means the
- * direction lives at `.leglas/variants/hero/aurora.tsx`, so a request can name
- * the exact file instead of asking an agent to go looking. A URL that does not
- * follow the convention yields nothing, and the request degrades to describing
- * the preview rather than pointing at a file that may not exist.
+ * The file behind a preview when its URL came from `leglas new`:
+ * `/?v-hero=aurora` lives at `.leglas/variants/hero/aurora.tsx`, so a request
+ * can name the file. Other URLs yield nothing and the request describes the
+ * preview instead.
  */
 export function targetFor(url: string): string | null {
   const slot = variantSlot(url);
@@ -80,14 +68,9 @@ export function targetFor(url: string): string | null {
 }
 
 /**
- * Turn an intent expressed in the interface into a request an agent can act on
- * without a conversation.
- *
- * Leglas does not run a model. The user's own agent already knows their
- * conventions, their design system, and their taste, which is context no
- * external worker can have. What was missing was locality: expressing the
- * intent meant leaving the interface for a terminal. This closes that without
- * taking over generation.
+ * Turns an intent from the interface into a request an agent can act on without
+ * a conversation. Leglas runs no model; the user's agent already knows their
+ * conventions and taste.
  */
 export function composeRequest(
   preview: Preview,
@@ -102,10 +85,8 @@ export function composeRequest(
   const cleaned = intent.trim();
   const asked = changeBlock(cleaned, notes);
 
-  // What the new direction will record as the request behind it. Typed words
-  // when there are any; otherwise the notes are the request, and a variant
-  // that recorded an empty string would be the one thing on the rail nobody
-  // can account for.
+  // What the new direction records as its request: the typed words, or else the
+  // notes, so no variant on the rail has an empty reason.
   const recorded =
     cleaned === ""
       ? notes.flatMap((entry) => (entry.note !== "" ? [entry.note] : [])).join("; ")
@@ -120,12 +101,9 @@ export function composeRequest(
 }
 
 /**
- * How the anchors are to be read, said once rather than per note.
- *
- * The order is the order they go stale in. An agent handed a stale CSS path
- * and told nothing else will either edit the wrong element or give up; told
- * which facts to trust first, it finds the right one from the words on screen
- * almost every time.
+ * How to read the anchors, said once, in the order they go stale. Told which
+ * facts to trust first, an agent finds the element from its words almost every
+ * time instead of editing the wrong one from a stale CSS path.
  */
 const ANCHORS =
   `Each path and rectangle was recorded when the note was left, against the ` +
@@ -134,11 +112,8 @@ const ANCHORS =
   `where on the page to look rather than a fact.`;
 
 /**
- * What was asked for: typed words, notes left on the design, or both.
- *
- * A note carries its own address, so the words left over are only about what
- * is wrong. That is the whole reason the pins exist, and why a request with
- * nothing typed into the composer is still a complete request.
+ * What was asked for: typed words, notes, or both. Notes carry their own
+ * address, so a request with nothing typed is still complete.
  */
 function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
   if (notes.length === 0) return `What to change: ${cleaned}`;
@@ -154,18 +129,13 @@ function changeBlock(cleaned: string, notes: readonly Annotation[]): string {
 }
 
 /**
- * The closing rules both prompts share.
- *
- * Agents give an unscoped prompt the full treatment: survey the project, make
- * the edit, then verify with test runs and searches. For a design tweak the
- * verification is the run; the live preview shows the result the moment the
- * file is saved. Saying so is the single biggest speed lever this side of the
- * vendor, because the edit itself takes seconds.
+ * The closing rules both prompts share. Agents give an unscoped prompt the full
+ * survey, edit and test cycle, but for a design tweak the live preview is the
+ * check. Saying so is the biggest speed lever this side of the vendor.
  */
 function scope(leglasCommand: string, quotedTitle: string | null): string {
-  // A direction served from a file joins the rail after a restart, so there
-  // is nothing to render until then, and asking for a look would send the
-  // agent at a 404 it is told not to fix by restarting.
+  // A file-served direction joins the rail after a restart, so asking for a
+  // look would send the agent at a 404 it's told not to fix by restarting.
   const look =
     quotedTitle === null
       ? `A file direction joins the rail after Leglas restarts, so there is ` +
@@ -277,15 +247,10 @@ function capturedBlock(captured: Captured | null): string {
   }
 
   if (captured.attachments.length > 0) {
-    // Last, so the block ends on the thing to do rather than on evidence.
-    //
-    // Said as files on purpose. Only some ways in carry the pictures
-    // themselves: the embedded Codex and the embedded Claude session hand
-    // them to the model directly, while a Claude CLI fallback, Cursor, a
-    // custom command and `leglas watch` get this text and nothing else. Every
-    // one of them can open a file, so the instruction that works everywhere
-    // is the one that names them as files. An agent that also received them
-    // attached has lost nothing by being told where they live.
+    // Last, so the block ends on the thing to do. Said as files because only
+    // the embedded Codex and Claude sessions get the pictures directly; the
+    // Claude CLI fallback, Cursor, a custom command and `leglas watch` get only
+    // this text, and all of them can open a file.
     lines.push(
       "Each path above is a file in this project. Open every one and look at it before changing anything.",
     );
@@ -295,26 +260,20 @@ function capturedBlock(captured: Captured | null): string {
 }
 
 /**
- * A value as one double-quoted shell argument.
- *
- * JSON escaping keeps a quote from ending the argument, but inside double
- * quotes a shell still expands `$(...)`, backticks and backslashes, and a
- * title or a typed request can carry any of them. The prompt is run by a
- * command the runner pre-approves, so the argument has to be inert as well
- * as balanced. Plain text comes out exactly as JSON.stringify would.
+ * A value as one double-quoted shell argument. JSON escaping stops a quote
+ * ending it, but a shell still expands `$(...)`, backticks and backslashes
+ * inside double quotes, and the runner pre-approves this command, so it must be
+ * inert. Plain text comes out as JSON.stringify would.
  */
 function shellArgument(value: string): string {
   return `"${value.replace(/[\\"$`]/g, (character) => `\\${character}`)}"`;
 }
 
 /**
- * The exact command a fork's prompt tells the agent to run to register.
- *
- * The runner pre-approves this prefix for a CLI that cannot ask mid-run, so
- * prompt and allowance must come from one place: an allowance for a command
- * the prompt does not name is a hole, and a prompt naming a command the
- * allowance does not cover is a run that builds everything and registers
- * nothing.
+ * The exact command a fork's prompt says to run to register. The runner
+ * pre-approves this prefix for a CLI that can't ask mid-run, so prompt and
+ * allowance share one source: a mismatch is either a hole or a run that builds
+ * everything and registers nothing.
  */
 export function registrationCommand(leglasCommand: string): string {
   return `${leglasCommand} add`;
@@ -346,20 +305,12 @@ function replacePrompt(
 }
 
 /**
- * A change that branches instead of overwriting.
- *
- * Three things have to land or the new direction is not comparable with the
- * one it came from. It starts as a copy of the parent's source, so what
- * reaches the rail is the parent plus the change rather than a fresh design
- * wearing a related name. It is registered with `--based-on`, which is what
- * puts it under its parent in the rail and makes the parent its default
- * comparison. And it carries the request that produced it, in the user's own
- * words, because a fortnight later the rail is a row of names nobody can
- * account for.
- *
- * Registration is a CLI call rather than a file the agent writes, because
- * `leglas add` is the same path `leglas explore` already teaches and it
- * validates the entry before it can reach the rail broken.
+ * A change that branches instead of overwriting. Three things must land for it
+ * to be comparable: it starts as a copy of the parent's source; it registers
+ * with `--based-on`, which nests it under its parent and makes the parent its
+ * default comparison; and it records the request in the user's own words.
+ * Registration goes through `leglas add`, which validates the entry before it
+ * reaches the rail.
  */
 function variantPrompt(
   preview: Preview,
@@ -376,8 +327,8 @@ function variantPrompt(
 
   const source = target === null ? `Find what renders it first.` : `Its source is ${target}.`;
 
-  // Where the copy goes, and how the finished direction is named back to
-  // Leglas, is the one part that differs by how the parent is served.
+  // Where the copy goes and how the direction is registered depend on how the
+  // parent is served.
   const [make, register] =
     preview.file !== undefined
       ? [
@@ -424,22 +375,18 @@ function variantPrompt(
 export const REQUESTS_PATH = ".leglas/requests.json";
 
 /**
- * Where a request has got to.
- *
- * `queued` and `picked-up` are the live half, and removal is still the only
- * completion signal the tool can stand behind: an agent that finished has
- * nothing left to say. The two terminal states exist because the opposite is
- * not true of a run that ended badly. That used to live only in the running
- * server's memory, so a restart read a stopped or failed request back as
- * `picked-up` and the interface said "your agent is on it" about a run that
- * had been over for days, with no way to dismiss it.
+ * Where a request has got to. `queued` and `picked-up` are live, and removal is
+ * the only completion signal. The terminal states exist because a run that
+ * ended badly used to be tracked only in memory: after a restart it read as
+ * `picked-up`, and the interface said "your agent is on it" for days with no
+ * way to dismiss it.
  */
 export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 
 /**
- * The shape of an id Leglas minted. An id names a directory under
- * `.leglas/captures/` that gets removed with its request, so a hand-edited
- * queue must not be able to point that removal anywhere else.
+ * The shape of an id Leglas minted. An id names a `.leglas/captures/` directory
+ * removed with its request, so a hand-edited queue must not point that removal
+ * elsewhere.
  */
 export const REQUEST_ID = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -484,9 +431,8 @@ export type PendingRequest = {
 };
 
 /**
- * Every verdict the runner writes, keyed so the compiler notices a new one.
- * A list here once went stale: the reader drops a code it does not know, so
- * a verdict added in the runner and not here would vanish from the card.
+ * Every verdict the runner writes, keyed so the compiler notices a new one; the
+ * reader drops unknown codes, so a missing one would vanish from the card.
  */
 const FAILURE_CODES: Record<FailureCode, true> = {
   cancelled: true,
@@ -543,18 +489,16 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
           ? entry.status
           : "queued";
 
-      // A verdict is only read back in the shape it was written, and only on a
-      // request that ended. Anything else in that slot is a hand-edited file,
-      // and a request with no reason reads better than one carrying a reason
-      // nobody can trust.
+      // A verdict is read back only in its written shape and only on an ended
+      // request. Anything else is hand-edited, and no reason beats an
+      // untrustworthy one.
       const failure = isTerminal(status) ? failureOf(rawFailure) : null;
 
       const id = isString(entry.id) && REQUEST_ID.test(entry.id) ? entry.id : String(index);
 
-      // An attachment is read into a transport and sent to a model, so a
-      // path from the queue file is trusted only when it is the one Leglas
-      // would have written: inside this request's own capture directory,
-      // one plain file name, nothing that could climb out.
+      // Attachments are sent to a model, so a queue path is trusted only in the
+      // shape Leglas writes: one plain file name inside this request's capture
+      // directory.
       const ownFile = new RegExp(`^\\.leglas/captures/${id}/[A-Za-z0-9][A-Za-z0-9_.-]*$`);
 
       const attachments = Array.isArray(rawAttachments)
@@ -593,8 +537,8 @@ export async function readRequests(cwd: string): Promise<PendingRequest[]> {
       return { ...loaded, ...optional } as PendingRequest;
     });
   } catch {
-    // No queue yet, or an unreadable one. Either way nothing is pending, and a
-    // broken queue must never stop the interface from working.
+    // No queue yet, or unreadable: nothing is pending, and a broken queue must
+    // never stop the interface.
     return [];
   }
 }
@@ -620,28 +564,24 @@ export function newRequestId(): string {
 export async function collectRequests(cwd: string): Promise<PendingRequest[]> {
   const requests = await readRequests(cwd);
 
-  // A request that already ended is not work: handing a cancelled one to an
-  // agent would ask for the change the user just stopped, and handing over a
-  // failed one spends a turn on the thing that already broke.
+  // An ended request isn't work: handing over a cancelled one asks for the
+  // change the user stopped, and a failed one spends a turn on what already
+  // broke.
   const collected = requests.map((request) =>
     isTerminal(request.status) ? request : { ...request, status: "picked-up" as const },
   );
 
-  // Collecting an empty queue writes nothing: this is the one command agents
-  // run speculatively, and a probe must not materialise .leglas/ in a project
-  // that never used the interface.
+  // Collecting an empty queue writes nothing: agents run this speculatively,
+  // and a probe must not create .leglas/ in an unused project.
   if (requests.some((request) => request.status === "queued")) await writeQueue(cwd, collected);
 
   return collected.filter((request) => !isTerminal(request.status));
 }
 
 /**
- * Mark one request as taken, leaving the rest of the queue alone.
- *
- * collectRequests hands the whole queue over at once, which is right for an
- * agent that reads them all and works through them itself. Watch takes one at
- * a time, and flipping every request to picked-up would tell the interface
- * that directions nobody has started are already being worked on.
+ * Marks one request as taken. collectRequests hands over the whole queue for an
+ * agent that works through it; watch takes one at a time, and flipping them all
+ * would show unstarted directions as in progress.
  */
 export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
   const requests = await readRequests(cwd);
@@ -659,12 +599,10 @@ export async function markPickedUp(cwd: string, id: string): Promise<boolean> {
 }
 
 /**
- * Write down how a run ended, so the record outlives the process that ran it.
- *
- * The request stays in the queue: the interface still has to show it, offer a
- * rerun and let the user let it go. What changes is that it can no longer be
- * mistaken for work in flight, by this server after a restart, by `leglas
- * requests`, or by a channel host reading the same file.
+ * Records how a run ended so it outlives the process. The request stays so the
+ * interface can show it, offer a rerun and let the user dismiss it; it just
+ * can't pass for work in flight, to a restarted server, `leglas requests` or a
+ * channel host.
  */
 export async function markFailed(cwd: string, id: string, failure: Failure): Promise<boolean> {
   const requests = await readRequests(cwd);
@@ -687,12 +625,9 @@ export async function markFailed(cwd: string, id: string, failure: Failure): Pro
 }
 
 /**
- * Drop one request, which is the only way a request completes.
- *
- * There is no "done" status: an agent that finished has nothing further to say
- * about the request, and a queue that keeps finished entries becomes a log
- * nobody reads. Scoped to a single id because anything queued while the agent
- * was working has to survive.
+ * Drops one request, the only way a request completes. No "done" status, or the
+ * queue becomes a log nobody reads. One id, so anything queued meanwhile
+ * survives.
  */
 export async function removeRequest(cwd: string, id: string): Promise<boolean> {
   const requests = await readRequests(cwd);
@@ -706,24 +641,20 @@ export async function removeRequest(cwd: string, id: string): Promise<boolean> {
 }
 
 /**
- * Acknowledge the work that was collected, and report what is still waiting.
- *
- * Scoped to picked-up requests rather than the whole file, because the user
- * keeps typing while the agent works: a request queued after the collection is
- * one nobody has read yet, and emptying the file would throw it away silently,
- * on the word of a toast that said it had landed. What survives here is what
- * the next `requests` call hands over.
+ * Acknowledges collected work and reports what's still waiting. Only picked-up
+ * requests go: the user keeps typing, and a request queued after collection
+ * hasn't been read yet. The survivors are what the next `requests` call hands
+ * over.
  */
 export async function clearRequests(cwd: string): Promise<{ cleared: number; pending: number }> {
   const requests = await readRequests(cwd);
-  // Pending is what nobody has taken yet. A request that ended, well or
-  // badly, is not waiting for anyone, so clearing sweeps it up with the
-  // collected ones rather than reporting it as outstanding work.
+  // Pending is what nobody has taken. An ended request isn't waiting, so it's
+  // swept with the collected ones.
   const pending = requests.filter((request) => request.status === "queued");
   const cleared = requests.length - pending.length;
 
-  // Same reason collecting an empty queue writes nothing: acknowledging work
-  // that was never there must not materialise .leglas/ in a fresh project.
+  // Like collecting: acknowledging nothing must not create .leglas/ in a fresh
+  // project.
   if (cleared > 0) {
     await writeQueue(cwd, pending);
     await Promise.all(

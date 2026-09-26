@@ -17,13 +17,9 @@ export type WatchTemplate = {
 export type TemplateResult = { ok: true; template: WatchTemplate } | { ok: false; error: string };
 
 /**
- * Split the template the way a shell would, without a shell.
- *
- * The tokens are handed straight to spawn, so nothing here expands, globs or
- * substitutes: a prompt is arbitrary text a browser typed, and letting a shell
- * see it is an injection with the user's own credentials attached. Quotes are
- * supported because an agent command routinely carries a flag value with a
- * space in it, and that is the only reason.
+ * Splits the template the way a shell would, without a shell. Tokens go
+ * straight to spawn and nothing expands or globs, since a prompt is arbitrary
+ * browser text; quotes are supported only for flag values with spaces.
  */
 export function tokenize(
   template: string,
@@ -67,15 +63,10 @@ export function tokenize(
 }
 
 /**
- * Validate an agent command before anything is spawned or remembered.
- *
- * The placeholder is optional: a command without one gets the request
- * appended as its last argument, which is where nearly every agent CLI takes
- * its prompt anyway. That keeps the common case to "type the command you
- * run" with no syntax to learn; ${PROMPT_TOKEN} remains for the command
- * whose prompt goes somewhere else. A placeholder glued to another word is
- * still refused rather than passed through as literal text, because that is
- * always a typo for substitution.
+ * Validates an agent command before anything is spawned or saved. Without a
+ * placeholder the request goes last, where nearly every agent CLI takes its
+ * prompt; ${PROMPT_TOKEN} is for the rest. A placeholder glued to another word
+ * is refused, since that's always a typo.
  */
 export function parseTemplate(raw: string): TemplateResult {
   const tokenized = tokenize(raw);
@@ -116,10 +107,8 @@ export function parseTemplate(raw: string): TemplateResult {
 }
 
 /**
- * The argv for one request. The prompt is a single entry however many words,
- * lines or quotes it contains, which is the whole reason nothing here is
- * pasted together as a string. With no placeholder it goes last, the seat
- * almost every agent CLI keeps for it.
+ * The argv for one request. The prompt is one entry whatever it contains, which
+ * is why nothing is joined into a string. Without a placeholder it goes last.
  */
 export function commandFor(template: WatchTemplate, prompt: string) {
   if (!template.args.includes(PROMPT_TOKEN)) {
@@ -133,12 +122,9 @@ export function commandFor(template: WatchTemplate, prompt: string) {
 }
 
 /**
- * The request to hand over next, or nothing to do.
- *
- * Queue order, one at a time: two agents editing one tree at once produce a
- * conflict the user has to untangle. Ids that already failed are skipped for
- * the life of the process, since a prompt that broke the agent will break it
- * again and retrying it is the user's tokens on fire.
+ * The next request to hand over, in queue order and one at a time so two agents
+ * never edit one tree. Ids that failed are skipped for the process's life: the
+ * same prompt breaks the agent the same way, at the user's cost.
  */
 export function nextRequest(
   requests: readonly PendingRequest[],

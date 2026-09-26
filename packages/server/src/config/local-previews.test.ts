@@ -56,8 +56,8 @@ describe("a variant's origin", () => {
     expect(stored.previews[0]).not.toHaveProperty("basedOn");
   });
 
-  // A hand-edited file is validated exactly as the shared config is, and an
-  // empty ask is a mistake worth naming rather than a card that opens blank.
+  // A hand-edited file is validated like the shared config, and an empty ask is
+  // named as a mistake, not opened as a blank card.
   test("refuses an ask that is not a change request", async () => {
     const dir = scratch();
     seed(dir, JSON.stringify({ previews: [{ title: "Aurora", url: "/", askedFor: "  " }] }));

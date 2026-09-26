@@ -36,11 +36,9 @@ function slugify(value: string): string {
 }
 
 /**
- * The picture that best shows a direction: what the agent was last sent for it.
- *
- * A request carries the direction as it looked when the change was asked for,
- * which is the only rendering of it anybody ever captured. The last one wins
- * because a direction that was changed twice should show its later self.
+ * The best picture of a direction: the last one sent to the agent for it, the
+ * only render anyone captured. The latest wins, so a twice-changed direction
+ * shows its later self.
  */
 function frameFor(title: string, requests: readonly PendingRequest[]): Attachment | null {
   let found: Attachment | null = null;
@@ -57,11 +55,9 @@ function frameFor(title: string, requests: readonly PendingRequest[]): Attachmen
 }
 
 /**
- * The words that were typed about a direction and actually landed.
- *
- * A change that failed is listed once, at the foot, with why. Listing it here
- * as well reads as though it happened, and a record that has to be read twice
- * to learn what is true is worse than a shorter one.
+ * The words typed about a direction that actually landed. A failed change is
+ * listed once at the foot with why; listing it here too reads as though it
+ * happened.
  */
 function askedOf(title: string, requests: readonly PendingRequest[]): string[] {
   return requests.flatMap((request) =>
@@ -72,16 +68,10 @@ function askedOf(title: string, requests: readonly PendingRequest[]): string[] {
 }
 
 /**
- * One exploration, written down.
- *
- * Everything here already existed and was about to be deleted: `leglas keep`
- * clears the working directory, which is correct for the files and wrong for
- * the record. Nothing is invented. A direction with no note gets no note
- * rather than a generated one, because a record that embellishes is worse than
- * no record: the reader cannot tell which parts were real.
- *
- * Markdown and PNGs on purpose. The entry has to be readable in three months
- * by someone without this tool, in a pull request, on GitHub, or in a diff.
+ * One exploration, written down from what was about to be deleted by `leglas
+ * keep`. Nothing is invented: a direction with no note gets no note, since an
+ * embellished record can't be trusted. Markdown and PNGs so it reads in three
+ * months without this tool, on GitHub or in a diff.
  */
 export function composeEntry(input: LogInput): LogEntry {
   const slug = `${input.date}-${slugify(input.surface)}`;

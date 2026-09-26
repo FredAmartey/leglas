@@ -16,11 +16,10 @@ export type TunnelState =
       provider: TunnelProviderId;
       url?: string;
       /**
-       * The link has not answered from here within the probe deadline. Not a
-       * failure: a quick tunnel's name takes a minute or more to spread, and
-       * a resolver that cached the miss holds it longer, so the link is often
-       * already working for the person it was sent to while this machine
-       * still cannot see it.
+       * Not answering from here within the probe deadline. Not a failure: a
+       * quick tunnel's name takes a minute or more to spread, and a cached miss
+       * lasts longer, so the link often already works for the person it was
+       * sent to.
        */
       slow?: boolean;
     }
@@ -30,9 +29,9 @@ export type TunnelState =
 export type RunningTunnel = {
   stop(): Promise<void>;
   /**
-   * Declare the link answering on evidence better than the probe's: a viewer
-   * has arrived through it. Stops asking and reports `ready`. Nothing
-   * happens without a URL to be ready at, or once the tunnel is settled.
+   * Declares the link answering on better evidence than the probe: a viewer
+   * came through it. Stops probing and reports `ready`. Does nothing without a
+   * URL or once settled.
    */
   settle(): void;
 };
@@ -64,16 +63,11 @@ const STOP_LIMIT_MS = STOP_GRACE_MS + 2000;
 const PROBE_TIMEOUT_MS = 3000;
 
 /**
- * Ask the link whether it answers, resolving its name ourselves.
- *
- * A quick tunnel's name is minutes old when this runs, and the first few
- * asks miss. The system resolver remembers a miss, so `fetch` through
- * `getaddrinfo` kept answering "no such host" long after `dig` and every
- * other machine had the address, and the probe never saw the link come up.
- * The resolver here asks the configured nameservers directly and forgets
- * nothing between asks; the request then goes to the address with the name
- * kept for TLS and the Host header. Measured on a Mac whose resolver held
- * the miss for the length of a five-minute share.
+ * Asks the link whether it answers, resolving the name itself. The system
+ * resolver caches a quick tunnel's early miss, so `fetch` kept getting "no such
+ * host" long after `dig` had the address (for a whole five-minute share, on a
+ * Mac). This resolver asks the nameservers directly and forgets misses; the
+ * request goes to the address with the name kept for TLS and Host.
  */
 async function askLink(resolver: Resolver, url: string, entryPath: string): Promise<boolean> {
   let target: URL;
@@ -84,9 +78,8 @@ async function askLink(resolver: Resolver, url: string, entryPath: string): Prom
     return false;
   }
 
-  // The direct ask first, because it forgets a miss; the system's own lookup
-  // second, because a VPN or a scoped resolver may be the only thing that
-  // knows the name at all.
+  // The direct ask first, since it forgets misses; the system lookup second,
+  // since a VPN or scoped resolver may be the only thing that knows the name.
   let address: string | undefined;
 
   try {
@@ -151,9 +144,9 @@ function withOutput(sentence: string, output: string): string {
 }
 
 /**
- * Start one provider and reduce everything it says to the small state the
- * interface can act on. Vendor output is evidence appended to our sentence,
- * never the sentence itself.
+ * Starts one provider and reduces its output to the small state the interface
+ * acts on. Vendor output is evidence appended to our message, never the
+ * message.
  */
 export function startTunnel(
   options: {
@@ -169,9 +162,8 @@ export function startTunnel(
   const now = deps.now ?? Date.now;
   const urlDeadlineMs = deps.urlDeadlineMs ?? URL_DEADLINE_MS;
   const probeDeadlineMs = deps.probeDeadlineMs ?? PROBE_DEADLINE_MS;
-  // One resolver for the tunnel's life: a channel to the configured
-  // nameservers that forgets nothing between asks, made once rather than per
-  // probe.
+  // One resolver for the tunnel's life, talking to the configured nameservers
+  // directly.
   const resolver = deps.probe === undefined ? new Resolver() : null;
 
   const probe =
@@ -266,10 +258,9 @@ export function startTunnel(
 
     report({ status: "starting", provider: options.provider, url });
 
-    // The deadline changes the wording, not the verdict. The link keeps
-    // being asked about, more slowly, until it answers or the process goes:
-    // calling it failed here would send someone to start a fresh tunnel with
-    // a fresh name and the same minute to wait.
+    // The deadline changes the wording, not the verdict. Probing continues more
+    // slowly until it answers; calling it failed would send someone to start a
+    // new tunnel with the same wait.
     later(() => {
       if (terminal || stopping || url === null) return;
       report({ status: "starting", provider: options.provider, url, slow: true });
@@ -318,8 +309,8 @@ export function startTunnel(
     if (url !== null || trimmed === "") return;
 
     if (options.provider === "cloudflared") {
-      // Never the API host: a failed quick-tunnel request names it in the
-      // error, and that is not a link to hand anyone.
+      // Never the API host, which a failed quick-tunnel request names in its
+      // error.
       const found = /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/.exec(trimmed)?.[0];
 
       if (found !== undefined) beginProbe(found);

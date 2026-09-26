@@ -121,9 +121,9 @@ const PORT_ATTEMPTS = 20;
 const REFERENCE_MAX_BYTES = 10_000_000;
 
 /**
- * How long a watch heartbeat counts for. Watch beats every 2s, so this is three
- * beats: one missed beat under load must not make the interface flicker between
- * attached and not, and three seconds of silence is a process that has gone.
+ * How long a watch heartbeat counts. Watch beats every 2s, so three beats: one
+ * missed beat under load mustn't make the interface flicker, and six seconds of
+ * silence means the process is gone.
  */
 const ATTACHED_WINDOW_MS = 6000;
 
@@ -162,33 +162,31 @@ export type ServerOptions = {
   /** Built shell to serve at the prefix. Null serves a placeholder instead. */
   shellDir?: string | null;
   /**
-   * Stable identity for this project, used by the interface to key saved
-   * layout. Without it, binding a different port would look like a different
-   * project and silently lose the user's rail order and renames.
+   * Stable project identity the interface keys saved layout on, so a different
+   * port doesn't look like a different project and lose rail order and renames.
    */
   project?: string;
   /** Project root, where the request queue is written. */
   cwd?: string;
   /**
-   * Exact command for the running Leglas CLI. Embedded requests use it for
-   * registration so the agent never pays for npx package discovery or lands
-   * on a cached version with a different command surface.
+   * The running CLI's exact command, used for registration so the agent skips
+   * npx discovery and never lands on a cached version with different commands.
    */
   leglasCommand?: string;
   /**
-   * Directories served under FILES_PREFIX, keyed by mount slug. This is how a
-   * file-backed preview renders with no dev server at all: the whole
-   * directory is mounted, so a page's sibling assets resolve too.
+   * Directories served under FILES_PREFIX by mount slug. A file preview renders
+   * with no dev server; the whole directory is mounted so sibling assets
+   * resolve.
    */
   fileMounts?: ReadonlyMap<string, string>;
   /**
-   * Agent detection, injectable so tests need not spawn real vendor CLIs:
-   * the default probes each installed CLI's login status.
+   * Agent detection, injectable so tests don't spawn vendor CLIs; the default
+   * probes each CLI's login status.
    */
   detect?: () => Promise<DetectedAgent[]>;
   /**
-   * How long one capture may take in all; injectable so a test need not wait
-   * it out. The page's load wait keeps its share of the default either way.
+   * How long one capture may take, injectable so tests needn't wait it out. The
+   * load keeps its share of the default either way.
    */
   captureDeadlineMs?: number;
   /** How often the dev server is probed while someone is watching. */
@@ -209,8 +207,8 @@ export type ServerOptions = {
   /** Generation runs' process spawn, injected by tests so no real agent CLI ever runs. */
   generationSpawn?: RunnerSpawn;
   /**
-   * Update checks and installs, supplied by the CLI. Hosts without a service
-   * answer 404; the CLI service also learns the actual port for its restart.
+   * Update checks and installs, from the CLI. Without a service the routes
+   * answer 404; the CLI's service also learns the real port for its restart.
    */
   updates?: UpdateService;
 };
@@ -309,19 +307,13 @@ function isKnownAgent(value: unknown): value is KnownAgentId {
 }
 
 /**
- * Mutations happen from the machine itself, full stop.
- *
- * The API now decides what runs on this computer, so who may write to it is
- * decided by the one signal a network peer cannot forge: the socket. Every
- * POST requires a loopback peer. Headers prove nothing about a raw client;
- * Origin in particular is only enforced by browsers, so a curl across the
- * LAN can claim any Origin it likes. The Origin check below is therefore
- * not authentication: it defends the local browser against cross-site and
- * DNS-rebinding pages, which is the one job Origin can actually do. When it
- * is present it must match the Host, and the Host must be one this server
- * would plausibly be reached by from its own machine. Teammates on the LAN
- * keep what the share story promises, opening and viewing live directions;
- * changing what runs stays with the person at the keyboard.
+ * Only the machine itself may mutate. The API decides what runs on this
+ * computer, so writers are decided by the socket, which a network peer can't
+ * forge: every POST needs a loopback peer. Headers prove nothing, and Origin is
+ * only browser-enforced. The Origin check below isn't authentication; it
+ * defends the local browser against cross-site and DNS-rebinding pages. When
+ * present it must match Host, and Host must be a name this machine would reach
+ * itself by. LAN teammates can still open and view shared directions.
  */
 function isAllowedMutationHost(hostname: string): boolean {
   const bare =
@@ -382,29 +374,21 @@ export function isTrustedMutation(req: http.IncomingMessage): boolean {
 }
 
 /**
- * Whether a request is over, by either record that can say so.
- *
- * The runner remembers what it ran; the queue file remembers what happened,
- * including across a restart. A request that ended before this process
- * started has only the file to speak for it, and it still deserves a rerun
- * button and a way to be let go.
+ * Whether a request is over, by either record. The runner knows what it ran;
+ * the queue file knows what happened across restarts. A request that ended
+ * before this process started has only the file, and still needs a rerun button
+ * and a dismiss.
  */
 function isEnded(request: PendingRequest, failedIds: readonly string[]): boolean {
   return isTerminal(request.status) || failedIds.includes(request.id);
 }
 
 /**
- * A request body as the object a route expects, or null for anything else.
- *
- * Every route below reads fields straight off the parsed body, and `null` is
- * valid JSON: `JSON.parse("null")` succeeds and the next property read throws,
- * inside a listener whose rejection nobody is waiting for. A client on this
- * machine could end the process, and with it the interface and whatever run
- * was under way, by sending four characters. An array or a bare number are
- * equally valid JSON and equally not what any of this is written for.
- *
- * The container is decoded once here. Each route checks the fields it uses
- * before passing them to its domain operations.
+ * A request body as the object a route expects, or null. `JSON.parse("null")`
+ * succeeds and the next property read throws in a listener nobody awaits, so
+ * four characters from a local client could end the process. Arrays and bare
+ * numbers are valid JSON and just as wrong. Each route checks the fields it
+ * uses.
  */
 function jsonBody(body: string): JsonRecord | null {
   try {
@@ -433,9 +417,9 @@ function hasJsonBody(req: http.IncomingMessage): boolean {
 }
 
 /**
- * Is the dev server accepting connections? A TCP probe rather than an HTTP
- * request, because a framework mid-compile may accept the socket long before
- * it answers, and "starting up" should read as reachable.
+ * Whether the dev server accepts connections. TCP, not HTTP: a framework
+ * mid-compile accepts the socket long before it answers, and starting up should
+ * count as reachable.
  */
 export function probe(target: string, timeoutMs = 1000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -484,10 +468,10 @@ function serveFrom(res: http.ServerResponse, dir: string, relativePath: string):
 }
 
 function serveShellFile(res: http.ServerResponse, shellDir: string, urlPath: string): boolean {
-  // normalize() collapses ".." before it can escape the shell directory.
+  // normalize() collapses ".." before it can leave the shell directory.
   const relative = normalize(urlPath.slice(LEGLAS_PREFIX.length)).replace(/^(\.\.[/\\])+/, "");
-  // normalize("") is ".", and a bare "/leglas" or "/leglas/" both mean the root
-  // document, so all three resolve to index.html.
+  // normalize("") is ".", and "/leglas" and "/leglas/" both mean the root, so
+  // all three serve index.html.
   const isRoot = relative === "" || relative === "." || relative === "/";
 
   return serveFrom(res, shellDir, isRoot ? "index.html" : relative);
@@ -517,11 +501,9 @@ function fileStamp(path: string): string | null {
 }
 
 /**
- * Watch the small file-backed pieces the shell re-reads after a live nudge.
- *
- * The `.leglas` directory is watched as a directory rather than four fragile
- * file handles, so atomic replacements keep working. Its parent is watched as
- * well because `.leglas` may be created after this process starts.
+ * Watches the file-backed pieces the shell re-reads after a nudge. `.leglas` is
+ * watched as a directory, not four file handles, so atomic replacements work;
+ * its parent is watched too, since `.leglas` may appear later.
  */
 function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): LiveFiles {
   const leglasDir = join(cwd, ".leglas");
@@ -555,24 +537,11 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
   };
 
   /**
-   * Stat-poll a file, and only when its native watcher could not be
-   * established or has died.
-   *
-   * This is a second recovery path in a design that deliberately has one, so
-   * it needs a case rather than a worry. The case is a filesystem where
-   * `fs.watch` does not fire: a network mount, or a container bind mount on
-   * some hosts. Leglas runs wherever the dev server runs, so that is a real
-   * place for it to be installed.
-   *
-   * Without this, such a setup gets no nudges at all and every change waits
-   * out the shell's 15s fallback. That is *slower than the polling this
-   * change removes*, which used to notice within two or three seconds. So
-   * the point is not belt and braces: it is that the one population whose
-   * watcher does not work would otherwise be made worse off by a change
-   * meant to make things better.
-   *
-   * Every caller is an error handler or a catch. When `fs.watch` works, and
-   * it nearly always does, none of this runs and nothing is polled.
+   * Stat-polls a file only when its native watcher failed or died. The case is
+   * a filesystem where `fs.watch` never fires (network mounts, some container
+   * bind mounts); without this those setups get no nudges and wait out the
+   * shell's 15s fallback, slower than the old polling. Every caller is an error
+   * handler; with a working `fs.watch`, nothing is polled.
    */
   const fallbackWatch = (target: WatchedTarget): void => {
     if (closed || fallback.has(target.path)) return;
@@ -620,14 +589,11 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
         leglasWatcher = null;
       }
 
-      // Look again shortly. Until this returns, the only thing that would
-      // ever notice `.leglas` being created is the watcher on the parent
-      // directory, and a single missed event there used to mean the state
-      // directory was never watched for the rest of the session: no nudges
-      // at all, every change waiting out the shell's fallback, and nothing
-      // anywhere saying why. The window is short in practice, because the
-      // server writes its own rendezvous file into `.leglas` on listen, so
-      // this costs a couple of stats rather than a standing poll.
+      // Look again shortly. Until then only the parent watcher would notice
+      // `.leglas` being created, and one missed event there left the state
+      // directory unwatched for the session with no sign why. Short in
+      // practice: the server writes its rendezvous file into `.leglas` on
+      // listen.
       retryLeglas();
 
       return;
@@ -667,9 +633,9 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     }
   };
 
-  // Re-arm the inner watcher whenever the machine-local state directory is
-  // created, removed or replaced. Failure is deliberately silent: the shell's
-  // fallback read remains the source of truth.
+  // Re-arm the inner watcher whenever the state directory is created, removed
+  // or replaced. Failures are silent; the shell's fallback read is the source
+  // of truth.
   try {
     const watcher = watchFs(cwd, { persistent: false }, (_event, filename) => {
       const name =
@@ -686,7 +652,7 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
     watchers.add(watcher);
   } catch {
     fallbackLeglas();
-    // Optional acceleration only. The endpoints still read files directly.
+    // Only an acceleration; the endpoints still read files directly.
   }
 
   if (configPath !== null) {
@@ -857,8 +823,8 @@ function listen(server: http.Server, port: number): Promise<number> {
 }
 
 /**
- * Bind the requested port, or the next free one. A stale instance holding 4100
- * should not stop the tool from starting; it should start and say where.
+ * Binds the requested port, or the next free one, so a stale instance on 4100
+ * doesn't stop startup; it says where it started.
  */
 async function bind(server: http.Server, requested: number): Promise<number> {
   if (requested === 0) return listen(server, 0);
@@ -940,26 +906,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       : null;
   };
 
-  // Sweep up browsers left by a Leglas that was killed outright or crashed,
-  // which no shutdown handler can reach. Deliberately not awaited: it is
-  // tidying, and a slow temp directory must not hold up the interface. A
-  // browser belonging to another Leglas that is running right now is left
-  // alone; see reapOrphanedBrowsers.
+  // Sweep up browsers from a Leglas killed outright or crashed. Not awaited,
+  // since a slow temp directory mustn't hold up the interface. A live Leglas's
+  // browser is left alone; see reapOrphanedBrowsers.
   if (options.pool === undefined) {
     void reapOrphanedBrowsers().catch(() => {});
   }
 
   const target = config?.devServer ?? "http://localhost:3000";
   const proxy = createProxyHandler({ target });
-  // Boot config is deliberately frozen; this snapshot lets the live endpoint honestly explain when it is stale.
+  // Boot config is frozen on purpose; this snapshot lets the live endpoint say
+  // when it's stale.
   const bootConfigPath = findConfigFile(cwd);
   const bootConfigSnapshot = snapshotConfig(cwd);
 
   /**
-   * When watch last said it was listening. In memory and nowhere else: an
-   * attached agent is a running process or it is nothing, and a file would
-   * outlive the process that wrote it and promise the user an agent that is no
-   * longer there.
+   * When watch last said it was listening, in memory only: a file would outlive
+   * the watcher and promise an agent that's gone.
    */
   let lastSeen: number | null = null;
   const externallyAttached = () => lastSeen !== null && Date.now() - lastSeen < ATTACHED_WINDOW_MS;
@@ -967,11 +930,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let generations: Generations | null = null;
 
   /**
-   * Agent detection asks every vendor CLI for its login status, which costs
-   * about a second, so ordinary reads use a short cache. The picker can ask
-   * for a fresh answer when it opens; that request waits for the real probe so
-   * a newly installed or newly signed-in CLI appears on this look, not the
-   * next one.
+   * Detection asks every vendor CLI for its login status (about a second), so
+   * ordinary reads use a short cache. Opening the picker asks for a fresh
+   * answer and waits, so a newly installed or signed-in CLI shows on that look.
    */
   let agentsCache: { at: number; agents: DetectedAgent[] } | null = null;
   let agentsInflight: Promise<DetectedAgent[]> | null = null;
@@ -996,11 +957,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return probeAgents();
     }
 
-    // Authentication state can change while the interface is open, but a
-    // routine read does not need to sit behind every vendor CLI while that is
-    // checked. Serve the last truthful answer and replace it in the
-    // background; opening the picker still uses refresh=1 and awaits the
-    // definitive result.
+    // Login state can change with the interface open, but a routine read
+    // needn't wait on every CLI. Serve the last answer and refresh in the
+    // background; the picker still uses refresh=1 and waits.
     if (Date.now() - agentsCache.at > AGENTS_FRESH_MS) {
       void probeAgents().catch(() => {
         // A failed refresh leaves the last successful answer intact.
@@ -1011,14 +970,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   /**
-   * Resolve against the same live registry the rail polls, by the same rule.
-   *
-   * A direction added after boot joins only when it is a plain URL. A branch
-   * needs its checkout and a file needs its mount, both built at boot, so a
-   * fresh one has no address this server can render: capturing it would
-   * load the main app at its route, or nothing at all, and call the result
-   * the direction. The rail already holds those back until the restart the
-   * CLI asks for, and so does this.
+   * Resolves against the same live registry the rail polls, by the same rule. A
+   * direction added after boot joins only as a plain URL: a branch needs its
+   * checkout and a file its mount, both built at boot, so capturing a fresh one
+   * would load the wrong page. The rail holds those until the restart the CLI
+   * asks for.
    */
   const livePreviewDefinitions = async (): Promise<Preview[]> => {
     const localRead = await readLocalPreviews(cwd).catch(() => null);
@@ -1043,17 +999,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const livePreviews = async (): Promise<Preview[]> =>
     (await livePreviewDefinitions()).map(readyPreview).filter((preview) => preview !== null);
 
-  // Start the only blocking discovery before the browser asks for it. This
-  // overlaps CLI authentication with shell and preview loading; the first API
-  // read joins the same in-flight promise if it arrives before completion.
+  // Start detection before the browser asks, overlapping CLI login checks with
+  // shell loading; an early API read joins the same promise.
   void probeAgents().catch(() => {
     // The endpoint can retry on demand; startup itself must stay available.
   });
 
   /**
-   * Read a JSON object, hand it to one of the share writes and answer what
-   * it says. The body is refused before the write is reached, which is the
-   * rule every POST here keeps.
+   * Reads a JSON object, hands it to a share write and answers with its result.
+   * The body is refused before the write, as every POST here does.
    */
   const readShareBody = (
     req: http.IncomingMessage,
@@ -1156,12 +1110,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (context.remote && path === `${LEGLAS_PREFIX}/api/health`) {
-      // Only the verdict, and the one the watcher already holds: every viewer
-      // asks on the same beat the watcher's nudge started, so a probe per
-      // viewer would be that many sockets to the dev server for one answer.
-      // The full answer names the working directory so a command on this
-      // machine can tell one server from another, and a viewer has no
-      // business with either the directory or the dev server's address.
+      // Only the verdict, the one the watcher holds: viewers all ask on the
+      // watcher's nudge, so a probe each would be that many sockets for one
+      // answer. The full answer names the working directory and dev server
+      // address, which viewers have no business with.
       const known = liveHealth?.reachable() ?? null;
 
       return void (known === null ? probe(target) : Promise.resolve(known)).then((reachable) =>
@@ -1188,7 +1140,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         let basedOn: GenerationBase | null = null;
 
-        // Variations name their direction as the rail does; its switch key is in its address.
+        // Variations name their direction as the rail does; its switch key is
+        // in its address.
         if (parsed.basedOn !== undefined && parsed.basedOn !== null && parsed.basedOn !== "") {
           const title = parsed.basedOn;
 
@@ -1362,9 +1315,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // Each of these is written out rather than looped, because the body
-    // guard's test finds POST routes by reading this file for exactly this
-    // shape. A route it cannot see is a route nobody checks.
+    // Written out, not looped, because the body guard's test finds POST routes
+    // by this exact shape. A route it can't see goes unchecked.
     if (!context.remote && path === `${LEGLAS_PREFIX}/api/share/grants` && req.method === "POST") {
       return void readShareBody(req, res, (body) => shares?.createGrant(body));
     }
@@ -1400,12 +1352,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/config`) {
-      // Local previews are re-read on every request, so a direction an agent
-      // registers while the interface is open appears without a restart. Only
-      // plain url previews can join live: a branch needs its checkout and a
-      // file needs its mount, both of which are built at boot, so those wait
-      // for the restart the CLI already tells the agent about. A local file
-      // that fails to read or validate changes nothing: the boot list stands.
+      // Local previews are re-read per request, so a direction registered with
+      // the interface open appears without a restart. Only plain url previews
+      // join live; branches and files wait for the restart the CLI mentions. A
+      // local file that fails to read or validate changes nothing.
       const boot = config?.previews ?? [];
       const errors = [...configErrors];
       const notice = configStalenessNotice(cwd, bootConfigSnapshot, snapshotConfig(cwd));
@@ -1427,10 +1377,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
           const localTitles = new Set(local.map((preview) => preview.title));
 
-          // Local directions that were present at boot stay fully resolved,
-          // including their file mounts and branch servers. Once deleted from
-          // the registry they leave this payload immediately instead of
-          // lingering until Leglas restarts.
+          // Local directions present at boot stay fully resolved, mounts and
+          // branch servers included, and leave the payload as soon as they're
+          // deleted from the registry.
           const currentBoot = boot.filter(
             (preview) => preview.local !== true || localTitles.has(preview.title),
           );
@@ -1466,9 +1415,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/previews/framing` && req.method === "GET") {
-      // Only the interface or a terminal asks. A page elsewhere in the same
-      // browser could not read the answer, but could still make Leglas go and
-      // fetch, so a cross-site caller is turned away before that happens.
+      // Only the interface or a terminal asks. A page elsewhere in the browser
+      // couldn't read the answer but could make Leglas fetch, so cross-site
+      // callers are refused first.
       const site = req.headers["sec-fetch-site"];
 
       if (site !== undefined && site !== "same-origin" && site !== "none") {
@@ -1484,9 +1433,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 404, { ok: false, error: "There is no direction by that name." });
         }
 
-        // Only a page the frame loads straight from its own address can
-        // refuse it. Everything else reaches the frame through Leglas, and a
-        // viewer never gets this far: remote API calls are refused above.
+        // Only a page the frame loads straight from its own address can refuse
+        // framing. Everything else goes through Leglas, and viewers never get
+        // here.
         if (
           preview.file !== undefined ||
           preview.branch !== undefined ||
@@ -1495,13 +1444,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 200, { framable: true });
         }
 
-        // The address is the project's own: its config or its local previews,
-        // the same place `devCommand` comes from, which Leglas runs as a shell
-        // command. The capture browser already navigates to this URL for every
-        // request's frame, redirects and all, so asking it for headers reaches
-        // nothing new; and what comes back is a verdict, never the page.
+        // The address is the project's own (config or local previews, where
+        // `devCommand` comes from too). The capture browser already loads this
+        // URL for every request's frame, so asking for headers reaches nothing
+        // new, and only a verdict comes back.
         //
-        // The page doing the framing is the interface as this browser reached it.
+        // The embedder is the interface as this browser reached it.
         const embedder = `http://${req.headers.host ?? "localhost"}${LEGLAS_PREFIX}/`;
 
         sendJson(res, 200, await checkFraming(preview.url, embedder));
@@ -1661,8 +1609,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         try {
           await mkdir(join(cwd, REFERENCES_DIR), { recursive: true });
           await writeFile(join(cwd, file), body);
-          // The moment something new arrives is the moment to let go of what
-          // was pasted an hour ago and never sent.
+          // Something new arrived, so drop what was pasted an hour ago and
+          // never sent.
           void pruneReferences(cwd).catch(() => {});
 
           return sendJson(res, 200, {
@@ -1696,11 +1644,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Body must be JSON." });
         }
 
-        // Variant unless the caller says otherwise: a change that overwrites
-        // the direction it came from destroys the comparison the tool exists
-        // for, so the safe half of the pair is the one a missing field gets.
-        // An unrecognised value is refused rather than rounded to a default,
-        // because the two do different work and only one of them is reversible.
+        // Variant unless told otherwise, since overwriting the source destroys
+        // the comparison. An unknown value is refused, not defaulted: the two
+        // do different work and only one is reversible.
         if (parsed.mode !== undefined && parsed.mode !== "variant" && parsed.mode !== "replace") {
           return sendJson(res, 400, {
             ok: false,
@@ -1723,9 +1669,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
         const references = parsed.references ?? [];
 
-        // A reference that is no longer there was pasted over an hour ago and
-        // pruned. Dropping it silently would send the agent a request the
-        // user did not make, and clear a thumbnail that never travelled.
+        // A missing reference was pruned after an hour. Dropping it silently
+        // would send a request the user didn't make.
         if (references.length > 0) {
           const present = new Set(
             (await readdir(join(cwd, REFERENCES_DIR)).catch((): string[] => [])).map((name) =>
@@ -1751,8 +1696,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(parsed.width)))
             : 1440;
 
-        // Same live lookup as /api/config: a direction registered after boot
-        // is on the rail, so a change request against it has to resolve.
+        // Same live lookup as /api/config, so a direction registered after boot
+        // resolves.
         const previews = await livePreviews();
         const preview = previews.find((entry) => entry.title === parsed.title);
 
@@ -1760,9 +1705,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
 
-        // A note carries its own address and its own words, so pins alone are
-        // a complete request and the composer is allowed to be empty. Nothing
-        // at all still is not a request.
+        // Notes carry their own address and words, so pins alone make a
+        // request. Nothing at all still doesn't.
         const notes = annotationsFor(await readAnnotations(cwd).catch(() => []), preview.title);
 
         const intent = requestIntent(parsed.intent);
@@ -1775,21 +1719,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Unknown preview, or empty request." });
         }
 
-        // The composer stays open during a run on purpose: queueing the next
-        // change while one is in flight is the point of a queue. Sending the
-        // same words at the same direction twice is not: it is a second copy
-        // of work already waiting, and it costs a whole provider turn. The
-        // usual way in is a stop followed by retyping the same request, which
-        // reads as a retry and behaves as a duplicate.
+        // The composer stays open during a run so the next change can queue.
+        // The same words at the same direction twice is a copy of waiting work
+        // and costs a provider turn; it usually comes from retyping after a
+        // stop.
         const live = (await readRequests(cwd).catch(() => [])).filter(
           (entry) => entry.status === "queued" || entry.status === "picked-up",
         );
 
-        // Pins stay on a direction after a fork, so the same send can be made
-        // twice by pressing the button twice. That is the same request, and
-        // the notes it answers are part of what makes it the same one: the
-        // same words at the same direction with a different set of pins is
-        // not.
+        // Pins stay after a fork, so pressing send twice sends the same
+        // request. The notes are part of its identity: same words, different
+        // pins is a different request.
         const sameNotes = (entry: PendingRequest) => {
           const before = [...(entry.notes ?? [])].sort().join(",");
 
@@ -1807,11 +1747,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             ? (previews.find((entry) => entry.title === parsed.compare) ?? null)
             : null;
 
-        // The images are part of what was asked. "Make it like the other
-        // one" against a different other one, or with a different picture
-        // attached, is a different request wearing the same words. Judged
-        // from what was asked, not from what got captured: a capture can
-        // fail and a repeat is still a repeat.
+        // The images are part of the ask: "make it like the other one" against
+        // a different other one or picture is a different request. Judged from
+        // what was asked, not captured, since a capture can fail.
         const sameContext = (entry: PendingRequest) =>
           (entry.compare ?? null) === (compare?.title ?? null) &&
           [...(entry.references ?? [])].sort().join(",") === [...references].sort().join(",");
@@ -1821,9 +1759,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             (entry) =>
               entry.title === preview.title &&
               entry.intent === intent &&
-              // The same words in the other mode are not the same request:
-              // one forks the direction and the other rewrites it. Only a
-              // genuine repeat is refused.
+              // The same words in the other mode aren't the same request: one
+              // forks, one rewrites.
               (entry.mode ?? "replace") === mode &&
               sameNotes(entry) &&
               sameContext(entry),
@@ -1864,9 +1801,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             title: preview.title,
             url: preview.url,
             intent,
-            // The ids travel with the request so a change made in place can
-            // forget the notes it answered. A fork leaves them where they are:
-            // the direction they point at was not touched.
+            // The ids travel with the request so a change in place can forget
+            // the notes it answered. A fork leaves them.
             ...composed,
           };
 
@@ -1880,8 +1816,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
           if (references.length > 0) queued.references = references;
           await appendRequest(cwd, queued, id);
-          // The runner polls every two seconds, but the queue just grew in
-          // this very process: no reason to make the user watch that gap.
+          // The runner polls every two seconds, but the queue just grew here;
+          // no reason to wait.
           runner?.nudge();
 
           return sendJson(res, 200, {
@@ -1890,10 +1826,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             attachments: captured.attachments,
           });
         } catch {
-          // The prompt is still useful even if the queue could not be written,
-          // so the copy path keeps working when the disk does not. The files
-          // it names stay for the same reason; the next boot prunes them once
-          // no request claims them.
+          // The prompt is useful even if the queue couldn't be written, so
+          // copying still works. Its files stay for the same reason; the next
+          // boot prunes unclaimed ones.
           return sendJson(res, 200, {
             ok: true,
             ...composed,
@@ -2038,10 +1973,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // The composer taking focus is the earliest honest sign that a request is
-    // coming. Warming here, rather than at boot, is what keeps an idle Leglas
-    // from carrying a vendor process (and every MCP server it loads) for a
-    // session that never sends one.
+    // The composer taking focus is the earliest honest sign a request is
+    // coming. Warming here, not at boot, keeps an idle Leglas from holding a
+    // vendor process and its MCP servers.
     if (path === `${LEGLAS_PREFIX}/api/agents/warm` && req.method === "POST") {
       return void readAgentChoice(cwd).then(
         (choice) => {
@@ -2067,10 +2001,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/agent` && req.method === "POST") {
-      // Only the machine's owner decides what executes on it. A teammate on
-      // the LAN can look, queue and rename through the interface, but the
-      // executor: that choice stays with the person whose computer runs it,
-      // so this one route demands the request come from the machine itself.
+      // Only the machine's owner decides what runs on it. A LAN teammate can
+      // look, queue and rename, but not choose the executor, so this route
+      // requires a local socket.
       if (!isLoopbackAddress(req.socket.remoteAddress)) {
         return sendJson(res, 403, {
           ok: false,
@@ -2161,9 +2094,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // Watch says it is alive here, and only here. The heartbeat carries no
-    // identity: two watchers on one project is a mistake the user makes in
-    // their own terminals, and the interface has one thing to say either way.
+    // Watch reports it's alive here, with no identity: two watchers on one
+    // project is the user's own mistake, and the interface says the same either
+    // way.
     if (path === `${LEGLAS_PREFIX}/api/watch` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
@@ -2179,16 +2112,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Body needs a watching boolean." });
         }
 
-        // A watcher shutting down clears the mark rather than letting it age
-        // out, so the hint stops promising an agent the moment it is gone.
+        // A watcher shutting down clears the mark at once, so the hint stops
+        // promising an agent.
         lastSeen = parsed.watching ? Date.now() : null;
         sendJson(res, 200, { ok: true });
       });
     }
 
     if (path === `${LEGLAS_PREFIX}/api/requests` && req.method === "GET") {
-      // The queue is read fresh just like config: an agent can collect or clear
-      // requests while the interface is open, and the next poll tells the truth.
+      // Read fresh like config: an agent can collect or clear requests with the
+      // interface open.
       const snapshot = runner?.snapshot() ?? {
         running: false,
         requestId: null,
@@ -2208,16 +2141,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             title,
             intent,
             // A fork leaves its parent's document alone; the interface keeps
-            // the parent's duplicate verdict on the strength of this.
+            // the parent's duplicate verdict because of this.
             mode,
-            // Which pins this change speaks for. The interface marks them, so
-            // a note already sitting in a prompt an agent holds does not look
-            // like one nobody has read.
+            // Which pins this change speaks for, so the interface can show a
+            // note already in an agent's prompt as read.
             notes: notes ?? [],
-            // The run in flight is the one thing the file cannot know. After
-            // that the file is the record, including across a restart, and the
-            // process-local failed set only covers a request whose verdict
-            // could not be written.
+            // The file can't know the run in flight. Otherwise it's the record,
+            // across restarts; the in-memory failed set only covers a verdict
+            // that couldn't be written.
             status:
               snapshot.running && snapshot.requestId === id
                 ? "running"
@@ -2232,13 +2163,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             name: snapshot.running ? snapshot.agent : null,
             activity: snapshot.running ? snapshot.activity : null,
             startedAt: snapshot.running ? snapshot.startedAt : null,
-            // A stop that has been asked for but not yet obeyed. The card
-            // says so rather than going on describing a live run.
+            // A stop asked for but not yet obeyed, so the card stops describing
+            // a live run.
             stopping: snapshot.running && snapshot.stopping,
             // Why a run that looks stalled is stalled, while it is stalled.
             waiting: snapshot.running ? snapshot.waiting : null,
-            // When a run that has gone quiet last said anything. A run on its
-            // way out is not quiet, it is stopping.
+            // When a quiet run last said anything. A run on its way out is
+            // stopping, not quiet.
             quietSince: snapshot.running && !snapshot.stopping ? snapshot.quietSince : null,
           },
         }),
@@ -2246,10 +2177,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/requests/cancel` && req.method === "POST") {
-      // The id names which run the click meant. Without one the active run is
-      // stopped, which keeps old callers working; with one, a run that ended
-      // between the click and its arrival is left alone instead of the stop
-      // landing on whatever started next.
+      // The id says which run the click meant. Without one the active run stops
+      // (old callers); with one, a run that ended in between is left alone
+      // instead of the stop hitting its successor.
       if (!hasJsonBody(req)) {
         return sendJson(res, 200, { ok: true, cancelled: runner?.cancel() ?? false });
       }
@@ -2297,9 +2227,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 404, { ok: false, error: "No such request." });
         }
 
-        // Either record will do: the process-local set for a run this server
-        // saw, or the queue's own verdict for one it inherited from an earlier
-        // process. Without the second, a restart left the request unactionable.
+        // Either record will do: the in-memory set for a run this server saw,
+        // or the queue's verdict for one inherited from an earlier process.
+        // Without the second, a restart left the request stuck.
         if (!isEnded(request, runner?.snapshot().failedIds ?? [])) {
           return sendJson(res, 400, {
             ok: false,
@@ -2326,15 +2256,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             url: request.url,
             intent: request.intent,
             target: request.target,
-            // The prompt names the captures by path, and the embedded pipes
-            // are not its only readers: watch, a custom command and
-            // `requests --json` all hand the text over as it stands.
+            // The prompt names captures by path, and watch, a custom command
+            // and `requests --json` hand the text over as is.
             prompt:
               attachments.length === 0
                 ? request.prompt
                 : rehomeText(request.prompt, request.id, retryId),
-            // The stored prompt already carries the mode's instructions;
-            // its notes and visual context travel with the retry too.
+            // The stored prompt already carries the mode's instructions; its
+            // notes and visual context travel with the retry.
           };
 
           if (request.mode !== undefined) retry.mode = request.mode;
@@ -2349,8 +2278,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
           if (request.references !== undefined) retry.references = request.references;
           await appendRequest(cwd, retry, retryId);
-          // appendRequest assigns a fresh id, which is naturally outside the
-          // runner's process-local failed set and needs no retry exception.
+          // appendRequest assigns a fresh id, outside the runner's failed set,
+          // so no retry exception is needed.
           runner?.nudge();
 
           return sendJson(res, 200, { ok: true });
@@ -2360,12 +2289,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // Letting go of a failed request. The runner will never touch it again
-    // anyway, so removal only makes the queue file agree with that, but it is
-    // held to failed ids so a live or waiting request cannot be swept away.
-    // The notes left on a preview, and the two ways they change. They are read
-    // on every poll like the queue is, because a note can be left in one pane
-    // while another is being looked at.
+    // Dismissing a failed request. The runner won't touch it again, so removal
+    // only syncs the file, but it's limited to failed ids so a live request
+    // can't be swept.
+    //
+    // The notes on a preview and the two ways they change. Read every poll like
+    // the queue, since a note can be left in one pane while another is open.
     if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "GET") {
       return void readAnnotations(cwd).then((annotations) =>
         sendConditionalJson(req, res, { annotations }),
@@ -2411,9 +2340,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // A second thought about the wording, without losing the place. Only the
-    // words are taken: the anchor is the half that was got right by pointing
-    // at something, and it is not the browser's to resend.
+    // Rewording without losing the place. Only the words are taken; the anchor
+    // isn't the browser's to resend.
     if (path === `${LEGLAS_PREFIX}/api/annotations/update` && req.method === "POST") {
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "A note must be JSON." });
@@ -2433,12 +2361,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return sendJson(res, 400, { ok: false, error: "Body needs the note to reword." });
         }
 
-        // Words that did not arrive are refused rather than read as an empty
-        // string. Everywhere else here coerces a bad field and keeps going,
-        // because the worst case is a note recorded roughly; here the worst
-        // case is a request that forgot to say anything wiping the sentence
-        // it meant to correct. Clearing a note is still allowed, by sending
-        // an empty one on purpose.
+        // Missing words are refused, not read as empty. Elsewhere a bad field
+        // is coerced, at worst recording a note roughly; here the worst case is
+        // a request that forgot its words wiping the sentence it meant to fix.
+        // Sending an empty note on purpose still clears it.
         if (!isString(parsed.note)) {
           return sendJson(res, 400, { ok: false, error: "A reworded note needs its words." });
         }
@@ -2528,10 +2454,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // The rail holds the renames; this puts them where the commands can read
-    // them, so a direction the user renamed still answers to that name from a
-    // terminal. Whole map at once, because that is how the interface holds it
-    // and a partial update would drift from what is on screen.
+    // The rail holds renames; this saves them for the commands, so a renamed
+    // direction answers to that name in a terminal. The whole map at once, as
+    // the interface holds it.
     if (path === `${LEGLAS_PREFIX}/api/renames` && req.method === "POST") {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
@@ -2553,8 +2478,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           ),
         );
 
-        // A rename that cannot be persisted is not worth failing over: the rail
-        // still shows it, and the CLI keeps working on config titles.
+        // Failing to save a rename isn't worth an error: the rail still shows
+        // it, and the CLI still takes config titles.
         void writeRenames(cwd, renames).then(
           () => sendJson(res, 200, { ok: true }),
           () => sendJson(res, 200, { ok: false }),
@@ -2563,9 +2488,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
 
     if (path === `${LEGLAS_PREFIX}/api/health`) {
-      // The directory is part of the answer so a command in another process
-      // can tell this server from one serving a different project on a port
-      // it happened to find.
+      // The directory lets a command in another process tell this server from
+      // one serving another project on a port it happened to find.
       return void probe(target).then((reachable) =>
         sendConditionalJson(req, res, { devServer: target, reachable, cwd }),
       );
@@ -2596,10 +2520,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
       if (!context.remote) return serveMount();
 
-      // A mount is the preview's whole directory, keyed by a slug made from
-      // its title, so the share's own manifest decides which mounts a viewer
-      // may read, and nothing that starts with a dot is served there: a file
-      // preview at the project root mounts the project.
+      // A mount is the preview's whole directory under a slug from its title,
+      // so the share's manifest decides which a viewer may read, and nothing
+      // starting with a dot is served: a file preview at the root mounts the
+      // project.
       if (relative.split("/").some((segment) => segment.startsWith("."))) {
         return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
       }
@@ -2650,8 +2574,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }),
   );
 
-  // An upgraded socket detaches from its server, so close() would otherwise
-  // wait forever on any open live-reload connection.
+  // An upgraded socket detaches from its server, so close() would hang on any
+  // open live-reload connection.
   const sockets = new Set<net.Socket>();
   server.on("connection", (socket) => {
     sockets.add(socket);
@@ -2664,8 +2588,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     head: Buffer,
     context: { remote: boolean },
   ): boolean => {
-    // Answers whether the socket was taken, so the share manager knows
-    // whether there is a viewer to count against the link that let it in.
+    // Returns whether the socket was taken, so the share manager can count a
+    // viewer against the link.
     const liveUpgrade = context.remote
       ? live.upgrade(req, socket, head, { viewer: true })
       : live.upgrade(req, socket, head);
@@ -2673,8 +2597,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (liveUpgrade) return true;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
 
-    // The live hub owns one shell upgrade. Other Leglas upgrades are refused;
-    // everything outside the prefix still belongs to the app.
+    // The live hub owns one shell upgrade; other Leglas upgrades are refused,
+    // and everything outside the prefix is the app's.
     if (path.startsWith(`${LEGLAS_PREFIX}/`)) {
       socket.destroy();
 
@@ -2741,9 +2665,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   runner = startRunner(runnerOptions);
 
   /**
-   * Render one direction the way `show --screenshot` does and report what
-   * the page said. A generation calls a direction ready only once this is
-   * clean; no browser means it cannot tell, and says so by returning null.
+   * Renders one direction as `show --screenshot` does and reports what the page
+   * said. A generation calls a direction ready only when this is clean; with no
+   * browser it can't tell and returns null.
    */
   const renderDirection = async (title: string): Promise<{ errors: readonly string[] } | null> => {
     const preview = (await livePreviews()).find((entry) => entry.title === title);
@@ -2808,9 +2732,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         liveFiles.close();
         liveHealth?.close();
         await options.updates?.close();
-        // The share goes with the rest rather than ahead of it: a tunnel that
-        // sits on SIGTERM for its three seconds must not hold the browser,
-        // the runner and the branches open meanwhile.
+        // The share closes alongside the rest: a tunnel sitting on SIGTERM for
+        // three seconds mustn't hold the browser, runner and branches open.
         await Promise.all([
           shares?.close() ?? Promise.resolve(),
           branches.stop(),

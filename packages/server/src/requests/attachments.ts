@@ -20,11 +20,9 @@ import type { Preview } from "../config/config.js";
 import type { HydrationEvidence } from "../capture/hydration.js";
 
 /**
- * Images belonging to one change request.
- *
- * Captures are machine-local like the queue itself. Keeping them under the
- * request id gives cleanup one safe directory to remove and gives the prompt
- * stable project-relative paths every agent can read.
+ * Images for one change request, machine-local like the queue. Keyed by request
+ * id, so cleanup removes one directory and prompts get stable project-relative
+ * paths.
  */
 
 export const CAPTURES_DIR = ".leglas/captures";
@@ -32,12 +30,10 @@ export const CAPTURES_DIR = ".leglas/captures";
 export const REFERENCES_DIR = ".leglas/references";
 
 /**
- * How much of a deadline a page may spend on its load event.
- *
- * A page with one stalled resource never fires load, and a capture that
- * waited the whole deadline for it would be abandoned with nothing to show,
- * although the page rendered long ago. The rest of the time goes to what the
- * page asks for after load, a settle and the screenshots themselves.
+ * How much of a deadline a page may spend on load. A page with one stalled
+ * resource never fires load, and waiting the whole deadline would abandon a
+ * page that rendered long ago. The rest goes to post-load requests, settling
+ * and the screenshots.
  */
 export const LOAD_SHARE = 0.6;
 
@@ -393,11 +389,9 @@ export async function attachRequest(
 }
 
 /**
- * The directory an id owns, or null for an id that could name anything else.
- *
- * Ids come from the queue file, which is machine-local but editable, and the
- * one thing a removal must never do is follow `..` out of the captures
- * directory. Only the shape Leglas mints gets a path.
+ * The directory an id owns, or null for one that could name anything else. Ids
+ * come from an editable queue file, and a removal must never follow `..` out of
+ * captures; only the shape Leglas mints gets a path.
  */
 function captureDirectory(cwd: string, requestId: string): string | null {
   return /^[A-Za-z0-9_-]{1,32}$/.test(requestId) ? join(cwd, CAPTURES_DIR, requestId) : null;
@@ -441,12 +435,9 @@ export function rehomeText(text: string, from: string, to: string): string {
 }
 
 /**
- * The captures directory, when it is a real directory of ours.
- *
- * Everything that deletes works from here. A symlink in this position would
- * make the boot prune walk somewhere else and remove directories there, so a
- * link is refused rather than followed: Leglas made this directory, and if
- * something else is standing in its place, it is not Leglas's to clear.
+ * The captures directory, if it's a real directory of ours. Everything that
+ * deletes starts here, so a symlink in its place is refused, not followed into
+ * somewhere else.
  */
 async function ownCapturesRoot(cwd: string): Promise<string | null> {
   const root = join(cwd, CAPTURES_DIR);
@@ -461,12 +452,9 @@ async function ownCapturesRoot(cwd: string): Promise<string | null> {
 }
 
 /**
- * Whether a path is a plain file that really lives under this project's
- * captures, links resolved.
- *
- * The lexical check upstream stops `..`; this stops a link inside the
- * directory pointing anywhere else. It matters because the file's bytes are
- * about to be read and sent to a model.
+ * Whether a path is a plain file under this project's captures, links resolved.
+ * The lexical check upstream stops `..`; this stops a link pointing elsewhere,
+ * since the bytes are about to be sent to a model.
  */
 export async function isOwnCapture(cwd: string, file: string): Promise<boolean> {
   const root = await realpath(join(cwd, CAPTURES_DIR)).catch(() => null);
@@ -490,25 +478,22 @@ export async function pruneCaptures(cwd: string, keep: readonly string[]): Promi
     const entries = await readdir(root, { withFileTypes: true });
     await Promise.all(
       entries
-        // isDirectory() on a Dirent is an lstat, so a link is not a
-        // directory here and is left alone rather than followed and emptied.
+        // isDirectory() on a Dirent is an lstat, so a link is left alone rather
+        // than followed and emptied.
         .filter((entry) => entry.isDirectory() && !kept.has(entry.name))
         .map((entry) => rm(join(root, entry.name), { recursive: true, force: true })),
     );
   } catch {
-    // There is no capture directory in a project that has never made one.
+    // A project that never captured has no directory.
   }
 
   await pruneReferences(cwd);
 }
 
 /**
- * Drop uploads that no request ever claimed.
- *
- * An hour is long enough to type the words that go with a picture and short
- * enough that a server left running for days does not keep every image ever
- * pasted and abandoned. Called at boot and after each upload, so the rule
- * applies while the server lives and not only when it starts.
+ * Drops uploads no request claimed. An hour is enough to type the words for a
+ * picture, and short enough that a server running for days doesn't keep every
+ * abandoned paste. Runs at boot and after each upload.
  */
 export async function pruneReferences(cwd: string): Promise<void> {
   const references = join(cwd, REFERENCES_DIR);

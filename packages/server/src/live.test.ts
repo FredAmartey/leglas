@@ -234,8 +234,8 @@ describe("createCoalescer", () => {
       clearTimeout: timers.clearTimeout,
     });
 
-    // A burst of config changes must not hold back a requests nudge that
-    // arrived in the middle of it: requests lands at 10, config again at 40.
+    // A burst of config changes must not delay a requests nudge that arrived
+    // mid-burst: requests at 10, config again at 40.
     coalescer.schedule("config");
     timers.advance(10);
     coalescer.schedule("requests");

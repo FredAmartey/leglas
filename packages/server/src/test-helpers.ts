@@ -29,9 +29,8 @@ export const unusedPage: CdpPage = {
 };
 
 /**
- * Agent detection on a machine with no agent CLI installed, for servers under
- * test: a real startup probe runs each vendor's login status command. The
- * probe is stubbed too, so a lookup that answers yes still runs nothing.
+ * Agent detection on a machine with no agent CLIs, for servers under test. The
+ * probe is stubbed too, so nothing runs even if a lookup says yes.
  */
 export function detectNoAgents(): Promise<DetectedAgent[]> {
   return detectAgents(

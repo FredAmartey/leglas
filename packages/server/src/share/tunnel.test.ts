@@ -200,8 +200,7 @@ describe("startTunnel", () => {
       slow: true,
     });
 
-    // Still asking, at the slower pace, and the answer arriving late is
-    // still the answer.
+    // Still asking at the slower pace, and a late answer still counts.
     const asked = probe.mock.calls.length;
     await vi.advanceTimersByTimeAsync(4000);
     expect(probe.mock.calls.length).toBeGreaterThan(asked);

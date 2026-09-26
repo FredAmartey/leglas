@@ -4,11 +4,9 @@ import { hydrationEvidence, type HydrationEvidence } from "./hydration.js";
 import { isNumber, isString, isJsonRecord, type JsonValue } from "../json.js";
 
 /**
- * A fresh browser rendering of one direction and the places its notes name.
- *
- * The full frame and every crop come from one load. That keeps the prompt from
- * comparing different animation frames or application states, and lets note
- * crops use the page's live element before falling back to stale geometry.
+ * A fresh render of one direction and the places its notes name. The frame and
+ * every crop come from one load, so they never mix animation frames or app
+ * states, and note crops can use the live element before stale geometry.
  */
 
 export type Focus = {
@@ -71,20 +69,17 @@ const LOCATOR = `(function (selector, text, tag) {
 })`;
 
 /**
- * The requests that change how a page looks when they land: its code, which
- * includes a lazy component still on its way, its stylesheets, fonts and
- * images. Media and data are left out: a video streams and a page can poll
- * for as long as it is open, so waiting on either would spend the whole
- * bound every time.
+ * Requests that change how a page looks when they land: code (including lazy
+ * components), stylesheets, fonts and images. Media and data are left out,
+ * since a video streams and a page can poll forever.
  */
 const DRAWN_WITH = new Set(["Script", "Stylesheet", "Font", "Image"]);
 
 /**
- * Two painted frames, then the page's fonts. The frames let a render that
- * was waiting on a stylesheet or a script take place. Reading
- * document.fonts.ready then lays the page out, and layout is what starts a
- * font's download, so words that just arrived ask for their font before this
- * answers. Frames last, it answered before that layout and missed the font.
+ * Two painted frames, then the fonts. The frames let a render held for a
+ * stylesheet or script happen; reading document.fonts.ready then lays out,
+ * which starts the new words' font downloads. With frames last, it answered
+ * before that layout and missed the font.
  */
 const LAID_OUT = `(async () => {
   await new Promise((next) => requestAnimationFrame(() => requestAnimationFrame(next)));
@@ -182,9 +177,9 @@ function validBox(value: JsonValue | undefined): value is Box {
 }
 
 /**
- * A log line with the path of the resource it is about. Chrome's "Failed to
- * load resource" names no file, and without one a module that does not
- * compile cannot be told apart from the page that imports it.
+ * A log line with the path of the resource it's about. Chrome's "Failed to load
+ * resource" names no file, so a broken module couldn't be told from the page
+ * that imports it.
  */
 function resourced(text: JsonValue | undefined, url: JsonValue | undefined): string {
   const line = String(text ?? "");
@@ -220,13 +215,13 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     errors.push(message);
   };
 
-  // The main document's own answer. The proxy turns a dev server that is
-  // down into a 502 text page, and a screenshot of that page labelled as the
-  // direction would be worse than no screenshot at all.
+  // The main document's status. The proxy turns a down dev server into a 502
+  // page, and a screenshot of that labelled as the direction is worse than
+  // none.
   let documentStatus: number | null = null;
 
-  // What the page has asked for to draw with and not yet received, and how
-  // many such requests it has made. The wait after load reads both.
+  // What the page has asked for to draw with and not received, and how many
+  // such requests it made. The post-load wait reads both.
   const pending = new Set<string>();
   const afterLoadScripts = new Set<string>();
   let loadFired = false;
@@ -328,25 +323,17 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       throw new Error(`The page did not load: the app answered HTTP ${documentStatus}.`);
     }
 
-    // Wait for what the page draws with.
+    // Waits for what the page draws with. A client-rendered page draws after
+    // load (React in Vite), so its stylesheets, fonts and images come after
+    // load. Shot at load, a web font showed as its fallback, an image as a gap,
+    // and a React 19 stylesheet with a precedence as a blank page.
+    // document.fonts.ready alone knows nothing of a stylesheet in flight.
     //
-    // A client-rendered page is drawn after its load event: React in a Vite
-    // app renders once the page has loaded, so every stylesheet, font and
-    // image a direction asks for is requested after load, and load says
-    // nothing about them. Shot at load, a web font came back in its fallback,
-    // an image as empty space, and a React 19 stylesheet with a precedence,
-    // which holds the whole render back until it arrives, as a blank page.
-    // Waiting on document.fonts.ready alone was the old answer, and it knows
-    // nothing of a stylesheet still on its way.
-    //
-    // So the wait ends when nothing is in flight and one more look, painted
-    // frames and then the fonts, asks for nothing new. The look is what lets
-    // a render that was held back take place, and what lets its words ask
-    // for their fonts. React can hold a lazy component back for up to 300 ms
-    // after showing its fallback, which no request shows. When a script asked
-    // for after load lands, the wait gives that window its remaining time,
-    // then looks again so the revealed content can ask for what it draws with.
-    // Another such script starts another window, inside the same deadline.
+    // So the wait ends when nothing is in flight and one more look (painted
+    // frames, then fonts) asks for nothing new. React can hold a lazy component
+    // up to 300 ms after its fallback with no request showing, so a script
+    // arriving after load gets that window, then another look. Each such script
+    // starts a new window within the same deadline.
     const until = Date.now() + 2_000;
     let waitedForScript: number | null = null;
 
@@ -367,8 +354,8 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
         () => false,
       );
 
-      // A look that runs out of time still counts as answered, and the deadline
-      // ends the loop. One that fails means the page closed or crashed.
+      // A look that times out still counts; the deadline ends the loop. One
+      // that fails means the page closed or crashed.
       if (!answered) break;
 
       if (pending.size !== 0 || asked !== before) continue;
@@ -382,23 +369,15 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       waitedForScript = latestScript;
     }
 
-    // Settle the design before the shutter, then wait for a painted frame.
+    // Settles the design before the shutter, then waits for a painted frame.
+    // Caught mid-fade, an entrance animation makes each capture of a static
+    // page different. Finite animations jump to their end, the design at rest.
+    // It loops because pages often start their entrance a frame or two after
+    // load; it stops when two passes find nothing to settle.
     //
-    // An entrance animation is the thing that makes two captures of one
-    // static page disagree: caught mid-fade, the same design comes back
-    // different every time, which is useless to an agent asked to judge it.
-    // A flat wait was the old answer and it only worked by outlasting the
-    // animations it happened to be longer than.
-    //
-    // So the finite ones are jumped to their end, which is the design at
-    // rest and the thing a screenshot is meant to show. It loops because a
-    // page commonly starts its entrance a frame or two after load, so one
-    // pass finishes nothing and the shutter still catches the fade; the loop
-    // ends when two passes running find nothing left to settle.
-    //
-    // Anything endless is left alone: a looping background cannot be waited
-    // out, and forcing it would freeze it somewhere it never sits. Those
-    // pages stay non-deterministic, which is honest, and the crops still land.
+    // Endless animations are left alone: forcing one would freeze it somewhere
+    // it never sits. Those pages stay non-deterministic, and the crops still
+    // land.
     await bounded(
       page.send("Runtime.evaluate", {
         expression: `(async () => {
@@ -450,8 +429,8 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
 
     const size = metrics.cssContentSize ?? metrics.contentSize ?? { width, height: 900 };
     const pageWidth = Math.max(width, Math.ceil(size.width));
-    // The overview frame stops at the cap; a note can point below it, and
-    // its crop is bounded by the whole document rather than by the frame.
+    // The overview stops at the cap; a note can point below it, and its crop is
+    // bounded by the whole document.
     const contentHeight = Math.max(1, Math.ceil(size.height));
     const pageHeight = Math.min(FRAME_MAX_HEIGHT, contentHeight);
     const cut = size.height > FRAME_MAX_HEIGHT;
@@ -487,9 +466,9 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
         source = found;
         resolved = "element";
       } else {
-        // The shell records viewport-relative geometry with no scroll offset.
-        // It is page-accurate only when the preview was not scrolled, so this
-        // stays a fallback after the selector and the element's words fail.
+        // The shell records viewport-relative geometry with no scroll offset,
+        // accurate only if the preview wasn't scrolled, so this is a fallback
+        // after the selector and the element's words.
         source = focus.rect;
         resolved = "recorded-rect";
 

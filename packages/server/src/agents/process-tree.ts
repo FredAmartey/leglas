@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 
 /**
- * Spawn options that make a process the leader of its own group, so one
- * signal can reach everything it starts. Not on Windows, which has no process
- * groups and where a detached child opens a console window of its own.
+ * Spawn options that make a process lead its own group, so one signal reaches
+ * everything it starts. Not on Windows, which has no groups and gives a
+ * detached child its own console.
  */
 export function ownGroup(platform: NodeJS.Platform = process.platform) {
   return { detached: platform !== "win32" };
@@ -23,15 +23,10 @@ const system: TreeDeps = {
 };
 
 /**
- * Signal a process and everything it started.
- *
- * Signalling the process alone leaves whatever it launched running: a dev
- * server holding its port, a watcher still writing files, a wrapper's child
- * holding the output pipe open after the wrapper has gone. Spawned with
- * `ownGroup()`, the process leads a group its descendants join, and a
- * negative pid signals the whole group. Windows has no groups, so taskkill
- * walks the tree instead, and forcibly, because a console program cannot be
- * asked to close.
+ * Signals a process and everything it started, so a dev server, watcher or
+ * wrapper's child doesn't outlive it. A negative pid signals the `ownGroup()`
+ * group. Windows has no groups, so taskkill walks the tree, forcibly, since a
+ * console program can't be asked to close.
  */
 export function signalTree(
   child: { pid?: number | undefined; kill(signal: NodeJS.Signals): boolean },
@@ -60,7 +55,7 @@ export function signalTree(
   try {
     deps.kill(-pid, signal);
   } catch {
-    // No such group: it was never made, or everything in it has gone.
+    // No such group: never made, or already empty.
     child.kill(signal);
   }
 }

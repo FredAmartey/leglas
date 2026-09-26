@@ -110,16 +110,10 @@ function fakeLiveHub(initialListening = 0): FakeLiveHub {
 const EVENTUALLY_MS = 15_000;
 
 /**
- * The deadline bounds a hang. It is not an assertion about latency.
- *
- * Two different tests failed here on a loaded machine, both with "condition
- * never held", both waiting on something the operating system delivers when it
- * gets to it: a filesystem watch event, a reachability probe. A suite that
- * reports a slow machine as a defect teaches people to rerun until it passes,
- * which is how a real failure gets waved through.
- *
- * Fifteen seconds costs nothing on every run where the condition holds, and
- * the config's own ceiling sits above it so this message wins the race.
+ * Bounds a hang, not latency. Watch events and reachability probes arrive when
+ * the OS gets to them, and a suite that fails a slow machine teaches people to
+ * rerun until it passes. The config's own ceiling sits above this so this
+ * message wins.
  */
 const eventually = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
@@ -131,12 +125,9 @@ const eventually = async (condition: () => Promise<boolean> | boolean): Promise<
 };
 
 /**
- * Write until the watcher reports it.
- *
- * On macOS a directory watch misses a write made in the moment it starts,
- * about two times in forty, and nothing rewrites the file afterwards, so one
- * write can wait out the whole deadline for an event that is never coming.
- * The rewrites are spaced wider than the coalescing window, which every event
+ * Writes until the watcher reports it. On macOS a directory watch misses a
+ * write made as it starts, about two in forty times, and nothing rewrites the
+ * file. Rewrites are spaced past the coalescing window, which each event
  * restarts.
  */
 async function writeUntilHeard(path: string, text: string, heard: () => boolean): Promise<void> {
@@ -538,8 +529,7 @@ describe("startServer", () => {
     } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
 
     // The mode travels with the status: a fork leaves its parent's document
-    // alone, and the interface needs to know that to leave the parent's
-    // duplicate verdict alone too.
+    // alone, so the interface leaves the parent's duplicate verdict alone too.
     expect(first.requests).toMatchObject([
       { id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" },
     ]);
@@ -639,8 +629,8 @@ describe("startServer", () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-cap-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    // A real image padded out, and sent with its length the way a browser
-    // sends a file, so size is the only thing either answer can be about.
+    // A real image padded out, sent with its length as a browser sends a file,
+    // so size is the only variable.
     const upload = (bytes: number) =>
       postRawReference(server, { "content-length": String(bytes) }, [
         Buffer.concat([TWO_BY_THREE_PNG, Buffer.alloc(bytes - TWO_BY_THREE_PNG.length)]),
@@ -886,8 +876,8 @@ describe("startServer", () => {
     expect(response.status).toBe(200);
     expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
 
-    // The size reported is the crop's, not the whole frame's. How big a crop
-    // is belongs to the crop tests in capture.test.ts.
+    // The size reported is the crop's, not the frame's; crop sizing is tested
+    // in capture.test.ts.
     const frame: { width: number; height: number } = await (
       await fetch(`${server.url}/leglas/api/capture`, {
         method: "POST",
@@ -907,8 +897,8 @@ describe("startServer", () => {
   test("capture gives a bounded timeout when the page never loads", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-timeout-"));
 
-    // The deadline fires first here; the load's own share is left real, so
-    // this is the abandonment path and nothing else.
+    // The deadline fires first; the load's share stays real, so this is only
+    // the abandonment path.
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
       pool: capturePool(false),
@@ -933,8 +923,8 @@ describe("startServer", () => {
   test("a page that rendered but never fired load is still captured", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-capture-stalled-"));
     const nativeSetTimeout = globalThis.setTimeout;
-    // The load's share of the deadline lapses at once; the deadline itself
-    // stays real, so the capture that follows has all the time it needs.
+    // The load's share lapses at once while the deadline stays real, so the
+    // following capture has all the time it needs.
     // SAFETY: The disconnect test preserves the native callback timer contract while shortening the capture deadline.
     vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: (...args: any[]) => void,
@@ -980,8 +970,7 @@ describe("startServer", () => {
     });
 
     expect(response.status).toBe(200);
-    // The prune runs off the response, so this waits for it to land rather
-    // than for a fixed beat a loaded machine may not keep to.
+    // The prune runs off the response, so wait for it rather than a fixed beat.
     await eventually(() => !existsSync(stale));
     expect(readdirSync(join(cwd, REFERENCES_DIR))).toHaveLength(1);
   });
@@ -1116,8 +1105,8 @@ describe("startServer", () => {
 
     expect(gone.status).toBe(404);
 
-    // JSON that is not an object at all. Reading a field off null throws
-    // inside a listener nothing is awaiting, which takes the process with it.
+    // JSON that isn't an object. Reading a field off null throws in a listener
+    // nothing awaits, which takes the process down.
     for (const nonsense of ["null", '"a string"', "[]", "7"]) {
       const refused = await fetch(`${server.url}/leglas/api/annotations/update`, {
         body: nonsense,
@@ -1147,8 +1136,8 @@ describe("startServer", () => {
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
   });
 
-  // The pins have to be tellable apart from the ones nobody has read yet, and
-  // the queue is the only record of which is which.
+  // Pins must be distinguishable from unread ones, and the queue is the only
+  // record of which is which.
   test("the queue says which notes each change answers", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-sent-"));
 
@@ -1189,9 +1178,8 @@ describe("startServer", () => {
 
     expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
 
-    // Rewording a note the queue is holding hands it a new identity, so the
-    // change that was sent with the old words cannot take the new ones with
-    // it when it lands and forgets what it answered.
+    // Rewording a note the queue holds reissues it, so the change sent with the
+    // old words can't take the new ones when it lands.
     const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
       body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
       headers: { "content-type": "application/json" },
@@ -1226,8 +1214,7 @@ describe("startServer", () => {
     expect(posted.status).toBe(400);
   });
 
-  // The pins carry their own words and their own address, so the composer is
-  // allowed to be empty. This is the whole point of leaving them.
+  // Pins carry their own words and address, so an empty composer is fine.
   test("a change with notes and no words is still a request", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-request-"));
 
@@ -1267,9 +1254,8 @@ describe("startServer", () => {
     expect(prompt).toContain("reading “Tropical”");
   });
 
-  // The pins stay on a direction after a fork, so the send button can be
-  // pressed twice on the same brief. That costs two provider turns for one
-  // piece of work.
+  // Pins stay after a fork, so send can be pressed twice on the same brief,
+  // costing two provider turns for one piece of work.
   test("refuses the same notes sent twice while the first is still waiting", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-dup-"));
 
@@ -1347,9 +1333,8 @@ describe("startServer", () => {
 
     expect((await send("Poster", "make it warmer")).status).toBe(200);
 
-    // The same words at the same direction, which is what retyping after a
-    // stop produces. Two runs of it cost two provider turns and race each
-    // other over one file.
+    // The same words at the same direction, as retyping after a stop produces.
+    // Two runs cost two turns and race over one file.
     const repeat = await send("Poster", "  make it warmer  ");
     expect(repeat.status).toBe(409);
     expect(await repeat.json()).toEqual({
@@ -1358,9 +1343,8 @@ describe("startServer", () => {
       error: "That exact change to Poster is already waiting.",
     });
 
-    // The queue itself is untouched, and everything that is not an exact
-    // repeat still queues: a second change to the same direction, and the
-    // same change to another one.
+    // Anything but an exact repeat still queues: another change to the same
+    // direction, or the same change to another.
     expect((await send("Poster", "make it colder")).status).toBe(200);
     expect((await send("Hero", "make it warmer")).status).toBe(200);
 
@@ -1391,8 +1375,8 @@ describe("startServer", () => {
         body: JSON.stringify(body),
       });
 
-    // No mode named. The safe half of the pair is what a missing field gets,
-    // because the other half overwrites the direction being compared.
+    // No mode named, so the safe one: the other overwrites the direction being
+    // compared.
     const implied: {
       prompt: string;
       mode: string;
@@ -1408,8 +1392,8 @@ describe("startServer", () => {
     expect(asked.mode).toBe("replace");
     expect(asked.prompt).toContain('change only the "Poster" design direction');
 
-    // The queue keeps which kind of change each one is, so a request that
-    // outlives this process still knows what it was asked to do.
+    // The queue keeps each change's kind, so a request outliving this process
+    // knows what it was asked to do.
     const body: {
       requests: { intent: string }[];
     } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
@@ -1459,17 +1443,16 @@ describe("startServer", () => {
       });
 
     expect((await send("variant")).status).toBe(200);
-    // Forking the direction and rewriting it are different work, so this is a
-    // second request rather than a second copy of the first.
+    // Forking and rewriting are different work, so this is a second request,
+    // not a copy.
     expect((await send("replace")).status).toBe(200);
     // A genuine repeat is still refused.
     expect((await send("replace")).status).toBe(409);
   });
 
   test("a verdict inherited from an earlier process is still actionable", async () => {
-    // Nothing ran in this server: the queue arrived carrying a request an
-    // earlier process had already failed. Before verdicts were written down
-    // this read as picked-up forever, with no way to rerun it or let it go.
+    // Nothing ran here: the queue arrived with a request an earlier process
+    // failed. Before verdicts were saved this read as picked-up forever.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-inherited-"));
     mkdirSync(join(cwd, ".leglas"), { recursive: true });
     writeFileSync(
@@ -1659,8 +1642,8 @@ describe("startServer", () => {
   });
 
   test("the composer can ask for the saved agent to be warmed", async () => {
-    // Intent, not selection, is what pays for a vendor process: the shell
-    // asks here when the composer takes focus, and nothing is warmed at boot.
+    // Intent, not selection, pays for a vendor process: the shell asks here
+    // when the composer takes focus, and nothing warms at boot.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-intent-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const warm = vi.fn(async () => {});
@@ -1760,8 +1743,8 @@ describe("startServer", () => {
       agents: typeof initial;
     } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
 
-    // The second detector is deliberately unresolved: receiving this answer
-    // proves the routine request did not wait behind it.
+    // The second detector never resolves, so getting this answer proves the
+    // routine request didn't wait behind it.
     expect(stale.agents).toEqual(initial);
     expect(probes).toBe(2);
 
@@ -1896,8 +1879,8 @@ describe("startServer", () => {
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
-    // A stop is its own state and says who did it, so nothing in the
-    // interface can dress it up as a provider failure worth rerunning.
+    // A stop is its own state and names who did it, so the interface can't
+    // dress it up as a provider failure.
     expect(body.requests[0]?.status).toBe("cancelled");
     expect(body.requests[0]?.failure).toEqual({
       code: "cancelled",
@@ -1997,8 +1980,8 @@ describe("startServer", () => {
     expect(retried?.attachments?.[0]?.file).toBe(`.leglas/captures/${retried?.id}/frame.png`);
     expect(readFileSync(join(cwd, retried?.attachments?.[0]?.file ?? ""), "utf8")).toBe("frame");
     expect(existsSync(join(cwd, CAPTURES_DIR, "old-id"))).toBe(false);
-    // Watch, a custom command and `requests --json` read the prompt as text,
-    // so the paths in it have to follow the files.
+    // Watch, a custom command and `requests --json` read the prompt as text, so
+    // its paths must follow the files.
     expect(retried?.prompt).toContain(`.leglas/captures/${retried?.id}/frame.png`);
     expect(retried?.prompt).not.toContain("old-id");
   });
@@ -2104,8 +2087,8 @@ describe("startServer", () => {
   });
 
   test("an agent counts as attached while its heartbeat is fresh, and not once it stops", async () => {
-    // Only Date is faked: the server and the client are real sockets, and
-    // faking their timers would stall the request this test depends on.
+    // Only Date is faked: the sockets are real, and faking their timers would
+    // stall the request.
     const origin = await startOrigin();
     vi.useFakeTimers({ toFake: ["Date"] });
 
@@ -2223,8 +2206,8 @@ describe("startServer", () => {
     const body: { previews: unknown[]; errors: string[] } = await res.json();
 
     expect(res.status).toBe(200);
-    // What the config said, as the rail needs it: where it lives, what it is
-    // called and what the author wrote about it.
+    // What the config said, as the rail needs it: where it lives, its name and
+    // the author's note.
     expect(body.previews).toMatchObject([
       { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
     ]);
@@ -2374,8 +2357,8 @@ describe("startServer", () => {
     const branchUrl = new URL(String(ready.previews[0]?.url));
     expect(branchUrl.pathname).toBe("/direction");
     expect(branchUrl.port).not.toBe("4312");
-    // The rail hears that it became ready, and only ever as config. How many
-    // steps a start takes on the way is the branch's own business.
+    // The rail hears that it became ready, only ever as config; the steps along
+    // the way are the branch's business.
     expect(live.changes.length).toBeGreaterThan(nudgedBeforeReady);
     expect(new Set(live.changes)).toEqual(new Set(["config"]));
   });
@@ -2468,8 +2451,8 @@ describe("startServer", () => {
   });
 
   test("a url preview registered after boot joins the config live", async () => {
-    // An agent runs `leglas add` while the interface is open. The rail polls
-    // this endpoint, so the direction has to appear without a restart.
+    // An agent runs `leglas add` with the interface open; the rail polls this,
+    // so the direction appears without a restart.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-"));
     mkdirSync(join(cwd, ".leglas"));
     const config = configFor(await startOrigin(), [{ title: "Current", url: "/" }]);
@@ -2486,8 +2469,8 @@ describe("startServer", () => {
       JSON.stringify({
         previews: [
           { title: "Aurora", url: "/?v-hero=aurora" },
-          // A file preview needs its mount, which only boot builds, so it
-          // must NOT join live and render broken.
+          // A file preview needs the mount boot builds, so it must not join
+          // live and render broken.
           { title: "Paper", file: ".leglas/pages/paper.html" },
         ],
       }),
@@ -2562,8 +2545,8 @@ describe("startServer", () => {
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
     );
 
-    // Local previews are part of the boot config in a real Leglas process.
-    // The endpoint must still remove one from the live payload immediately.
+    // Local previews are part of the boot config in a real process; the
+    // endpoint must still drop one from the live payload at once.
     const config = configFor(await startOrigin(), [
       { title: "Current", url: "/" },
       { title: "Aurora", url: "/?v-hero=aurora", local: true },
@@ -2733,9 +2716,9 @@ describe("startServer", () => {
     expect(body.reachable).toBe(false);
   });
 
-  // Only that a write reaches the wire, and only ever as "requests". How many
-  // nudges a burst produces depends on when the operating system delivers the
-  // events; the coalescing is proven against a driven clock in live.test.ts.
+  // Only that a write reaches the wire, as "requests". How many nudges a burst
+  // makes depends on OS delivery; coalescing is proven with a driven clock in
+  // live.test.ts.
   test("a write to requests.json nudges the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-requests-"));
     mkdirSync(join(cwd, ".leglas"));
@@ -2788,8 +2771,8 @@ describe("startServer", () => {
 
   test("passes runner state changes to the requests channel", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-runner-"));
-    // An agent that takes a second to go, so a stop changes the runner's
-    // state well before the queue file records how the run ended.
+    // An agent that takes a second to exit, so a stop changes the runner's
+    // state before the queue records the ending.
     await saveAgentChoice(cwd, {
       agent: "custom",
       run: `node -e "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1000)); setInterval(() => {}, 1000)" {prompt}`,
@@ -2812,9 +2795,9 @@ describe("startServer", () => {
       return body.agent.running;
     });
 
-    // Let the nudges for the queue file's own writes land first; they would
-    // say "requests" whether or not the runner is wired to the channel. Quiet
-    // for twice the coalescing window means none is still on its way.
+    // Let the queue file's own nudges land first, since they'd say "requests"
+    // regardless. Quiet for twice the coalescing window means none are still
+    // coming.
     let settled = -1;
 
     while (settled !== live.changes.length) {
@@ -2842,11 +2825,10 @@ describe("startServer", () => {
     const live = fakeLiveHub(1);
     await start({ config: configFor(targetPort), port: 0, live, healthProbeMs: 10 });
 
-    // The first probe establishes the baseline and emits nothing. Probes never
-    // overlap, so a second one reaching the target means the first one's
-    // verdict is recorded. A fixed wait here lost the flip whenever a loaded
-    // machine held that first probe until after the target had closed: the
-    // baseline was then "unreachable" and nothing ever changed.
+    // The first probe sets the baseline and emits nothing; probes never
+    // overlap, so a second one means the first's verdict is recorded. A fixed
+    // wait lost the flip when a loaded machine held the first probe until the
+    // target closed.
     await eventually(() => probes >= 2);
     expect(live.changes).toEqual([]);
 
@@ -3024,9 +3006,9 @@ describe("startServer", () => {
       viewer: { scope: string; layout: ReturnType<typeof shareLayout> };
     } = await (await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })).json();
 
-    // Nothing that names the sharer's machine reaches a viewer: the project
-    // id is normally the config's absolute path, and health names the
-    // working directory and the dev server's address.
+    // Nothing naming the sharer's machine reaches a viewer: the project id is
+    // normally the config's absolute path, and health names the working
+    // directory and dev server address.
     expect(viewerConfig.project).toMatch(/^share:[0-9a-f-]{36}$/);
     expect(viewerConfig.devServer).toBe("");
     expect(JSON.stringify(viewerConfig)).not.toContain(cwd);
@@ -3070,8 +3052,8 @@ describe("startServer", () => {
         await fetch(`${remote}/leglas/files/paper/index.html`, { headers: { cookie } })
       ).text(),
     ).toContain("paper direction");
-    // A mount is a whole directory keyed by a guessable slug: only the
-    // mounts behind shared directions answer, and never a dotfile in one.
+    // A mount is a whole directory under a guessable slug: only shared
+    // directions' mounts answer, and never a dotfile.
     expect(
       (await fetch(`${remote}/leglas/files/draft/index.html`, { headers: { cookie } })).status,
     ).toBe(403);
@@ -3079,10 +3061,9 @@ describe("startServer", () => {
       403,
     );
 
-    // A dev server mounts routes that act on the machine: Vite's editor
-    // launcher opens a file on the sharer's computer for anyone who asks.
-    // Those are refused before the proxy sees them, and so is a service
-    // worker, which would outlive the share.
+    // Dev servers mount routes that act on the machine (Vite's editor launcher
+    // opens a file on the sharer's computer). Refused before the proxy, and so
+    // is a service worker, which would outlive the share.
     for (const control of [
       "/__open-in-editor?file=src/main.tsx:1:1",
       "/__nextjs_launch-editor?file=src/main.tsx",
@@ -3106,8 +3087,8 @@ describe("startServer", () => {
     // The sharer's own listener is untouched by any of it.
     expect((await fetch(`${server.url}/__open-in-editor`)).status).toBe(200);
 
-    // An app's live-reload socket is a two-way channel into the dev server,
-    // so only the interface's own socket upgrades on the share listener.
+    // An app's live-reload socket is a two-way channel into the dev server, so
+    // only the interface's socket upgrades on the share listener.
     await expect(
       new Promise<string>((resolve, reject) => {
         const socket = net.connect(created.share.sharePort, "127.0.0.1", () => {
@@ -3316,9 +3297,9 @@ describe("startServer", () => {
     await eventually(async () => (await status()).tunnel.url !== undefined);
     expect((await status()).tunnel.status).toBe("starting");
 
-    // The sharer's own resolver may never see the name; the person who
-    // opened the link is proof enough that it answers. Only through the
-    // tunnel, though: the sharer opening their own local link proves nothing.
+    // The sharer's resolver may never see the name; a viewer arriving through
+    // the tunnel proves the link works. The sharer opening their own local link
+    // proves nothing.
     const cookie = await enterShare(created.share.grants[0].localUrl);
     const local = await openViewerSocket(created.share.sharePort, cookie);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -3379,12 +3360,12 @@ describe("startServer", () => {
       });
 
       // The server destroys this socket on shutdown; without a handler the
-      // reset surfaces as an unhandled exception and fails the run.
+      // reset is an unhandled exception.
       socket.on("error", () => {});
     });
 
-    // The assertion is that this resolves at all: an upgraded socket detaches
-    // from its server, so close() hangs forever unless sockets are tracked.
+    // The assertion is that this resolves: an upgraded socket detaches from its
+    // server, so close() hangs unless sockets are tracked.
     await expect(server.close()).resolves.toBeUndefined();
     running.length = 0;
   });
@@ -3673,8 +3654,8 @@ describe("mutation trust", () => {
         ok: false,
         error: "Cross-origin API mutations are refused.",
       });
-      // From Leglas's own page, or a local client that sends no origin, the
-      // same request reaches the routes; a read from anywhere is still a read.
+      // From Leglas's own page, or a local client with no origin, the request
+      // reaches the routes; a read is a read from anywhere.
       expect((await fetch(api, { method, headers: { origin: server.url } })).status).toBe(404);
       expect((await fetch(api, { method })).status).toBe(404);
       expect((await fetch(api, { headers: { origin: "https://other.example" } })).status).toBe(200);
@@ -3693,16 +3674,16 @@ describe("mutation trust", () => {
   test("an origin-less request is trusted only from the machine itself", () => {
     expect(isTrustedMutation(request({ host: "localhost:4100" }, "127.0.0.1"))).toBe(true);
     expect(isTrustedMutation(request({ host: "localhost:4100" }, "::ffff:127.0.0.1"))).toBe(true);
-    // The finding this closes: a curl from across the LAN sends no Origin,
-    // and before the runner existed the worst it could do was queue text.
+    // A curl from across the LAN sends no Origin; before the runner existed the
+    // worst it could do was queue text.
     expect(isTrustedMutation(request({ host: "192.168.1.20:4100" }, "192.168.1.44"))).toBe(false);
     expect(isTrustedMutation(request({ host: "desk.local:4100" }, "192.168.1.44"))).toBe(false);
   });
 
   test("a forged Origin does not make a network peer a browser", () => {
-    // Origin is browser-enforced, which means a raw client writes whatever it
-    // wants there. Matching headers from a non-loopback socket prove nothing,
-    // so the socket decides and the headers only ever narrow further.
+    // Origin is browser-enforced, so a raw client sends anything. Matching
+    // headers from a non-loopback socket prove nothing; the socket decides and
+    // headers only narrow.
     expect(
       isTrustedMutation(
         request({ host: "192.168.1.20:4100", origin: "http://192.168.1.20:4100" }, "192.168.1.44"),
@@ -3749,9 +3730,9 @@ describe("what a capture may resolve", () => {
       pool: capturePool(),
     });
 
-    // Registered while the server runs, the way an agent does it. A file
-    // needs the mount boot builds, so the rail holds it back until the
-    // restart, and a capture of it would render the wrong page.
+    // Registered while running, as an agent does. A file needs the mount boot
+    // builds, so the rail holds it until restart and a capture would show the
+    // wrong page.
     mkdirSync(join(cwd, ".leglas"), { recursive: true });
     writeFileSync(join(cwd, "fresh.html"), "<h1>fresh</h1>");
     writeFileSync(
@@ -3785,8 +3766,8 @@ describe("what a capture may resolve", () => {
   test("the same words against a different comparison or picture are not a duplicate", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-duplicate-context-"));
 
-    // No browser on purpose: a repeat is a repeat of what was asked, and it
-    // has to be caught whether or not the capture behind it succeeded.
+    // No browser on purpose: a repeat is a repeat of the ask, caught whether or
+    // not its capture worked.
     const server = await start({
       config: configFor(await startOrigin(), [
         { title: "Poster", url: "/" },
@@ -3817,7 +3798,7 @@ describe("what a capture may resolve", () => {
     ).toBe(200);
     // The same words with nothing alongside.
     expect((await send({ title: "Poster", intent: "like the other one" })).status).toBe(200);
-    // A picture is part of the ask too, by identity rather than by count.
+    // A picture is part of the ask too, by identity, not count.
     mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
 
     const paste = (id: string) =>
@@ -3835,8 +3816,7 @@ describe("what a capture may resolve", () => {
     expect((await send({ title: "Poster", intent: "like this", references: ["r2"] })).status).toBe(
       200,
     );
-    // One that was pruned in the meantime refuses the send rather than
-    // quietly leaving the picture out.
+    // A pruned picture refuses the send rather than silently dropping out.
     const gone = await send({ title: "Poster", intent: "like that", references: ["r9"] });
     expect(gone.status).toBe(410);
     const body: { error: string } = await gone.json();
@@ -3853,22 +3833,17 @@ describe("what a capture may resolve", () => {
 });
 
 /**
- * Every route that takes a body reads fields straight off what it parsed, and
- * `null` is valid JSON. Four characters were enough to throw inside a listener
- * whose rejection nothing was waiting for, which on Node's default terms takes
- * the process down: the interface, the queue's own writer and whatever run was
- * under way, from a client that only had to reach loopback.
+ * Every route with a body reads fields straight off the parse, and `null` is
+ * valid JSON. Four characters threw in a listener nothing awaited, which takes
+ * down the process (interface, queue writer and any run) from any loopback
+ * client.
  */
 describe("a body that is not an object", () => {
   /**
-   * The routes are read out of the server rather than listed here.
-   *
-   * They were listed here, and within one release a route written after the
-   * list was added had the hole again: nothing failed, because the list had
-   * no way of knowing it existed. A new POST route is now covered the moment
-   * it is written, and a route that genuinely takes something else has to say
-   * so below, where the reason is visible and the entry is one somebody has
-   * to justify rather than one somebody has to remember.
+   * The routes are read out of the server, not listed. A hand-kept list missed
+   * a route written after it within one release. A new POST route is covered as
+   * soon as it's written; one that takes something else must say so below, with
+   * a reason.
    */
   const NOT_A_JSON_OBJECT = {
     "/api/references": "takes raw image bytes",
@@ -3895,10 +3870,9 @@ describe("a body that is not an object", () => {
       }
     }
 
-    // A route can also hide by testing its method some other way. Every route
-    // that reads a body does it through `req.on("data"`, readShareBody or
-    // readGenerationBody, so those are counted too; two listeners are the
-    // helpers' own.
+    // A route could also test its method another way. Every body read goes
+    // through `req.on("data"`, readShareBody or readGenerationBody, so those
+    // are counted too; two listeners belong to the helpers.
     const readers =
       (source.match(/req\.on\("data"/g) ?? []).length -
       2 +

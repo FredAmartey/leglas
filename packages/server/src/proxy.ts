@@ -43,36 +43,31 @@ export function withoutShareCookie(cookie: string | string[] | undefined): strin
 }
 
 /**
- * The proxy has one job: be invisible. If an app behaves differently through
- * Leglas than on its own port, the previews are not the real thing and the
- * tool has no reason to exist.
+ * The proxy has to be invisible: if an app behaves differently through Leglas,
+ * the previews aren't the real thing.
  */
 export function createProxyHandler(options: ProxyOptions): ProxyHandler {
   const target = new URL(options.target);
   const host = target.hostname;
   /**
-   * The same address, dialable.
-   *
-   * `URL.hostname` returns an IPv6 literal with its brackets, which is what a
-   * Host header and an origin want and what a socket cannot use: `net.connect`
-   * and `http.request` hand it to `getaddrinfo`, which answers ENOTFOUND for
-   * `[::1]` because that is not a name. A branch's own dev server is reached
-   * this way whenever it binds IPv6, which Vite does by default on macOS.
+   * The same address, dialable. `URL.hostname` keeps an IPv6 literal's
+   * brackets, which a Host header wants and `getaddrinfo` rejects with
+   * ENOTFOUND. A branch's dev server is IPv6 whenever it binds `localhost` on
+   * macOS, as Vite does.
    */
   const dialHost = host.replace(/^\[|\]$/g, "");
   const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
   const authority = target.port ? `${host}:${target.port}` : host;
 
   /**
-   * Frameworks build absolute URLs from the Host header. Left as the Leglas
-   * origin, they would generate links pointing back at the proxy for routes
-   * only the dev server knows about.
+   * Frameworks build absolute URLs from Host; left as the Leglas origin, they'd
+   * link back to the proxy for routes only the dev server knows.
    */
   function upstreamHeaders(req: IncomingMessage): IncomingMessage["headers"] {
     const headers = { ...req.headers, host: authority };
-    // The share cookie is the one credential a viewer holds, and the app
-    // being previewed has no use for it: its logs, error reporters and
-    // middleware are exactly where a token should not end up.
+    // The share cookie is a viewer's only credential and the app has no use for
+    // it; its logs and error reporters are exactly where a token shouldn't end
+    // up.
     const cookie = withoutShareCookie(headers.cookie);
 
     if (cookie === undefined) delete headers.cookie;
@@ -82,9 +77,9 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
   }
 
   /**
-   * Only rewrite a redirect that names the upstream. A relative Location
-   * already resolves against the proxy origin, and an unrelated absolute URL
-   * (an OAuth provider, say) must be left alone.
+   * Only rewrite a redirect naming the upstream. A relative Location already
+   * resolves against the proxy, and an unrelated absolute URL (an OAuth
+   * provider) must be left alone.
    */
   function rewriteLocation(location: string | undefined, publicOrigin: string): string | undefined {
     if (location === undefined) return undefined;
@@ -128,7 +123,7 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
           if (location !== undefined) headers.location = location;
 
           res.writeHead(upstreamRes.statusCode ?? 502, headers);
-          // Piped, never buffered: streamed responses have to stay streamed.
+          // Piped, never buffered, so streamed responses stay streamed.
           upstreamRes.pipe(res);
         },
       );
@@ -142,11 +137,9 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
         );
       });
 
-      // The browser gives up on requests all the time: a pane unmounts
-      // mid-load, the scan frame moves on, a navigation abandons its module
-      // graph. Each one used to run to completion upstream into a response
-      // nobody would read, with its socket out of the pool until the dev
-      // server finished sending. Let go the moment the browser does.
+      // The browser abandons requests all the time. Each used to run to
+      // completion upstream with its socket out of the pool; let go when the
+      // browser does.
       res.on("close", () => {
         if (!res.writableFinished) upstream.destroy();
       });
@@ -178,9 +171,9 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
         socket.pipe(upstream);
       });
 
-      // Tear down in both directions on close as well as error. A tab closing
-      // its live-reload socket is an ordinary close, and without this the
-      // upstream connection leaks for every tab the user ever opens.
+      // Tear down both ways on close as well as error: a tab closing its
+      // live-reload socket is an ordinary close, and otherwise the upstream
+      // leaks per tab.
       const shutdown = () => {
         closeActivity();
         upstream.destroy();
@@ -196,12 +189,10 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
 }
 
 /**
- * Put a loopback-only origin in front of one dev server.
- *
- * Branch previews need their own origin because their root-relative assets and
- * live-reload sockets must still point at their own checkout. Owning that
- * origin also gives the branch registry the traffic signal it needs without a
- * shell heartbeat or any changes to the app being previewed.
+ * A loopback-only origin in front of one dev server. Branch previews need their
+ * own origin so root-relative assets and live-reload sockets point at their
+ * checkout; owning it also gives the branch registry its traffic signal without
+ * touching the app.
  */
 export function startProxyServer(options: ProxyOptions): Promise<RunningProxy> {
   return new Promise((resolve, reject) => {

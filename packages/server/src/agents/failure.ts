@@ -1,18 +1,12 @@
 import { SILENCE_CEILING_MS } from "./silence.js";
 
 /**
- * Why a run ended, in words the interface can show and code it can act on.
+ * Why a run ended, in words the interface can show and codes it can act on. A
+ * stop, an outage and a CLI that never started want different reactions, so the
+ * runner classifies once and everything else reads the verdict.
  *
- * A run that ends badly used to leave two things behind: a request parked in
- * the queue, and twenty lines of vendor output in the server's terminal. The
- * interface could only say "That change failed", which reads the same whether
- * the user stopped it themselves, the provider was down, or the CLI refused
- * to start at all. Those want different reactions, so the runner classifies
- * once and everything downstream reads the verdict instead of guessing.
- *
- * The codes are Leglas's own, not a vendor's. Messages are written here and
- * never assembled from captured output: a provider log can carry a prompt, a
- * path or a token, and the interface is the wrong place for any of it.
+ * The codes are Leglas's own. Messages are written here, never built from
+ * captured output, since a provider log can carry a prompt, a path or a token.
  */
 export type FailureCode =
   /** The user pressed stop. Not a failure at all, and never retried for them. */
@@ -43,12 +37,10 @@ export type FailureCode =
 export type Failure = { code: FailureCode; message: string };
 
 /**
- * A retry the vendor CLI announced while the run was still in flight.
- *
- * Claude Code prints one `system`/`api_retry` event per attempt, carrying the
- * attempt number, its ceiling and the HTTP status it is backing off from.
- * That is the only in-band signal Leglas gets during a stall, so it feeds
- * both the live status line and the verdict once the run gives up.
+ * A retry the vendor CLI announced mid-run. Claude Code prints one
+ * `system`/`api_retry` event per attempt with the attempt, its ceiling and the
+ * HTTP status; it's the only signal during a stall, so it feeds the status line
+ * and the final verdict.
  */
 export type RetryNotice = {
   attempt: number;
@@ -98,8 +90,8 @@ function fromStatus(status: number | null, reason: string | null): FailureCode |
 }
 
 function fromLines(lines: readonly string[]): FailureCode | null {
-  // Newest first: the last thing a CLI says about why it stopped is the thing
-  // it stopped for. An early warning must not outrank a later refusal.
+  // Newest first: the last thing a CLI says is why it stopped, and an early
+  // warning must not outrank a later refusal.
   for (const line of [...lines].reverse()) {
     if (NEEDS_TRUST.test(line)) return "needs-trust";
 
@@ -150,13 +142,9 @@ function message(code: FailureCode, input: FailureInput): string {
 }
 
 /**
- * One verdict per ended run, in the order Leglas can trust it.
- *
- * What Leglas did itself outranks everything, because it is the only party
- * that knows a stop was deliberate. A spawn error comes next: the vendor
- * never ran, so nothing it might have said applies. Then the structured
- * retry notice, then the shape of the output, and finally the honest
- * fallback of an exit code with no story attached.
+ * One verdict per ended run, in order of trust: Leglas's own action first (only
+ * it knows a stop was deliberate), then a spawn error (the vendor never ran),
+ * then the retry notice, then the output's shape, then a bare exit code.
  */
 export function classifyFailure(input: FailureInput): Failure {
   const lines = input.lines ?? [];
@@ -182,14 +170,10 @@ export function classifyFailure(input: FailureInput): Failure {
 }
 
 /**
- * Whether a failure is about the conversation rather than the world.
- *
- * Only this kind earns the runner's one cold rerun. A dead session is
- * invisible to the user and costs a turn to recover; an overloaded provider,
- * a spent limit, a missing login or a refused directory will answer a second
- * run exactly as it answered the first, and the user pays for both. During an
- * outage that second run is another full vendor retry ladder aimed at a
- * provider that is already down.
+ * Whether a failure is about the conversation rather than the world. Only this
+ * earns the one cold rerun: an overloaded provider, a spent limit, a missing
+ * login or a refused directory would answer the second run the same way, at the
+ * user's cost.
  */
 export function conversationFailure(code: FailureCode): boolean {
   return code === "agent-error";

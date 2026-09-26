@@ -268,8 +268,7 @@ describe("attachRequest", () => {
 
     const notes = result.attachments.filter((attachment) => attachment.kind === "note");
     expect(notes).toHaveLength(1);
-    // The number follows the note it belongs to, so the prompt's "note 2"
-    // and the file agree.
+    // The number follows the note, so the prompt's "note 2" and the file agree.
     expect(notes[0]).toMatchObject({ file: `${CAPTURES_DIR}/req2/note-2.png`, note: "n2" });
   });
 
@@ -293,7 +292,7 @@ describe("attachRequest", () => {
     );
 
     // A pasted image is worth carrying whatever else failed, and the request
-    // says in one sentence why there is no render beside it.
+    // says in one sentence why there's no render.
     expect(result.skipped).toBe(NO_BROWSER);
     expect(result.attachments).toEqual([
       { kind: "reference", file: `${CAPTURES_DIR}/req3/reference-1.png`, width: 2, height: 3 },
@@ -330,8 +329,8 @@ describe("attachRequest", () => {
     expect(result.skipped).toBe("The design could not be captured in time.");
     expect(result.attachments).toEqual([]);
     expect(required(required(capture.mock.calls[0]?.[1]).signal).aborted).toBe(true);
-    // The load gets a share of the deadline, so a page that rendered but
-    // never fired load is still captured before the deadline lands.
+    // The load gets a share of the deadline, so a page that rendered but never
+    // fired load is still captured.
     expect(required(capture.mock.calls[0]?.[1]).timeoutMs).toBeLessThan(20);
   });
 
@@ -405,7 +404,7 @@ describe("capture cleanup", () => {
     mkdirSync(join(cwd, CAPTURES_DIR, "orphan"), { recursive: true });
     await pruneCaptures(cwd, ["keep"]);
 
-    // `show` is not a request and outlives the queue that never claimed it.
+    // `show` isn't a request and outlives the queue.
     expect(readdirSync(join(cwd, CAPTURES_DIR)).sort()).toEqual(["keep", "show"]);
   });
 
