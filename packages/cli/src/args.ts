@@ -1,3 +1,15 @@
+import {
+  DEFAULT_EXPLORE_COUNT,
+  DEFAULT_SHARE_REACH,
+  addRefusal,
+  fromRefusal,
+  portRefusal,
+  shareRefusal,
+  showRefusal,
+  valueRefusal,
+  widthRefusal,
+} from "./rules.js";
+
 export type RunOptions = {
   /** Port for Leglas itself. Undefined means the server's default. */
   port: number | undefined;
@@ -83,20 +95,15 @@ const VALUE_FLAGS = new Set(["--port", "--user-port", "--config"]);
 
 const BOOLEAN_FLAGS = new Set(["--no-open", "--json"]);
 
-const MIN_SHOW_WIDTH = 320;
-
-const MAX_SHOW_WIDTH = 3840;
-
 function parsePort(flag: string, raw: string): { port: number } | { error: string } {
   if (!/^\d+$/.test(raw)) {
     return { error: `${flag} needs a number, received ${JSON.stringify(raw)}.` };
   }
 
   const port = Number(raw);
+  const refusal = portRefusal(flag, port);
 
-  if (port < 1 || port > 65535) {
-    return { error: `${flag} must be between 1 and 65535, received ${port}.` };
-  }
+  if (refusal !== null) return { error: refusal };
 
   return { port };
 }
@@ -117,9 +124,9 @@ function parseNew(rest: string[]): ParseResult {
     if (argument === "--from" || argument.startsWith("--from=")) {
       from = argument.includes("=") ? argument.split("=").slice(1).join("=") : rest[(index += 1)];
 
-      if (from === undefined || from === "") {
-        return { kind: "error", message: "--from needs a path, for example --from src/Hero.tsx" };
-      }
+      const refusal = fromRefusal(from ?? "");
+
+      if (refusal !== null) return { kind: "error", message: refusal };
 
       continue;
     }
@@ -204,7 +211,7 @@ function parseAdd(rest: string[]): ParseResult {
     }
 
     if (value === undefined || value === "") {
-      return { kind: "error", message: `${flag} needs a value.` };
+      return { kind: "error", message: valueRefusal(flag) };
     }
 
     if (flag === "--title") title = value;
@@ -224,28 +231,22 @@ function parseAdd(rest: string[]): ParseResult {
     };
   }
 
-  if (url === undefined && file === undefined) {
-    return {
-      kind: "error",
-      message:
-        "leglas add needs --url (for example --url '/?v-hero=aurora') or --file for a page Leglas serves itself.",
-    };
-  }
-
-  return {
-    kind: "add",
-    preview: {
-      title,
-      url,
-      note,
-      tags: tags.length > 0 ? tags : undefined,
-      branch,
-      file,
-      basedOn,
-      askedFor,
-    },
-    json,
+  const preview: AddPreview = {
+    title,
+    url,
+    note,
+    tags: tags.length > 0 ? tags : undefined,
+    branch,
+    file,
+    basedOn,
+    askedFor,
   };
+
+  const refusal = addRefusal(preview);
+
+  if (refusal !== null) return { kind: "error", message: refusal };
+
+  return { kind: "add", preview, json };
 }
 
 /**
@@ -326,7 +327,7 @@ function parseWatch(rest: string[]): ParseResult {
         message:
           flag === "--run"
             ? '--run needs an agent command, for example --run "claude -p {prompt}"'
-            : "--port needs a value.",
+            : valueRefusal(flag),
       };
     }
 
@@ -350,7 +351,7 @@ function parseWatch(rest: string[]): ParseResult {
  */
 function parseShare(rest: string[]): ParseResult {
   const titles: string[] = [];
-  let reach: ShareReach = "open";
+  let reach: ShareReach = DEFAULT_SHARE_REACH;
   let reachGiven = false;
   let tunnel: ShareTunnel | null = null;
   let stop = false;
@@ -377,7 +378,7 @@ function parseShare(rest: string[]): ParseResult {
       const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
 
       if (raw === undefined || raw === "") {
-        return { kind: "error", message: `${flag} needs a value.` };
+        return { kind: "error", message: valueRefusal(flag) };
       }
 
       if (flag === "--port") {
@@ -421,20 +422,9 @@ function parseShare(rest: string[]): ParseResult {
     titles.push(argument);
   }
 
-  if (stop && (titles.length > 0 || reachGiven || tunnel !== null)) {
-    return {
-      kind: "error",
-      message: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
-    };
-  }
+  const refusal = shareRefusal({ titles, reach: reachGiven ? reach : undefined, tunnel, stop });
 
-  if (titles.length > 2) {
-    return {
-      kind: "error",
-      message:
-        "leglas share takes one direction to share alone, or two to compare. Name none to share the rail.",
-    };
-  }
+  if (refusal !== null) return { kind: "error", message: refusal };
 
   return { kind: "share", titles, reach, tunnel, stop, port, json };
 }
@@ -530,7 +520,7 @@ export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "explore") {
     const rest = argv.slice(1);
     let surface: string | undefined;
-    let count = 3;
+    let count = DEFAULT_EXPLORE_COUNT;
     let basedOn: string | null = null;
     let json = false;
     let build = false;
@@ -715,7 +705,7 @@ export function parseArgs(argv: string[]): ParseResult {
         const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
 
         if (raw === undefined || raw === "") {
-          return { kind: "error", message: `${flag} needs a value.` };
+          return { kind: "error", message: valueRefusal(flag) };
         }
 
         if (flag === "--port") {
@@ -734,13 +724,9 @@ export function parseArgs(argv: string[]): ParseResult {
         }
 
         width = Number(raw);
+        const refusal = widthRefusal(width);
 
-        if (width < MIN_SHOW_WIDTH || width > MAX_SHOW_WIDTH) {
-          return {
-            kind: "error",
-            message: `--width must be between ${MIN_SHOW_WIDTH} and ${MAX_SHOW_WIDTH}, received ${width}.`,
-          };
-        }
+        if (refusal !== null) return { kind: "error", message: refusal };
 
         continue;
       }
@@ -764,13 +750,9 @@ export function parseArgs(argv: string[]): ParseResult {
       };
     }
 
-    if (width !== null && !screenshot) {
-      return { kind: "error", message: "leglas show --width needs --screenshot." };
-    }
+    const refusal = showRefusal({ screenshot, width, port });
 
-    if (port !== null && !screenshot) {
-      return { kind: "error", message: "leglas show --port needs --screenshot." };
-    }
+    if (refusal !== null) return { kind: "error", message: refusal };
 
     return { kind: "show", title, json, screenshot, width, port };
   }
@@ -821,7 +803,7 @@ export function parseArgs(argv: string[]): ParseResult {
     }
 
     if (value === undefined || value === "" || value.startsWith("--")) {
-      return { kind: "error", message: `${flag} needs a value.` };
+      return { kind: "error", message: valueRefusal(flag) };
     }
 
     if (flag === "--config") {

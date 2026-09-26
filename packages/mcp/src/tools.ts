@@ -5,6 +5,14 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { resolve } from "node:path";
 
 import {
+  DEFAULT_EXPLORE_COUNT,
+  DEFAULT_PORT,
+  DEFAULT_SHARE_REACH,
+  MAX_PORT,
+  MAX_SHOW_WIDTH,
+  MIN_SHOW_WIDTH,
+  addRefusal,
+  fromRefusal,
   isOwnCapture,
   run,
   runAdd,
@@ -17,6 +25,8 @@ import {
   runRequests,
   runShare,
   runShow,
+  shareRefusal,
+  showRefusal,
   type RunResult,
 } from "leglas";
 import { z } from "zod";
@@ -26,7 +36,9 @@ import type { Project } from "./project.js";
 
 /**
  * Each tool calls the same run function as the CLI and returns its --json
- * envelope: one implementation, two faces.
+ * envelope: one implementation, two faces. The schemas carry the CLI's limits
+ * and each tool checks its rules first, so what the CLI refuses is refused
+ * here too.
  */
 
 /** A capture path is useful only when the CLI returned it as text. */
@@ -43,6 +55,11 @@ function hasCaptureFile(value: unknown): value is { screenshot: { file: string }
 }
 
 type CaptureDeps = { log(line: string): void; error(line: string): void };
+
+/** The CLI's shape for a failure, so a host parses this like any other. */
+function refused(error: string): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify({ ok: false, error }) }], isError: true };
+}
 
 async function capture(
   invoke: (deps: CaptureDeps) => Promise<{ exitCode: number }> | { exitCode: number },
@@ -85,13 +102,7 @@ async function inProject(
 ): Promise<CallToolResult> {
   const located = await project.locate();
 
-  if (!located.ok) {
-    // The CLI's shape for a failure, so a host parses this like any other.
-    return {
-      content: [{ type: "text", text: JSON.stringify({ ok: false, error: located.reason }) }],
-      isError: true,
-    };
-  }
+  if (!located.ok) return refused(located.reason);
 
   return capture((deps) => invoke(located.directory, deps));
 }
@@ -129,9 +140,11 @@ export function registerLeglasTools(
           .number()
           .int()
           .min(0)
-          .max(65535)
+          .max(MAX_PORT)
           .optional()
-          .describe("Port for Leglas itself; defaults to 4100, next free if taken."),
+          .describe(
+            `Port for Leglas itself; defaults to ${DEFAULT_PORT}, next free if taken. 0 takes any free port.`,
+          ),
       },
     },
     async ({ port }) => {
@@ -199,13 +212,14 @@ export function registerLeglasTools(
           ),
       },
     },
-    async ({ title, url, note, tags, branch, file, basedOn, askedFor }) =>
-      inProject(project, (cwd, deps) =>
-        runAdd(
-          { preview: { title, url, note, tags, branch, file, basedOn, askedFor }, json: true, cwd },
-          deps,
-        ),
-      ),
+    async ({ title, url, note, tags, branch, file, basedOn, askedFor }) => {
+      const preview = { title, url, note, tags, branch, file, basedOn, askedFor };
+      const refusal = addRefusal(preview);
+
+      if (refusal !== null) return refused(refusal);
+
+      return inProject(project, (cwd, deps) => runAdd({ preview, json: true, cwd }, deps));
+    },
   );
 
   server.registerTool(
@@ -235,20 +249,20 @@ export function registerLeglasTools(
           .min(1)
           .describe("The direction's title as the config spells it, not a renamed display name."),
         screenshot: z.boolean().optional(),
-        width: z.number().int().min(320).max(3840).optional(),
+        width: z.number().int().min(MIN_SHOW_WIDTH).max(MAX_SHOW_WIDTH).optional(),
       },
     },
     async ({ title, screenshot, width }) => {
+      const refusal = showRefusal({
+        screenshot: screenshot ?? false,
+        width: width ?? null,
+        port: null,
+      });
+
+      if (refusal !== null) return refused(refusal);
       const located = await project.locate();
 
-      if (!located.ok) {
-        return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ ok: false, error: located.reason }) },
-          ],
-          isError: true,
-        };
-      }
+      if (!located.ok) return refused(located.reason);
 
       const result = await capture((deps) =>
         runShow(
@@ -332,7 +346,12 @@ export function registerLeglasTools(
         "yours. Run before building a set.",
       inputSchema: {
         surface: z.string().min(1),
-        count: z.number().int().min(1).max(24).optional().describe("How many; default 3."),
+        count: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(`How many; default ${DEFAULT_EXPLORE_COUNT}.`),
         basedOn: z
           .string()
           .min(1)
@@ -345,7 +364,10 @@ export function registerLeglasTools(
     async ({ surface, count, basedOn }) =>
       capture((deps) =>
         // The brief is the same wherever it is read from; it touches no project.
-        runExplore({ surface, count: count ?? 3, basedOn: basedOn ?? null, json: true }, deps),
+        runExplore(
+          { surface, count: count ?? DEFAULT_EXPLORE_COUNT, basedOn: basedOn ?? null, json: true },
+          deps,
+        ),
       ),
   );
 
@@ -362,10 +384,15 @@ export function registerLeglasTools(
         print: z.boolean().optional().describe("Print the scaffold instead of writing it."),
       },
     },
-    async ({ surface, from, print }) =>
-      inProject(project, (cwd, deps) =>
+    async ({ surface, from, print }) => {
+      const refusal = fromRefusal(from);
+
+      if (refusal !== null) return refused(refusal);
+
+      return inProject(project, (cwd, deps) =>
         runNew({ surface, print: print ?? false, json: true, from, cwd }, deps),
-      ),
+      );
+    },
   );
 
   server.registerTool(
@@ -412,12 +439,21 @@ export function registerLeglasTools(
       },
       annotations: { openWorldHint: true },
     },
-    async ({ titles, reach, stop }) =>
-      inProject(project, (cwd, deps) =>
+    async ({ titles, reach, stop }) => {
+      const refusal = shareRefusal({
+        titles: titles ?? [],
+        reach,
+        tunnel: null,
+        stop: stop ?? false,
+      });
+
+      if (refusal !== null) return refused(refusal);
+
+      return inProject(project, (cwd, deps) =>
         runShare(
           {
             titles: titles ?? [],
-            reach: reach ?? "open",
+            reach: reach ?? DEFAULT_SHARE_REACH,
             tunnel: null,
             stop: stop ?? false,
             port: null,
@@ -426,7 +462,8 @@ export function registerLeglasTools(
           },
           deps,
         ),
-      ),
+      );
+    },
   );
 
   server.registerTool(

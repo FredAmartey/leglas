@@ -126,7 +126,12 @@ async function images(cwd: string): Promise<string[]> {
   return found;
 }
 
-async function componentFile(cwd: string, from: string, specifier: string): Promise<string | null> {
+/** Resolves an import in `from` to a project-relative file. */
+export async function componentFile(
+  cwd: string,
+  from: string,
+  specifier: string,
+): Promise<string | null> {
   const base = normalize(join(dirname(from), specifier));
 
   return firstFile(cwd, [

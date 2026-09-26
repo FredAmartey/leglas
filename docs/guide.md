@@ -15,8 +15,8 @@ survives restarts.
 
 A small tools widget floats over the stage and can be dragged to any
 corner. Its popover holds the viewport presets and a few preferences,
-including hiding the dev badge your framework paints over the corner of
-the app when it lands on the part you are judging.
+such as hiding your framework's dev badge when it covers the part you are
+judging.
 
 ## Comparing
 
@@ -41,9 +41,10 @@ new variant beside that direction; the chip next to the send button
 switches it to a change in place, for when a change really is a fix.
 
 Pick an agent once from the picker beside the send button and the card
-above the field shows it working: which file it is editing, how long it
-has been, how long it has gone quiet if it goes quiet, a stop if you change
-your mind and a retry when a run goes wrong.
+above the field shows it working: the file it is editing, how long it has
+run, how long it has been quiet if it goes quiet, a stop if you change your
+mind and a retry when a run goes wrong.
+
 Every request carries a screenshot of the direction at the width you are
 looking at, a crop of anything you pointed at, the other pane when you are
 comparing and any image you pasted in as a reference. Leglas runs no model
@@ -95,9 +96,11 @@ once. They build side by side. Each row says whether its direction is
 building, being checked, failed or stopped, and the stage shows what a
 direction still being built is meant to be. Leglas opens every one before
 calling it ready and gives one that does not render one attempt to fix
-itself. Stop it, retry it or ask for a new idea from its row or the stage.
-Once two are ready, **Compare all** on the card puts the ready ones on the
-stage side by side, each drawn at its own width; a name opens that direction.
+itself. A build that edits any other file is stopped, and Leglas puts back
+the switch, existing directions and the files they import. Stop it, retry it
+or ask for a new idea from its row or the stage. Once two are ready,
+**Compare all** on the card puts the ready ones on the stage side by side,
+each drawn at its own width; a name opens that direction.
 
 To take one further, open the brief while it is on the stage and press
 **More like Menu** in its header. The agent builds variations that keep the
