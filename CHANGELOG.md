@@ -26,12 +26,12 @@ Each entry ends with which of the three it reaches.
   `leglas explore hero --build --brief "…"`. (`leglas`)
 
 - **See a set side by side, and ask for more like one.** Once two directions
-  of a set are ready, **Compare all** on the set's card puts them on the stage
-  side by side, each at its own width. With a direction on the stage, **More
-  like Menu** in the brief (named for that direction) builds variations that
-  keep it and each change one thing, and puts them under it. What to vary is
-  optional. From a terminal, add `--based-on "Menu"` to `explore --build`.
-  (`leglas`)
+  of a set are ready, **Compare all** on the set's card puts the ready ones on
+  the stage side by side, each at its own width. With a direction on the
+  stage, **More like Menu** in the brief (named for that direction) builds
+  variations that keep it and each change one thing, and puts them under it.
+  What to vary is optional. From a terminal, add `--based-on "Menu"` to
+  `explore --build`. (`leglas`)
 
 - **`leglas watch --json` prints a JSON line per event.** The instructions
   `leglas init` writes, the plugin's skill and the docs all said every command
@@ -97,9 +97,9 @@ Each entry ends with which of the three it reaches.
 
 - **Share from a terminal or an agent.** `npx leglas share` shares the whole
   rail, `npx leglas share "Aurora"` one direction, and two names put them side
-  by side. It prints the link once the tunnel is up and when it expires, and
-  `--stop` ends it. The MCP server has a `share` tool that does the same. A
-  share started this way uses the project's rail: every direction in config
+  by side. It prints the link once the tunnel is up and when it stops working,
+  and `--stop` ends it. The MCP server has a `share` tool that does the same.
+  A share started this way uses the project's rail: every direction in config
   order, under the names you gave them. (`leglas`, `leglas-mcp`)
 
 ### Changed
@@ -147,8 +147,9 @@ Each entry ends with which of the three it reaches.
 ### Fixed
 
 - **The links on the npm page work.** npm resolves the README's relative links
-  against `packages/cli`, so Contributing, License and the docs links pointed
-  at nothing. They're absolute now. (`leglas`, `leglas-mcp`)
+  against `packages/cli`, so the Contributing and License links pointed at
+  nothing, and the new docs links would have too. They're absolute now.
+  (`leglas`, `leglas-mcp`)
 
 ## 1.1.0 (2026-09-07): Leglas says when a newer version is out
 
@@ -201,13 +202,14 @@ Each entry ends with which of the three it reaches.
   one. **Replace all** ends every link and gives the share a new address. A
   link belongs to a browser, not a person: a second link opened in the same
   browser replaces the first. (`leglas`)
-- **Choose how much of your app a viewer can reach.** **Anywhere in the app**
-  is how sharing worked before. **Only what you shared** serves the shared
-  pages and the files they load, which Leglas learns from what your directions
-  loaded while you looked at them, and refuses everything else. If a page
-  later needs something it refused, like a chunk that loads on scroll, the
-  panel shows it and one click allows that file or its folder. Files starting
-  with a dot, like `.env` and `.git`, are never served to a viewer. (`leglas`)
+- **Choose how much of your app a viewer can reach.** "Anywhere in the app" is
+  how sharing worked before: a link reaches any route your dev server has,
+  your source included. "Only what you shared" serves the shared pages and the
+  files they load, which Leglas learns from what your directions loaded while
+  you looked at them, and refuses everything else. If a page later needs
+  something it refused, like a chunk that loads on scroll, the panel shows it
+  and one click allows that file or its folder. Files starting with a dot,
+  like `.env` and `.git`, are never served to a viewer. (`leglas`)
 - **A busy share can't slow you down.** Viewers get at most twelve requests in
   your dev server at once. The rest wait in Leglas, shared fairly between
   links, and are turned away if they wait too long. With 200 requests at once,
@@ -239,12 +241,14 @@ Each entry ends with which of the three it reaches.
   page that rebuilds itself in the browser (a captured production site, a
   static export, any hydrating app served as a file), a variant could show the
   parent's hero, logo and buttons, because the framework rebuilt it from the
-  parent's JavaScript. The capture now always keeps the framework's warning
-  about it, the request tells the agent to make the change where the
+  parent's JavaScript. The capture now always keeps the console line that
+  shows it, the request tells the agent to make the change where the
   JavaScript gets its content, and `leglas show` reports it. Directions
   switched in components weren't affected. (`leglas`, `leglas-mcp`, plugin)
 
 ## 0.8.0 (2026-08-28): An exploration writes down what it decided
+
+For code that imports `leglas`: its exports changed.
 
 ### Added
 
@@ -320,7 +324,8 @@ Each entry ends with which of the three it reaches.
   that reads a body refuse anything but a JSON object, but
   `POST /api/capture`, added in the same release, skipped that check: `null`
   sent to it ended the server and the run under way. It uses the check now,
-  and so does `/api/annotations/update`. (`leglas`)
+  and so does `/api/annotations/update`, which already checked inline.
+  (`leglas`)
 - **A route added later can't miss that check**: the test reads the routes out
   of the server rather than from a list. (`leglas`)
 
@@ -337,10 +342,11 @@ dependency on the Claude Agent SDK.
   overrides) at its design width, and saves it under
   `.leglas/captures/<request>/` with a crop of each note, the compared
   direction when the stage is split, and any reference images. The prompt
-  names each file and console errors from the load come along as text. Claude
-  and Codex get the images directly; other agents get the paths. With no
-  browser, the request still goes and says why nothing was captured. Captures
-  are removed with their request. (`leglas`)
+  names each file and console errors from the load come along as text.
+  Claude's warm session and Codex get the images directly; everything else,
+  the `claude -p` fallback included, gets the paths. With no browser, the
+  request still goes and says why nothing was captured. Captures are removed
+  with their request. (`leglas`)
 
 ![The composer a moment after sending: the field is disabled, a reference thumbnail sits above it, and the hint reads Capturing the design for your agent](https://raw.githubusercontent.com/FredAmartey/docs-assets/377e0b3810067971eee37f8f940c9bf690b256fa/projects/leglas/pull-requests/0032-agent-eyes/composer-capturing.png#w=480 "Send, and the direction is captured for the agent first; a reference image attached to the composer rides along.")
 
@@ -453,10 +459,10 @@ dependency on the Claude Agent SDK.
 
 ![The agent picker open above the composer: Claude, Codex with a tick, an Effort row set to Agent default, and Connect agent via MCP](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/picker-with-effort.png#w=500 "The picker lists what is actually installed, with an effort row for Claude Code and Codex.")
 
-- **Connecting an agent over MCP is one flow.** **Connect agent via MCP** in
-  the picker opens a dialog for Claude Code, or for Codex, Cursor and other
-  MCP clients, shows the exact setup to copy and confirms once the agent uses
-  a Leglas tool. Custom commands moved to `leglas watch --run`. (`leglas`)
+- **Connecting an agent over MCP is one flow.** "Connect agent via MCP" in the
+  picker opens a dialog for Claude Code, or for Codex, Cursor and other MCP
+  clients, shows the exact setup to copy and confirms once the agent uses a
+  Leglas tool. Custom commands moved to `leglas watch --run`. (`leglas`)
 
 ![The Connect agent via MCP dialog: a choice between Claude Code and Codex, Cursor and others, the terminal command with a copy button, and a row reading Waiting for agent activity](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/connect-agent-via-mcp.png#w=570 "One dialog for the whole flow: pick the client, copy the exact setup, and watch it confirm once the agent uses a Leglas tool.")
 
@@ -568,9 +574,9 @@ the type gained `failure`, `mode` and `notes`.
 - **The picker knows who's signed in.** Leglas asks each CLI
   (`claude auth status`, `codex login status`), so a signed-out agent is
   marked before a run fails. (`leglas`)
-- **Any command can be the agent.** **Add your own** takes a command like
-  aider or goose. Your request goes in as its last argument, or wherever
-  `{prompt}` sits. The same works in `leglas watch --run`. (`leglas`)
+- **Any command can be the agent.** "Add your own" takes a command like aider
+  or goose. Your request goes in as its last argument, or wherever `{prompt}`
+  sits. The same works in `leglas watch --run`. (`leglas`)
 
 ![The picker open above the chip: Claude, Codex with a tick, and a row reading Add your own](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0011-embedded-agent-runner/runner-picker.png#w=560 "The picker above the chip: the CLIs found on the machine, and a row for a command of your own.")
 
@@ -581,7 +587,7 @@ the type gained `failure`, `mode` and `notes`.
   the same conversation (`codex exec resume`, `claude --resume`), measured 25
   to 40 percent faster. A session ends on a failure, a stop or after eight
   turns, and starts fresh if the vendor has forgotten it. (`leglas`)
-- **Connect agents Leglas can't run.** **Connect another agent** gives the MCP
+- **Connect agents Leglas can't run.** "Connect another agent" gives the MCP
   setup for IDE panels and chat hosts. An agent working the queue over MCP
   counts as attached, so the built-in runner stays out of its way until it
   goes quiet. (`leglas`, `leglas-mcp`)
