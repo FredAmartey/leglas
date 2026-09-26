@@ -61,7 +61,10 @@ whole rail, or one direction when you name it, or two side by side when you
 name two, the second on the right. It waits for the tunnel and prints the
 link and when it stops working. Run it again to see the links of the share
 that is running, and `npx leglas share --stop` ends it. `--reach listed`
-and `--tunnel` choose what the panel's options choose.
+and `--tunnel` choose what the panel's options choose. `--revoke` ends one
+link, named by its address or by the id `--json` prints, and leaves the
+others; `--rotate` ends every link and starts one new through a new tunnel,
+for a link that got out and you can't say which.
 
 A terminal cannot see your browser, so the rail it shares is the
 project's: every direction in config order, under the names you gave them
@@ -72,7 +75,7 @@ them through in the panel, which is why sharing the whole app is the
 default.
 
 For an agent host that cannot run a shell, the MCP server has the same
-operation as its `share` tool.
+operations as its `share` tool.
 
 ## The tunnel
 
