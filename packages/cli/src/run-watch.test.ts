@@ -423,12 +423,8 @@ describe("leglas watch --json, as a process", () => {
 
 describe("stopping before the loop is listening", () => {
   test("a signal that fired during startup still stops the watcher", async () => {
-    // Everything before the loop is awaited work, and a caller can abort
-    // inside that window: the tests here wait for the template write, so a
-    // stop can land after that file appears and before the loop listens. A
-    // listener added to an already-aborted signal is never called, so this
-    // used to leave the watcher running with nobody to stop it and the caller
-    // waiting on a promise that never settled.
+    // A stop can land while startup is still awaiting, before the loop
+    // listens, and a listener added to an already-aborted signal never fires.
     const root = cwd();
     const controller = new AbortController();
     controller.abort();

@@ -21,7 +21,6 @@ const TSC = join(import.meta.dirname, "../../../node_modules/.bin/tsc");
 const JSX_TYPES =
   "declare namespace JSX { interface Element {} interface IntrinsicElements { [name: string]: unknown } }\n";
 
-/** The tsconfig compilerOptions each check below compiles with. */
 type TsOptions = Record<string, string | boolean | string[]>;
 
 /** Compile generated files in a scratch project; returns its directory and tsc's errors. */
@@ -41,7 +40,6 @@ function compile(writes: Write[], compilerOptions: TsOptions) {
   return { dir, errors: result.status === 0 ? "" : result.stdout };
 }
 
-/** What a generated component is given and gives back while these tests render. */
 type Props = { searchParams?: Record<string, string> };
 
 type Element = { type: string; props: Props | null; children: Rendered[] };

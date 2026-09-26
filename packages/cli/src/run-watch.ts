@@ -123,9 +123,8 @@ export async function runWatch(
   },
   deps: WatchDeps,
 ): Promise<{ exitCode: number }> {
-  // Under --json stdout carries one event per line and nothing else, so the
-  // lines written for a person are left out and a refusal is the envelope
-  // every other command prints.
+  // Under --json stdout is events only, and a refusal is the envelope every
+  // other command prints.
   const json = options.json === true;
   const emit = (event: WatchEvent): void => deps.log(JSON.stringify(event));
 
