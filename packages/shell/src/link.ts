@@ -50,8 +50,8 @@ export function openLink(
     !prefs.deleted.includes(title) &&
     previews.some((preview) => preview.title === title);
 
-  const direction = known(link.direction) ? link.direction : null;
-  const compare = direction !== null && known(link.compare) ? link.compare : null;
+  // What the rail has goes on the stage, so a pair missing its first shows the second.
+  const [direction = null, compare = null] = [link.direction, link.compare].filter(known);
   const shown = new Set([direction, compare].filter((title): title is string => title !== null));
 
   const basedOn = new Map(

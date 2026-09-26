@@ -403,6 +403,14 @@ describe("a link into the interface", () => {
     expect(document.body.textContent).toContain("Aurora");
   });
 
+  test("when only the second direction is here, it goes on the stage alone", async () => {
+    opening("/leglas?direction=Aurora&compare=Menu");
+    await mount({});
+
+    expect(onStage()).toEqual(["Menu"]);
+    expect(document.body.textContent).toContain("Aurora");
+  });
+
   test("is not followed on somebody else's rail", async () => {
     opening("/leglas?direction=Menu");
     await mount({
