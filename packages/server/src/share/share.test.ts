@@ -1056,9 +1056,12 @@ describe("the ceiling on viewer traffic", () => {
     // One connection at a time. Filling the queue takes 140, more than the
     // 128 a listen backlog holds on macOS, and macOS 27 refuses a loopback
     // connection past the backlog instead of retrying it.
+    let answered = 0;
+
     for (let i = 0; i < full; i += 1) {
       const request = raw(share.port, `/fill-${i}`, share.cookie);
       filling.push(request);
+      void request.status.then(() => (answered += 1));
       await request.sent;
     }
 
@@ -1066,13 +1069,21 @@ describe("the ceiling on viewer traffic", () => {
 
     // Turned away at once, not queued: a queued request would wait for good.
     const over = raw(share.port, "/one-too-many", share.cookie);
+    let wait: ReturnType<typeof setTimeout> | undefined;
 
     const answer = await Promise.race([
       over.status,
-      new Promise<"no answer">((resolve) => setTimeout(() => resolve("no answer"), 5000)),
+      new Promise<"no answer">((resolve) => {
+        wait = setTimeout(() => resolve("no answer"), 5000);
+      }),
     ]);
 
+    clearTimeout(wait);
     expect(answer).toBe(503);
+    // And every one of the 140 before it was taken, so the limit is exactly
+    // twelve running and the queue's full length waiting, not anything less.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(answered).toBe(0);
 
     for (const request of filling) request.stop();
 
