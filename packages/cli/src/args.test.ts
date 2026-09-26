@@ -592,6 +592,24 @@ describe("the share command", () => {
   });
 });
 
+describe("the remove command", () => {
+  test("takes one direction or more, and says so when there are none", () => {
+    expect(parseArgs(["remove", "Aurora", "Dusk", "--json"])).toEqual({
+      kind: "remove",
+      titles: ["Aurora", "Dusk"],
+      json: true,
+    });
+    expect(parseArgs(["remove"])).toEqual({
+      kind: "error",
+      message: 'leglas remove needs a direction title, for example: npx leglas remove "Aurora"',
+    });
+    expect(parseArgs(["remove", "Aurora", "--force"])).toEqual({
+      kind: "error",
+      message: "leglas remove does not take --force.",
+    });
+  });
+});
+
 describe("the link command", () => {
   test("takes none, one or two directions and the port of a Leglas elsewhere", () => {
     expect(parseArgs(["link"])).toEqual({ kind: "link", titles: [], port: null, json: false });
