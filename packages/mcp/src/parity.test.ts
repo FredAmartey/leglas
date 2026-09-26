@@ -313,16 +313,19 @@ function serverRoutes() {
     }
   }
 
-  // What may still name /api/: the catch-alls that guard, refuse or 404 the
-  // whole prefix, and the index page's links. Anything else is a route written
-  // in a way the scan can't read.
+  // What may still name /api or test a method: the catch-alls that guard,
+  // refuse or 404 the whole prefix, the index page's links and the update
+  // route's own GET. Anything else is a route written in a way the scan can't
+  // read, or a method test it would have taken for a GET.
   const left = rest
     .replace(single, "")
     .replace(grouped, "")
     .replace(/path\.startsWith\(`\$\{LEGLAS_PREFIX\}\/api\/`\)/g, "")
-    .replace(/<a href="\/leglas\/api\/(?<name>[a-z]+)">\/leglas\/api\/\k<name><\/a>/g, "");
+    .replace(/<a href="\/leglas\/api\/(?<name>[a-z]+)">\/leglas\/api\/\k<name><\/a>/g, "")
+    .replace('req.method !== "GET" && req.method !== "HEAD"', "")
+    .replace('if (req.method === "GET") return', "");
 
-  return { found, unread: left.match(/.{0,40}\/api\/.{0,40}/g) ?? [] };
+  return { found, unread: left.match(/.{0,40}(?:\/api\b|req\.method).{0,40}/g) ?? [] };
 }
 
 // The scans below assume every flag is a quoted literal in args.ts and every
