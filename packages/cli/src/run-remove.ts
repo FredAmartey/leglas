@@ -71,7 +71,7 @@ export async function runRemove(
   } else {
     for (const title of titles) deps.log(`  removed  ${title}`);
     deps.log("");
-    deps.log("The files behind them stay where they are.");
+    deps.log(`The files behind ${titles.length === 1 ? "it" : "them"} stay where they are.`);
   }
 
   return { exitCode: 0 };
