@@ -49,6 +49,12 @@ Each entry ends with which of the three it reaches.
   selected. Now the first direction still on the rail takes its place.
   (`leglas`)
 
+- **Directions added while Leglas runs stay on the rail.** Leglas rewrote its
+  list of this machine's directions in place, so a read could catch it half
+  written and leave out every direction added since Leglas started, until the
+  next read. It now writes the new list beside the old one and swaps it in.
+  (`leglas`)
+
 - **The MCP tools refuse what the command line refuses.** `add` saved an empty
   note and answered a missing URL with `previews[0] needs a url.`, and `show`
   with a width but no screenshot, or `share` stopping with a direction named,
