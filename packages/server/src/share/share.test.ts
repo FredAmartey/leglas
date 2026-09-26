@@ -1064,8 +1064,15 @@ describe("the ceiling on viewer traffic", () => {
 
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
+    // Turned away at once, not queued: a queued request would wait for good.
     const over = raw(share.port, "/one-too-many", share.cookie);
-    expect(await over.status).toBe(503);
+
+    const answer = await Promise.race([
+      over.status,
+      new Promise<"no answer">((resolve) => setTimeout(() => resolve("no answer"), 5000)),
+    ]);
+
+    expect(answer).toBe(503);
 
     for (const request of filling) request.stop();
 
