@@ -183,6 +183,142 @@ const FACES = {
   },
 } satisfies Record<string, Face>;
 
+type RouteFace = { tool: string; param?: string } | { without: string };
+
+function tool(name: string, param?: string): RouteFace {
+  return param === undefined ? { tool: name } : { tool: name, param };
+}
+
+const BUILD =
+  "a set Leglas builds with the person's own agent; an MCP host is that agent and builds from explore's brief";
+
+const UPDATE =
+  "updating Leglas restarts the server a host is talking to, so the interface asks the person first";
+
+const AGENT =
+  "which agent the interface runs, and keeping it warm; an MCP host is already the agent";
+
+const NOTES = "notes the person pins on a direction, which reach the agent inside a change request";
+
+const RUN = "stops or reruns the interface's own agent run, which an MCP host is not";
+
+/**
+ * Every route the interface calls on its own Leglas, and the tool that does the
+ * same for an agent, or why an agent goes without. A route the server learns
+ * has to be placed here, as a flag has to be placed above.
+ */
+const ROUTES = {
+  "GET /api/config": tool("list"),
+  "GET /api/health": without(
+    "the interface's check on the dev server; commands ask it to find a running Leglas",
+  ),
+  "GET /api/generate": without(BUILD),
+  "POST /api/generate": without(BUILD),
+  "POST /api/generate/stop": without(BUILD),
+  "POST /api/generate/retry": without(BUILD),
+  "POST /api/generate/replace": without(BUILD),
+  "GET /api/update": without(UPDATE),
+  "POST /api/update/check": without(UPDATE),
+  "POST /api/update/skip": without(UPDATE),
+  "POST /api/update/install": without(UPDATE),
+  "GET /api/share": tool("share"),
+  "POST /api/share": tool("share"),
+  "POST /api/share/update": without(
+    "sends the rail as the sharer's browser arranges it, which the command line can't see",
+  ),
+  "POST /api/share/grants": without(
+    "not on the command line yet: a second link, named for the person it goes to",
+  ),
+  "POST /api/share/grants/revoke": tool("share", "revoke"),
+  "POST /api/share/grants/extend": without("not on the command line yet: another day on one link"),
+  "POST /api/share/allow": without(
+    "widening a listed share is the person's call, made against the refusals the panel shows",
+  ),
+  "POST /api/share/rotate": tool("share", "rotate"),
+  "POST /api/share/stop": tool("share", "stop"),
+  "GET /api/previews/framing": without("whether a page lets the interface frame it"),
+  "POST /api/previews/start": without("starts a branch direction's checkout when someone opens it"),
+  "POST /api/previews/delete": tool("remove"),
+  "POST /api/references": without("an image the person attaches to a change request"),
+  "POST /api/request": without(
+    "the person asking their agent for a change; an agent makes the change instead",
+  ),
+  "POST /api/capture": tool("show", "screenshot"),
+  "POST /api/agents/warm": without(AGENT),
+  "GET /api/agents": without(AGENT),
+  "POST /api/agent": without(AGENT),
+  "POST /api/watch": without(
+    "the beat watch sends, and this server sends while an agent works the queue, so the interface's own agent steps aside",
+  ),
+  "GET /api/requests": tool("requests"),
+  "POST /api/requests/cancel": without(RUN),
+  "POST /api/requests/retry": without(RUN),
+  "POST /api/requests/dismiss": without(
+    "lets go of a request whose run failed or stopped, which is the person's call",
+  ),
+  "GET /api/annotations": without(NOTES),
+  "POST /api/annotations": without(NOTES),
+  "POST /api/annotations/update": without(NOTES),
+  "POST /api/annotations/delete": without(NOTES),
+  "POST /api/renames": without(
+    "not on the command line yet: the rail's own name for a direction, which every command answers to",
+  ),
+} satisfies Record<string, RouteFace>;
+
+/**
+ * Every route the server answers for its own interface, as "METHOD path", read
+ * with whitespace collapsed since the formatter wraps long conditions. A route
+ * with no method test answers a GET. Routes only a share's viewers reach are
+ * left out, and anything left unread fails the test.
+ */
+function serverRoutes() {
+  const source = readFileSync(
+    new URL("../../server/src/server.ts", import.meta.url),
+    "utf8",
+  ).replace(/\s+/g, " ");
+
+  const methodFirst =
+    /(?<remote>!?context\.remote && )?req\.method === "(?<method>GET|POST)" && path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`/g;
+
+  const single =
+    /(?<remote>!?context\.remote && )?path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`(?: && req\.method === "(?<method>GET|POST)")?/g;
+
+  const grouped =
+    /req\.method === "(?<method>GET|POST)" && \[(?<names>[^\]]*)\]\.some\( \(action\) => path === `\$\{LEGLAS_PREFIX\}(?<base>\/api\/[^`$]*)\$\{action\}`/g;
+
+  const found: string[] = [];
+
+  for (const match of source.matchAll(methodFirst)) {
+    if (match.groups?.["remote"] === "context.remote && ") continue;
+    found.push(`${match.groups?.["method"] ?? ""} ${match.groups?.["route"] ?? ""}`);
+  }
+
+  const rest = source.replace(methodFirst, "");
+
+  for (const match of rest.matchAll(single)) {
+    if (match.groups?.["remote"] === "context.remote && ") continue;
+    found.push(`${match.groups?.["method"] ?? "GET"} ${match.groups?.["route"] ?? ""}`);
+  }
+
+  for (const match of rest.matchAll(grouped)) {
+    for (const name of (match.groups?.["names"] ?? "").matchAll(/"([^"]+)"/g)) {
+      found.push(
+        `${match.groups?.["method"] ?? ""} ${match.groups?.["base"] ?? ""}${name[1] ?? ""}`,
+      );
+    }
+  }
+
+  const left = rest.replace(single, "").replace(grouped, "");
+
+  // A prefix below /api/ answers a family of paths no table entry can name.
+  const unread = [
+    ...(left.match(/path === `\$\{LEGLAS_PREFIX\}\/api\/[^`]*`/g) ?? []),
+    ...(left.match(/path\.startsWith\(`\$\{LEGLAS_PREFIX\}\/api\/[^`]+`\)/g) ?? []),
+  ];
+
+  return { found, unread };
+}
+
 // The scans below assume every flag is a quoted literal in args.ts and every
 // command is dispatched from it.
 const parser = readFileSync(new URL("../../cli/src/args.ts", import.meta.url), "utf8");
@@ -322,5 +458,23 @@ test("--help and the table agree on every command and flag", () => {
       listed.filter((flag) => !(flag in face.flags)),
       `Options for ${command}`,
     ).toEqual([]);
+  }
+});
+
+test("every route the interface calls has a tool or a reason", () => {
+  const { found, unread } = serverRoutes();
+
+  expect(unread, "a route the scan cannot read").toEqual([]);
+  expect(found.length).toBeGreaterThan(30);
+  expect([...new Set(found)].sort()).toEqual(Object.keys(ROUTES).sort());
+});
+
+test("each tool a route names takes the parameter it names", () => {
+  for (const [route, face] of Object.entries(ROUTES)) {
+    if (!("tool" in face)) continue;
+
+    expect(parameters.has(face.tool), route).toBe(true);
+
+    if (face.param !== undefined) expect(parameters.get(face.tool), route).toContain(face.param);
   }
 });
