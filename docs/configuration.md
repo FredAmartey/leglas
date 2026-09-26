@@ -115,18 +115,19 @@ pane with "Show the frame anyway".
 
 Leglas also compares what each preview actually draws and warns when two
 are identical. This catches a typo like `?v-hero=wavee` that your app
-silently ignores while the rail implies a comparison. The check reads the
-rendered page, runs only on previews you have opened and skips
-cross-origin previews, which the browser will not let it read.
+silently ignores while the rail implies a comparison. It reads every
+preview in the background, one at a time in a hidden frame, and skips
+branches and absolute URLs, which the browser will not let it read. Set
+`scanPreviews: false` for an app too heavy to load that way.
 
 ## Limitations
 
 - Leglas runs no model of its own. Comparing existing routes costs
   nothing, but a new direction is still code your agent writes; Leglas
   hands it the request and shows the result.
-- The duplicate check compares rendered markup only, and only when the
-  server renders some. Two previews that differ solely in a script are
-  reported as identical, and in a fully client-rendered app the check
-  says nothing.
+- The duplicate check compares what a page draws, so two previews that
+  differ only in behaviour, such as what a click does, are reported as
+  identical. A page with almost no text, such as a blank or loading
+  screen, gets no verdict, so two of those are never flagged.
 - The interface is built for desktop widths.
 - Leglas is a development tool. Nothing in it ships to production.
