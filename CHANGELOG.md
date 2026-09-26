@@ -21,6 +21,14 @@ Each entry ends with which of the three it reaches.
   file direction added while Leglas runs gets a link once Leglas restarts.
   (`leglas`, `leglas-mcp`)
 
+- **The MCP tools say which of them only read.** A host reads a tool that says
+  nothing as one that can destroy data and reach the internet, so it had to
+  treat `list` like `keep`. Each tool now says whether it only reads, whether it
+  can delete something, whether it's safe to repeat and whether it reaches past
+  your machine; `list`, `link`, `classify` and `explore` only read. The server
+  also gives hosts the whole workflow, for agents without the Leglas skill.
+  (`leglas-mcp`)
+
 ### Fixed
 
 - **The MCP tools refuse what the command line refuses.** `add` saved an empty

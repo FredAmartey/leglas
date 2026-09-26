@@ -136,6 +136,12 @@ export function registerLeglasTools(
         "Idempotent per session: calling it again returns the running viewer. " +
         "When building a set, call this first and give the user the URL before " +
         "any direction exists: the rail updates live, so they watch the set fill in.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         port: z
           .number()
@@ -185,6 +191,12 @@ export function registerLeglasTools(
         "Then call show with screenshot: true to look at what you registered. While Leglas " +
         "runs, interfaceUrl in the result opens the interface on this direction: give it to " +
         "the user once the direction looks right.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),
         url: z
@@ -232,6 +244,7 @@ export function registerLeglasTools(
       description:
         "Every preview, shared and local, with its URL and backing branch if any, and while " +
         "Leglas runs an interfaceUrl that opens the interface on it.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {},
     },
     async () => inProject(project, (cwd, deps) => runList({ json: true, cwd }, deps)),
@@ -248,11 +261,17 @@ export function registerLeglasTools(
         "block. With screenshot: true, Leglas also renders the direction with a headless " +
         "browser and returns the image, so you can see what you built. Do this after registering " +
         "a direction and before saying it is done; width 390 shows the phone layout.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         title: z
           .string()
           .min(1)
-          .describe("The direction's title as the config spells it, not a renamed display name."),
+          .describe("The direction's title, or the name the rail shows for it."),
         screenshot: z.boolean().optional(),
         width: z.number().int().min(MIN_SHOW_WIDTH).max(MAX_SHOW_WIDTH).optional(),
       },
@@ -324,6 +343,7 @@ export function registerLeglasTools(
         "second on the right. Name none for the rail. Give it to the user when a direction is " +
         "ready to look at, or when asking them to choose between two. Needs a running Leglas, " +
         "so call start first.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         titles: z
           .array(z.string().min(1))
@@ -345,6 +365,7 @@ export function registerLeglasTools(
       description:
         "Before writing a direction, declare what it will touch and learn whether it can be " +
         "additive in the running app or needs its own checkout, with the reason and the steps.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         changes: z
           .array(
@@ -372,6 +393,7 @@ export function registerLeglasTools(
         "What a set for a surface needs and how it registers here. Directions must genuinely " +
         "disagree; with basedOn, variants of that direction must not. The designs themselves are " +
         "yours. Run before building a set.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: {
         surface: z.string().min(1),
         count: z
@@ -406,6 +428,12 @@ export function registerLeglasTools(
       description:
         "Create a switcher and a first direction for a surface under .leglas/variants/. " +
         "With from, the baseline re-exports the component that renders the surface today.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         surface: z.string().min(1),
         from: z.string().optional().describe("Path of the component rendering this surface today."),
@@ -430,6 +458,12 @@ export function registerLeglasTools(
       description:
         "Move the winning direction into real source, delete the rest of the exploration, and " +
         "drop them from the rail.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: {
         title: z.string().min(1).describe("Title of the direction to keep."),
         to: z.string().min(1).describe("Path in real source where the winner should live."),
@@ -448,6 +482,12 @@ export function registerLeglasTools(
         "direction, or two side by side, through a tunnel, and return the link. Use it only when " +
         "the user asks to share: whoever holds the link reaches the running app. A share that is " +
         "already running is returned, not replaced. Pass stop to end it and every link to it.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         titles: z
           .array(z.string().min(1))
@@ -465,7 +505,6 @@ export function registerLeglasTools(
           ),
         stop: z.boolean().optional(),
       },
-      annotations: { openWorldHint: true },
     },
     async ({ titles, reach, stop }) => {
       const refusal = shareRefusal({
@@ -504,6 +543,12 @@ export function registerLeglasTools(
         "changing any direction: the user may have described the change from the interface while " +
         "you worked, and collecting marks it picked up there. Pass clear once they are done: it " +
         "drops what you collected and reports anything that arrived since, which is yours to do next.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: {
         clear: z.boolean().optional(),
       },
@@ -526,6 +571,12 @@ export function registerLeglasTools(
       title: "Prepare a project",
       description:
         "Write the AGENTS.md section, a starter config, and the gitignore entry into this project.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
       inputSchema: {
         force: z.boolean().optional().describe("Rewrite the AGENTS.md section if it exists."),
       },

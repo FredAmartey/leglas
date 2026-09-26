@@ -4,23 +4,27 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { parseArgs } from "leglas";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { appendRequest } from "../../server/src/requests/requests.js";
 import { writeServerInfo } from "../../server/src/server-info.js";
 import { readLink } from "../../shell/src/link.js";
 
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { UNRESOLVED_PROJECT, fixedProject, hostProject, type Project } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
@@ -558,5 +562,127 @@ describe("the MCP face refuses what the command line refuses", () => {
 
     expect(isError).toBe(false);
     expect(envelope["ok"]).toBe(true);
+  });
+});
+
+describe("what the tools tell a host about themselves", () => {
+  /** Every directory and file under a project, files by their bytes, so any write shows. */
+  function snapshot(dir: string): Map<string, Buffer | "directory"> {
+    const entries = new Map<string, Buffer | "directory">();
+
+    const walk = (at: string) => {
+      for (const entry of readdirSync(at, { withFileTypes: true })) {
+        const path = join(at, entry.name);
+
+        if (entry.isDirectory()) {
+          entries.set(path, "directory");
+          walk(path);
+        } else entries.set(path, readFileSync(path));
+      }
+    };
+
+    walk(dir);
+
+    return entries;
+  }
+
+  // The spec reads a missing hint as the worst case: destructive and open to
+  // the internet. So each tool says what it does.
+  test("each says whether it only reads and whether it reaches past this machine", async () => {
+    const { tools } = await (await connect(scratch())).listTools();
+
+    for (const tool of tools) {
+      const hints = tool.annotations ?? {};
+
+      expect(hints.readOnlyHint, tool.name).toEqual(expect.any(Boolean));
+      expect(hints.openWorldHint, tool.name).toEqual(expect.any(Boolean));
+
+      if (hints.readOnlyHint === false) {
+        expect(hints.destructiveHint, tool.name).toEqual(expect.any(Boolean));
+        expect(hints.idempotentHint, tool.name).toEqual(expect.any(Boolean));
+      }
+    }
+  });
+
+  /** A call each read-only tool can make in the project below. */
+  const readCalls = new Map<string, { [key: string]: JsonValue }>([
+    ["list", {}],
+    ["link", { titles: ["Aurora"] }],
+    ["classify", { changes: [{ path: "src/theme.css", kind: "rewrite" }] }],
+    ["explore", { surface: "hero", count: 3 }],
+  ]);
+
+  // Against a Leglas that answers, so a tool's reads run all the way through.
+  test("one that says it only reads leaves the project as it found it", async () => {
+    const dir = scratch();
+    const client = await connect(dir);
+    await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora", note: "Warm." });
+    await appendRequest(dir, {
+      title: "Aurora",
+      url: "/?v-hero=aurora",
+      intent: "warmer",
+      target: null,
+      prompt: "Make it warmer.",
+    });
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "theme.css"), "body { color: black; }\n");
+
+    const leglas = http.createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify(
+          req.url === "/leglas/api/config"
+            ? { previews: [{ title: "Aurora" }] }
+            : { cwd: dir, reachable: true },
+        ),
+      );
+    });
+
+    captureServers.push(leglas);
+    await new Promise<void>((resolve) => leglas.listen(0, "127.0.0.1", resolve));
+    // SAFETY: `listen` completed on a TCP host, so `address` is an IP address and port.
+    const port = (leglas.address() as import("node:net").AddressInfo).port;
+    await writeServerInfo(dir, { port, url: `http://localhost:${port}`, pid: process.pid });
+
+    const before = snapshot(dir);
+    const { tools } = await client.listTools();
+    const reading = tools.filter((tool) => tool.annotations?.readOnlyHint === true);
+
+    expect(reading.map((tool) => tool.name).sort()).toEqual([...readCalls.keys()].sort());
+
+    for (const tool of reading) {
+      const { envelope, isError } = await call(client, tool.name, readCalls.get(tool.name) ?? {});
+
+      expect(isError, tool.name).toBe(false);
+      expect(envelope["ok"], tool.name).toBe(true);
+    }
+
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  test("the published server's instructions name every tool it lists, and fit what a host keeps", async () => {
+    const client = new Client({ name: "stdio-host", version: "0.0.0" });
+
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [fileURLToPath(new URL("../dist/bin.js", import.meta.url))],
+        cwd: scratch(),
+        stderr: "ignore",
+      }),
+    );
+
+    try {
+      const instructions = client.getInstructions() ?? "";
+      const { tools } = await client.listTools();
+      const named = new Set([...instructions.matchAll(/`([a-z]+)`/g)].map((match) => match[1]));
+
+      expect(instructions).toBe(SERVER_INSTRUCTIONS);
+      expect([...named].sort()).toEqual(tools.map((tool) => tool.name).sort());
+      // Claude Code cuts a server's instructions at 2048 characters (claude-code#81268).
+      expect(instructions.length).toBeLessThanOrEqual(2048);
+    } finally {
+      await client.close();
+    }
   });
 });
