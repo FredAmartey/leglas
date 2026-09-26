@@ -3,6 +3,7 @@ import {
   DEFAULT_SHARE_REACH,
   addRefusal,
   fromRefusal,
+  linkRefusal,
   portRefusal,
   shareRefusal,
   showRefusal,
@@ -69,6 +70,13 @@ export type ParseResult =
       /** Null lets the running Leglas pick the first tunnel program it finds. */
       tunnel: ShareTunnel | null;
       stop: boolean;
+      port: number | null;
+      json: boolean;
+    }
+  | {
+      kind: "link";
+      /** None opens the rail; one opens that direction; two put them side by side. */
+      titles: string[];
       port: number | null;
       json: boolean;
     }
@@ -429,6 +437,48 @@ function parseShare(rest: string[]): ParseResult {
   return { kind: "share", titles, reach, tunnel, stop, port, json };
 }
 
+/** Titles like `share`: none for the rail, one direction, or a pair. */
+function parseLink(rest: string[]): ParseResult {
+  const titles: string[] = [];
+  let port: number | null = null;
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+
+    const equals = argument.indexOf("=");
+    const flag = equals === -1 ? argument : argument.slice(0, equals);
+
+    if (flag === "--port") {
+      const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
+      if (raw === undefined || raw === "") return { kind: "error", message: valueRefusal(flag) };
+      const parsed = parsePort(flag, raw);
+
+      if ("error" in parsed) return { kind: "error", message: parsed.error };
+      port = parsed.port;
+      continue;
+    }
+
+    if (argument.startsWith("-")) {
+      return { kind: "error", message: `leglas link does not take ${argument}.` };
+    }
+
+    titles.push(argument);
+  }
+
+  const refusal = linkRefusal(titles);
+
+  if (refusal !== null) return { kind: "error", message: refusal };
+
+  return { kind: "link", titles, port, json };
+}
+
 export function parseArgs(argv: string[]): ParseResult {
   const [command] = argv;
 
@@ -758,6 +808,8 @@ export function parseArgs(argv: string[]): ParseResult {
   }
 
   if (argv[0] === "share") return parseShare(argv.slice(1));
+
+  if (argv[0] === "link") return parseLink(argv.slice(1));
 
   const options: RunOptions = {
     port: undefined,

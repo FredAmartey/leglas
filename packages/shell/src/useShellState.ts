@@ -19,6 +19,7 @@ import { absoluteUrl, referenceText } from "./reference.js";
 import { markPreviewLoaded, previewIsLoaded, resetPreviewLoaded } from "./preview/preview-frame.js";
 import { dismissToast, pushToast, TOAST_TTL, type Toast } from "./ui/toasts.js";
 import { adoptLayout, viewerPrefsRaw } from "./share/share.js";
+import { openLink, withoutLink, type InterfaceLink } from "./link.js";
 import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
 import { refusal } from "./net/api.js";
 
@@ -55,6 +56,8 @@ export type ShellStateProps = {
    * layout and nothing is saved or sent: a viewer's choices last their tab.
    */
   viewer?: { layout: ShareLayout } | undefined;
+  /** What the address asked to open with, read once when the shell loads. */
+  link?: InterfaceLink | null | undefined;
 };
 
 export function useShellState({
@@ -66,11 +69,12 @@ export function useShellState({
   onToggleNote,
   suspended = false,
   viewer,
+  link = null,
 }: ShellStateProps) {
   const key = storageKey(project);
 
-  const initial = () =>
-    loadPrefs(
+  const [start] = useState(() => {
+    const saved = loadPrefs(
       viewer !== undefined
         ? viewerPrefsRaw(viewer.layout)
         : typeof window === "undefined"
@@ -79,18 +83,28 @@ export function useShellState({
       previews,
     );
 
-  const [prefs, setPrefs] = useState<Prefs>(initial);
+    const opened = link === null || viewer !== undefined ? null : openLink(link, saved, previews);
+    const first = opened?.prefs ?? saved;
+    const hidden = new Set(first.hidden);
+
+    return {
+      prefs: first,
+      active:
+        opened?.direction ??
+        first.order.find((title) => !hidden.has(title)) ??
+        first.order[0] ??
+        "",
+      linked: opened?.direction ?? null,
+      compare: opened?.compare ?? null,
+      missing: opened?.missing ?? [],
+    };
+  });
+
+  const [prefs, setPrefs] = useState<Prefs>(start.prefs);
   const byTitle = new Map(previews.map((preview) => [preview.title, preview]));
-
-  const firstVisible = () => {
-    const saved = initial();
-
-    return saved.order.find((title) => !saved.hidden.includes(title)) ?? saved.order[0] ?? "";
-  };
-
-  const [active, setActiveRaw] = useState<string>(firstVisible);
+  const [active, setActiveRaw] = useState<string>(start.active);
   const nested = typeof window !== "undefined" && window.self !== window.top;
-  const [mounted, setMounted] = useState<readonly string[]>(() => [firstVisible()]);
+  const [mounted, setMounted] = useState<readonly string[]>(() => [start.active]);
   const [query, setQueryRaw] = useState("");
   /**
    * Folds made during a search, scoped to it. Starting empty lets a fresh query
@@ -149,6 +163,36 @@ export function useShellState({
     if (viewer !== undefined) return;
     window.localStorage.setItem(key, JSON.stringify(prefs));
   }, [prefs, key, viewer]);
+
+  useEffect(() => {
+    if (viewer !== undefined) return;
+    const asked = new URLSearchParams(window.location.search);
+
+    if (asked.has("direction") || asked.has("compare")) {
+      window.history.replaceState(window.history.state, "", withoutLink(window.location.href));
+    }
+
+    if (link === null) return;
+
+    const row = [...document.querySelectorAll<HTMLElement>("li[data-title]")].find(
+      (entry) => entry.dataset.title === start.linked,
+    );
+
+    row?.scrollIntoView({ block: "nearest" });
+
+    if (start.missing.length > 0) {
+      notify({
+        kind: "link",
+        message: `The link asked for ${start.missing.join(" and ")}, ${
+          start.missing.length === 1 ? "which isn't" : "which aren't"
+        } on this rail`,
+        tone: "info",
+        ttl: TOAST_TTL.plain,
+      });
+    }
+    // Once, for the address the shell loaded with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * The sharer pushed their current view: layout fields are taken, the viewer's
@@ -638,6 +682,8 @@ export function useShellState({
 
   return {
     active,
+    /** The right pane a link asked for when the shell loaded, or null. */
+    linkedCompare: start.compare,
     ancestryOf,
     copied,
     copyLink,

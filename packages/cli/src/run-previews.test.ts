@@ -1,11 +1,16 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { writeServerInfo } from "@leglas/server";
+import { describe, expect, test, vi } from "vitest";
+
+import { readLink } from "../../shell/src/link.js";
+
+import { leglasServing } from "./test-helpers.js";
 
 import type { AddPreview } from "./args.js";
 
-import { runAdd, runRequests } from "./run-previews.js";
+import { runAdd, runList, runRequests } from "./run-previews.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-add-"));
@@ -97,6 +102,87 @@ describe("runAdd with --json", () => {
     await runAdd({ preview: preview({}), json: true, cwd: scratch() }, output.deps);
 
     expect(JSON.parse(output.lines[0] ?? "{}").note).toMatch(/within seconds/);
+  });
+});
+
+describe("the address of the running interface", () => {
+  test("add and list give one that opens on the direction, for this project's Leglas", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+    const fetch = leglasServing(cwd, ["App", "Night sky"]);
+
+    const added = collect();
+    await runAdd(
+      { preview: preview({ title: "Night sky" }), json: true, cwd },
+      { ...added.deps, fetch },
+    );
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+    const opens = new URL(JSON.parse(added.lines[0] ?? "{}").interfaceUrl);
+
+    expect(`${opens.origin}${opens.pathname}`).toBe("http://localhost:4321/leglas");
+    expect(readLink(opens.search)).toEqual({ direction: "Night sky", compare: null });
+
+    const previews: { title: string; interfaceUrl: string }[] = JSON.parse(
+      listed.lines[0] ?? "{}",
+    ).previews;
+
+    expect(previews.find((entry) => entry.title === "Night sky")?.interfaceUrl).toBe(opens.href);
+  });
+
+  test("is left out, and nothing is asked, with no Leglas recorded", async () => {
+    const cwd = scratch();
+    const fetch = vi.fn<typeof globalThis.fetch>();
+
+    const added = collect();
+    await runAdd({ preview: preview({}), json: true, cwd }, { ...added.deps, fetch });
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(JSON.parse(listed.lines[0] ?? "{}").previews[0].interfaceUrl).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("is left out when the recorded port serves another project", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+
+    const added = collect();
+    await runAdd(
+      { preview: preview({}), json: true, cwd },
+      { ...added.deps, fetch: leglasServing(scratch(), ["X"]) },
+    );
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+  });
+
+  // A branch or file direction added while Leglas runs reaches its rail only
+  // after a restart.
+  test("is left out for a direction the running rail doesn't show yet", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+    const fetch = leglasServing(cwd, ["App"]);
+
+    const added = collect();
+    await runAdd(
+      { preview: preview({ title: "On a branch", branch: "aurora" }), json: true, cwd },
+      { ...added.deps, fetch },
+    );
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+    const previews: { title: string; interfaceUrl: string | null }[] = JSON.parse(
+      listed.lines[0] ?? "{}",
+    ).previews;
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).toMatchObject({ ok: true, added: "On a branch" });
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(previews.find((entry) => entry.title === "On a branch")?.interfaceUrl).toBeNull();
+    expect(previews.find((entry) => entry.title === "App")?.interfaceUrl).toEqual(
+      expect.any(String),
+    );
   });
 });
 
