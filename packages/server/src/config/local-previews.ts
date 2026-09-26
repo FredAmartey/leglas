@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { normalizeConfig, type Preview } from "./config.js";
@@ -12,6 +13,23 @@ import { isString, parseJson, type JsonValue, type JsonRecord } from "../json.js
 export const LOCAL_PREVIEWS_PATH = ".leglas/previews.json";
 
 export type LocalPreview = Preview & { local: true };
+
+/**
+ * Written beside the registry and renamed over it, because the server reads it
+ * for every interface read and a torn read drops each direction added since
+ * boot.
+ */
+async function writeRegistry(path: string, stored: readonly object[]): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  // Indented so the file reads well when someone wonders where a preview came
+  // from.
+  await writeFile(temporary, `${JSON.stringify({ previews: stored }, null, 2)}\n`, "utf8");
+  await rename(temporary, path).catch(async (cause: unknown) => {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw cause;
+  });
+}
 
 export type AddInput = {
   title: string;
@@ -130,15 +148,10 @@ export async function addLocalPreview(
     return { ok: false, error: check.errors.join(" ") };
   }
 
-  const path = join(cwd, LOCAL_PREVIEWS_PATH);
-  await mkdir(dirname(path), { recursive: true });
-  // Indented so the file reads well when someone wonders where a preview came
-  // from.
-  await writeFile(
-    path,
-    `${JSON.stringify({ previews: [...existing.previews.map(toStored), candidate] }, null, 2)}\n`,
-    "utf8",
-  );
+  await writeRegistry(join(cwd, LOCAL_PREVIEWS_PATH), [
+    ...existing.previews.map(toStored),
+    candidate,
+  ]);
 
   return { ok: true };
 }
@@ -163,9 +176,7 @@ export async function dropLocalPreviews(cwd: string, titles: readonly string[]):
 
   if (keep.length === existing.previews.length) return 0;
 
-  const path = join(cwd, LOCAL_PREVIEWS_PATH);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ previews: keep.map(toStored) }, null, 2)}\n`, "utf8");
+  await writeRegistry(join(cwd, LOCAL_PREVIEWS_PATH), keep.map(toStored));
 
   return existing.previews.length - keep.length;
 }

@@ -113,6 +113,10 @@ export type ParseResult = {
     /** Null lets the running Leglas pick the first tunnel program it finds. */
     tunnel: ShareTunnel | null;
     stop: boolean;
+    /** End every link and mint one new, through a new tunnel. */
+    rotate: boolean;
+    /** One link to end, by its address or id. */
+    revoke: string | null;
     port: number | null;
     json: boolean;
 } | {
@@ -120,6 +124,10 @@ export type ParseResult = {
     /** None opens the rail; one opens that direction; two put them side by side. */
     titles: string[];
     port: number | null;
+    json: boolean;
+} | {
+    kind: "remove";
+    titles: string[];
     json: boolean;
 } | {
     kind: "requests";
@@ -400,6 +408,13 @@ export declare function runNew(options: {
     from?: string | undefined;
     cwd: string;
 }, deps: NewDeps): Promise<NewResult>;
+export declare function runRemove(options: {
+    titles: string[];
+    json: boolean;
+    cwd: string;
+}, deps: RemoveDeps): Promise<{
+    exitCode: number;
+}>;
 export declare function runRequests(options: {
     json: boolean;
     clear: boolean;
@@ -432,6 +447,8 @@ export declare function shareRefusal(options: {
     reach: ShareReach | undefined;
     tunnel: ShareTunnel | null;
     stop: boolean;
+    rotate?: boolean;
+    revoke?: string | null;
 }): string | null;
 export declare function showRefusal(options: {
     screenshot: boolean;

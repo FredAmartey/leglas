@@ -29,7 +29,31 @@ Each entry ends with which of the three it reaches.
   also gives hosts the whole workflow, for agents without the Leglas skill.
   (`leglas-mcp`)
 
+- **Take a direction off the rail from a terminal.** `leglas remove Aurora`
+  does what the rail's delete does for a direction registered on this
+  machine, and the MCP server has it as `remove`. A direction the config
+  lists stays, since it belongs to the project, and the files behind a
+  direction stay too. (`leglas`, `leglas-mcp`)
+
+- **End one share link, or all of them, from a terminal.**
+  `leglas share --revoke <link>` ends one link, named by its address or its
+  id, and leaves the others. `leglas share --rotate` ends every link and
+  starts a new one through a new tunnel. The MCP `share` tool takes both.
+  (`leglas`, `leglas-mcp`)
+
 ### Fixed
+
+- **The stage moves on when its direction leaves the rail.** A direction
+  taken off the rail from outside, by editing the config or with
+  `leglas remove`, left your app's own page on the stage with no row
+  selected. Now the first direction still on the rail takes its place.
+  (`leglas`)
+
+- **Directions added while Leglas runs stay on the rail.** Leglas rewrote its
+  list of this machine's directions in place, so a read could catch it half
+  written and leave out every direction added since Leglas started, until the
+  next read. It now writes the new list beside the old one and swaps it in.
+  (`leglas`)
 
 - **The MCP tools refuse what the command line refuses.** `add` saved an empty
   note and answered a missing URL with `previews[0] needs a url.`, and `show`

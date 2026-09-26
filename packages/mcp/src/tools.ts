@@ -23,6 +23,7 @@ import {
   runLink,
   runList,
   runNew,
+  runRemove,
   runRequests,
   runShare,
   runShow,
@@ -474,6 +475,32 @@ export function registerLeglasTools(
   );
 
   server.registerTool(
+    "remove",
+    {
+      title: "Remove directions",
+      description:
+        "Take directions this machine registered off the rail, as the rail's delete does; a " +
+        "running rail drops them on its next read. A direction the project's config lists is " +
+        "refused, since it belongs to the project, and one refusal removes nothing. The files " +
+        "behind a direction stay where they are. Use it only when the user asks.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        titles: z
+          .array(z.string().min(1))
+          .min(1)
+          .describe("Each direction's title, or the name the rail shows for it."),
+      },
+    },
+    async ({ titles }) =>
+      inProject(project, (cwd, deps) => runRemove({ titles, json: true, cwd }, deps)),
+  );
+
+  server.registerTool(
     "share",
     {
       title: "Share directions",
@@ -481,11 +508,13 @@ export function registerLeglasTools(
         "Share directions with someone who has no copy of the project: the whole rail, one " +
         "direction, or two side by side, through a tunnel, and return the link. Use it only when " +
         "the user asks to share: whoever holds the link reaches the running app. A share that is " +
-        "already running is returned, not replaced. Pass stop to end it and every link to it.",
+        "already running is returned, not replaced. Pass stop to end it and every link to it, " +
+        "rotate to end every link and start one new through a new tunnel, or revoke to end one " +
+        "link, named by its url, localUrl or id from the share.",
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: true,
       },
       inputSchema: {
@@ -504,14 +533,18 @@ export function registerLeglasTools(
               "which starts empty from here, so a page's own files are refused until the user allows them.",
           ),
         stop: z.boolean().optional(),
+        rotate: z.boolean().optional(),
+        revoke: z.string().min(1).optional(),
       },
     },
-    async ({ titles, reach, stop }) => {
+    async ({ titles, reach, stop, rotate, revoke }) => {
       const refusal = shareRefusal({
         titles: titles ?? [],
         reach,
         tunnel: null,
         stop: stop ?? false,
+        rotate: rotate ?? false,
+        revoke: revoke ?? null,
       });
 
       if (refusal !== null) return refused(refusal);
@@ -523,6 +556,8 @@ export function registerLeglasTools(
             reach: reach ?? DEFAULT_SHARE_REACH,
             tunnel: null,
             stop: stop ?? false,
+            rotate: rotate ?? false,
+            revoke: revoke ?? null,
             port: null,
             json: true,
             cwd,
