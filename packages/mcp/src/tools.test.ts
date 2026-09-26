@@ -111,6 +111,7 @@ describe("the MCP face", () => {
       "keep",
       "link",
       "list",
+      "remove",
       "requests",
       "scaffold",
       "share",
@@ -533,6 +534,20 @@ describe("the MCP face refuses what the command line refuses", () => {
       args: { reach: "listed", stop: true },
       argv: ["share", "--reach", "listed", "--stop"],
       error: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "share rotating with a direction named",
+      tool: "share",
+      args: { titles: ["Aurora"], rotate: true },
+      argv: ["share", "Aurora", "--rotate"],
+      error: "leglas share --rotate replaces every link; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "share stopping and revoking at once",
+      tool: "share",
+      args: { stop: true, revoke: "grant-1" },
+      argv: ["share", "--stop", "--revoke", "grant-1"],
+      error: "leglas share takes one of --stop, --rotate or --revoke at a time.",
     },
     {
       name: "scaffold with an empty baseline path",

@@ -124,6 +124,8 @@ Useful to know:
   direction, and \`npx leglas link "<new>" "<old>"\` one that puts two side by
   side. Give it to the user when you finish a direction they asked for, rather
   than telling them where to click.
+- \`npx leglas remove "<title>"\` takes a direction registered on this machine
+  off the rail when the user asks. One the config lists is theirs to edit.
 - \`npx leglas list\` shows every direction, shared and local.
 - \`npx leglas show "<title>" --json\` answers for one of them: the file behind it,
   the variants based on it, what it is being compared against and anything

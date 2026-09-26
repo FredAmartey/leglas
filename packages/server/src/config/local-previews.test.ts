@@ -1,9 +1,15 @@
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { LOCAL_PREVIEWS_PATH, addLocalPreview, readLocalPreviews } from "./local-previews.js";
+import {
+  LOCAL_PREVIEWS_PATH,
+  addLocalPreview,
+  dropLocalPreviews,
+  readLocalPreviews,
+} from "./local-previews.js";
 import type { Preview } from "./config.js";
 
 import { type JsonRecord } from "../json.js";
@@ -271,4 +277,36 @@ describe("file-backed local previews", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toContain("file");
   });
+});
+
+// The server re-reads the registry for every interface read, and a torn read
+// leaves out every direction added since boot.
+test("a reader never sees the registry half written while directions come and go", async () => {
+  const dir = scratch();
+  const path = join(dir, LOCAL_PREVIEWS_PATH);
+  let writing = true;
+  let torn = 0;
+
+  const reader = (async () => {
+    while (writing) {
+      const raw = await readFile(path, "utf8").catch(() => null);
+
+      try {
+        if (raw !== null) JSON.parse(raw);
+      } catch {
+        torn += 1;
+      }
+    }
+  })();
+
+  for (let index = 0; index < 100; index += 1) {
+    await addLocalPreview(dir, { title: `Direction ${index}`, url: `/?v=${index}` }, []);
+
+    if (index % 3 === 0) await dropLocalPreviews(dir, [`Direction ${index}`]);
+  }
+
+  writing = false;
+  await reader;
+
+  expect(torn).toBe(0);
 });

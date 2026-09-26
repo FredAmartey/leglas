@@ -70,6 +70,10 @@ export type ParseResult =
       /** Null lets the running Leglas pick the first tunnel program it finds. */
       tunnel: ShareTunnel | null;
       stop: boolean;
+      /** End every link and mint one new, through a new tunnel. */
+      rotate: boolean;
+      /** One link to end, by its address or id. */
+      revoke: string | null;
       port: number | null;
       json: boolean;
     }
@@ -80,6 +84,7 @@ export type ParseResult =
       port: number | null;
       json: boolean;
     }
+  | { kind: "remove"; titles: string[]; json: boolean }
   | { kind: "requests"; json: boolean; clear: boolean }
   | { kind: "watch"; run: string | undefined; port: number | undefined; json: boolean }
   | {
@@ -363,6 +368,8 @@ function parseShare(rest: string[]): ParseResult {
   let reachGiven = false;
   let tunnel: ShareTunnel | null = null;
   let stop = false;
+  let rotate = false;
+  let revoke: string | null = null;
   let port: number | null = null;
   let json = false;
 
@@ -379,8 +386,21 @@ function parseShare(rest: string[]): ParseResult {
       continue;
     }
 
+    if (argument === "--rotate") {
+      rotate = true;
+      continue;
+    }
+
     const equals = argument.indexOf("=");
     const flag = equals === -1 ? argument : argument.slice(0, equals);
+
+    if (flag === "--revoke") {
+      const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
+
+      if (raw === undefined || raw === "") return { kind: "error", message: valueRefusal(flag) };
+      revoke = raw;
+      continue;
+    }
 
     if (flag === "--reach" || flag === "--tunnel" || flag === "--port") {
       const raw = equals === -1 ? rest[(index += 1)] : argument.slice(equals + 1);
@@ -430,11 +450,18 @@ function parseShare(rest: string[]): ParseResult {
     titles.push(argument);
   }
 
-  const refusal = shareRefusal({ titles, reach: reachGiven ? reach : undefined, tunnel, stop });
+  const refusal = shareRefusal({
+    titles,
+    reach: reachGiven ? reach : undefined,
+    tunnel,
+    stop,
+    rotate,
+    revoke,
+  });
 
   if (refusal !== null) return { kind: "error", message: refusal };
 
-  return { kind: "share", titles, reach, tunnel, stop, port, json };
+  return { kind: "share", titles, reach, tunnel, stop, rotate, revoke, port, json };
 }
 
 /** Titles like `share`: none for the rail, one direction, or a pair. */
@@ -810,6 +837,26 @@ export function parseArgs(argv: string[]): ParseResult {
   if (argv[0] === "share") return parseShare(argv.slice(1));
 
   if (argv[0] === "link") return parseLink(argv.slice(1));
+
+  if (argv[0] === "remove") {
+    const rest = argv.slice(1);
+    const unknown = rest.find((argument) => argument.startsWith("-") && argument !== "--json");
+
+    if (unknown !== undefined) {
+      return { kind: "error", message: `leglas remove does not take ${unknown}.` };
+    }
+
+    const titles = rest.filter((argument) => argument !== "--json");
+
+    if (titles.length === 0) {
+      return {
+        kind: "error",
+        message: 'leglas remove needs a direction title, for example: npx leglas remove "Aurora"',
+      };
+    }
+
+    return { kind: "remove", titles, json: rest.includes("--json") };
+  }
 
   const options: RunOptions = {
     port: undefined,

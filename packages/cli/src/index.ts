@@ -40,6 +40,8 @@ export { runShare } from "./run-share.js";
 
 export { runLink } from "./run-link.js";
 
+export { runRemove } from "./run-remove.js";
+
 export { installShutdown } from "./shutdown.js";
 
 export { PROMPT_TOKEN, WATCH_PATH, commandFor, nextRequest, parseTemplate } from "./watch.js";

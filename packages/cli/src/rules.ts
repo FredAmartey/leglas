@@ -65,12 +65,26 @@ export function shareRefusal(options: {
   reach: ShareReach | undefined;
   tunnel: ShareTunnel | null;
   stop: boolean;
+  rotate?: boolean;
+  revoke?: string | null;
 }): string | null {
+  const acts = [
+    options.stop && "--stop ends the share",
+    options.rotate === true && "--rotate replaces every link",
+    options.revoke !== undefined && options.revoke !== null && "--revoke ends one link",
+  ].filter((act) => act !== false);
+
+  if (acts.length > 1) {
+    return "leglas share takes one of --stop, --rotate or --revoke at a time.";
+  }
+
+  const [act] = acts;
+
   if (
-    options.stop &&
+    act !== undefined &&
     (options.titles.length > 0 || options.reach !== undefined || options.tunnel !== null)
   ) {
-    return "leglas share --stop ends the share; it takes no directions, reach or tunnel.";
+    return `leglas share ${act}; it takes no directions, reach or tunnel.`;
   }
 
   if (options.titles.length > 2) {

@@ -522,6 +522,8 @@ describe("the share command", () => {
       reach: "open",
       tunnel: null,
       stop: false,
+      rotate: false,
+      revoke: null,
       port: null,
       json: false,
     });
@@ -547,6 +549,28 @@ describe("the share command", () => {
     });
   });
 
+  test("rotates every link, or revokes the one it names, and takes one of those at a time", () => {
+    expect(parseArgs(["share", "--rotate"])).toMatchObject({ rotate: true, revoke: null });
+    expect(parseArgs(["share", "--revoke=grant-2", "--json"])).toMatchObject({
+      rotate: false,
+      revoke: "grant-2",
+      json: true,
+    });
+    expect(parseArgs(["share", "--rotate", "--revoke", "grant-2"])).toEqual({
+      kind: "error",
+      message: "leglas share takes one of --stop, --rotate or --revoke at a time.",
+    });
+    expect(parseArgs(["share", "Aurora", "--rotate"])).toEqual({
+      kind: "error",
+      message:
+        "leglas share --rotate replaces every link; it takes no directions, reach or tunnel.",
+    });
+    expect(parseArgs(["share", "--revoke"])).toEqual({
+      kind: "error",
+      message: "--revoke needs a value.",
+    });
+  });
+
   test("refuses what it cannot share", () => {
     expect(parseArgs(["share", "A", "B", "C"])).toEqual({
       kind: "error",
@@ -564,6 +588,24 @@ describe("the share command", () => {
     expect(parseArgs(["share", "--fast"])).toEqual({
       kind: "error",
       message: "leglas share does not take --fast.",
+    });
+  });
+});
+
+describe("the remove command", () => {
+  test("takes one direction or more, and says so when there are none", () => {
+    expect(parseArgs(["remove", "Aurora", "Dusk", "--json"])).toEqual({
+      kind: "remove",
+      titles: ["Aurora", "Dusk"],
+      json: true,
+    });
+    expect(parseArgs(["remove"])).toEqual({
+      kind: "error",
+      message: 'leglas remove needs a direction title, for example: npx leglas remove "Aurora"',
+    });
+    expect(parseArgs(["remove", "Aurora", "--force"])).toEqual({
+      kind: "error",
+      message: "leglas remove does not take --force.",
     });
   });
 });

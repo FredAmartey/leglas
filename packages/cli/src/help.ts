@@ -22,6 +22,7 @@ Usage
   leglas show <title>        Everything Leglas knows about one direction
   leglas share [title] [title]  Share the rail, one direction or a pair
   leglas link [title] [title]   A link that opens the interface on them
+  leglas remove <title>...   Take directions this machine registered off the rail
   leglas requests            Show change requests made from the interface
   leglas watch --run "<cmd>" Hand each request to your agent as it arrives
   leglas keep <title> --to <path>  Keep a winner and end the exploration
@@ -81,6 +82,8 @@ Options for share
   --reach <open|listed>  How far viewers reach into the app (default ${DEFAULT_SHARE_REACH})
   --tunnel <name>      cloudflared, ngrok or none (default: the first found)
   --stop               End the share, and every link to it
+  --rotate             End every link and start a new one, through a new tunnel
+  --revoke <link>      End one link, named by its address or its id
   --port <port>        Running Leglas port
 
 Options for link

@@ -10,6 +10,7 @@ import { runExploreBuild } from "./run-explore-build.js";
 import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
 import { runLink } from "./run-link.js";
+import { runRemove } from "./run-remove.js";
 import { runNew } from "./run-new.js";
 import { runLog } from "./run-log.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
@@ -184,10 +185,21 @@ if (parsed.kind === "share") {
       reach: parsed.reach,
       tunnel: parsed.tunnel,
       stop: parsed.stop,
+      rotate: parsed.rotate,
+      revoke: parsed.revoke,
       port: parsed.port,
       json: parsed.json,
       cwd: process.cwd(),
     },
+    previewDeps,
+  );
+
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "remove") {
+  const outcome = await runRemove(
+    { titles: parsed.titles, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
 
