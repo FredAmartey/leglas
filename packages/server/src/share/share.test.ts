@@ -1051,12 +1051,17 @@ describe("the ceiling on viewer traffic", () => {
     });
 
     const full = VIEWER_CONCURRENCY + VIEWER_QUEUE;
+    const filling: Array<ReturnType<typeof raw>> = [];
 
-    const filling = Array.from({ length: full }, (_, i) =>
-      raw(share.port, `/fill-${i}`, share.cookie),
-    );
+    // One connection at a time. Filling the queue takes 140, more than the
+    // 128 a listen backlog holds on macOS, and macOS 27 refuses a loopback
+    // connection past the backlog instead of retrying it.
+    for (let i = 0; i < full; i += 1) {
+      const request = raw(share.port, `/fill-${i}`, share.cookie);
+      filling.push(request);
+      await request.sent;
+    }
 
-    await Promise.all(filling.map((request) => request.sent));
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
     const over = raw(share.port, "/one-too-many", share.cookie);
