@@ -169,6 +169,8 @@ const FACES = {
   },
 } satisfies Record<string, Face>;
 
+// The scans below assume every flag is a quoted literal in args.ts and every
+// command is dispatched from it.
 const parser = readFileSync(new URL("../../cli/src/args.ts", import.meta.url), "utf8");
 
 /** Every flag the parser names, apart from the two any command answers. */
@@ -199,7 +201,7 @@ function refusesAsUnknown(face: Face, flag: string): boolean {
 
   return (
     parsed.kind === "error" &&
-    (parsed.message.includes(`take ${flag}`) || parsed.message.includes(`flag ${flag}`))
+    (parsed.message.includes(`take ${flag}.`) || parsed.message.includes(`flag ${flag}.`))
   );
 }
 
@@ -263,28 +265,48 @@ test("each command takes exactly the flags placed under it", () => {
   }
 });
 
-test("--help lists each command's flags where it describes that command", () => {
+test("--help and the table agree on every command and flag", () => {
   const blocks = HELP.split("\n\n");
+  const faces = new Map<string, Face>(Object.entries(FACES));
 
-  for (const [command, face] of Object.entries(FACES)) {
-    const heading = command === "run" ? "Options" : `Options for ${command}`;
-    const usage = command === "run" ? "leglas [options]" : `leglas ${command}`;
+  const usage = new Map(
+    (blocks.find((block) => block.startsWith("Usage\n")) ?? "").split("\n").flatMap((line) => {
+      const match = /^ +leglas (\S+)/.exec(line);
 
-    // An option line starts with its flag; one named later in a line is only mentioned.
-    const options = blocks
-      .filter((block) => block.startsWith(`${heading}\n`))
-      .flatMap((block) =>
-        [...block.matchAll(/^ +(--[a-z][a-z-]*)/gm)].flatMap((match) =>
-          match[1] === undefined ? [] : [match[1]],
-        ),
+      return match?.[1] === undefined ? [] : [[match[1] === "[options]" ? "run" : match[1], line]];
+    }),
+  );
+
+  // An option line starts with its flag; one named later in a line is only mentioned.
+  const sections = new Map(
+    blocks.flatMap((block) => {
+      const heading = /^Options(?: for ([a-z]+))?\n/.exec(block);
+
+      if (heading === null) return [];
+
+      const listed = [...block.matchAll(/^ +(--[a-z][a-z-]*)/gm)].flatMap((match) =>
+        match[1] === undefined ? [] : [match[1]],
       );
 
-    const usageLine = HELP.split("\n").find((line) => line.trimStart().startsWith(usage)) ?? "";
+      return [[heading[1] ?? "run", listed]];
+    }),
+  );
+
+  expect([...usage.keys()].sort()).toEqual([...faces.keys()].sort());
+  expect([...sections.keys()].filter((command) => !faces.has(command))).toEqual([]);
+
+  for (const [command, face] of faces) {
+    const listed = sections.get(command) ?? [];
+    const line = usage.get(command) ?? "";
 
     const missing = Object.entries(face.flags).flatMap(([flag, how]) =>
-      how === ENVELOPE || options.includes(flag) || usageLine.includes(flag) ? [] : [flag],
+      how === ENVELOPE || listed.includes(flag) || line.includes(flag) ? [] : [flag],
     );
 
     expect(missing, command).toEqual([]);
+    expect(
+      listed.filter((flag) => !(flag in face.flags)),
+      `Options for ${command}`,
+    ).toEqual([]);
   }
 });

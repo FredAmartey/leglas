@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
 
-import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
+import { UNRESOLVED_PROJECT, fixedProject, hostProject, type Project } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
@@ -48,7 +48,7 @@ function scratch(): string {
 /** A linked in-process pair: the same wire protocol a host speaks, no stdio. */
 async function connect(
   cwd: string,
-  options: { touches?: { count: number } } = {},
+  options: { touches?: { count: number }; project?: Project } = {},
 ): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
 
@@ -61,7 +61,9 @@ async function connect(
     stop: async () => {},
   };
 
-  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd), engagement }));
+  cleanups.push(
+    registerLeglasTools(server, { project: options.project ?? fixedProject(cwd), engagement }),
+  );
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -504,9 +506,12 @@ describe("the MCP face refuses what the command line refuses", () => {
     },
   ];
 
+  // No project to act on, so a refusal that comes back proves it ran before the tool looked for one.
+  const nowhere: Project = { locate: async () => ({ ok: false, reason: UNRESOLVED_PROJECT }) };
+
   test.each(refusals)("$name, in the command line's words", async ({ tool, args, argv, error }) => {
     expect(parseArgs(argv)).toEqual({ kind: "error", message: error });
-    const client = await connect(scratch());
+    const client = await connect(scratch(), { project: nowhere });
     const { envelope, isError } = await call(client, tool, args);
 
     expect(isError).toBe(true);
