@@ -8,6 +8,20 @@ Leglas ships as three things, released together under one version number:
 
 Each entry ends with which of the three it reaches.
 
+## Unreleased
+
+### Fixed
+
+- **The MCP tools refuse what the command line refuses.** `add` saved an empty
+  note and answered a missing URL with `previews[0] needs a url.`, and `show`
+  with a width but no screenshot, or `share` stopping with a direction named,
+  ignored the extra input. Each tool now checks the command line's rules first
+  and answers in its words, like `--note needs a value.` `explore` also takes
+  any count the command line takes; it stopped at 24. (`leglas-mcp`)
+
+- **`leglas --help` lists `init --force` and `requests --clear`.** Both worked,
+  but the help never mentioned them. (`leglas`)
+
 ## 1.3.0 (2026-09-25): Build a set of directions from a brief
 
 ### Added

@@ -15,6 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { parseArgs } from "leglas";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
@@ -446,5 +447,78 @@ describe("a host that works somewhere other than the project", () => {
     expect(envelope["ok"]).toBe(false);
     expect(envelope["error"]).toBe(UNRESOLVED_PROJECT);
     expect(existsSync(join(pluginRoot, "AGENTS.md"))).toBe(false);
+  });
+});
+
+describe("the MCP face refuses what the command line refuses", () => {
+  const refusals: {
+    name: string;
+    tool: string;
+    args: { [key: string]: JsonValue };
+    argv: string[];
+    /** The command line's message for this, as it shipped before the tools asked the rules. */
+    error: string;
+  }[] = [
+    {
+      name: "add with nothing to show",
+      tool: "add",
+      args: { title: "Aurora" },
+      argv: ["add", "--title", "Aurora"],
+      error:
+        "leglas add needs --url (for example --url '/?v-hero=aurora') or --file for a page Leglas serves itself.",
+    },
+    {
+      name: "add with an empty note",
+      tool: "add",
+      args: { title: "Aurora", url: "/", note: "" },
+      argv: ["add", "--title", "Aurora", "--url", "/", "--note", ""],
+      error: "--note needs a value.",
+    },
+    {
+      name: "show with a width but no screenshot",
+      tool: "show",
+      args: { title: "Aurora", width: 390 },
+      argv: ["show", "Aurora", "--width", "390"],
+      error: "leglas show --width needs --screenshot.",
+    },
+    {
+      name: "share stopping with a direction named",
+      tool: "share",
+      args: { titles: ["Aurora"], stop: true },
+      argv: ["share", "Aurora", "--stop"],
+      error: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "share stopping with a reach",
+      tool: "share",
+      args: { reach: "listed", stop: true },
+      argv: ["share", "--reach", "listed", "--stop"],
+      error: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "scaffold with an empty baseline path",
+      tool: "scaffold",
+      args: { surface: "hero", from: "" },
+      argv: ["new", "hero", "--from", ""],
+      error: "--from needs a path, for example --from src/Hero.tsx",
+    },
+  ];
+
+  test.each(refusals)("$name, in the command line's words", async ({ tool, args, argv, error }) => {
+    expect(parseArgs(argv)).toEqual({ kind: "error", message: error });
+    const client = await connect(scratch());
+    const { envelope, isError } = await call(client, tool, args);
+
+    expect(isError).toBe(true);
+    expect(envelope).toEqual({ ok: false, error });
+  });
+
+  test("takes an explore count the command line takes", async () => {
+    expect(parseArgs(["explore", "hero", "--count", "30"]).kind).toBe("explore");
+    const client = await connect(scratch());
+    const { envelope, isError } = await call(client, "explore", { surface: "hero", count: 30 });
+
+    expect(isError).toBe(false);
+    expect(envelope["ok"]).toBe(true);
   });
 });

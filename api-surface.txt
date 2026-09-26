@@ -18,7 +18,9 @@ export type Attachment = {
 };
 export type AttachmentKind = "frame" | "note" | "compare" | "reference";
 export declare const CAPTURES_DIR = ".leglas/captures";
+export declare const DEFAULT_EXPLORE_COUNT = 3;
 export declare const DEFAULT_PORT = 4100;
+export declare const DEFAULT_SHARE_REACH: ShareReach;
 export type Failure = {
     code: FailureCode;
     message: string;
@@ -50,6 +52,9 @@ export type FailureCode =
  | "agent-silent";
 export type Framework = "next" | "react";
 export declare const LEGLAS_PREFIX = "/leglas";
+export declare const MAX_PORT = 65535;
+export declare const MAX_SHOW_WIDTH = 3840;
+export declare const MIN_SHOW_WIDTH = 320;
 export declare const NO_BROWSER: string;
 export type NewDeps = {
     log(line: string): void;
@@ -295,6 +300,7 @@ export type Write = {
     path: string;
     contents: string;
 };
+export declare function addRefusal(preview: AddPreview): string | null;
 export declare function baselineFrom(surface: string, sourcePath: string, sourceContents: string): Baseline | null;
 export declare function commandFor(template: WatchTemplate, prompt: string): {
     command: string;
@@ -302,6 +308,7 @@ export declare function commandFor(template: WatchTemplate, prompt: string): {
 };
 export declare function detectFramework(packageJson: string | null): Framework;
 export declare function findBrowser(search?: BrowserSearch): string | null;
+export declare function fromRefusal(from: string | undefined): string | null;
 export declare function installShutdown(stop: () => Promise<void>, target?: SignalTarget): () => Promise<void>;
 export declare function isOwnCapture(cwd: string, file: string): Promise<boolean>;
 export declare function nextRequest(requests: readonly PendingRequest[], failed: ReadonlySet<string>): PendingRequest | null;
@@ -406,6 +413,17 @@ export declare function runWatch(options: {
 }, deps: WatchDeps): Promise<{
     exitCode: number;
 }>;
+export declare function shareRefusal(options: {
+    titles: readonly string[];
+    reach: ShareReach | undefined;
+    tunnel: ShareTunnel | null;
+    stop: boolean;
+}): string | null;
+export declare function showRefusal(options: {
+    screenshot: boolean;
+    width: number | null;
+    port: number | null;
+}): string | null;
 export declare function surfaceSlug(surface: string): string;
 
 ## leglas-mcp
