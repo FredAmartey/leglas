@@ -138,9 +138,9 @@ export function registerLeglasTools(
         "any direction exists: the rail updates live, so they watch the set fill in.",
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true,
       },
       inputSchema: {
         port: z

@@ -17,7 +17,7 @@ export const SERVER_INSTRUCTIONS = [
     "a `link` that puts two side by side.",
   "Before changing a direction, call `requests`: the user may have asked from the interface. " +
     "`keep` moves the winner into real source and deletes the rest of the exploration. `list` " +
-    "shows every direction, `share` shows them to someone without the project, and `init` writes " +
-    "the project's AGENTS.md section.",
+    "shows every direction, `share` shows them to someone without the project, and `init` sets a " +
+    "project up: its AGENTS.md section, a starter config and a gitignore entry.",
   CHANNEL_INSTRUCTIONS,
 ].join("\n\n");

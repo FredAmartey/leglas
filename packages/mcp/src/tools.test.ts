@@ -24,6 +24,7 @@ import { appendRequest } from "../../server/src/requests/requests.js";
 import { writeServerInfo } from "../../server/src/server-info.js";
 import { readLink } from "../../shell/src/link.js";
 
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { UNRESOLVED_PROJECT, fixedProject, hostProject, type Project } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
@@ -565,22 +566,24 @@ describe("the MCP face refuses what the command line refuses", () => {
 });
 
 describe("what the tools tell a host about themselves", () => {
-  /** Every file under a directory with its contents, so a write anywhere shows. */
-  function snapshot(dir: string): Map<string, string> {
-    const files = new Map<string, string>();
+  /** Every directory and file under a project, files by their bytes, so any write shows. */
+  function snapshot(dir: string): Map<string, Buffer | "directory"> {
+    const entries = new Map<string, Buffer | "directory">();
 
     const walk = (at: string) => {
       for (const entry of readdirSync(at, { withFileTypes: true })) {
         const path = join(at, entry.name);
 
-        if (entry.isDirectory()) walk(path);
-        else files.set(path, readFileSync(path, "utf8"));
+        if (entry.isDirectory()) {
+          entries.set(path, "directory");
+          walk(path);
+        } else entries.set(path, readFileSync(path));
       }
     };
 
     walk(dir);
 
-    return files;
+    return entries;
   }
 
   // The spec reads a missing hint as the worst case: destructive and open to
@@ -609,6 +612,7 @@ describe("what the tools tell a host about themselves", () => {
     ["explore", { surface: "hero", count: 3 }],
   ]);
 
+  // Against a Leglas that answers, so a tool's reads run all the way through.
   test("one that says it only reads leaves the project as it found it", async () => {
     const dir = scratch();
     const client = await connect(dir);
@@ -620,6 +624,25 @@ describe("what the tools tell a host about themselves", () => {
       target: null,
       prompt: "Make it warmer.",
     });
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "theme.css"), "body { color: black; }\n");
+
+    const leglas = http.createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify(
+          req.url === "/leglas/api/config"
+            ? { previews: [{ title: "Aurora" }] }
+            : { cwd: dir, reachable: true },
+        ),
+      );
+    });
+
+    captureServers.push(leglas);
+    await new Promise<void>((resolve) => leglas.listen(0, "127.0.0.1", resolve));
+    // SAFETY: `listen` completed on a TCP host, so `address` is an IP address and port.
+    const port = (leglas.address() as import("node:net").AddressInfo).port;
+    await writeServerInfo(dir, { port, url: `http://localhost:${port}`, pid: process.pid });
 
     const before = snapshot(dir);
     const { tools } = await client.listTools();
@@ -627,7 +650,12 @@ describe("what the tools tell a host about themselves", () => {
 
     expect(reading.map((tool) => tool.name).sort()).toEqual([...readCalls.keys()].sort());
 
-    for (const tool of reading) await call(client, tool.name, readCalls.get(tool.name) ?? {});
+    for (const tool of reading) {
+      const { envelope, isError } = await call(client, tool.name, readCalls.get(tool.name) ?? {});
+
+      expect(isError, tool.name).toBe(false);
+      expect(envelope["ok"], tool.name).toBe(true);
+    }
 
     expect(snapshot(dir)).toEqual(before);
   });
@@ -649,6 +677,7 @@ describe("what the tools tell a host about themselves", () => {
       const { tools } = await client.listTools();
       const named = new Set([...instructions.matchAll(/`([a-z]+)`/g)].map((match) => match[1]));
 
+      expect(instructions).toBe(SERVER_INSTRUCTIONS);
       expect([...named].sort()).toEqual(tools.map((tool) => tool.name).sort());
       // Claude Code cuts a server's instructions at 2048 characters (claude-code#81268).
       expect(instructions.length).toBeLessThanOrEqual(2048);
