@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { parseArgs } from "leglas";
+import { LEGLAS_PREFIX, parseArgs } from "leglas";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { HELP } from "../../cli/src/help.js";
+import { LIVE_PATH } from "../../server/src/live.js";
 
 import { fixedProject } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
@@ -250,6 +251,9 @@ const ROUTES = {
   "POST /api/watch": without(
     "the beat watch sends, and this server sends while an agent works the queue, so the interface's own agent steps aside",
   ),
+  "GET /api/live": without(
+    "the interface's socket, which only says what changed; commands read those files themselves",
+  ),
   "GET /api/requests": tool("requests"),
   "POST /api/requests/cancel": without(RUN),
   "POST /api/requests/retry": without(RUN),
@@ -272,21 +276,22 @@ const ROUTES = {
  * left out, and anything left unread fails the test.
  */
 function serverRoutes() {
-  const source = readFileSync(
-    new URL("../../server/src/server.ts", import.meta.url),
-    "utf8",
-  ).replace(/\s+/g, " ");
+  const source = readFileSync(new URL("../../server/src/server.ts", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/[^\n]*/gm, "$1")
+    .replace(/\s+/g, " ");
 
   const methodFirst =
-    /(?<remote>!?context\.remote && )?req\.method === "(?<method>GET|POST)" && path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`/g;
+    /(?<remote>!?context\.remote && )?req\.method === "(?<method>[A-Z]+)" && path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`/g;
 
   const single =
-    /(?<remote>!?context\.remote && )?path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`(?: && req\.method === "(?<method>GET|POST)")?/g;
+    /(?<remote>!?context\.remote && )?path === `\$\{LEGLAS_PREFIX\}(?<route>\/api\/[^`$]*)`(?: && req\.method === "(?<method>[A-Z]+)")?/g;
 
   const grouped =
-    /req\.method === "(?<method>GET|POST)" && \[(?<names>[^\]]*)\]\.some\( \(action\) => path === `\$\{LEGLAS_PREFIX\}(?<base>\/api\/[^`$]*)\$\{action\}`/g;
+    /req\.method === "(?<method>[A-Z]+)" && \[(?<names>[^\]]*)\]\.some\( \(action\) => path === `\$\{LEGLAS_PREFIX\}(?<base>\/api\/[^`$]*)\$\{action\}`/g;
 
-  const found: string[] = [];
+  // The live socket's path is kept in live.ts, beside the upgrade that answers it.
+  const found = [`GET ${LIVE_PATH.slice(LEGLAS_PREFIX.length)}`];
 
   for (const match of source.matchAll(methodFirst)) {
     if (match.groups?.["remote"] === "context.remote && ") continue;
@@ -308,15 +313,16 @@ function serverRoutes() {
     }
   }
 
-  const left = rest.replace(single, "").replace(grouped, "");
+  // What may still name /api/: the catch-alls that guard, refuse or 404 the
+  // whole prefix, and the index page's links. Anything else is a route written
+  // in a way the scan can't read.
+  const left = rest
+    .replace(single, "")
+    .replace(grouped, "")
+    .replace(/path\.startsWith\(`\$\{LEGLAS_PREFIX\}\/api\/`\)/g, "")
+    .replace(/<a href="\/leglas\/api\/(?<name>[a-z]+)">\/leglas\/api\/\k<name><\/a>/g, "");
 
-  // A prefix below /api/ answers a family of paths no table entry can name.
-  const unread = [
-    ...(left.match(/path === `\$\{LEGLAS_PREFIX\}\/api\/[^`]*`/g) ?? []),
-    ...(left.match(/path\.startsWith\(`\$\{LEGLAS_PREFIX\}\/api\/[^`]+`\)/g) ?? []),
-  ];
-
-  return { found, unread };
+  return { found, unread: left.match(/.{0,40}\/api\/.{0,40}/g) ?? [] };
 }
 
 // The scans below assume every flag is a quoted literal in args.ts and every
