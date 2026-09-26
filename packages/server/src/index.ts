@@ -176,6 +176,8 @@ export type { Renames, TitleResolution } from "./config/renames.js";
 
 export { DEFAULT_PORT, FILES_PREFIX, LEGLAS_PREFIX, probe, startServer } from "./server.js";
 
+export { MAX_DIRECTIONS } from "./generation/generation.js";
+
 export type { LeglasConfig, NormalizeResult, Preview } from "./config/config.js";
 
 export type { LoadResult } from "./config/load-config.js";

@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -7,6 +14,7 @@ import {
   AGENT_EFFORTS,
   KNOWN_AGENTS,
   activityFrom,
+  editedFiles,
   activityVerified,
   agentSearchPath,
   detectAgents,
@@ -323,6 +331,38 @@ describe("retryFrom", () => {
       retryFrom("claude", JSON.stringify({ type: "system", subtype: "init", session_id: "s" })),
     ).toBeNull();
     expect(retryFrom("claude", JSON.stringify({ type: "assistant" }))).toBeNull();
+  });
+});
+
+describe("editedFiles", () => {
+  test("a project reached through a symlink still knows its own files", () => {
+    // macOS answers /tmp and /var from /private, and an agent may report either.
+    const real = mkdtempSync(join(tmpdir(), "leglas-edited-"));
+    const linked = `${real}-link`;
+    symlinkSync(real, linked);
+
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: {
+        type: "file_change",
+        changes: [{ path: join(realpathSync(real), "src", "Hero.tsx") }],
+      },
+    });
+
+    expect(editedFiles("codex", line, linked)).toEqual(["src/Hero.tsx"]);
+  });
+
+  test("a file outside the project is named by its whole path, not by ../..", () => {
+    const project = mkdtempSync(join(tmpdir(), "leglas-edited-"));
+
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [{ type: "tool_use", name: "Write", input: { file_path: "/etc/hosts" } }],
+      },
+    });
+
+    expect(editedFiles("claude", line, project)).toEqual(["/etc/hosts"]);
   });
 });
 

@@ -1390,6 +1390,486 @@ describe("a generation's lifecycle", () => {
     ]);
   });
 
+  /** A stream line in which Claude edits these files. */
+  const edits = (...files: string[]) =>
+    `${JSON.stringify({ type: "assistant", message: { content: files.map((file) => ({ type: "tool_use", name: "Edit", input: { file_path: file } })) } })}\n`;
+
+  test("a retry in an older set puts back the switch as it is now, not as that set found it", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    // The first set's build fails, the second's writes, the retry of the first hangs.
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["fail", "write", "hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const ask = () =>
+      generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+    const first = await ask();
+
+    if (!first.ok) throw new Error(first.error);
+    await settled(
+      () => generations.snapshot()[0],
+      (value) => value.state === "done",
+    );
+
+    const second = await ask();
+
+    if (!second.ok) throw new Error(second.error);
+    await settled(
+      () => generations.snapshot()[1],
+      (value) => value.state === "done",
+    );
+
+    const now = await readFile(switchFile, "utf8");
+    expect(now).toContain("hero-ledger-2");
+
+    expect(generations.retry(first.job.id, "hero-ledger")).toBe(true);
+
+    const retry = await settled(
+      () => builds[2],
+      () => true,
+    );
+
+    await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
+    retry.stdout.write(edits(switchFile));
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(await readFile(switchFile, "utf8")).toBe(now);
+  });
+
+  test("every file a build strays into is put back, a stylesheet a direction imports among them", async () => {
+    const cwd = await project("claude");
+    const folder = join(cwd, ".leglas", "variants", "hero");
+    const switchFile = join(folder, "switch.tsx");
+    const sheet = join(folder, "hero.css");
+    await writeFile(sheet, ".hero { color: tomato; }\n");
+    await writeFile(join(folder, "current.tsx"), `import "./hero.css";\n${CURRENT}`);
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    const planned = await readFile(switchFile, "utf8");
+    await writeFile(switchFile, "// tidied\n");
+    await writeFile(sheet, "");
+    build.stdout.write(edits(switchFile, sheet));
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(slot.failure?.message).toBe(
+      "The build edited .leglas/variants/hero/switch.tsx and .leglas/variants/hero/hero.css, which are not its own files, so Leglas stopped it and put them back.",
+    );
+    expect(await readFile(switchFile, "utf8")).toBe(planned);
+    expect(await readFile(sheet, "utf8")).toBe(".hero { color: tomato; }\n");
+  });
+
+  test("an edit a stopped build makes on its way out is put back too", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    const planned = await readFile(switchFile, "utf8");
+    // Slow to die, so there is time for one last edit after the stop.
+    build.exitAfterKillMs = 200;
+    const stopping = generations.stop(started.job.id, "hero-ledger");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeFile(switchFile, "// tidied on the way out\n");
+    build.stdout.write(edits(switchFile));
+    await stopping;
+
+    let content = "";
+
+    for (let tries = 0; tries < 200 && content !== planned; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      content = await readFile(switchFile, "utf8");
+    }
+
+    expect(content).toBe(planned);
+  });
+
+  test("an edit on a stream's last line, with no newline after it, is still caught", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    const planned = await readFile(switchFile, "utf8");
+    await writeFile(switchFile, "// tidied\n");
+    build.stdout.write(edits(switchFile).trimEnd());
+    build.finish(0);
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(slot.failure?.code).toBe("outside-file");
+    expect(await readFile(switchFile, "utf8")).toBe(planned);
+  });
+
+  test("a retry read while another build's stray is not yet put back keeps the good switch", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    // Ledger hangs, Steam fails at once, and Steam's retry hangs.
+    const { generations, builds } = orchestrator(
+      cwd,
+      [
+        { key: "ledger", title: "Ledger", idea: "Ruled lines." },
+        { key: "steam", title: "Steam", idea: "A pan." },
+      ],
+      ["hang", "fail", "hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => generations.snapshot()[0]?.slots[1],
+      (value) => value.state === "failed",
+    );
+
+    const planned = await readFile(switchFile, "utf8");
+    const ledger = builds[0]!;
+
+    // Ledger strays and is slow to die; Steam is retried inside that window.
+    ledger.exitAfterKillMs = 400;
+    await writeFile(switchFile, "// tidied by Ledger\n");
+    ledger.stdout.write(edits(switchFile));
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.activity !== null,
+    );
+    expect(generations.retry(started.job.id, "hero-steam")).toBe(true);
+
+    const retry = await settled(
+      () => builds[2],
+      () => true,
+    );
+
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    // Steam's retry strays into the switch too, after Ledger's is put back.
+    await writeFile(switchFile, "// tidied by Steam\n");
+    retry.stdout.write(edits(switchFile));
+    await settled(
+      () => generations.snapshot()[0]?.slots[1],
+      (value) => value.state === "failed",
+    );
+
+    expect(await readFile(switchFile, "utf8")).toBe(planned);
+  });
+
+  test("a stray into a direction another set is building is named, not put back", async () => {
+    const cwd = await project("claude");
+
+    // The first set's build fails, the second set's hangs, the first set's retry hangs.
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["fail", "hang", "hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const ask = (brief: string) =>
+      generations.start({
+        surface: "hero",
+        brief,
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+    const first = await ask("Dinner");
+
+    if (!first.ok) throw new Error(first.error);
+    await settled(
+      () => generations.snapshot()[0],
+      (value) => value.state === "done",
+    );
+
+    const second = await ask("Supper");
+
+    if (!second.ok) throw new Error(second.error);
+    await settled(
+      () => builds[1],
+      () => true,
+    );
+
+    // The second set's slot, still building.
+    const secondFile = join(cwd, ".leglas", "variants", "hero", "hero-ledger-2.tsx");
+    expect(generations.retry(first.job.id, "hero-ledger")).toBe(true);
+
+    const retry = await settled(
+      () => builds[2],
+      () => true,
+    );
+
+    await writeFile(secondFile, "// half of the second set's draft\n");
+    retry.stdout.write(edits(secondFile));
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(slot.failure?.message).toBe(
+      "The build edited .leglas/variants/hero/hero-ledger-2.tsx, which is not its own file, so Leglas stopped it. Check .leglas/variants/hero/hero-ledger-2.tsx before trying again.",
+    );
+    expect(await readFile(secondFile, "utf8")).toBe("// half of the second set's draft\n");
+    await generations.close();
+  });
+
+  test("a direction whose page breaks because another build strayed waits for the fix instead of failing", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [
+        { key: "ledger", title: "Ledger", idea: "Ruled lines." },
+        { key: "steam", title: "Steam", idea: "A pan." },
+      ],
+      ["hang", "hang"],
+      async () =>
+        (await readFile(switchFile, "utf8")).includes("tidied")
+          ? { errors: [`ReferenceError: Missing is not defined at ${switchFile}:3:5`] }
+          : { errors: [] },
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 2,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+    await settled(
+      () => builds[1],
+      () => true,
+    );
+    const [ledger, steam] = [builds[0]!, builds[1]!];
+
+    // Ledger strays and takes a while to die; Steam finishes meanwhile.
+    ledger.exitAfterKillMs = 400;
+    const planned = await readFile(switchFile, "utf8");
+    await writeFile(switchFile, `// tidied\n${planned}`);
+    ledger.stdout.write(edits(switchFile));
+    // Wait until Ledger's edit has been read.
+    await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.activity !== null,
+    );
+    await writeFile(
+      join(cwd, ".leglas", "variants", "hero", "hero-steam.tsx"),
+      "export function HeroSteam() {\n  return <h1>Steam</h1>;\n}\n",
+    );
+    steam.finish(0);
+
+    const slots = await settled(
+      () => generations.snapshot()[0]?.slots,
+      (value) => value.every((slot) => slot.state === "ready" || slot.state === "failed"),
+    );
+
+    expect(slots.map((slot) => [slot.title, slot.state, slot.fixed])).toEqual([
+      ["Ledger", "failed", false],
+      ["Steam", "ready", false],
+    ]);
+  });
+
+  test("a build that edits the switch file is stopped, and the switch is put back", async () => {
+    const cwd = await project("claude");
+    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      async () => ({ errors: [] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    // As the set wrote it.
+    const planned = await readFile(switchFile, "utf8");
+    expect(planned).toContain("hero-ledger");
+
+    await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
+    build.stdout.write(
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: switchFile } }] } })}\n`,
+    );
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(slot.failure).toEqual({
+      code: "outside-file",
+      message:
+        "The build edited .leglas/variants/hero/switch.tsx, which is not its own file, so Leglas stopped it and put the file back.",
+    });
+    expect(await readFile(switchFile, "utf8")).toBe(planned);
+  });
+
+  test("a fix run that edits a file a direction imports is stopped, and the file is put back", async () => {
+    const cwd = await project("claude");
+    // Imported by the current direction.
+    const copy = join(cwd, "src", "copy.ts");
+    await writeFile(copy, 'export const COPY = { headline: "Dinner tonight" };\n');
+    const reports: ((report: { errors: readonly string[] }) => void)[] = [];
+    const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
+
+    const { generations, builds } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["hang"],
+      () => new Promise((resolve) => reports.push(resolve)),
+      undefined,
+      "hang",
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const build = await settled(
+      () => builds[0],
+      () => true,
+    );
+
+    await writeFile(file, "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n");
+    build.finish(0);
+    await settled(
+      () => reports[0],
+      () => true,
+    );
+    reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
+
+    const fix = await settled(
+      () => builds[1],
+      () => true,
+    );
+
+    await writeFile(copy, "export const COPY = {};\n");
+    fix.stdout.write(
+      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: copy } }] } })}\n`,
+    );
+
+    const slot = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "failed",
+    );
+
+    expect(slot.failure?.message).toBe(
+      "The build edited src/copy.ts, which is not its own file, so Leglas stopped it and put the file back.",
+    );
+    expect(await readFile(copy, "utf8")).toBe(
+      'export const COPY = { headline: "Dinner tonight" };\n',
+    );
+    // Still retryable.
+    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+    await generations.close();
+  });
+
   test("a building direction says what its build is doing", async () => {
     const cwd = await project("claude");
 
@@ -1805,7 +2285,8 @@ describe("a set built with Codex", () => {
   }
 
   /** Stands in for `codex exec --json`: its warning item first, then an answer or a written file. */
-  function fakeCodex(cwd: string, fails = false) {
+  /** `strayTo`: the build edits that file first, then hangs. */
+  function fakeCodex(cwd: string, fails = false, strayTo: string | null = null) {
     const calls: { command: string; args: string[] }[] = [];
     const announced: string[] = [];
 
@@ -1850,6 +2331,20 @@ describe("a set built with Codex", () => {
         const file = /Your file is (\S+)\./.exec(prompt)?.[1] ?? "";
         const name = /component exported as (\w+)\./.exec(prompt)?.[1] ?? "";
 
+        if (strayTo !== null) {
+          void writeFile(join(cwd, strayTo), "export const COPY = {};\n").then(() =>
+            say({
+              type: "item.completed",
+              item: {
+                type: "file_change",
+                changes: [{ path: join(cwd, strayTo), kind: "update" }],
+              },
+            }),
+          );
+
+          return;
+        }
+
         say({
           type: "item.started",
           item: { type: "file_change", changes: [{ path: join(cwd, file), kind: "update" }] },
@@ -1868,9 +2363,9 @@ describe("a set built with Codex", () => {
     return { calls, announced, spawn };
   }
 
-  async function run(fails = false, brokenOnce = false) {
+  async function run(fails = false, brokenOnce = false, strayTo: string | null = null) {
     const cwd = await project("codex");
-    const codex = fakeCodex(cwd, fails);
+    const codex = fakeCodex(cwd, fails, strayTo);
     let renders = 0;
 
     const generations = createGenerations({
@@ -1908,8 +2403,20 @@ describe("a set built with Codex", () => {
       (value) => value.state === "ready" || value.state === "failed",
     );
 
-    return { ...codex, job: started.job, slot };
+    return { ...codex, cwd, job: started.job, slot };
   }
+
+  test("a build that edits a file of the app's own is stopped, and the file is named", async () => {
+    const { cwd, slot } = await run(false, false, "src/main.tsx");
+
+    expect(slot.failure).toEqual({
+      code: "outside-file",
+      message:
+        "The build edited src/main.tsx, which is not its own file, so Leglas stopped it. Check src/main.tsx before trying again.",
+    });
+    // Not kept, so left as the build wrote it.
+    expect(await readFile(join(cwd, "src", "main.tsx"), "utf8")).toBe("export const COPY = {};\n");
+  });
 
   test("plans and builds with restricted Codex runs, reading its answer and its steps", async () => {
     const { calls, announced, job, slot } = await run();

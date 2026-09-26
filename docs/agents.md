@@ -42,7 +42,7 @@ existing file's behaviour, builds on its own git branch instead.
 
 | Command | What it does |
 | --- | --- |
-| `leglas explore <surface> --count 6` | Briefs the exploration: what the set is for, and why it only works if the six genuinely disagree. `--based-on "Aurora"` flips it to six deliberate variants of one you like. The designs are the agent's; Leglas prescribes none. With `--build --brief "..."`, Leglas builds the set itself with your agent instead, when it is Claude or Codex: it plans the directions together, puts them on the rail at once and builds them all in parallel, each run kept to the project, told to write only its own file and held to the effort Leglas sets. On a real project, three took about 80 seconds with Claude and 130 with Codex. `--build --based-on "Aurora"` builds variations of Aurora the same way, and the brief becomes optional. It needs a running Leglas and a surface whose switch is already rendered. |
+| `leglas explore <surface> --count 6` | Briefs the exploration: what the set is for, and why it only works if the six genuinely disagree. `--based-on "Aurora"` flips it to six deliberate variants of one you like. The designs are the agent's; Leglas prescribes none. With `--build --brief "..."`, Leglas builds the set itself with your agent instead, when it is Claude or Codex: it plans the directions together, puts them on the rail at once and builds them all in parallel, each run kept to the project, stopped if it edits any file but its own, and held to the effort Leglas sets. On a real project, three took about 80 seconds with Claude and 130 with Codex. `--build --based-on "Aurora"` builds variations of Aurora the same way, and the brief becomes optional. It needs a running Leglas and a surface whose switch is already rendered. |
 | `leglas new <surface> --from src/Hero.tsx` | Scaffolds a switcher under `.leglas/variants/`, with the baseline re-exporting your real component. Prints the one line to add and does not edit your file. Scaffolded branch points return the fallback in production builds. |
 | `leglas classify --change … --rewrite …` | Says where a direction should live before it is written: in-app, where switching is instant, or on its own branch. |
 | `leglas add --title … --url …` | Registers a direction on this machine. |
@@ -78,9 +78,17 @@ and a run ended this way is not retried on its own.
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
 same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
 `classify`, `explore`, `scaffold`, `keep`, `requests`, `share` and `init`. Each
-tool calls exactly what the CLI calls and returns the same envelope. The
-`start` tool boots the viewer and returns its URL, and anything it started
-stops when the session ends.
+tool calls exactly what the CLI calls, returns the same envelope and refuses
+what the CLI refuses. A call outside what the tool's schema allows, such as a
+screenshot wider than 3840 pixels, gets the MCP SDK's input validation error;
+every other refusal comes back in the CLI's own words. The `start` tool boots
+the viewer and returns its URL, and anything it started stops when the session
+ends.
+
+`watch` and `log` have no tool. The command line keeps a few flags to itself:
+`--user-port` and `--config` when starting, `--tunnel` and `--port` when
+sharing, `--port` for a screenshot. Building a set with `explore --build` stays
+there too.
 
 ```sh
 claude mcp add leglas -- npx -y leglas-mcp

@@ -1,5 +1,17 @@
 export { parseArgs } from "./args.js";
 
+export {
+  DEFAULT_EXPLORE_COUNT,
+  DEFAULT_SHARE_REACH,
+  MAX_PORT,
+  MAX_SHOW_WIDTH,
+  MIN_SHOW_WIDTH,
+  addRefusal,
+  fromRefusal,
+  shareRefusal,
+  showRefusal,
+} from "./rules.js";
+
 export { planExplore } from "./explore.js";
 
 export { runExplore } from "./run-explore.js";
