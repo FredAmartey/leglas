@@ -1105,11 +1105,9 @@ describe("building directions", () => {
 });
 
 describe("the duplicate check", () => {
-  // When the dev server comes back, every direction it serves is reloaded,
-  // and most of them are off stage. The shell used to remember only the
-  // mounted ones, so an off-stage reload had nothing earlier to differ from:
-  // its verdict stood, and a restart that changed the page could still be
-  // called a duplicate of what it used to be.
+  // A recovery reloads every direction the dev server serves, mostly off
+  // stage. Unless those are read again, a restart that changed a page keeps
+  // its old duplicate verdict.
   test("an off-stage direction reloaded by a recovery is read again", async () => {
     const health: Health = { devServer: "http://localhost:3000", reachable: true, cwd: "" };
 
@@ -1132,11 +1130,9 @@ describe("the duplicate check", () => {
     // Nothing is read behind a stage that has not settled.
     await after(() => find('iframe[data-preview="Docs"]').dispatchEvent(new Event("load")));
 
-    // No frame loads in a test, so each read ends as failed once its time is
-    // up. A failed read is a verdict too, and it stands. Each wait moves the
-    // scan on by one read: React applies the failed verdict as `after` ends,
-    // and only then starts the next read's timer, so any wait past the 15 s
-    // load limit does.
+    // No frame loads in a test, so each read fails at the 15 s limit and the
+    // failed verdict stands. Each wait past that moves the scan on one read:
+    // React applies the verdict as `after` ends, then starts the next timer.
     expect(reading()).toBe("/?hero=menu");
     await after(() => {}, 60_000);
     expect(reading()).toBe("/?hero=counter");

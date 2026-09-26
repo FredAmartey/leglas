@@ -70,9 +70,8 @@ export const FALLBACK_MS = 15_000;
  * the rail reads the jobs again. Like `share`, it is its own read, and only
  * while the feature is switched on.
  *
- * The type above is read off this list. They used to be written out
- * separately, and `update` reached the type but not the list, so the shell
- * threw away every update frame the server sent.
+ * `LiveChange` is read off this list, so a kind cannot reach one and not the
+ * other.
  */
 const CHANGES = ["config", "requests", "health", "share", "update", "generation"] as const;
 

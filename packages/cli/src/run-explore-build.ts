@@ -36,7 +36,7 @@ type Job = {
   endedAt: number | null;
 };
 
-/** How often the command looks at the job. The builds take tens of seconds, so a second is plenty. */
+/** Builds take tens of seconds, so looking once a second is plenty. */
 const POLL_MS = 1000;
 
 /** Longer than any job can run: each build has its own five-minute ceiling inside Leglas. */

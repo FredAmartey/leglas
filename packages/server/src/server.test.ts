@@ -634,9 +634,7 @@ describe("startServer", () => {
   });
 
   // The interface refuses a reference above its own cap before uploading it,
-  // so this limit and that one have to be one number. Each side's own tests
-  // pass with them apart, and then the interface either uploads what will be
-  // refused or refuses what would have been taken.
+  // so the two limits have to be one number.
   test("takes a reference of exactly the interface's cap, and refuses one byte more", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-cap-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
@@ -1521,8 +1519,6 @@ describe("startServer", () => {
     expect(after.requests).toEqual([]);
   });
 
-  // Reading without collecting is the POST then GET test's; this one is the
-  // agent block a fresh server reports.
   test("reports an idle agent before anything has run", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-read-"));
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
@@ -3456,10 +3452,8 @@ describe("update routes", () => {
     expect(live.changes.filter((change) => change === "update")).toEqual(["update", "update"]);
   });
 
-  // The test above proves the server asks; this one proves the interface
-  // hears. Each half of the live protocol has its own package, and each set
-  // of tests fakes the other half, which is how the shell dropped every
-  // update frame for two weeks while both sets passed.
+  // Each package's tests fake the other half of the live protocol, which is
+  // how the shell dropped update frames with both suites green. This runs both.
   test("an announced update reaches the interface's update listener", async () => {
     const updates = updateService();
     const server = await bootUpdates(updates);
@@ -3664,10 +3658,8 @@ describe("update routes", () => {
 });
 
 describe("mutation trust", () => {
-  // Every route that changes something is a POST today, but the guard stands
-  // in front of any method that is not a read, so a PUT, PATCH or DELETE
-  // route written later is behind it the moment it exists. OPTIONS is not a
-  // read either; Leglas never sends one to itself.
+  // Every route that changes something is a POST today; one added later with
+  // another method is behind the guard too. Leglas never sends itself OPTIONS.
   test.each(["PUT", "PATCH", "DELETE", "OPTIONS"])(
     "a cross-origin %s to the API is refused before any route sees it",
     async (method) => {
@@ -3887,8 +3879,8 @@ describe("a body that is not an object", () => {
   };
 
   const routes = (): string[] => {
-    // Read with its whitespace collapsed: the formatter wraps a long
-    // condition across lines, and a route split that way used to go unseen.
+    // Whitespace collapsed, since the formatter wraps a long condition across
+    // lines and a route split that way would go unseen.
     let source = readFileSync(join(import.meta.dirname, "server.ts"), "utf8").replace(/\s+/g, " ");
     const single = /path === `\$\{LEGLAS_PREFIX\}(?<route>\/[^`]*)` && req\.method === "POST"/g;
 

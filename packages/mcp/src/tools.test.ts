@@ -329,10 +329,9 @@ describe("the MCP face", () => {
     expect(envelope["requests"]).toEqual([]);
   });
 
-  // This is the one test that boots the viewer the way the published package
-  // does, bundle and all, and a booting server asks each agent CLI whether it
-  // is logged in. Stand-ins that answer "no" sit first on PATH, where agent
-  // detection looks before anywhere else, so no real CLI is run.
+  // The one test that boots the published bundle, and a booting server asks
+  // each agent CLI whether it is logged in. Stand-ins that answer "no" come
+  // first on PATH, so no real CLI runs.
   test.skipIf(process.platform === "win32")(
     "start boots the viewer, is idempotent, and shutdown stops it",
     async () => {
