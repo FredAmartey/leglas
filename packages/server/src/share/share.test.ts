@@ -1053,11 +1053,10 @@ describe("the ceiling on viewer traffic", () => {
     const full = VIEWER_CONCURRENCY + VIEWER_QUEUE;
     const filling: Array<ReturnType<typeof raw>> = [];
 
-    // One connection at a time. Filling the queue takes 140, more than the
-    // 128 a listen backlog holds on macOS, and macOS 27 refuses a loopback
-    // connection past the backlog instead of retrying it.
     let answered = 0;
 
+    // One at a time: macOS caps the listen backlog at 128, and macOS 27
+    // refuses connections past it.
     for (let i = 0; i < full; i += 1) {
       const request = raw(share.port, `/fill-${i}`, share.cookie);
       filling.push(request);
@@ -1067,7 +1066,6 @@ describe("the ceiling on viewer traffic", () => {
 
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
-    // Turned away at once, not queued: a queued request would wait for good.
     const over = raw(share.port, "/one-too-many", share.cookie);
     let wait: ReturnType<typeof setTimeout> | undefined;
 
@@ -1080,8 +1078,7 @@ describe("the ceiling on viewer traffic", () => {
 
     clearTimeout(wait);
     expect(answer).toBe(503);
-    // And every one of the 140 before it was taken, so the limit is exactly
-    // twelve running and the queue's full length waiting, not anything less.
+    // None of the 140 was refused, so the limit isn't lower either.
     await new Promise((resolve) => setImmediate(resolve));
     expect(answered).toBe(0);
 
