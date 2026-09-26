@@ -497,6 +497,7 @@ export type RootsHost = {
     }>;
     oninitialized?: (() => void) | undefined;
 };
+export declare const SERVER_INSTRUCTIONS: string;
 export declare const UNRESOLVED_PROJECT: string;
 export declare function channelEvent(request: PendingRequest): ChannelEvent;
 export declare function fixedProject(directory: string): Project;
