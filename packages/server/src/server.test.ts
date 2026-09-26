@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 /** Stand-in dev server. Answers anything with a marker so proxying is visible. */
-function startOrigin(): Promise<number> {
+function startOrigin(host = "127.0.0.1"): Promise<number> {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<h1>app:${req.url}</h1>`);
@@ -71,7 +71,7 @@ function startOrigin(): Promise<number> {
   origins.push(server);
 
   return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve(boundPort(server)));
+    server.listen(0, host, () => resolve(boundPort(server)));
   });
 }
 
@@ -2696,8 +2696,18 @@ describe("startServer", () => {
     );
   });
 
-  test("reports the dev server as reachable when it is up", async () => {
-    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+  // Vite on macOS listens on ::1 alone, and a started app's address is the one
+  // that answered.
+  test.each([
+    ["127.0.0.1", "127.0.0.1"],
+    ["::1", "[::1]"],
+  ])("reports the dev server as reachable when it is up on %s", async (host, inUrl) => {
+    const port = await startOrigin(host);
+
+    const server = await start({
+      config: { devServer: `http://${inUrl}:${port}`, previews: [] },
+      port: 0,
+    });
 
     const body: {
       reachable: boolean;

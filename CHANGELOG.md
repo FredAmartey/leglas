@@ -43,6 +43,11 @@ Each entry ends with which of the three it reaches.
 
 ### Fixed
 
+- **Leglas sees an app it started on IPv6.** When Leglas started your app and
+  the app listened on `::1` alone, as Vite does on macOS, Leglas said "Dev
+  server not responding" and showed the app's directions as stale, over pages
+  that worked. (`leglas`)
+
 - **A build that edits another file is stopped.** While Leglas built a set,
   one build could change the switch, another direction or a file one of them
   imports, and every direction on the page broke with it. Now a build that

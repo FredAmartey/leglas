@@ -432,7 +432,8 @@ export function probe(target: string, timeoutMs = 1000): Promise<boolean> {
     }
 
     const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
-    const socket = net.connect(port, url.hostname);
+    // `URL.hostname` keeps an IPv6 literal's brackets, which the lookup rejects.
+    const socket = net.connect(port, url.hostname.replace(/^\[|\]$/g, ""));
 
     const settle = (reachable: boolean) => {
       socket.destroy();
