@@ -111,6 +111,8 @@ const FACES = {
     flags: {
       "--reach": param("reach"),
       "--stop": param("stop"),
+      "--rotate": param("rotate"),
+      "--revoke": param("revoke"),
       "--tunnel": without(
         "which tunnel runs is the machine's setup, so the tool takes the first one installed, as the command line does by default",
       ),
@@ -123,6 +125,12 @@ const FACES = {
     tool: { name: "link" },
     positional: ["titles"],
     flags: { "--port": RECORD, "--json": ENVELOPE },
+  },
+  remove: {
+    argv: ["remove", "Aurora"],
+    tool: { name: "remove" },
+    positional: ["titles"],
+    flags: { "--json": ENVELOPE },
   },
   requests: {
     argv: ["requests"],

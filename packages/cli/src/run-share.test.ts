@@ -64,9 +64,10 @@ function fakeLeglas(
   let failReads = false;
   let dropCreateReply = false;
 
+  let links = [{ id: "grant-1", name: "", token: "token" }];
+
   const statusFor = (body: { [key: string]: JsonValue }) => {
     const tunnel = tunnels[Math.min(reads, tunnels.length - 1)] ?? { status: "none" };
-    const url = tunnel.status === "ready" ? `${String(tunnel.url)}/leglas/join/token` : null;
 
     return {
       id: "share-1",
@@ -74,17 +75,15 @@ function fakeLeglas(
       titles: body.titles ?? [],
       reach: body.reach ?? "open",
       tunnel,
-      grants: [
-        {
-          id: "grant-1",
-          name: "",
-          url,
-          localUrl: "http://127.0.0.1:50123/leglas/join/token",
-          viewers: 0,
-          createdAt: 0,
-          expiresAt: Date.UTC(2026, 8, 22, 18, 40),
-        },
-      ],
+      grants: links.map((link) => ({
+        id: link.id,
+        name: link.name,
+        url: tunnel.status === "ready" ? `${String(tunnel.url)}/leglas/join/${link.token}` : null,
+        localUrl: `http://127.0.0.1:50123/leglas/join/${link.token}`,
+        viewers: 0,
+        createdAt: 0,
+        expiresAt: Date.UTC(2026, 8, 22, 18, 40),
+      })),
     };
   };
 
@@ -133,6 +132,31 @@ function fakeLeglas(
       return Response.json({ ok: true });
     }
 
+    if (
+      url.pathname === "/leglas/api/share/grants/revoke" ||
+      url.pathname === "/leglas/api/share/rotate"
+    ) {
+      if (share === null) {
+        return Response.json({ ok: false, error: "Nothing is being shared." }, { status: 404 });
+      }
+
+      if (url.pathname.endsWith("/rotate")) {
+        links = [{ id: `grant-${links.length + 2}`, name: "", token: "rotated" }];
+      } else {
+        const id = isJsonObject(body) ? body.id : null;
+        const before = links.length;
+        links = links.filter((link) => link.id !== id);
+
+        if (links.length === before) {
+          return Response.json({ ok: false, error: "No such link." }, { status: 404 });
+        }
+      }
+
+      share = { ...share, ...statusFor(share) };
+
+      return Response.json({ ok: true, share });
+    }
+
     return new Response("not found", { status: 404 });
   };
 
@@ -155,6 +179,10 @@ function fakeLeglas(
     running: (body: { [key: string]: JsonValue }) => {
       share = statusFor(body);
     },
+    /** A second link on the running share, as the panel makes one for a named person. */
+    link: (name: string) => {
+      links = [...links, { id: `grant-${links.length + 1}`, name, token: `token-${name}` }];
+    },
   };
 }
 
@@ -163,6 +191,8 @@ const options = (cwd: string, extra: Partial<ShareOptions> = {}): ShareOptions =
   reach: "open",
   tunnel: null,
   stop: false,
+  rotate: false,
+  revoke: null,
   port: 4321,
   json: true,
   cwd,
@@ -335,6 +365,97 @@ describe("runShare", () => {
     ).toBe(0);
     expect(leglas.posted.map((entry) => entry.path)).toEqual(["/leglas/api/share/stop"]);
     expect(last(lines)).toEqual({ ok: true, stopped: true });
+  });
+
+  test("--revoke ends the one link it names, by its address or its id", async () => {
+    const cwd = scratch();
+    const leglas = fakeLeglas(cwd);
+    leglas.running({ scope: "rail", titles: [] });
+    leglas.link("Sam");
+    const byAddress = collect();
+
+    const run = (revoke: string, deps: ReturnType<typeof collect>["deps"]) =>
+      runShare(options(cwd, { revoke }), { ...deps, fetch: leglas.fetch, sleep: instantly });
+
+    expect(
+      (await run("https://abc.trycloudflare.com/leglas/join/token-Sam", byAddress.deps)).exitCode,
+    ).toBe(0);
+    expect(last(byAddress.lines)).toMatchObject({
+      ok: true,
+      revoked: { id: "grant-2", name: "Sam" },
+      share: { links: [{ id: "grant-1" }] },
+    });
+
+    const byId = collect();
+
+    expect((await run("grant-1", byId.deps)).exitCode).toBe(0);
+    expect(last(byId.lines)).toMatchObject({ ok: true, share: { links: [] } });
+    expect(leglas.posted.map((entry) => entry.body)).toEqual([
+      { id: "grant-2" },
+      { id: "grant-1" },
+    ]);
+  });
+
+  test("--revoke refuses a link the share doesn't have, and ends nothing", async () => {
+    const cwd = scratch();
+    const leglas = fakeLeglas(cwd);
+    leglas.running({ scope: "rail", titles: [] });
+    const { deps, lines } = collect();
+
+    const outcome = await runShare(
+      options(cwd, { revoke: "https://elsewhere.example/leglas/join/x" }),
+      {
+        ...deps,
+        fetch: leglas.fetch,
+        sleep: instantly,
+      },
+    );
+
+    expect(outcome.exitCode).toBe(1);
+    expect(String(last(lines).error)).toContain("npx leglas share lists them");
+    expect(leglas.posted).toEqual([]);
+  });
+
+  test("--rotate ends every link and hands back the new one", async () => {
+    const cwd = scratch();
+    const leglas = fakeLeglas(cwd);
+    leglas.running({ scope: "rail", titles: [] });
+    leglas.link("Sam");
+    const { deps, lines } = collect();
+
+    expect(
+      (
+        await runShare(options(cwd, { rotate: true }), {
+          ...deps,
+          fetch: leglas.fetch,
+          sleep: instantly,
+        })
+      ).exitCode,
+    ).toBe(0);
+    expect(leglas.posted.map((entry) => entry.path)).toEqual(["/leglas/api/share/rotate"]);
+    expect(last(lines)).toMatchObject({
+      ok: true,
+      rotated: true,
+      share: { links: [{ url: "https://abc.trycloudflare.com/leglas/join/rotated" }] },
+    });
+  });
+
+  test("--rotate and --revoke with nothing shared say so", async () => {
+    const cwd = scratch();
+    const leglas = fakeLeglas(cwd);
+
+    for (const extra of [{ rotate: true }, { revoke: "grant-1" }]) {
+      const { deps, lines } = collect();
+
+      const outcome = await runShare(options(cwd, extra), {
+        ...deps,
+        fetch: leglas.fetch,
+        sleep: instantly,
+      });
+
+      expect(outcome.exitCode).toBe(1);
+      expect(String(last(lines).error)).toContain("Nothing is being shared");
+    }
   });
 
   test("a share it cannot follow is stopped, not left open behind an error", async () => {

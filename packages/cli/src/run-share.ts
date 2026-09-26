@@ -11,6 +11,10 @@ export type ShareOptions = {
   reach: ShareReach;
   tunnel: ShareTunnel | null;
   stop: boolean;
+  /** End every link and mint one new, through a new tunnel. */
+  rotate?: boolean;
+  /** One link to end, by its address or id. */
+  revoke?: string | null;
   port: number | null;
   json: boolean;
   cwd: string;
@@ -39,7 +43,13 @@ type Tunnel =
   | { status: "ready"; provider: string; url: string }
   | { status: "failed"; provider: string; reason: string };
 
-type ShareLink = { name: string; url: string | null; localUrl: string; expiresAt: number };
+type ShareLink = {
+  id: string;
+  name: string;
+  url: string | null;
+  localUrl: string;
+  expiresAt: number;
+};
 
 type ShareView = {
   scope: string;
@@ -95,9 +105,17 @@ function tunnelFrom(value: JsonValue | undefined): Tunnel | null {
 }
 
 function linkFrom(value: JsonValue): ShareLink | null {
-  if (!isJsonObject(value) || !isString(value.localUrl) || !isNumber(value.expiresAt)) return null;
+  if (
+    !isJsonObject(value) ||
+    !isString(value.id) ||
+    !isString(value.localUrl) ||
+    !isNumber(value.expiresAt)
+  ) {
+    return null;
+  }
 
   return {
+    id: value.id,
     name: isString(value.name) ? value.name : "",
     url: isString(value.url) ? value.url : null,
     localUrl: value.localUrl,
@@ -284,11 +302,18 @@ export async function runShare(
 
   const { installed } = running.value;
 
-  const report = (share: ShareView, already: boolean, leftOut: readonly string[]) => {
+  /** `done` is what this call did to a running share, said first. */
+  const report = (
+    share: ShareView,
+    already: boolean,
+    leftOut: readonly string[],
+    done: { json: { [key: string]: JsonValue }; line: string } | null = null,
+  ) => {
     if (options.json) {
       deps.log(
         JSON.stringify({
           ok: true,
+          ...done?.json,
           alreadySharing: already,
           share: {
             scope: share.scope,
@@ -304,6 +329,7 @@ export async function runShare(
       return { exitCode: 0 };
     }
 
+    if (done !== null) deps.log(done.line);
     deps.log(`  sharing  ${describe(share)}${already ? " (already running)" : ""}`);
 
     if (share.reach === "listed") {
@@ -332,6 +358,93 @@ export async function runShare(
 
     return { exitCode: 0 };
   };
+
+  /** Reads the share until its tunnel stops starting, or the wait runs out; null if it stopped. */
+  const settle = async (share: ShareView): Promise<Read<ShareView | null>> => {
+    let settled = share;
+
+    for (
+      let waited = 0;
+      settled.tunnel.status === "starting" && waited < TUNNEL_WAIT_MS;
+      waited += TUNNEL_POLL_MS
+    ) {
+      await sleep(TUNNEL_POLL_MS);
+      const read = await readShare(found.base, request);
+
+      if (!read.ok) return read;
+
+      if (read.value.share === null) return { ok: true, value: null };
+      settled = read.value.share;
+    }
+
+    return { ok: true, value: settled };
+  };
+
+  const revoke = options.revoke ?? null;
+
+  if (options.rotate === true || revoke !== null) {
+    const current = running.value.share;
+
+    if (current === null) {
+      return fail("Nothing is being shared. Start a share with npx leglas share.");
+    }
+
+    if (revoke !== null) {
+      const named = revoke;
+
+      const link = current.links.find(
+        (candidate) =>
+          candidate.id === named || candidate.url === named || candidate.localUrl === named,
+      );
+
+      if (link === undefined) {
+        return fail(`No live link is ${JSON.stringify(named)}. npx leglas share lists them.`);
+      }
+
+      const revoked = await post(
+        found.base,
+        "/leglas/api/share/grants/revoke",
+        { id: link.id },
+        request,
+        "Leglas could not end that link.",
+      );
+
+      if (!revoked.ok) return fail(revoked.error);
+      const after = isJsonObject(revoked.value) ? shareFrom(revoked.value.share) : null;
+
+      if (after === null) return fail("Leglas ended the link but did not say what is left.");
+
+      return report(after, true, [], {
+        json: { revoked: link },
+        line: `  revoked  ${link.name === "" ? "" : `${link.name}  `}${link.url ?? link.localUrl}`,
+      });
+    }
+
+    const rotated = await post(
+      found.base,
+      "/leglas/api/share/rotate",
+      {},
+      request,
+      "Leglas could not replace the links.",
+    );
+
+    if (!rotated.ok) return fail(rotated.error);
+    const replaced = isJsonObject(rotated.value) ? shareFrom(rotated.value.share) : null;
+
+    if (replaced === null) return fail("Leglas replaced the links but did not say with what.");
+    const settled = await settle(replaced);
+
+    if (!settled.ok) return fail(settled.error);
+
+    if (settled.value === null) {
+      return fail("The share was stopped while its new tunnel was starting.");
+    }
+
+    return report(settled.value, true, [], {
+      json: { rotated: true },
+      line: "  rotated  every earlier link has ended",
+    });
+  }
 
   const loaded = await loadConfig(options.cwd);
   const local = await readLocalPreviews(options.cwd);
@@ -438,28 +551,19 @@ export async function runShare(
       : giveUp("Leglas stopped answering while the share was starting.", false);
   }
 
-  let share = isJsonObject(created.value) ? shareFrom(created.value.share) : null;
+  const share = isJsonObject(created.value) ? shareFrom(created.value.share) : null;
 
   if (share === null) {
     return giveUp("Leglas started a share this version of the command cannot read.");
   }
 
-  for (
-    let waited = 0;
-    share.tunnel.status === "starting" && waited < TUNNEL_WAIT_MS;
-    waited += TUNNEL_POLL_MS
-  ) {
-    await sleep(TUNNEL_POLL_MS);
-    const read = await readShare(found.base, request);
+  const settled = await settle(share);
 
-    if (!read.ok) return giveUp(read.error);
+  if (!settled.ok) return giveUp(settled.error);
 
-    if (read.value.share === null) {
-      return fail("The share was stopped while its tunnel was starting.");
-    }
-
-    share = read.value.share;
+  if (settled.value === null) {
+    return fail("The share was stopped while its tunnel was starting.");
   }
 
-  return report(share, false, leftOut);
+  return report(settled.value, false, leftOut);
 }
