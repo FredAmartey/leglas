@@ -2,9 +2,8 @@ import { existsSync } from "node:fs";
 import { dirname, join, parse } from "node:path";
 
 /**
- * Resolution order within a directory. TypeScript first because it is what the
- * docs show and what editors autocomplete; JSON last because it cannot carry
- * comments and is the least likely hand-authored choice.
+ * Resolution order within a directory: TypeScript first, as the docs show it;
+ * JSON last, since it can't carry comments.
  */
 export const CONFIG_BASENAMES = [
   "leglas.config.ts",
@@ -14,9 +13,8 @@ export const CONFIG_BASENAMES = [
 ] as const;
 
 /**
- * Walk upward from `startDir`, nearest match first, so running from one app in
- * a monorepo picks that app's config rather than the repository root's.
- * Returns null when the filesystem root is reached without a match.
+ * Walks upward from `startDir`, nearest first, so one app in a monorepo gets
+ * its own config. Null if the filesystem root has none.
  */
 export function findConfigFile(startDir: string): string | null {
   const { root } = parse(startDir);

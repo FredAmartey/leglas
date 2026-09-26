@@ -9,8 +9,7 @@ const SPINNER =
 /** What kind of event the card is about, before a word of it is read. */
 export function Glyph({ kind }: { kind: RequestCard["kind"] }) {
   if (kind === "stopped") {
-    // The same square as the button that did it: a stop is not a warning,
-    // and the amber triangle said otherwise.
+    // The same square as the stop button: a stop isn't a warning.
     return (
       <span
         aria-hidden="true"
@@ -111,10 +110,9 @@ export function Icon({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * One card, one event: the run in flight, the queue waiting, or the failure
- * asking what to do about it. It lives above the composer the way a reply
- * lives above the thing being typed, and it never takes the chooser or the
- * field hostage.
+ * One card, one event: the run in flight, the waiting queue, or a failure
+ * asking what to do. It sits above the composer like a reply above what's being
+ * typed, and never takes over the chooser or the field.
  */
 export function StatusCard({
   action,
@@ -130,10 +128,9 @@ export function StatusCard({
   onDismiss: (id: string) => void;
   onRetry: (id: string) => void;
 }) {
-  // The elapsed counter ticks locally between polls; the anchor comes from
-  // the server so a reload half-way through a run does not restart it. The
-  // tick lives here so that one second passing redraws this card and not the
-  // rail and the stage around it. The quiet line reads the same clock.
+  // The elapsed counter ticks locally; its anchor comes from the server so a
+  // reload mid-run doesn't restart it. The tick lives here so each second
+  // redraws only this card. The quiet line reads the same clock.
   const runStartedAt = card.kind === "running" ? card.startedAt : null;
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -157,9 +154,10 @@ export function StatusCard({
             {cardHeadline(card)}
           </p>
           {detail !== null && (
-            /* Not truncated to one line: a failure's reason is the whole
-               point of showing it, and "Claude is not signed in" cut at the
-               rail's width says nothing. */
+            /*
+             * Not truncated: a failure's reason is the point, and "Claude is
+             * not signed in" cut at the rail's width says nothing.
+             */
             <p className="mt-0.5 text-[10px] leading-tight text-[#84848C]">{detail}</p>
           )}
         </div>

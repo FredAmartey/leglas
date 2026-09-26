@@ -1,9 +1,8 @@
 import { Tip } from "../ui/kit.js";
 
 /**
- * What the change does to the direction it is aimed at, in the one place the
- * aiming happens. A chip rather than a setting: it is a per-change decision,
- * and the answer has to be readable in the second before Enter.
+ * What the change does to its direction, where the aiming happens. A chip, not
+ * a setting: it's decided per change and must be readable just before Enter.
  */
 export function ModeChip({
   mode,

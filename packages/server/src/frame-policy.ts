@@ -1,16 +1,12 @@
 /**
- * Whether a page will let the interface show it in a frame.
+ * Whether a page lets the interface frame it. A site that forbids framing gets
+ * the browser's own "refused to connect" page, a normal load event and nothing
+ * the cross-origin shell can read. The server asks the page and applies the
+ * HTML standard's rules to the two headers browsers act on, so the pane can say
+ * what happened.
  *
- * A preview with an absolute URL loads straight into the stage's iframe, and
- * a site that forbids framing does not fail the way anything else fails: the
- * browser draws its own "refused to connect" page, fires the frame's load
- * event as usual, and tells the page nothing. The shell cannot read a
- * cross-origin frame to find out. The server can ask the page itself and
- * read the two headers browsers act on, by the rules the HTML standard gives
- * them, so the pane can say what happened instead of showing a broken image.
- *
- * It is a reading of an anonymous request. A site that frames differently
- * once signed in will be read as it treats a stranger.
+ * Reads an anonymous request: a site that frames differently when signed in is
+ * judged as it treats a stranger.
  */
 
 export type FrameRefusal = {
@@ -116,8 +112,8 @@ function ancestorLists(csp: string | null): string[] {
   if (csp === null) return [];
   const lists: string[] = [];
 
-  // One header can carry several policies, separated by commas, and a
-  // browser enforces every one of them.
+  // One header can carry several comma-separated policies, and browsers enforce
+  // all of them.
   for (const policy of csp.split(",")) {
     for (const directive of policy.split(";")) {
       const trimmed = directive.trim();
@@ -131,13 +127,11 @@ function ancestorLists(csp: string | null): string[] {
 }
 
 /**
- * What a browser would decide about framing a page that answered with these
- * headers, when the page doing the framing is `embedder`.
- *
- * Follows the HTML standard's check: an enforced frame-ancestors directive
- * decides on its own and X-Frame-Options is then ignored; otherwise DENY
- * refuses, SAMEORIGIN refuses any other origin, conflicting values refuse, and
- * anything else, ALLOW-FROM included, is ignored.
+ * What a browser would decide about framing a page with these headers inside
+ * `embedder`. Per the HTML standard: an enforced frame-ancestors directive
+ * decides alone and X-Frame-Options is ignored; otherwise DENY refuses,
+ * SAMEORIGIN refuses other origins, conflicting values refuse, and anything
+ * else (ALLOW-FROM included) is ignored.
  */
 export function framingFor(headers: HeaderReader, target: string, embedder: string): Framing {
   const targetUrl = new URL(target);
@@ -191,9 +185,8 @@ export function framingFor(headers: HeaderReader, target: string, embedder: stri
 }
 
 /**
- * Ask the page, and read its answer the way the browser will. Follows
- * redirects, because the frame does and the last answer is the one that
- * counts. A page that does not answer in time is unknown, never refused.
+ * Asks the page and reads the answer as the browser will. Follows redirects,
+ * since the frame does. No answer in time is unknown, never refused.
  */
 export async function checkFraming(
   target: string,

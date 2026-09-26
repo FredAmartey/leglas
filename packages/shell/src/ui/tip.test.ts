@@ -83,9 +83,9 @@ describe("placeTip", () => {
   });
 
   test("re-fits when the label grows while it is open", () => {
-    // Clicking the fold chevron swaps its label from "Show 2 variants" to the
-    // wider "Fold the variants away" without closing the tip. The shift that
-    // fitted the short label left the wide one clipped by the rail edge.
+    // The fold chevron's label changes from "Show 2 variants" to the wider
+    // "Fold the variants away" without closing the tip, and the short label's
+    // fit left the wide one clipped by the rail edge.
     const short = { ...above, ...placeTip(above, { height: 26, width: 96 }, anchor, VIEWPORT) };
     const grown = placeTip(short, { height: 26, width: 150 }, anchor, VIEWPORT);
     expect(grown).not.toBeNull();

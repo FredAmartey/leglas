@@ -31,13 +31,9 @@ export function forgetScans(
 }
 
 /**
- * Mounted panes whose document was replaced in place.
- *
- * A pane reloaded by hand, retried after a failure, or handed a new URL under
- * the same title has a new document, and its verdict has to be read again. A
- * title that merely came on stage has not: the background read already
- * measured that document, and reading it again off stage doubled the cost of
- * every flip.
+ * Mounted panes whose document was replaced in place: reloaded, retried, or
+ * given a new URL under the same title. A title that merely came on stage was
+ * already measured by the background read.
  */
 export function replacedPanes(
   previous: ReadonlyMap<string, string>,
@@ -90,12 +86,10 @@ export function scanSignatures(previews: readonly Preview[], scans: PreviewScans
 }
 
 /**
- * Which previews still need a background read for the duplicate check.
- *
- * Only previews this page can read qualify. A result belongs to one exact URL,
- * so replacing a direction in place queues its new document even when the
- * title stays the same. Failed reads stop retrying for this page load without
- * pretending they produced a comparable signature.
+ * Which previews still need a background read for the duplicate check. Only
+ * readable previews; a result belongs to one exact URL, so an in-place
+ * replacement queues its new document. Failed reads stop retrying for this page
+ * load.
  */
 export function scanQueue(previews: readonly Preview[], scans: PreviewScans): Preview[] {
   return previews.filter((preview) => {

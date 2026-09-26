@@ -68,13 +68,10 @@ export type Grant = {
 };
 
 /**
- * How far a viewer may reach into the dev server.
- *
- * `open` is the whole thing over GET, minus the control routes every share
- * refuses. `listed` is only what the share's own list holds, which is the
- * one mechanism here that a page's own JavaScript cannot walk around: it is
- * decided by path on the server, so a console, a service worker and curl
- * all meet it the same way.
+ * How far a viewer may reach into the dev server. `open` is everything over GET
+ * minus the control routes; `listed` is only the share's own list. The list is
+ * decided by path on the server, so a console, a service worker and curl all
+ * hit it the same way.
  */
 export type ShareReach = "open" | "listed";
 
@@ -84,11 +81,10 @@ type ShareManifest = {
   layout: ShareLayout;
   reach: ShareReach;
   /**
-   * Paths a viewer may load in `listed` mode. An entry ending in `/` stands
-   * for everything beneath it; anything else is one exact path. Seeded from
-   * what the sharer's own browser already loaded for these directions, which
-   * is the only honest source: nobody can enumerate a bundler's asset graph
-   * by hand, and a list written by guessing breaks the app silently.
+   * Paths a viewer may load in `listed` mode: an entry ending in `/` covers
+   * everything beneath it, anything else one exact path. Seeded from what the
+   * sharer's browser loaded for these directions, since nobody can list a
+   * bundler's asset graph by hand.
    */
   routes: string[];
 };
@@ -96,30 +92,22 @@ type ShareManifest = {
 /** How many refusals a share remembers, so the panel can offer to allow them. */
 const MAX_REFUSED = 40;
 
-/**
- * Whether the list lets this path through. Compared over every spelling a
- * dev server would answer to, for the same reason the control list is.
- */
+/** Whether the list lets this path through, checked on the settled path. */
 export function routeAllowed(routes: readonly string[], url: string): boolean {
   const [rawPath = "/"] = url.split("?", 2);
-  // The settled path, never a list of readings. Asking whether *any*
-  // spelling is allowed hands the answer to the most permissive one, and
-  // the raw form still holds its `..`: with a folder allowed by one click,
-  // "/assets/../secrets" starts with "/assets/" as a string while naming
-  // something else entirely.
+  // The settled path, never a list of readings: asking whether any spelling is
+  // allowed lets the most permissive win, and "/assets/../secrets" starts with
+  // "/assets/" as a string.
   const path = canonical(rawPath);
 
   return routes.some((route) => {
-    // A trailing slash means a directory, and the root is not one: an app
-    // served at "/" would otherwise stand for every path there is, which
-    // turns the whole list into "allow anything". Found by a test that
-    // expected a refusal and got the app.
+    // The root isn't a directory, or an app served at "/" would allow every
+    // path.
     const prefix = route.endsWith("/") && route !== "/";
 
-    // An exact route also answers to itself with a slash on the end: the two
-    // are one resource to every dev server, and an allowed directory index
-    // would otherwise be refused the moment the browser asked for it with
-    // the slash it was refused with.
+    // An exact route also matches itself with a trailing slash; dev servers
+    // treat both as one resource, and a browser asks for a directory index with
+    // the slash.
     return prefix
       ? path.startsWith(route) || `${path}/` === route
       : path === route || path === `${route}/`;
@@ -220,8 +208,7 @@ type ShareManager = {
   close(): Promise<void>;
 };
 
-/** Everything Leglas serves itself. Kept here rather than imported from the
- * server, which imports this file. */
+/** Everything Leglas serves itself. Not imported from the server, which imports this file. */
 const OWN_PREFIX = "/leglas";
 
 const ENTRY_PREFIX = `${OWN_PREFIX}/s/`;
@@ -233,76 +220,52 @@ export const MAX_GRANTS = 16;
 export const MAX_TOMBSTONES = 32;
 
 /**
- * How many viewer requests may be inside the dev server at once.
+ * How many viewer requests may be inside the dev server at once. A loaded dev
+ * server doesn't fail, it queues internally where nothing here can bound or
+ * cancel it, and the sharer's reload waits behind it. On Vite with 200 viewer
+ * requests at once: unbounded, the sharer's reload took 136ms at 974 req/s; at
+ * twelve, 21ms at 1415 req/s.
  *
- * Not a performance setting, and not a guess. A dev server under load does
- * not fail, it queues inside itself, where nothing here can bound, order,
- * deadline or cancel any of it, and the sharer's own reload joins the back
- * of that queue. Measured on Vite with 200 viewer requests at one instant:
- * unbounded, the sharer's reload took 136ms and the burst ran at 974 req/s;
- * held at twelve, the reload took 21ms and the burst ran at 1415 req/s.
- * Bounding it is faster for everyone, because past saturation the extra
- * concurrency buys no work and costs scheduling.
- *
- * Twelve because a real page load peaked at exactly six requests at once,
- * the browser's per-origin connection cap, so two whole page loads still
- * never wait, and a dev server that parallelises across cores is never the
- * thing being constrained.
+ * Twelve because a real page load peaked at six concurrent requests (the
+ * browser's per-origin cap), so two page loads never wait.
  */
 export const VIEWER_CONCURRENCY = 12;
 
 /**
- * How many of one link's requests may wait for a slot. Above a full HTTP/2
- * browser burst, since a tunnel hop lifts the six-connection cap. Per link,
- * so one link cannot fill the queue and shed another.
+ * How many of one link's requests may wait. Above a full HTTP/2 burst, since a
+ * tunnel lifts the six-connection cap. Per link, so one link can't fill the
+ * queue and shed another.
  */
 export const VIEWER_QUEUE = 128;
 
 /**
- * How long a viewer request has to begin a response, from arrival, covering
- * waiting for a slot and waiting for the dev server as one budget.
+ * How long a viewer request has to start a response from arrival, covering the
+ * slot wait and the dev server as one budget.
  */
 export const VIEWER_DEADLINE_MS = 30_000;
 
 /**
- * Development-server routes that act on the machine or hand out its
- * internals, refused for viewers.
+ * Dev-server routes that act on the machine or expose its internals, refused
+ * for viewers. Vite and others mount an editor-launch route that opens `?file=`
+ * on the sharer's machine, and Leglas proxies whatever the dev server answers
+ * (confirmed on Vite 8.2.2). `devServer` is just a URL, so Django, Rails,
+ * Laravel and Spring routes are here too.
  *
- * A dev server is not only the app. Vite mounts an editor-launch route, and
- * so do the others in their own words: a GET with a file name in the query
- * opens that file in an editor on the machine running the server. Leglas
- * proxies whatever the dev server answers, so before this list a viewer
- * holding a share link could ask for one and the sharer's editor would open.
- * Verified against Vite 8.2.2, where the request reached the middleware and
- * was refused only for want of a file name.
+ * A list of what's known, not a boundary: the share tells the user plainly that
+ * a viewer reads what their dev server serves. "read" entries come from the
+ * package source at the named version; "reported" ones came from review and
+ * aren't confirmed here. Adding an entry is one line.
  *
- * The list reaches past JavaScript because `devServer` is only a URL: Leglas
- * will proxy a Django, Rails, Laravel or Spring server as readily as a Vite
- * one, and those ecosystems mount the same class of thing.
+ * Checked and needing nothing: Astro 7.3.1 (only `/_astro/status`), SvelteKit
+ * 2.70.3, Angular 22.1.7 (only `/@ng/` update routes), Storybook 10.6.0
+ * (open-in-editor goes over its own websocket, which viewers can't upgrade).
+ * Rsbuild 2.2.3, Vue CLI, Remix and React Router are covered by the first
+ * entry.
  *
- * This is a list of what is known, not a boundary. A framework can add a
- * route tomorrow and a plugin can mount one today, so the share tells the
- * user plainly that a viewer reads what their dev server serves. Adding an
- * entry is a line here.
- *
- * Entries marked "read" come from the package's own source at the version
- * named. Entries marked "reported" come from review and are not confirmed
- * here, so their spelling is the weaker claim.
- *
- * Read and found to need nothing of their own, so the next person need not
- * look again: Astro 7.3.1 (only `/_astro/status`, which answers `{ok:true}`),
- * SvelteKit 2.70.3, Angular 22.1.7 (only its `/@ng/` update routes) and
- * Storybook 10.6.0, whose open-in-editor rides its own websocket channel
- * rather than a route, and viewers cannot upgrade an app's socket. Rsbuild
- * 2.2.3 mounts `/__open-in-editor` with the same launch-editor package Vite
- * uses, so the first entry covers it, and so it does for Vue CLI, Remix and
- * React Router, which sit on Vite or webpack-dev-server.
- *
- * Deliberately absent: Metro and Expo answer at `/open-url` and
- * `/open-stack-frame`, ordinary enough words that an app could own them, and
- * Leglas previews web pages rather than React Native targets. Absent too are
- * the paths an app needs in order to run, `/@fs/`, `/@id/`, `/_next/`,
- * `/_nuxt/`, `/_app/` and `/_astro/` among them.
+ * Left out on purpose: Metro and Expo's `/open-url` and `/open-stack-frame`
+ * (words an app could own; Leglas previews web pages), and the paths an app
+ * needs to run, like `/@fs/`, `/@id/`, `/_next/`, `/_nuxt/`, `/_app/` and
+ * `/_astro/`.
  */
 export const DEV_CONTROL_ROUTES: readonly string[] = [
   /** read, Vite 8.2.2: opens `?file=` in the machine's editor. Rsbuild 2.2.3 too. */
@@ -318,10 +281,10 @@ export const DEV_CONTROL_ROUTES: readonly string[] = [
   /** read, browser-sync 3.0.4: its client surface and server metadata. */
   "/__browser_sync__",
   /**
-   * read, webpack-dev-server 6.0.0, which mounts its own surface here: the
-   * file listing, `/webpack-dev-server/invalidate`, which forces a rebuild,
-   * and `/webpack-dev-server/open-editor`, which calls the same launch-editor
-   * package Vite does. The subtree match below takes all three.
+   * read, webpack-dev-server 6.0.0: the file listing,
+   * `/webpack-dev-server/invalidate` (forces a rebuild) and
+   * `/webpack-dev-server/open-editor` (launch-editor again). The subtree match
+   * covers all three.
    */
   "/webpack-dev-server",
   /** reported: Rails Web Console, an interactive server-side REPL. */
@@ -345,75 +308,37 @@ export const DEV_CONTROL_ROUTES: readonly string[] = [
 ];
 
 /**
- * Namespaces a tool mounts its whole development surface under.
- *
- * Next 16.3.1 answers at least `__nextjs_launch-editor`,
- * `__nextjs_original-stack-frame`, `__nextjs_original-stack-frames`,
+ * Namespaces a tool mounts its whole dev surface under. Next 16.3.1 answers
+ * `__nextjs_launch-editor`, `__nextjs_original-stack-frame(s)`,
  * `__nextjs_source-map`, `__nextjs_error_feedback` and
- * `__nextjs_attach-nodejs-inspector`, which is a debugger for the process
- * serving the app. Listing them one by one would be a list to keep up with
- * and a hole every time a version adds one, and none of them is the app, so
- * the namespace goes rather than its members. What a viewer loses is the
- * error overlay's source mapping, which is the sharer's tool and not theirs.
+ * `__nextjs_attach-nodejs-inspector` (a debugger for the serving process), and
+ * versions add more, so the namespace goes. Viewers lose only the overlay's
+ * source mapping.
  */
 export const DEV_CONTROL_PREFIXES: readonly string[] = [
   /** read, Next 16.3.1. Its app assets sit at `/_next/` and stay allowed. */
   "/__nextjs_",
-  /**
-   * read, Nuxt DevTools 4.0.0-alpha.16. Nuxt's own bundle is at `/_nuxt/`,
-   * one underscore and a different prefix, so the app is untouched.
-   */
+  /** read, Nuxt DevTools 4.0.0-alpha.16. Nuxt's bundle is at `/_nuxt/`, a different prefix. */
   "/__nuxt_devtools__",
   /**
-   * read, Parcel 2.16.4: `__parcel_launch_editor` reads a `file` parameter
-   * and calls the same launch-editor code Vite does. Beside it sit
-   * `__parcel_source_map`, `__parcel_source_root` and `__parcel_code_frame`,
-   * which serve source, and the HMR and health routes, which a viewer has no
-   * use for: their live-reload socket is already refused.
+   * read, Parcel 2.16.4: `__parcel_launch_editor` takes a `file` and calls
+   * launch-editor. Its source-map, source-root, code-frame, HMR and health
+   * routes serve source or are useless to a viewer.
    */
   "/__parcel_",
 ];
 
 /**
- * Query keys that turn an ordinary path into a control channel.
- *
- * Everything above reads paths, which is the shape almost every dev tool
- * takes. Werkzeug, under Flask, is the exception worth carrying: its
- * interactive debugger hangs off whichever path raised the error and takes
- * its commands in the query string, so no path rule can see it coming.
- * Reported by review rather than read here.
+ * Query keys that turn an ordinary path into a control channel. Werkzeug's
+ * debugger (Flask) hangs off whichever path raised the error and takes commands
+ * in the query, so no path rule sees it. Reported, not read here.
  */
 export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
 
 /**
- * Every spelling of a path this code must consider, because the dev server
- * behind the proxy does its own matching and does not agree with a plain
- * string compare.
- *
- * Measured: Vite 8.2.2 answers `/__OPEN-IN-EDITOR` from the same middleware
- * as the lowercase one, so a case-sensitive list let a viewer reach the
- * editor launcher. Case is the confirmed gap; the rest of this is the same
- * class, closed while it is open. `//a`, `/./a` and `/x/../a` did not reach
- * Vite's route, but another server is free to normalize before it matches,
- * and refusing a path the app never had costs nothing.
- *
- * Decoding once, not repeatedly: a server that decodes twice is its own
- * bug, and looping here would refuse paths that legitimately contain an
- * encoded percent.
- *
- * A backslash is a slash. Node's own parsers, legacy `url.parse` and the
- * WHATWG `URL` both, turn `/foo\..\x` into `/foo/../x` and the second into
- * `/x`, so a server that reaches for either sees a path this code would not
- * have, unless it looks the same way. Found in a reviewer's probe.
- */
-/**
- * The one reading of a path that says what will actually be served.
- *
- * {@link spellings} exists to refuse: it lists every way a dev server might
- * read a path so that any dangerous reading wins. That bias inverts when the
- * question is whether to *allow*, where the most permissive reading would
- * win instead, and the raw form is always the most permissive one. So an
- * allow decision is made here, on the settled path, and nowhere else.
+ * The one reading that says what will be served. {@link spellings} is for
+ * refusing, where any dangerous reading should win; for allowing, the most
+ * permissive reading would win, so allow decisions use this settled path only.
  */
 function canonical(path: string): string {
   let form = path;
@@ -427,6 +352,16 @@ function canonical(path: string): string {
   return posix.normalize(form.replaceAll("\\", "/").replace(/\/{2,}/g, "/"));
 }
 
+/**
+ * Every spelling of a path to consider, since the dev server does its own
+ * matching. Vite 8.2.2 answers `/__OPEN-IN-EDITOR` like the lowercase one, so
+ * case is the confirmed gap; `//a`, `/./a` and `/x/../a` are the same class,
+ * closed because refusing a path the app never had costs nothing.
+ *
+ * Decoded once: decoding in a loop would refuse paths that legitimately contain
+ * an encoded percent. A backslash is a slash, since both of Node's URL parsers
+ * read `/foo\..\x` as `/x`.
+ */
 function spellings(path: string): string[] {
   const seen = new Set<string>();
 
@@ -457,11 +392,7 @@ function spellings(path: string): string[] {
   return [...seen];
 }
 
-/**
- * Whether a request asks for one of those, given the url as the server
- * received it. It takes the whole url rather than the path, because one of
- * these hides in the query.
- */
+/** Takes the whole url, not the path, because one of these hides in the query. */
 export function isDevControlRequest(url: string): boolean {
   const [rawPath = "/", query] = url.split("?", 2);
 
@@ -479,21 +410,15 @@ export function isDevControlRequest(url: string): boolean {
   return DEV_CONTROL_QUERY_KEYS.some((key) => keys.has(key) || keys.has(key.toUpperCase()));
 }
 
-/** Where file previews are served, the same prefix the server mounts them under. */
 /**
- * Whether a path reaches for something hidden.
+ * Whether a path reaches for something hidden. A leading dot usually means
+ * credentials (`.env`, `.git`, `.ssh`, `.aws`), so it's refused whatever the
+ * reach and never offered for Allow.
  *
- * A leading dot names credentials far more often than it names an asset:
- * `.env`, `.git`, `.ssh`, `.aws`. Refused for viewers whatever the reach,
- * and never offered as something to allow, because it is not a choice the
- * sharer should be able to make by clicking once.
- *
- * The rule stops at `node_modules`, and it has to. Dot directories are how a
- * dev server hands over its dependencies: eight of the demo app's
- * twenty-two files are `node_modules/.vite/deps/...` or `node_modules/.pnpm/...`,
- * so refusing every dot segment would break every Vite app it was meant to
- * protect. Anything climbing back out of `node_modules` is caught by the
- * normalised spelling.
+ * Stops at `node_modules`: dev servers serve dependencies from dot directories
+ * (eight of the demo app's twenty-two files are under `node_modules/.vite/deps`
+ * or `.pnpm`). Climbing back out of `node_modules` is caught by the normalised
+ * spelling.
  */
 export function isHiddenPath(path: string): boolean {
   return spellings(path).some((form) => {
@@ -502,9 +427,8 @@ export function isHiddenPath(path: string): boolean {
 
     return segments.some((segment, at) => {
       if (!segment.startsWith(".") || segment === "." || segment === "..") return false;
-      // The carve-out is for the dot *directories* a dev server serves
-      // from, never for a dotfile that happens to sit under one: a package
-      // carrying its own `.env` is still a `.env`.
+      // Only dot directories are exempt, never a dotfile under one: a package's
+      // own `.env` is still a `.env`.
       const last = at === segments.length - 1;
 
       return last || !(modules >= 0 && at > modules);
@@ -512,6 +436,7 @@ export function isHiddenPath(path: string): boolean {
   });
 }
 
+/** Where file previews are served, the same prefix the server mounts them under. */
 const FILES_PREFIX_PATH = "/leglas/files/";
 
 /** How long a detection of tunnel programs stands before the next ask looks again. */
@@ -622,9 +547,8 @@ function manifestFrom(
     return { ok: false, error: "The route list must be an array of paths." };
   }
 
-  // Only paths, and only ones that could be asked for: a route that does not
-  // begin with a slash can never match a request, so it is a mistake worth
-  // naming rather than dead weight in the list.
+  // Only paths that could be asked for: a route without a leading slash never
+  // matches, so it's reported as a mistake.
   const routes = [...new Set((value.routes ?? []).map((route) => route.split("?", 1)[0] ?? ""))]
     .filter((route) => route !== "")
     .slice(0, 400);
@@ -633,8 +557,8 @@ function manifestFrom(
     return { ok: false, error: "Every route must be a path beginning with a slash." };
   }
 
-  // The shared directions themselves are always in: a share whose own pages
-  // are refused is not a share.
+  // The shared directions are always in; a share that refuses its own pages
+  // isn't one.
   const own = titles.flatMap((title) => {
     const url = byTitle.get(title)?.url;
 
@@ -648,14 +572,11 @@ function manifestFrom(
 }
 
 /**
- * Find the grant a token names, in constant time across the live ones.
- *
- * The candidate is compared as it was written rather than as it decodes.
- * `Buffer.from(x, "base64url")` drops characters it does not recognise, so
- * decoding first would make a token stand for a family of spellings instead
- * of itself: a trailing invalid character would decode to the same bytes and
- * match. Every grant is compared and none exits early, so the loop tells a
- * caller nothing about how many links exist or which one they hit.
+ * Finds the grant a token names, in constant time across live grants. Compared
+ * as written, not decoded: base64url decoding drops unknown characters, so a
+ * token with a stray trailing character would match. Every grant is compared
+ * with no early exit, so timing reveals nothing about which or how many links
+ * exist.
  */
 function matchOne(candidate: string, grants: Iterable<Grant>): Grant | null {
   const received = Buffer.from(candidate, "utf8");
@@ -682,12 +603,10 @@ function endedGrantFor(share: ActiveShare, candidate: string): Grant | null {
 }
 
 /**
- * Whether a link is over, read from two clocks with the earlier winning.
- *
- * A suspended process wakes with a correct wall clock and a monotonic one
- * that under-counted the sleep, so the wall clock is what expires a link
- * across a closed laptop. A wall clock dragged backwards by a correction
- * loses to the monotonic one. Neither can extend a link on its own.
+ * Whether a link is over, by two clocks with the earlier winning. After sleep
+ * the wall clock is right and the monotonic one under-counts, so the wall clock
+ * expires links across a closed laptop; a wall clock dragged backwards loses to
+ * the monotonic one. Neither alone can extend a link.
  */
 function expired(grant: Grant, now: number, nowMono: bigint): boolean {
   return now >= grant.expiresAt || nowMono >= grant.expiresAtMono;
@@ -723,9 +642,8 @@ function publicOrigin(req: http.IncomingMessage): string {
 }
 
 /**
- * Whether a request came through a tunnel rather than straight to the
- * listener from this machine. cloudflared and ngrok both name the real
- * client; a sharer opening their own local link names nobody.
+ * Whether a request came through a tunnel: cloudflared and ngrok name the real
+ * client, and a sharer opening their own local link names nobody.
  */
 function throughTunnel(req: http.IncomingMessage): boolean {
   return (
@@ -833,17 +751,16 @@ function closeListener(share: ActiveShare): Promise<void> {
 }
 
 /**
- * Own the one active share. The second listener supplies the security fact:
- * once a request arrives here it is a viewer, even though its peer is local.
+ * Owns the one active share. Arriving on the second listener is what makes a
+ * request a viewer, even with a local peer.
  */
 export function createShareManager(options: ShareManagerOptions): ShareManager {
   const detect = options.detectTunnels ?? detectTunnels;
   const runTunnel = options.startTunnel ?? startTunnel;
   const now = options.now ?? Date.now;
   /**
-   * A clock that cannot be moved. `hrtime` does not advance while the
-   * machine sleeps, which is exactly why it is paired with the wall clock
-   * rather than trusted alone.
+   * `hrtime` doesn't advance while the machine sleeps, which is why it's paired
+   * with the wall clock.
    */
   const nowMono = options.nowMono ?? process.hrtime.bigint;
   const deadlineMs = options.viewerDeadlineMs ?? VIEWER_DEADLINE_MS;
@@ -851,21 +768,18 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   let active: ActiveShare | null = null;
   let creating = false;
   /**
-   * Bumped by every stop. A create reads it before it starts and again once
-   * it holds a listener, because the two are separated by reading previews,
-   * looking for tunnel programs and binding a port, and a stop arriving in
-   * there used to find `active` still null, answer that it had stopped and
-   * leave the share to come up behind it. Same shape as the `closed` check
-   * below it: the work that finished last is the work that undoes itself.
+   * Bumped by every stop. A create reads it before starting and again once it
+   * holds a listener: a stop in between (while reading previews, finding
+   * tunnels, binding a port) must not report success and leave the share to
+   * come up behind it. Same shape as `closed` below.
    */
   let stops = 0;
   let closed = false;
   let stopPromise: Promise<void> | null = null;
   let detectedAt = 0;
 
-  // Looked up again after a little while rather than once for the server's
-  // life: the panel tells people to install cloudflared or ngrok, and it
-  // has to notice when they do.
+  // Looked up again after a while, since the panel tells people to install
+  // cloudflared or ngrok and should notice when they do.
   const tunnels = (): Promise<TunnelProviderId[]> => {
     if (detected === null || Date.now() - detectedAt > DETECT_TTL_MS) {
       detectedAt = Date.now();
@@ -911,13 +825,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   const status = (): ShareStatus | null => (active === null ? null : snapshot(active));
 
   /**
-   * End one link and let go of everything it is holding.
-   *
-   * Its sockets go, and so do the proxied requests still running under it. A
-   * server-sent events stream is an ordinary GET that never finishes, so
-   * letting in-flight responses run to completion would leave somebody who
-   * was cut off still receiving. The tombstone is what lets the next request
-   * on that token be told which of the two things happened to it.
+   * Ends one link and releases what it holds: its sockets and the proxied
+   * requests running under it, since an SSE stream would otherwise keep
+   * delivering after the cut. The tombstone lets the next request on that token
+   * be told which ending it was.
    */
   const endGrant = (share: ActiveShare, grant: Grant, why: "expiry" | "revoke"): void => {
     if (!share.grants.delete(grant.id)) return;
@@ -938,8 +849,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     share.grantRequests.delete(grant.id);
 
-    // Whoever was waiting for a slot under this link gets the same sentence
-    // a live request would, rather than a dropped connection.
+    // Requests waiting under this link get the same answer a live one would,
+    // not a dropped connection.
     for (const held of Array.from(share.waiting.get(grant.id) ?? [])) {
       if (held.drop()) refuse(held.req, held.res, why);
     }
@@ -951,11 +862,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Drop whatever has run out, then ask again when the next one is due.
-   *
-   * The timer only makes the end prompt. Whether a link is over is a
-   * question about the clock, asked wherever work begins, because a
-   * suspended process can wake long past a timer that never fired.
+   * Drops whatever has run out and schedules the next check. The timer only
+   * makes the end prompt; expiry is checked against the clock wherever work
+   * begins, since a suspended process can wake long past a timer that never
+   * fired.
    */
   const sweepExpiry = (): void => {
     const share = active;
@@ -993,8 +903,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   /** A fresh link, its deadline written on both clocks at once. */
   const mintGrant = (share: ActiveShare, name: string): Grant => {
     let token = randomBytes(24).toString("base64url");
-    // Unique is an invariant, not a probability: a repeat would leave one
-    // token valid through a second grant after the first was revoked.
+    // Uniqueness is an invariant, not a probability: a repeat would keep a
+    // revoked token valid through another grant.
     const taken = new Set([...share.grants.values(), ...share.tombstones].map((g) => g.token));
 
     while (taken.has(token)) token = randomBytes(24).toString("base64url");
@@ -1018,13 +928,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Which link a token names, and whether it still stands.
-   *
-   * A token that no live link answers to may still be one that has ended,
-   * and those are two different sentences for the viewer: a link that lapsed
-   * can be replaced, one that was turned off will not come back. Anything
-   * else is simply not a link here, and says so without confirming whether
-   * it ever was.
+   * Which link a token names and whether it stands. An ended link gets its own
+   * answer (a lapsed one can be replaced, a revoked one won't come back);
+   * anything else is not a link here, without saying whether it ever was.
    */
   const resolve = (
     share: ActiveShare,
@@ -1048,10 +954,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Give free slots to whoever is next, one link at a time.
-   *
-   * Round robin rather than one queue, so a link that arrived with a
-   * hundred requests cannot hold the door shut on a link with one.
+   * Gives free slots to whoever is next, one link at a time, so a link with a
+   * hundred requests can't block a link with one.
    */
   const pump = (share: ActiveShare): void => {
     while (share.running < VIEWER_CONCURRENCY && share.rota.length > 0) {
@@ -1066,8 +970,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         continue;
       }
 
-      // Taking it out of the queue is the queue's own job, including
-      // tidying this link away once it holds nothing.
+      // The queue removes it, and tidies the link away once it's empty.
       next.drop();
       const turn = share.rota.indexOf(grantId);
 
@@ -1076,18 +979,15 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
         share.rota.push(grantId);
       }
 
-      // Whether a request still has time is a question about the clock,
-      // asked here rather than left to a timer. When a whole queue runs out
-      // at once, each request freed by the one ahead of it would otherwise
-      // be handed a slot it has no budget left to use, and be destroyed a
-      // moment later instead of being told why.
+      // Checked against the clock here, not left to a timer: when a whole queue
+      // runs out at once, each request freed by the one ahead would otherwise
+      // get a slot with no budget left and be destroyed without a reason.
       if (Date.now() >= next.spentAt) {
         next.shed();
         continue;
       }
 
-      // Asked again here rather than trusted from arrival: a link revoked
-      // while this waited must not be given work now.
+      // Checked again: a link revoked while this waited must not get work now.
       if (!share.grants.has(grantId)) {
         refuse(next.req, next.res, "revoke");
         continue;
@@ -1098,14 +998,10 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Put one viewer request through the ceiling.
-   *
-   * The slot is held until the response begins, not until it ends. Routing
-   * and compiling is the part that costs the dev server, and it is over when
-   * the headers arrive; what streams afterwards is not its work. Holding to
-   * `finish` would also deadlock the share on any app using server-sent
-   * events, where twelve streams that never end would take every slot and
-   * keep it.
+   * Puts one viewer request through the ceiling. The slot is held until the
+   * response starts, not ends: routing and compiling are the dev server's cost,
+   * and holding to `finish` would let twelve SSE streams take every slot for
+   * good.
    */
   const admit = (
     share: ActiveShare,
@@ -1131,19 +1027,14 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       sendJson(res, 503, { ok: false, error: "The dev server is busy. Try again." });
     };
 
-    /**
-     * One budget for both waits, armed on arrival and disarmed when the
-     * response begins: a viewer does not care whether the time went on
-     * waiting for a slot or on the dev server thinking.
-     */
+    /** One budget for both waits, armed on arrival and disarmed when the response starts. */
     const deadline = setTimeout(() => {
       if (over) return;
       const waited = held.drop();
 
       if (running) {
         // Destroying the response aborts the request upstream through the
-        // proxy's own close handling, so the slot is given back to somebody
-        // who can use it rather than to a request still running.
+        // proxy's close handling, so the slot goes to someone who can use it.
         over = true;
         res.destroy();
         release();
@@ -1169,8 +1060,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     const start = (): void => {
       running = true;
       share.running += 1;
-      // No event says "the response began", so the call that begins it says
-      // so. The proxy always writes its head before any body.
+      // No event marks the response starting, so the call that starts it does.
+      // The proxy always writes its head before any body.
       const writeHead = res.writeHead.bind(res);
       // SAFETY: Both Node overloads forward their unchanged arguments and return the bound method result.
       res.writeHead = ((...args: Parameters<typeof writeHead>) => {
@@ -1213,15 +1104,14 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     share.waiting.set(grant.id, queue);
 
     if (!share.rota.includes(grant.id)) share.rota.push(grant.id);
-    // Synchronous, so a free slot starts the request in this same tick and
-    // the queue is only ever a queue when there is something to wait for.
+    // Synchronous, so a free slot starts the request this tick and the queue
+    // only holds what has to wait.
     pump(share);
 
     if (!queued) return;
 
-    // A viewer who closed the tab must not be given a slot later. Revoking a
-    // link answers what it left waiting the same way, so this is also where
-    // that request stops holding a budget nobody is going to spend.
+    // A viewer who closed the tab must not get a slot later. Revoking answers
+    // waiting requests the same way, so this also releases the budget.
     res.once("close", () => {
       held.drop();
 
@@ -1273,8 +1163,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       });
     }
 
-    // A GET that opens an editor is still a write, and the dev server will
-    // happily perform one. Refused before the proxy sees it.
+    // A GET that opens an editor is still a write, so it's refused before the
+    // proxy sees it.
     if (isDevControlRequest(req.url ?? "/")) {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
@@ -1283,43 +1173,30 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
 
-    // A service worker outlives the share: it stays registered on the tunnel
-    // origin, serves from its own cache once the link is stopped, and makes
-    // fetches of its own. Nothing a viewer needs for a design review, so the
-    // registration is refused rather than cleaned up afterwards. The browser
-    // sets this destination and script cannot, which is what makes it a
-    // usable signal here.
+    // A service worker outlives the share: it stays on the tunnel origin,
+    // serves its cache after the link stops and makes its own fetches.
+    // Registration is refused. Script can't set this destination, so the signal
+    // is trustworthy.
     if (req.headers["sec-fetch-dest"] === "serviceworker") {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
 
-    // Everything Leglas serves itself is the interface, which a viewer needs
-    // in order to be a viewer at all. The list is about the app behind it.
     const url = req.url ?? "/";
 
-    // Everything Leglas serves itself is the interface, which a viewer needs
-    // in order to be a viewer at all, so it skips the list and the ceiling
-    // alike.
-    //
-    // Exempting is the opposite question to refusing, and it takes the
-    // opposite quantifier. Refusing needs one dangerous reading of a path;
-    // exempting needs every reading to be safe, or the readings that are
-    // not carry the exemption with them. Asking only the settled path was
-    // the same mistake in a new place: "//leglas/x" settles inside the
-    // interface, so it was exempted here, while the server's own routing
-    // reads the raw path, does not recognise it and proxies it to the dev
-    // server. Requiring every spelling includes the raw one, which is the
-    // reading the dispatcher actually uses, so the two cannot disagree.
+    // The interface skips the list and the ceiling. Exempting takes the
+    // opposite quantifier to refusing: every reading must be safe. Checking
+    // only the settled path would exempt "//leglas/x" while the router reads the
+    // raw path and proxies it to the dev server; requiring every spelling
+    // includes the raw one, so the two can't disagree.
     const interfaceOwn = spellings(path).every(
       (form) => form === OWN_PREFIX || form.startsWith(`${OWN_PREFIX}/`),
     );
 
     if (share.reach === "listed" && !interfaceOwn && !routeAllowed(share.routes, url)) {
-      // Remembered so the sharer can see what their app wanted and let it
-      // in, because no list written in advance survives a lazy chunk. The
-      // settled path, since this is what "Allow" will add to the list and
-      // the list is read the same way: a raw spelling would be a string the
-      // viewer chose, and allowing it would let nothing through.
+      // Remembered so the sharer can Allow what their app wanted, since a lazy
+      // chunk defeats any list written in advance. The settled path, because
+      // that's what Allow adds and how the list reads; a raw spelling would be
+      // viewer-chosen and let nothing through.
       const asked = canonical(url.split("?", 1)[0] ?? "/");
 
       if (!share.refused.includes(asked)) {
@@ -1332,13 +1209,11 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return sendJson(res, 403, { ok: false, error: "Not shared." });
     }
 
-    // Counted as running only once it actually runs, so that a request still
-    // waiting for a slot belongs to the queue alone. Revoking a link cuts
-    // the two in different ways: what is running is destroyed mid-response,
-    // what is waiting is told why.
+    // Counted as running only once it runs, so a waiting request belongs to the
+    // queue alone. Revoking destroys running responses and answers waiting
+    // ones.
     const run = (): void => {
-      // Held so revoking this link can cut a response that never ends on its
-      // own, and let go however the response finishes.
+      // Held so revoking can cut a response that never ends on its own.
       const held = { req, res };
       const inFlight = share.grantRequests.get(grant.id) ?? new Set();
       inFlight.add(held);
@@ -1356,9 +1231,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
     };
 
-    // The interface is not the dev server, so it is never counted and never
-    // made to wait. Same settled path as the list uses, so a request cannot
-    // dodge the ceiling by wearing the interface's prefix either.
+    // The interface isn't the dev server, so it's never counted or queued. The
+    // same every-spelling check as above, so borrowing the prefix doesn't dodge
+    // the ceiling.
     if (interfaceOwn) return run();
     admit(share, grant, req, res, run);
   };
@@ -1382,9 +1257,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     }
 
     const grant = found.grant;
-    // Only the interface's own socket. An app's live-reload socket is a
-    // two-way channel into the dev server, which is a write by another
-    // name; a viewer refreshes to see a change instead.
+    // Only the interface's socket. An app's live-reload socket is a two-way
+    // channel into the dev server; viewers refresh instead.
     const path = (req.url ?? "/").split("?")[0] ?? "/";
 
     if (path !== LIVE_PATH) {
@@ -1393,25 +1267,21 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return;
     }
 
-    // Somebody reaching the socket through the tunnel is the one proof the
-    // link answers that no probe from this machine can beat. A socket from
-    // this machine (the sharer opening their own local link) proves nothing.
+    // A socket arriving through the tunnel proves the link works better than
+    // any local probe. One from this machine proves nothing.
     if (throughTunnel(req)) share.runningTunnel?.settle();
 
     if (!options.upgrade(req, socket, head)) return;
-    // The count belongs to the link, so the panel can say which one is being
-    // watched. Tracked here rather than in the live hub, which has no
-    // business knowing what a grant is.
+    // Counted per link so the panel can say which is being watched. Kept here
+    // because the live hub knows nothing of grants.
     const held = share.grantSockets.get(grant.id) ?? new Set<Duplex>();
     held.add(socket);
     share.grantSockets.set(grant.id, held);
     grant.viewers += 1;
     options.live.nudge("share");
-    // Three ways a socket goes, and `close` is not always one of them: a
-    // viewer whose browser drops the connection can leave an `error` and an
-    // `end` with no `close` behind them, which would have left the panel
-    // counting somebody who is gone for as long as the share ran. The live
-    // hub lets go on the same three, so this follows it.
+    // A dropped connection can end in `error` and `end` with no `close`, which
+    // would leave the panel counting a viewer who is gone. The live hub
+    // releases on the same three.
     let gone = false;
 
     const letGo = (): void => {
@@ -1478,8 +1348,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       try {
         port = await bind(server);
       } catch (error) {
-        // Out of descriptors, or a loopback that will not bind: an answer,
-        // never an unhandled rejection taking the proxy down with it.
+        // Out of descriptors or no loopback bind: an answer, never an unhandled
+        // rejection that takes the proxy down.
         return {
           ok: false,
           status: 500,
@@ -1497,8 +1367,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       }
 
       if (stops !== stopsAtStart) {
-        // Somebody asked to stop while this was still finding a port. They
-        // are owed the share not existing, so it does not.
+        // A stop arrived while this was finding a port, so the share must not
+        // exist.
         await new Promise<void>((resolve) => server.close(() => resolve()));
 
         return { ok: false, status: 409, error: "Sharing was stopped while it was starting." };
@@ -1540,8 +1410,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
           share.runningTunnel = runTunnel({
             provider,
             port,
-            // Whichever link exists when the tunnel starts: the probe only
-            // needs a path the listener answers, and a share always has one.
+            // Whichever link exists when the tunnel starts; a share always has
+            // one, and the probe only needs a path the listener answers.
             entryPath: `${ENTRY_PREFIX}${Array.from(share.grants.values())[0]?.token ?? ""}`,
             onState: (next) => {
               if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;
@@ -1588,11 +1458,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Cut one link without disturbing the others.
-   *
-   * What it cannot reach is worth knowing: a page already rendered, the
-   * browser's cache and its back-forward cache are all beyond this. Revoke
-   * stops what has not been served yet, which is the promise it can keep.
+   * Cuts one link without touching the others. It can't reach a rendered page
+   * or the browser's caches; it stops what hasn't been served yet.
    */
   const revokeGrant = (input: JsonValue | undefined): ShareResult => {
     const share = active;
@@ -1610,10 +1477,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Push one link's deadline out again, to a new absolute time rather than
-   * by an amount, so repeated clicks cannot walk it into next week unnoticed.
-   * Only a live link: an ended one is ended, and the answer to that is a new
-   * link, which the sharer has to send anyway.
+   * Pushes one link's deadline to a new absolute time, not by an amount, so
+   * repeated clicks can't walk it into next week. Live links only; an ended
+   * link needs a new one.
    */
   const extendGrant = (input: JsonValue | undefined): ShareResult => {
     const share = active;
@@ -1637,9 +1503,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * For a leak the sharer cannot place: every link ends and the tunnel is
-   * replaced, so the origin changes too and no copy of any old address
-   * reaches anything.
+   * For a leak the sharer can't place: every link ends and the tunnel is
+   * replaced, so the origin changes too.
    */
   const rotate = async (): Promise<ShareResult> => {
     const share = active;
@@ -1679,12 +1544,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * Let a path through that `listed` turned away.
-   *
-   * A trailing slash means everything beneath it, which is what a bundler's
-   * asset directory wants; anything else is the one path. The refusal it
-   * answers leaves the list of what was turned away, so the panel empties as
-   * the sharer works through it.
+   * Lets through a path `listed` refused: a trailing slash for everything
+   * beneath it, else the one path. The refusal leaves the list, so the panel
+   * empties as the sharer works through it.
    */
   const allowRoute = (input: JsonValue | undefined): ShareResult => {
     const share = active;
@@ -1696,11 +1558,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return { ok: false, status: 400, error: "A route is a path beginning with a slash." };
     }
 
-    // Whether this means the path or everything beneath it travels with the
-    // request, not on a trailing slash. The list reads a trailing slash as
-    // "everything beneath", and a refusal for a directory index ends in one,
-    // so Allow beside it would otherwise hand the list the folder button's
-    // meaning without the folder button's label.
+    // Path or subtree travels with the request, not on a trailing slash, since
+    // a refused directory index ends in one and Allow would otherwise grant the
+    // subtree.
     const subtree = isJsonRecord(input) && input.subtree === true;
 
     if (subtree && given.replace(/\/+$/, "") === "") {
@@ -1744,8 +1604,7 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     share.scope = parsed.manifest.scope;
     share.titles = parsed.manifest.titles;
     share.layout = parsed.manifest.layout;
-    // Viewers read the config, not the share, so both are nudged: the
-    // sharer's panel for the status, every viewer for the rail.
+    // Viewers read the config, not the share, so both are nudged.
     options.live.nudge("share");
     options.live.nudge("config");
 
@@ -1763,11 +1622,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
 
     return {
       ...options.viewerConfig,
-      // The project id is the config's absolute path, which keys the sharer's
-      // saved layout and names their machine's directories, and the dev
-      // server's address names their network. A viewer keeps no layout and
-      // never dials the dev server, so the share's own id does the job and
-      // the address is left blank.
+      // The project id is the config's absolute path and the dev server address
+      // names the sharer's network. Viewers keep no layout and never dial the
+      // dev server, so they get the share's id and a blank address.
       project: `share:${share.id}`,
       devServer: "",
       previews: options.previewsForConfig(previews),
@@ -1778,9 +1635,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   };
 
   /**
-   * A file preview is served from its whole directory, keyed by a slug made
-   * from its title, so a viewer could ask for any mount by guessing the
-   * name. Only mounts behind directions in the share answer.
+   * A file preview serves its whole directory under a slug from its title, so a
+   * guessed slug could reach any mount. Only mounts of shared directions
+   * answer.
    */
   const fileSlugAllowed = async (slug: string, grantId: string): Promise<boolean> => {
     const share = active;

@@ -50,12 +50,7 @@ export function addNote(
   );
 }
 
-/**
- * A second thought about what a note says.
- *
- * Only the words go up. Where the note points was decided by pointing at
- * something and is the half worth keeping, so rewording never touches it.
- */
+/** Rewords a note. Only the words go up; where it points is the half worth keeping. */
 export function updateNote(
   id: string,
   note: string,

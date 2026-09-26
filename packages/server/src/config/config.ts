@@ -15,32 +15,26 @@ export type Preview = {
   /** Machine-local directions carry this through to the interface. */
   local?: boolean | undefined;
   /**
-   * A git branch to preview instead of the running dev server. Leglas creates a
-   * worktree for it and starts the app there, so the preview is a URL on
-   * another port. Undefined for the ordinary case, where the URL points at the
-   * server the user already has running.
+   * A git branch to preview instead of the running dev server. Leglas makes a
+   * worktree, starts the app there and previews it on another port.
    */
   branch?: string | undefined;
   /**
-   * A project-relative HTML file to preview instead of a URL. Leglas serves
-   * the file's directory itself, so a project with no dev server at all can
-   * still compare directions: the greenfield case. The url is filled in at
-   * boot, exactly as a branch preview's is.
+   * A project-relative HTML file to preview instead of a URL, served by Leglas
+   * itself, so a project with no dev server can still compare directions. The
+   * url is filled in at boot, as for a branch.
    */
   file?: string | undefined;
   /**
-   * The title of the direction this preview is a variant of. The rail groups a
-   * direction with its variants and a variant's default comparison is its parent.
-   * Purely descriptive: an unknown title makes the preview an ordinary root.
+   * The title of the direction this one varies. The rail groups them and the
+   * parent is the default comparison. An unknown title makes this an ordinary
+   * root.
    */
   basedOn?: string | undefined;
   /**
-   * The change that was asked for, in the words that were typed.
-   *
-   * Distinct from the note, which says what a direction is: this says what
-   * someone wanted when they asked for it. A rail of names a fortnight old is
-   * unaccountable without it, and paraphrasing it into the note loses the one
-   * thing no agent can reconstruct.
+   * The change that was asked for, in the words typed. The note says what a
+   * direction is; this says what someone wanted, which no agent can reconstruct
+   * later.
    */
   askedFor?: string | undefined;
 };
@@ -64,9 +58,9 @@ export type NormalizeResult = {
 
 export type NormalizeOptions = {
   /**
-   * The shared config must pair a branch preview with a devCommand, or the
-   * checkout cannot be started. The local previews file is validated without
-   * that coupling, because its devCommand lives in the shared config.
+   * The shared config must pair a branch preview with a devCommand. The local
+   * previews file is validated without that, since devCommand lives in the
+   * shared config.
    */
   requireDevCommand?: boolean;
 };
@@ -85,8 +79,8 @@ function isValidOrigin(value: string): boolean {
 }
 
 /**
- * Branch names become directory names under .leglas/worktrees, so anything that
- * could climb out of it or be read as a flag is refused.
+ * Branch names become directories under .leglas/worktrees, so anything that
+ * could climb out or read as a flag is refused.
  */
 function isSafeBranch(value: string): boolean {
   if (value === "" || value.startsWith("-")) return false;
@@ -97,18 +91,15 @@ function isSafeBranch(value: string): boolean {
 }
 
 /**
- * A preview URL is either root-relative (served through the proxy, same-origin
- * with the shell) or absolute (loaded directly, subject to the target's frame
- * policy). A bare "pricing" is neither and would resolve unpredictably.
+ * Root-relative (proxied, same-origin with the shell) or absolute (loaded
+ * directly, under the target's frame policy). A bare "pricing" would resolve
+ * unpredictably.
  */
 function isValidPreviewUrl(value: string): boolean {
   return value.startsWith("/") || isValidOrigin(value);
 }
 
-/**
- * A preview file is served from inside the project, so anything absolute or
- * climbing out of it is refused before it can name a file it should not.
- */
+/** Served from inside the project, so absolute or climbing paths are refused. */
 function isSafePreviewFile(value: string): boolean {
   if (value === "" || value.startsWith("/") || value.startsWith("\\")) return false;
 
@@ -118,9 +109,9 @@ function isSafePreviewFile(value: string): boolean {
 }
 
 /**
- * Validate and fill in a raw config. Collects every problem rather than
- * stopping at the first, so one run fixes the whole file, and returns a null
- * config when anything is wrong so callers cannot half-use a broken one.
+ * Validates and fills in a raw config. Collects every problem so one run fixes
+ * the whole file, and returns a null config if anything is wrong so nobody
+ * half-uses it.
  */
 export function normalizeConfig(
   raw: JsonValue | undefined,
@@ -173,8 +164,8 @@ export function normalizeConfig(
     }
 
     if (file !== undefined) {
-      // A file preview's url is Leglas's to assign at boot; declaring one too
-      // would make the entry claim two different sources.
+      // A file preview's url is assigned at boot; declaring one too would give
+      // it two sources.
       if (!isString(file) || !isSafePreviewFile(file)) {
         errors.push(
           `${at} has an unusable file ${JSON.stringify(file)}; use a path inside the project, like "directions/hero.html".`,

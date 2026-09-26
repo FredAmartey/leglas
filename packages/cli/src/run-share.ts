@@ -25,9 +25,9 @@ export type ShareDeps = {
 };
 
 /**
- * How long to wait for a tunnel's public address before handing back the
- * local one. A quick tunnel usually answers in seconds; a minute covers a
- * slow one without leaving a terminal hanging on a tunnel that failed quietly.
+ * How long to wait for a tunnel's public address before handing back the local
+ * one. Quick tunnels answer in seconds; a minute covers a slow one without
+ * hanging on one that failed quietly.
  */
 export const TUNNEL_WAIT_MS = 60_000;
 
@@ -105,10 +105,7 @@ function linkFrom(value: JsonValue): ShareLink | null {
   };
 }
 
-/**
- * The running share as the server reports it, read field by field: this
- * command can be newer or older than the Leglas it is talking to.
- */
+/** The running share, read field by field: this command can be newer or older than the server. */
 function shareFrom(value: JsonValue | undefined): ShareView | null {
   if (value === undefined || !isJsonObject(value)) return null;
   const titles = stringsOf(value.titles);
@@ -239,13 +236,9 @@ function tunnelLine(tunnel: Tunnel, installed: readonly string[]): string | null
 }
 
 /**
- * Share from the terminal what the panel shares from the interface.
- *
- * The share itself is the running Leglas's, through the same endpoints the
- * panel calls, so it carries the same refusals and the same ceiling. What a
- * terminal cannot have is the browser's own view of the rail, so the rail it
- * shares is the project's: every direction in config order, under the names
- * the interface saved.
+ * The panel's share, from the terminal, through the same endpoints, refusals
+ * and ceiling. Without the browser's view of the rail, the rail shared is the
+ * project's: config order, under the names the interface saved.
  */
 export async function runShare(
   options: ShareOptions,
@@ -368,8 +361,8 @@ export async function runShare(
   const current = running.value.share;
 
   if (current !== null) {
-    // A bare share asks for whatever is running. A named one has to match it,
-    // scope included: a rail of one direction is not that direction alone.
+    // A bare share asks for whatever is running. A named one must match it,
+    // scope included: a rail of one direction isn't that direction alone.
     const same =
       titles.length === 0 ||
       (current.scope === scope &&
@@ -416,9 +409,9 @@ export async function runShare(
 
   if (options.tunnel !== null) body.tunnel = options.tunnel;
 
-  // Once the start has been asked for, a share may exist. Failing without
-  // ending it would leave the app open to a link nobody was given, with an
-  // error saying nothing happened.
+  // Once the start was asked for, a share may exist, so failing must end it.
+  // Otherwise the app stays open to a link nobody got, with an error saying
+  // nothing happened.
   const giveUp = async (error: string, known = true) => {
     const stopped = await post(found.base, "/leglas/api/share/stop", {}, request, "");
     const what = known ? "The share it started" : "A share";
@@ -439,8 +432,7 @@ export async function runShare(
   );
 
   if (!created.ok) {
-    // No reply at all is not a refusal: the share may have been made before
-    // the connection went, so it is treated as one that exists.
+    // No reply isn't a refusal: the share may exist, so treat it as made.
     return created.answered
       ? fail(created.error)
       : giveUp("Leglas stopped answering while the share was starting.", false);

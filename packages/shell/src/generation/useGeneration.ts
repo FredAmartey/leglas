@@ -6,8 +6,8 @@ import { readGenerations } from "./generation-api.js";
 import { isRunning, type GenerationJob } from "./generation.js";
 
 /**
- * How long the read waits with no set running. A set started from the
- * command line nudges anyway; this is only the backstop.
+ * How long the read waits with no set running. A set started from the CLI
+ * nudges anyway; this is the backstop.
  */
 export const IDLE_GENERATION_MS = 60_000;
 
@@ -15,9 +15,8 @@ const NONE: readonly GenerationJob[] = [];
 
 /**
  * The sets Leglas is building or built, kept current by the server's
- * `generation` nudge, which it sends on every step of a job. Off for share
- * viewers, who cannot read the endpoint, and while the feature is switched
- * off.
+ * `generation` nudge on every step. Off for share viewers, who can't read the
+ * endpoint, and while the feature is off.
  */
 export type Generations = {
   jobs: readonly GenerationJob[];

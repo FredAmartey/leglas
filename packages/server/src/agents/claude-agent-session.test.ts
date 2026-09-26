@@ -136,9 +136,9 @@ async function nextInput(warm: FakeWarmQuery): Promise<Message> {
 
 describe("Claude Agent SDK transport", () => {
   test("a release outlasts a warm started while an earlier release was settling", async () => {
-    // warm() does not wait for a reset in flight, so one begun between two
-    // releases used to land a new process after the second release returned.
-    // The last call wins: nothing is warm once release() settles.
+    // warm() doesn't wait for a reset in flight, so one started between two
+    // releases could land a process after the second returned. The last call
+    // wins.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
@@ -163,9 +163,9 @@ describe("Claude Agent SDK transport", () => {
   });
 
   test("a warm asked for after a release began survives it", async () => {
-    // The other direction of the same race: the idle clock fires as the
-    // composer takes focus. The release started first, but the warm is the
-    // newer intent and its process is the one the coming request will use.
+    // The reverse race: the idle clock fires as the composer takes focus. The
+    // release started first, but the warm is newer and its process serves the
+    // coming request.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
@@ -185,9 +185,8 @@ describe("Claude Agent SDK transport", () => {
   });
 
   test("a released conversation is loaded into the next warm process", async () => {
-    // Without this, the first request after an idle release fell to the
-    // `claude --resume` CLI path, and every request after it did too, because
-    // the persistent process never had the session the runner kept naming.
+    // Without this, the first request after an idle release fell to the `claude
+    // --resume` CLI, and so did every one after it.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm();
@@ -257,8 +256,7 @@ describe("Claude Agent SDK transport", () => {
 
   test("a handle warmed for a session is replaced when the request starts fresh", async () => {
     // The runner starts cold after its turn cap or a failure; a process that
-    // already loaded the old conversation would carry it into what the
-    // runner believes is a clean turn.
+    // loaded the old conversation would carry it into that turn.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);
     await session.warm("claude_3");
@@ -271,8 +269,8 @@ describe("Claude Agent SDK transport", () => {
   });
 
   test("a fresh turn after a resumed conversation rotates the process", async () => {
-    // The runner starts fresh after its turn cap or a failure. A live process
-    // that resumed the old conversation must not receive that turn.
+    // After the turn cap or a failure, a live process that resumed the old
+    // conversation must not get the fresh turn.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);
 
@@ -544,8 +542,8 @@ describe("Claude Agent SDK transport", () => {
 
     const child = await running;
 
-    // Let the turn end completely, close event included, before anyone listens,
-    // which is what happens when the runner is slower than the SDK.
+    // Let the turn end completely, close included, before anyone listens, as
+    // when the runner is slower than the SDK.
     child.stdout.resume();
     await new Promise((resolve) => child.stdout.once("end", resolve));
     await new Promise((resolve) => setImmediate(resolve));

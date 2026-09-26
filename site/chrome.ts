@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * What the site's pages share: the assets read out of the tree, the design
- * tokens in both themes, the bar, the footer, and the document around them.
- * A page owns its own content and the styles for it, and nothing else.
+ * What the site's pages share: assets, design tokens in both themes, the bar,
+ * the footer and the document around them.
  */
 
 export const REPO = "https://github.com/FredAmartey/leglas";
@@ -12,13 +11,10 @@ export const REPO = "https://github.com/FredAmartey/leglas";
 export const NPM = "https://www.npmjs.com/package/leglas";
 
 /**
- * A spring (stiffness 600, damping 25, unit mass) sampled as an easing, so
- * the star's swap overshoots and settles the way a physical thing does
- * rather than easing to a stop. It reaches its target a third of the way
- * through, peaks at about 115% and is still by the end, which is what makes
- * the duration half a second while the motion reads as a quick flick.
- * Browsers without linear() drop the declaration and keep the bezier
- * declared before it.
+ * A spring (stiffness 600, damping 25, unit mass) sampled as an easing: it
+ * reaches the target a third of the way in, overshoots to about 115% and
+ * settles, so half a second reads as a quick flick. Browsers without linear()
+ * keep the bezier declared before it.
  */
 const SPRING =
   "linear(0, .108, .349, .622, .859, 1.028, 1.123, 1.155, 1.143, 1.107, 1.065, 1.027, .999, .983, .976, .977, .982, .989, .995, 1, 1.002, 1.004, 1.004, 1.003, 1)";
@@ -50,9 +46,9 @@ const SPARKLES = (cls: string | null): string =>
   );
 
 /**
- * A button that copies a prompt for the reader's agent. It wears the star
- * button's clothes, so it moves the same way, and the copy script picks it
- * up through `data-copy` like the install chip. `label` is already HTML.
+ * A button that copies a prompt for the reader's agent. It borrows the star
+ * button's styles and motion, and the copy script finds it by `data-copy`.
+ * `label` is already HTML.
  */
 export function promptButton(label: string, prompt: string): string {
   return `<button type="button" class="star prompt" data-copy="${escape(prompt)}" title="Copy a prompt for your agent"><span class="icon">${SPARKLES("from")}<span class="to">${SPARKLES(null)}${SPARK("spark-a")}${SPARK("spark-b")}</span></span><span class="label"><span class="cmd">${label}</span><span class="done">Copied</span></span></button>`;
@@ -104,10 +100,9 @@ export function loadAssets(root: string): Assets {
 }
 
 /**
- * The palette in three states: the bare root is light, the dark media query
- * applies unless the reader chose light, and an explicit dark choice wins.
- * Every colour a page uses comes from these, so a page never has to know
- * which theme it is in.
+ * The palette in three states: bare root is light, the dark media query applies
+ * unless the reader chose light, and an explicit dark choice wins. Pages only
+ * use these, so they never need to know the theme.
  */
 const DARK = `
   color-scheme:dark;
@@ -271,32 +266,20 @@ export function foot(lead: string): string {
 }
 
 /**
- * The reader's choice, applied before anything paints so the page never
- * flashes the other theme. No choice stored means the system decides, which
- * is the un-stamped state the tokens are written for.
+ * Applies the reader's choice before paint so the page never flashes the other
+ * theme. Nothing stored leaves it to the system.
  */
 const STAMP_SCRIPT = `(function(){try{var t=localStorage.getItem("leglas-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}})();`;
 
 /**
- * The switch flips between light and dark from whatever is showing now,
- * which \`color-scheme\` reports without repeating the tokens' three-state
- * logic, and remembers the result.
+ * Flips light and dark from what's showing now (read from `color-scheme`) and
+ * remembers it. The new theme opens as a circle from the button's centre out to
+ * the furthest viewport corner, measured at the click. No view transitions or
+ * reduced motion gets the flip alone. A hidden document rejects the transition,
+ * so the promise is caught to keep the rejection off the console.
  *
- * The new theme arrives as a circle opening from the switch itself, so the
- * change starts where the reader clicked and sweeps across the page at
- * whatever angle that corner implies. The origin is the button's own centre
- * and the radius is the distance to the furthest corner of the viewport,
- * both measured at the click, since a bar that moves or a window that
- * resizes would make a stored pair wrong. A browser without view
- * transitions, and a reader who asked for less motion, get the flip alone.
- * A hidden document skips the transition and rejects, which is why the
- * promise is caught: the flip itself still lands, and an unread rejection
- * would reach the console and anything listening for one.
- *
- * It also names the direction it would take you, which the markup cannot do:
- * a system-dark reader with no choice stored is offered light, and the file
- * is one document served to everybody. So the button ships undirected and
- * this is what makes it specific.
+ * The markup can't know which way the switch goes for a system-dark reader with
+ * nothing stored, so this sets its label.
  */
 const THEME_SCRIPT = `(function(){var b=document.querySelector("[data-theme-switch]");if(!b)return;var r=document.documentElement;function current(){return getComputedStyle(r).colorScheme==="dark"?"dark":"light"}function label(){b.setAttribute("aria-label",current()==="dark"?"Switch to light mode":"Switch to dark mode")}function flip(next){r.dataset.theme=next;try{localStorage.setItem("leglas-theme",next)}catch(e){}label()}b.addEventListener("click",function(){var next=current()==="dark"?"light":"dark";var box=b.getBoundingClientRect(),x=box.left+box.width/2,y=box.top+box.height/2;r.style.setProperty("--vt-x",x+"px");r.style.setProperty("--vt-y",y+"px");r.style.setProperty("--vt-r",Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+"px");if(!document.startViewTransition||matchMedia("(prefers-reduced-motion: reduce)").matches){flip(next);return}document.startViewTransition(function(){flip(next)}).ready.catch(function(){})});label();matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)})();`;
 

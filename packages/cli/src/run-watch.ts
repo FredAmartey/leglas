@@ -22,9 +22,8 @@ import { isJsonObject, type JsonValue } from "./json.js";
 export type WatchDeps = { log(line: string): void; error(line: string): void };
 
 /**
- * How often the queue is read. Deliberately a poll and not fs.watch: editors
- * and agents write files by rename, which fs.watch reports inconsistently
- * across platforms, and the queue is a handful of lines.
+ * How often the queue is read. A poll, not fs.watch: files are written by
+ * rename, which fs.watch reports inconsistently across platforms.
  */
 const POLL_MS = 2000;
 
@@ -44,9 +43,8 @@ type WatchEvent =
 
 async function saveTemplate(cwd: string, run: string): Promise<void> {
   const path = join(cwd, WATCH_PATH);
-  // The file also carries the interface's agent choice. Writing only the
-  // template here would silently erase that choice and switch the embedded
-  // runner off, so the template joins the file instead of becoming it.
+  // The file also holds the interface's agent choice, so the template joins it;
+  // overwriting would switch the embedded runner off.
   let config: { [key: string]: JsonValue } = {};
 
   try {
@@ -63,13 +61,9 @@ async function saveTemplate(cwd: string, run: string): Promise<void> {
 }
 
 /**
- * Run the agent on one prompt.
- *
- * No shell: the prompt is arbitrary text typed into a browser, and a shell
- * would read it as syntax. stdio is inherited so the agent's own output lands
- * in this terminal as it happens, which is what makes watch a thing worth
- * leaving open rather than a wrapper that hides the work. Under --json the
- * agent's stdout goes to stderr instead, so stdout carries only events.
+ * Runs the agent on one prompt. No shell, since the prompt is arbitrary browser
+ * text. stdio is inherited so the agent's output shows in this terminal as it
+ * works; under --json its stdout goes to stderr so stdout stays events only.
  */
 function spawnAgent(
   command: string,
@@ -103,15 +97,9 @@ function spawnAgent(
 }
 
 /**
- * Hand change requests to the user's own agent as they arrive.
- *
- * This is the whole live loop: the interface writes a request, watch picks it
- * up, the user's agent does the work with the user's keys and the user's model.
- * Leglas still runs no model of its own. What it adds is locality, so asking
- * for a change no longer means leaving the comparison for a terminal.
- *
- * Resolves when the watcher stops, which is what a signal does, so the caller
- * stays the same shape as every other command.
+ * Hands change requests to the user's own agent as they arrive, with the user's
+ * keys and model; Leglas runs none. Resolves when a signal stops the watcher,
+ * so the caller looks like every other command.
  */
 export async function runWatch(
   options: {
@@ -164,9 +152,8 @@ export async function runWatch(
     );
   }
 
-  // An explicit template is remembered as soon as it is known good. A
-  // synthesized command stays derived from the saved agent choice so the two
-  // representations cannot drift apart.
+  // An explicit template is saved once known good. A synthesized one stays
+  // derived from the saved agent choice so the two can't drift.
   if (options.run !== undefined) await saveTemplate(options.cwd, options.run).catch(() => {});
 
   const base = `http://localhost:${options.port ?? DEFAULT_PORT}`;
@@ -180,9 +167,8 @@ export async function runWatch(
         signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS),
       });
     } catch {
-      // Leglas may not be running, or may have bound another port. The queue is
-      // a file either way, so the loop works regardless; only the interface's
-      // "your agent is listening" depends on this landing.
+      // Leglas may be down or on another port. The queue is a file either way;
+      // only the interface's "your agent is listening" needs this.
     }
   };
 
@@ -216,8 +202,8 @@ export async function runWatch(
       if (target !== null) deps.log(`    ${target}`);
     }
 
-    // Persisted before the agent starts, so the interface stops saying the
-    // request is waiting the moment it is not.
+    // Saved before the agent starts, so the interface stops saying the request
+    // is waiting.
     await markPickedUp(options.cwd, request.id);
 
     const { command, args } = commandFor(template, request.prompt);
@@ -232,13 +218,10 @@ export async function runWatch(
       return;
     }
 
-    // Never offered again: a prompt that broke the agent will break it the
-    // same way in two seconds, and the user is the one paying for the retry.
-    // The verdict is written into the queue rather than kept in this process,
-    // so the interface can say what happened and offer to let it go, and so
-    // the next watcher does not read it as work waiting to be done. The agent
-    // owns this terminal, so the reason is whatever the outcome itself says:
-    // its output went straight to the screen above and was never captured.
+    // Never offered again: a prompt that broke the agent will break it again,
+    // at the user's cost. The verdict goes into the queue so the interface can
+    // show it and the next watcher skips it. The agent's output went straight
+    // to this terminal, so the reason is only what the outcome says.
     failed.add(request.id);
 
     const failure = classifyFailure({
@@ -260,12 +243,9 @@ export async function runWatch(
   const tick = async (): Promise<void> => {
     if (stopped) return;
 
-    // The first beat is awaited: the embedded runner backs off the moment the
-    // server registers a watcher, so the queue must not be read before that
-    // registration has had its chance. Otherwise both executors can pass the
-    // same picked-up check in the handoff window and spawn twice for one
-    // request. Later beats are freshness, not exclusion, and stay
-    // fire-and-forget; a missing server costs one timeout once.
+    // The first beat is awaited: the runner backs off once the server registers
+    // a watcher, so reading the queue before then lets both spawn for one
+    // request. Later beats are fire-and-forget.
     if (announced) {
       void heartbeat(true);
     } else {
@@ -273,8 +253,7 @@ export async function runWatch(
       announced = true;
     }
 
-    // One agent at a time, in queue order. Two of them editing one tree would
-    // produce a conflict the user has to untangle by hand.
+    // One agent at a time, in queue order, so two never edit one tree.
     if (busy) return;
     busy = true;
 
@@ -305,12 +284,11 @@ export async function runWatch(
       clearInterval(timer);
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);
-      // An agent still running shares this terminal's process group, so Ctrl-C
-      // reached it too; nothing here has to kill it. But its bookkeeping must
-      // land before this promise settles: the caller exits the process on it,
-      // and a request whose agent succeeded would otherwise be stranded as
-      // picked-up with its removal still pending. The last heartbeat is
-      // best-effort, and the window it opens closes on its own in six seconds.
+      // A running agent shares this process group, so Ctrl-C reached it too.
+      // Its bookkeeping must still land before this settles, since the caller
+      // exits on it and a successful request would be stranded as picked-up.
+      // The last heartbeat is best effort; the window it opens closes by itself
+      // in six seconds.
       void Promise.resolve(inflight)
         .catch(() => {})
         .then(() => heartbeat(false))
@@ -322,17 +300,11 @@ export async function runWatch(
 
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
-    // The signal is the programmatic Ctrl-C, and tests are its main caller.
+    // The programmatic Ctrl-C, mostly for tests.
     options.signal?.addEventListener("abort", stop, { once: true });
 
-    // A signal that fired before this listener existed is still a stop.
-    //
-    // Everything above this promise is awaited work: resolving the agent,
-    // saving the template, writing the watch file. A caller watching for one
-    // of those to land can abort inside that window, and a listener added to
-    // an already-aborted signal is never called. The loop then ran with
-    // nobody left to stop it and this promise never settled, which is a
-    // watcher that ignores Ctrl-C and a caller that waits for good.
+    // The signal may have fired during the awaited setup above, and a listener
+    // added to an aborted signal never fires.
     if (options.signal?.aborted === true) return stop();
     void tick();
   });

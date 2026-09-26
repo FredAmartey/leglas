@@ -9,13 +9,10 @@ const browserFetch: ReferenceFetcher = (input, init) => fetch(input, init);
 export type UploadedReference = { id: string; file: string };
 
 /**
- * Hand one image to Leglas, which keeps it under `.leglas/references/` until
- * a request claims it.
- *
- * The body is the file itself rather than a multipart form: one image per
- * call, its type in the content-type header, its name in a header of ours.
- * The server decides what it is from the bytes, so nothing here has to be
- * trusted, only carried.
+ * Hands one image to Leglas, which keeps it under `.leglas/references/` until a
+ * request claims it. The body is the file itself, not multipart: its type in
+ * content-type, its name in our own header. The server identifies it from the
+ * bytes, so nothing here is trusted.
  */
 export async function uploadReference(
   file: Blob & { name?: string },

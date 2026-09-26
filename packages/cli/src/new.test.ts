@@ -88,9 +88,8 @@ async function load(dir: string, name: string, source: string): Promise<Generate
 }
 
 /**
- * Run a generated switch for real. The directions beside it are stand-ins
- * that return their own name, so the result is the direction the page would
- * show.
+ * Runs a generated switch for real. The directions beside it are stand-ins that
+ * return their own name, so the result is the direction the page would show.
  */
 async function renderSwitch(writes: Write[], props: Props): Promise<Rendered | undefined> {
   const dir = emit(writes);
@@ -218,8 +217,7 @@ describe("planNew", () => {
   });
 
   // Production renders the fallback whatever the URL says, so a committed
-  // branch point cannot expose a direction. The development run is the
-  // control: the same URL does pick the direction there.
+  // branch point can't expose a direction. The development run is the control.
   test.each([
     ["Next", nextPkg, { searchParams: { "v-hero": "hero-a" } }],
     ["Vite", vitePkg, {}],
@@ -262,8 +260,8 @@ describe("planNew", () => {
     expect(switcher?.contents.match(/^export\b/gm)).toHaveLength(1);
   });
 
-  // The placeholders are what a project sees before any direction is
-  // written, and the baseline is what production always shows.
+  // The placeholders are what a project sees before any direction exists; the
+  // baseline is what production always shows.
   test.each([
     ["current", "Current"],
     ["hero-a", "HeroA"],
@@ -274,8 +272,8 @@ describe("planNew", () => {
   });
 
   test("the Vite switch compiles without vite/client or @types/node", () => {
-    // `import.meta.env` needs vite/client and bare `process` needs @types/node.
-    // Generated code has to compile in a project that installed neither.
+    // `import.meta.env` needs vite/client and bare `process` needs @types/node;
+    // generated code must compile without either.
     expect(typeErrors(plan("hero", vitePkg).writes)).toBe("");
   });
 

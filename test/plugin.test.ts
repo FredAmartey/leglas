@@ -5,16 +5,10 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { describe, expect, test } from "vitest";
 
 /**
- * The repository is an Agent Plugin as well as two npm packages, and that half
- * of it is guarded by nothing else. plugin.json and mcp.json are published by
- * being committed: no build reads them, no test imported them, and no install
- * step would fail on a typo. A client is what discovers the mistake, and the
- * spec tells it to skip an invalid component rather than complain, so the
- * plugin simply arrives with a piece missing.
- *
- * So the checks below stand in for the client. The schemas are the ones the
- * standard publishes, vendored under schemas/ because a test that reaches the
- * network fails for reasons that have nothing to do with the change under it.
+ * The repo is also an Agent Plugin, and nothing else checks that half:
+ * plugin.json and mcp.json are published by being committed, and a client skips
+ * an invalid component without complaint. The schemas are the standard's,
+ * vendored under schemas/ so the test stays off the network.
  */
 
 const root = join(import.meta.dirname, "..");
@@ -29,9 +23,8 @@ const schema = (name: string): { [key: string]: JsonValue } =>
   readJson(`schemas/agent-plugins-1.0.0/${name}.schema.json`);
 
 /**
- * strict:false because the vendored schemas are someone else's: ajv's strict
- * mode rejects perfectly legal schema constructs it considers unclear, and
- * arguing with the standard's own file is not this test's job.
+ * strict:false because ajv's strict mode rejects legal constructs in the
+ * standard's own schemas.
  */
 const validator = new Ajv2020({ strict: false, allErrors: true });
 
@@ -55,10 +48,8 @@ describe("the plugin manifests", () => {
   });
 
   /**
-   * The manifests name the version of the standard they target, and the
-   * vendored copies answer for one version only. Targeting a newer one is a
-   * real decision with real work behind it, so it should arrive as a failure
-   * here rather than as validation that quietly stopped meaning anything.
+   * The vendored schemas answer for one version, so targeting a newer one
+   * should fail here, not validate against the wrong schema.
    */
   test("both manifests target the version of the standard we vendor", () => {
     for (const [manifest, name] of [
@@ -71,11 +62,8 @@ describe("the plugin manifests", () => {
 });
 
 /**
- * Enough YAML to read one scalar, which is all this needs. The value may be
- * quoted, may carry a trailing comment, and the file may have been written on
- * a machine with CRLF endings. All three are ordinary YAML, and a parse that
- * trips on them rejects a SKILL.md that is perfectly correct, leaving whoever
- * wrote it staring at a green file and a red test.
+ * Enough YAML to read one scalar: quoted or not, with a trailing comment, with
+ * CRLF. All ordinary YAML that a correct SKILL.md may use.
  */
 function frontmatterField(source: string, field: string): string | null {
   const block = /^---\r?\n(.*?)\r?\n---/s.exec(source);
@@ -95,10 +83,8 @@ function frontmatterField(source: string, field: string): string | null {
 
 describe("the plugin's components", () => {
   /**
-   * Skills are discovered by position (§7.1): a directory under skills/ with a
-   * SKILL.md in it. Nothing imports these files, so a rename or a move takes
-   * the skill out of the plugin silently, and the skill is the whole of what
-   * an agent reads before it has run anything.
+   * Skills are found by position (§7.1): a directory under skills/ holding a
+   * SKILL.md. Nothing imports them, so a rename silently drops the skill.
    */
   test("every skill directory holds a SKILL.md naming itself", () => {
     const directories = readdirSync(join(root, "skills"), { withFileTypes: true })
@@ -112,8 +98,8 @@ describe("the plugin's components", () => {
       const where = `skills/${directory}/SKILL.md`;
 
       expect(frontmatterField(source, "name"), `${where} names a different skill`).toBe(directory);
-      // The description is what an agent matches a request against before it
-      // has opened anything, so a skill without one is a skill nothing reaches.
+      // An agent matches requests against the description, so a skill without
+      // one is never reached.
       expect(frontmatterField(source, "description") ?? "", `${where} has no description`).not.toBe(
         "",
       );
@@ -121,15 +107,11 @@ describe("the plugin's components", () => {
   });
 
   /**
-   * The server entry names a package on npm, which makes it the one reference
-   * in the repository that renaming the package cannot break locally. It
-   * breaks for everyone who installs the plugin instead.
-   *
-   * Read across command and args together, because `npx -y leglas-mcp` and a
-   * bare `leglas-mcp` are both legal spellings of the same launch. Only stdio
-   * entries carry a package name at all; if this plugin ever served the server
-   * over HTTP instead, there would be nothing here to check and this should be
-   * reconsidered rather than quietly dropped.
+   * The server entry names the npm package, so a rename breaks it for everyone
+   * who installs the plugin and nothing locally. Command and args are read
+   * together, since `npx -y leglas-mcp` and bare `leglas-mcp` are both valid.
+   * Only stdio entries name a package; revisit this if the server moves to
+   * HTTP.
    */
   test("mcp.json launches the package this repository publishes", () => {
     type Server = { type: string; command?: string; args?: string[] };
@@ -146,10 +128,8 @@ describe("the plugin's components", () => {
   });
 
   /**
-   * publish.yml refuses a tag that disagrees with any of these, so they have to
-   * match by the time a release runs. Catching the drift here means finding it
-   * in the pull request that caused it rather than against a pushed tag, where
-   * the fix is a new tag.
+   * publish.yml refuses a tag that disagrees with these; catching it here costs
+   * a commit, not a new tag.
    */
   test("the plugin version matches both published packages", () => {
     const declared = readJson("plugin.json")["version"];

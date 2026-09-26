@@ -1,24 +1,20 @@
 import type { UpdateStatus } from "../types.js";
 
 /**
- * What the update panel says, worked out from the server's status and the
- * interface's own side of a restart.
- *
- * The server knows the versions, how Leglas was installed and how far an
- * install has got. It cannot know that it has gone: once it restarts, the
- * interface is alone with a port that stops answering, so the waiting, the
- * reload and the giving up are the interface's to hold, and they live here
- * as `Wait` beside the status rather than inside it.
+ * What the update panel says, from the server's status and the interface's side
+ * of a restart. Once the server restarts, the interface is alone with a port
+ * that stops answering, so waiting, reloading and giving up live here as
+ * `Wait`.
  */
 
 /** How long the interface waits for a restarted Leglas before giving up on it. */
 export const RESTART_WAIT_MS = 90_000;
 
 /**
- * How long a read may keep failing during an install before the interface
- * concludes the server is gone. A package install runs while the old server
- * still answers, for up to five minutes, so a read lost to a sleeping laptop
- * or a flaky proxy in that window must not start the short countdown above.
+ * How long reads may keep failing during an install before the server counts as
+ * gone. An install runs up to five minutes while the old server still answers,
+ * so a read lost to a sleeping laptop or a flaky proxy mustn't start the short
+ * countdown.
  */
 export const INSTALL_WAIT_MS = 6 * 60_000;
 
@@ -26,8 +22,8 @@ export const INSTALL_WAIT_MS = 6 * 60_000;
 export const CHANGELOG_URL = "https://leglas.vercel.app/changelog/";
 
 /**
- * Carried across the reload in sessionStorage, so the restarted interface
- * can say the update landed rather than opening as if nothing happened.
+ * Carried across the reload in sessionStorage, so the restarted interface can
+ * say the update landed.
  */
 export const UPDATED_KEY = "leglas:updated";
 

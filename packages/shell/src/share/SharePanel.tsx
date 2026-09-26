@@ -67,10 +67,7 @@ function PlusGlyph() {
   );
 }
 
-/**
- * One of the two things a share can be, drawn as a radio row: what it is on
- * the first line, what that comes to on the second.
- */
+/** One of the two share scopes as a radio row: what it is, then what it amounts to. */
 function ScopeRow({
   checked,
   detail,
@@ -258,14 +255,10 @@ function ShareSetup({
   );
 }
 
-/** During a share: the link, whether it answers, who is looking, update or stop. */
 /**
- * One link, as a row: what it is called and who is on it, then the address
- * with what can be done to it.
- *
- * The actions sit under the pointer rather than in the row's width, because
- * a share can hold sixteen of these and a panel is 368px wide. The rail's
- * rows do the same, so the gesture is one the user already has.
+ * One link as a row: its name and who's on it, then the address and its
+ * actions. Actions appear under the pointer, since a share can hold sixteen
+ * links in a 368px panel; rail rows do the same.
  */
 function GrantRow({
   busy,
@@ -296,10 +289,8 @@ function GrantRow({
   return (
     <li className="group relative flex h-8 items-center gap-2 rounded-md px-2 transition-colors hover:bg-white/[0.04]">
       <span className="min-w-0 flex-1 truncate text-xs text-[#D1D5DB]">{label}</span>
-      {/* The state gives way to the actions, so a row stays one line and
-          nothing shares its width with buttons that are only wanted under
-          the pointer. Every link on a share carries the same host, so the
-          address is said once above the list rather than sixteen times. */}
+      {/* The state gives way to the actions, so a row stays one line. Every
+          link shares the host, so the address is said once above the list. */}
       <span
         className={`shrink-0 text-[10px] group-hover:hidden group-has-[button:focus-visible]:hidden ${
           ending ? "text-amber-300/80" : grant.viewers > 0 ? "text-[#D1D5DB]" : "text-[#84848C]"
@@ -307,10 +298,9 @@ function GrantRow({
       >
         {grant.viewers > 0 ? `${viewersLine(grant.viewers)} · ${left}` : left}
       </span>
-      {/* Faded rather than `hidden`: display:none takes a button out of the
-          accessibility tree and out of the tab order, so the row's actions
-          would be unreachable by keyboard and invisible to a screen reader.
-          The rail's rows fade for the same reason. */}
+      {/* Faded, not `hidden`: display:none takes buttons out of the tab
+          order and the accessibility tree. Rail rows fade for the same
+          reason. */}
       <span className="pointer-events-none absolute right-2 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100 motion-reduce:transition-none">
         <Tip label={copied ? "Copied" : "Copy this link"}>
           <button
@@ -338,8 +328,8 @@ function GrantRow({
           </button>
         </Tip>
         {/* Short, because the list scrolls and a tip inside a scroller is
-            clipped by it. What matters beyond the verb is that this is the
-            last way in, which the label says in three words. */}
+            clipped. The label says in three words that this is the last way
+            in. */}
         <Tip label={only ? "Turn off · the last link" : "Turn off"}>
           <button
             aria-label={`Turn the ${label} link off`}
@@ -409,6 +399,7 @@ function NewLink({ busy, onCreate }: { busy: Busy; onCreate: (name: string) => v
   );
 }
 
+/** During a share: the link, whether it answers, who is looking, update or stop. */
 function ShareLive({
   busy,
   changed,
@@ -470,9 +461,11 @@ function ShareLive({
             {tunnel.url === undefined ? (
               <span>Opening a tunnel through {PROVIDER_NAMES[tunnel.provider]}…</span>
             ) : tunnel.slow ? (
-              /* Not a failure, and not called one: a new tunnel name takes a
-                 while to spread, and this machine's resolver may be the last
-                 to hear. The link is already theirs to send. */
+              /*
+               * Not a failure: a new tunnel name takes a while to spread, and
+               * this machine's resolver may hear last. The link is already
+               * theirs to send.
+               */
               <span>
                 Still waiting for the link to answer from here. New tunnel names take a minute to
                 spread, so it may already work for whoever you send it to.
@@ -570,8 +563,8 @@ function ShareLive({
                       Allow
                     </button>
                     {/* Several refusals from one folder is a bundler's asset
-                      directory, and allowing them one at a time is work the
-                      sharer should not have to do. */}
+                        directory; allowing them one by one is work the
+                        sharer shouldn't have to do. */}
                     {directory === null ? null : (
                       <button
                         aria-label={`Let everything in ${directory} through`}
@@ -612,7 +605,7 @@ function ShareLive({
           </span>
         )}
         {/* For a leak with no known source: every link ends and the address
-            changes with them, so no copy of any of them reaches anything. */}
+            changes, so no old copy reaches anything. */}
         <Tip
           label={
             <>
@@ -648,14 +641,10 @@ function ShareLive({
 }
 
 /**
- * Sharing, as the popover under the rail's share control.
- *
- * Two screens. Before a share: what to send (the rail as you see it, or what
- * is on stage) and how it will get out (the tunnel program found on this
- * machine), then one button. During a share: the link, whether it is
- * answering yet, who is looking and the two things left to do, push what
- * you see now to them or stop. Nothing a viewer does comes back through
- * here: the panel is the sharer's, and a viewer never reaches it.
+ * Sharing, as the popover under the rail's share control. Before a share: what
+ * to send (the rail as seen, or what's on stage), how it gets out (the tunnel
+ * program found), one button. During: the link, whether it answers, who's
+ * looking, update or stop. Viewers never reach this panel.
  */
 export function SharePanel({
   active,
@@ -690,10 +679,8 @@ export function SharePanel({
   const [busy, setBusy] = useState<Busy>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   /**
-   * A clock the panel reads, so "23h left" becomes "40m left" while the
-   * panel is open rather than at the next poll. A minute is fine: nothing
-   * here is measured in seconds, and a faster tick would re-render a list
-   * for no visible change.
+   * A clock the panel reads, so "23h left" becomes "40m left" while it's open.
+   * A minute is enough; nothing here counts seconds.
    */
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
@@ -705,19 +692,18 @@ export function SharePanel({
   }, [open]);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
-   * The share this panel started, if any. The link is put on the clipboard
-   * the moment there is one, once, and only for a share started from here: a
-   * share begun in another tab would otherwise copy over whatever this one's
-   * clipboard was holding.
+   * The share this panel started. Its link goes to the clipboard once, as soon
+   * as it exists, and only for a share started here, so a share from another
+   * tab can't overwrite this one's clipboard.
    */
   const startedHere = useRef<string | null>(null);
   const autoCopied = useRef<string | null>(null);
   useDismissal(open, panelRef, triggerRef, onClose);
 
   /**
-   * What the shared directions have already loaded here, read when the panel
-   * opens rather than on every render: it walks each preview frame's timing
-   * entries, and the answer only changes when a direction is opened.
+   * What the shared directions already loaded here, read when the panel opens:
+   * it walks each frame's timing entries, which only change when a direction is
+   * opened.
    */
   const [seed, setSeed] = useState<string[]>([]);
   const railTitles = useMemo(() => railShare(prefs, previews).request.titles, [prefs, previews]);
@@ -732,8 +718,8 @@ export function SharePanel({
     );
   }, [open, railTitles]);
 
-  // Worked out only when the inputs move: the shell re-renders on every
-  // hover and poll, and this panel is mounted whether or not it is open.
+  // Recomputed only when inputs change: the shell re-renders on every hover and
+  // poll, and this panel stays mounted.
   const rail = useMemo(
     () => railShare(prefs, previews, reach, seed),
     [prefs, previews, reach, seed],
@@ -747,9 +733,8 @@ export function SharePanel({
   const provider: TunnelProviderId | "none" = tunnels[0] ?? "none";
 
   /**
-   * What an update would send: the same kind of share the live one is, made
-   * from the rail as it is now. Offered only when it differs, so the button
-   * is a fact about the rail rather than a habit.
+   * What an update would send: the same kind of share, from the rail as it is
+   * now. Offered only when it differs.
    */
   const next: ShareRequest | null =
     share === null ? null : share.scope === "rail" ? rail.request : stage.request;
@@ -766,10 +751,9 @@ export function SharePanel({
     });
 
   /**
-   * The link worth handing anyone: the public one once the tunnel has a
-   * name, or the local one when there is no tunnel at all. Nothing while a
-   * tunnel is still opening, because a local link copied then only works on
-   * this machine and the person it was sent to has no way to know.
+   * The link worth handing out: the public one once the tunnel has a name, or
+   * the local one with no tunnel. Nothing while a tunnel opens, since a local
+   * link copied then only works here.
    */
   const first = share?.grants[0] ?? null;
 
@@ -794,9 +778,8 @@ export function SharePanel({
       if (outcome === "blocked") {
         setCopiedId(null);
 
-        // A copy nobody asked for that the browser refused (the tab was not
-        // in front, or the browser wants a gesture) is not worth a warning;
-        // the button is right there. A click that failed is.
+        // A copy nobody asked for that the browser refused (tab in the
+        // background, gesture needed) isn't worth a warning; a failed click is.
         if (quiet) return;
         notify({
           detail: url,
@@ -824,10 +807,9 @@ export function SharePanel({
       }
     });
 
-  // The link goes to the clipboard on its own the moment there is one,
-  // because the next thing the person does with it is paste it somewhere,
-  // and a name that has not spread yet will have by the time it is clicked.
-  // Then one more word when it answers, so they know it did.
+  // The link goes to the clipboard as soon as it exists, since pasting it is
+  // next and the name will have spread by the time it's clicked. One more word
+  // when it answers.
   const tunnelStatus = share?.tunnel.status ?? null;
   useEffect(() => {
     if (share === null || link === null || startedHere.current !== share.id) return;
@@ -869,8 +851,7 @@ export function SharePanel({
       ttl: TOAST_TTL.action,
     });
 
-  // The server nudges `share` after every change, and that nudge is the
-  // read; nothing here asks for one.
+  // The server nudges `share` after every change, and that's the read.
   const start = (request: ShareRequest) => {
     if (busy !== null) return;
     setBusy("start");
@@ -909,11 +890,10 @@ export function SharePanel({
       .finally(() => setBusy(null));
   };
 
-  /** A failed tunnel is tried again with what was shared, not with the rail now. */
   /**
-   * One shape for the four link writes: mark what is busy, take the share
-   * the server answers with, and say what happened. The server nudges as
-   * well, so the panel is right either way; this only makes it immediate.
+   * One shape for the four link writes: mark busy, take the share the server
+   * returns and say what happened. The server nudges too; this just makes it
+   * immediate.
    */
   const grantWrite = (kind: Exclude<Busy, null>, run: () => Promise<ShareStatus>, said: string) => {
     if (busy !== null) return;
@@ -926,6 +906,7 @@ export function SharePanel({
       .finally(() => setBusy(null));
   };
 
+  /** A failed tunnel is tried again with what was shared, not with the rail now. */
   const retry = () => {
     if (busy !== null || share === null) return;
 

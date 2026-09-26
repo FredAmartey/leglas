@@ -7,14 +7,9 @@ import { describe, expect, test } from "vitest";
 import { SNAPSHOT, publicSurface, resolve, topLevelDeclarations } from "./api-surface.js";
 
 /**
- * The snapshot is the published promise. This is the half that notices when
- * the build stops matching it, which is the moment the change is still cheap:
- * in the pull request that caused it, rather than against a tag, where the
- * only fix is another release.
- *
- * Failing here is not a defect. It means an exported signature moved, and the
- * two things to do about it are to run `pnpm api:update` and then to ask
- * whether the version being planned still describes what consumers will get.
+ * The snapshot is the published promise; this catches the build drifting from
+ * it in the PR that caused it. A failure means an exported signature moved: run
+ * `pnpm api:update`, then check the planned version still fits.
  */
 describe("the public API surface", () => {
   test("matches the snapshot", () => {
@@ -30,14 +25,9 @@ describe("the public API surface", () => {
 });
 
 /**
- * `tsc` copies JSDoc into the declarations, so the reader spends most of its
- * time looking at prose written by whoever wrote the source. Prose contains
- * brackets, and an earlier version counted them: one unmatched `(` in a
- * comment swallowed the declaration it was attached to, which then read as an
- * unresolvable external name rather than as a failure. A signature change
- * underneath it was invisible, and the snapshot test passed.
- *
- * That is the failure worth guarding: not a wrong answer, a confident one.
+ * `tsc` copies JSDoc into the declarations. An earlier reader counted brackets
+ * in that prose, and one unmatched `(` swallowed its declaration, which then
+ * read as an external name while the snapshot test passed.
  */
 describe("reading declarations", () => {
   const declarationOf = (source: string, name: string): string =>
@@ -90,12 +80,9 @@ describe("reading declarations", () => {
 });
 
 /**
- * Names are followed along the path they actually travel, rather than looked
- * up in one index of everything seen on the way. A flat index keyed by name
- * lets a module-local declaration reached earlier stand in for a public one of
- * the same name reached later, and the snapshot would describe the wrong shape
- * while looking complete: the release gate would then be comparing future
- * builds against a type nobody exports.
+ * Names are followed along the path they travel. A flat index by name lets a
+ * module-local declaration reached first stand in for a public one of the same
+ * name, and the snapshot would describe a type nobody exports.
  */
 describe("resolving a name through re-exports", () => {
   const dist = (files: Record<string, string>): string => {

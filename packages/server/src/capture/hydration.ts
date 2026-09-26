@@ -1,12 +1,9 @@
 export type HydrationEvidence = { framework: string; message: string };
 
 /**
- * The first message that says the app rebuilt the page in the browser after
- * load, and which framework said it. Null when nothing did.
- *
- * An exception arrives as its description, which carries the stack under the
- * first line. The first line is the sentence; the rest is where it was thrown,
- * which the prompt and `leglas show` have no use for.
+ * The first message saying the app rebuilt the page in the browser after load,
+ * and which framework said it; null if none. An exception's description carries
+ * the stack after its first line, and only that first line is kept.
  */
 export function hydrationEvidence(messages: readonly string[]): HydrationEvidence | null {
   for (const raw of messages) {
@@ -41,10 +38,9 @@ export function hydrationEvidence(messages: readonly string[]): HydrationEvidenc
       return { framework: "Solid", message };
     }
 
-    // Anything else has to say hydration and describe the markup it disagreed
-    // with: what it expected against what it found, or a mismatch on a named
-    // part of the document. A cache or a store also "rehydrates", and a
-    // persisted state that failed to rehydrate says nothing about the screen.
+    // Anything else must say hydration and describe the markup it disagreed
+    // with (expected against found, or a mismatch on a named part). A cache or
+    // store also "rehydrates", which says nothing about the screen.
     if (
       /hydrat/i.test(message) &&
       (/expected .+ but found/i.test(message) ||

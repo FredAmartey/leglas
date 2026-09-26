@@ -20,14 +20,8 @@ import {
 import { type JsonRecord } from "../json.js";
 
 /**
- * A live test's ceiling, derived rather than chosen.
- *
- * It has to sit above launchBrowser's own deadline, or vitest kills
- * the test before the launch can either succeed or say why, and the
- * log gets a bare timeout instead of the browser's last words. Double
- * leaves the rest of the test more room than it has ever needed, and
- * deriving it means raising the launch deadline for a slower runner
- * never silently re-inverts the pair.
+ * Derived from launchBrowser's own deadline and above it, so vitest never kills
+ * the test before the launch can succeed or say why.
  */
 const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
@@ -150,9 +144,9 @@ describe("findBrowser", () => {
   });
 
   test("finds the Chrome for Testing the tools actually install today", () => {
-    // The layout Playwright ships now. Looking for Chromium.app here found
-    // nothing on a current install, which left a machine with no desktop
-    // browser with no capture at all.
+    // The layout Playwright ships now. Looking for Chromium.app found nothing
+    // on a current install, so a machine with no desktop browser got no
+    // capture.
     const testing =
       "/Users/u/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/" +
       "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
@@ -208,8 +202,8 @@ describe("findBrowser", () => {
         platform: "linux",
         home: "/home/u",
         onPath: () => null,
-        // Both builds are present; the newer one wins, and "1240" must not
-        // sort below "999" as a string would.
+        // Both builds present: the newer wins, and "1240" must not sort below
+        // "999" as strings would.
         exists: (path) =>
           path === newest ||
           path === "/home/u/.cache/ms-playwright/chromium-999/chrome-linux64/chrome",
@@ -237,8 +231,8 @@ describe("findBrowser", () => {
       "chrome-headless-shell-mac-arm64/chrome-headless-shell";
 
     const desktop = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    // Same engine, same picture, a fraction of the weight, so the shell wins
-    // when the machine happens to have one.
+    // Same engine and picture at a fraction of the weight, so the shell wins
+    // when present.
     expect(
       findBrowser({
         env: {},
@@ -470,9 +464,8 @@ describe("launchBrowser", () => {
   });
 
   test("a command that never comes back retires the browser rather than the command", async () => {
-    // A socket that is open but silent used to leave the pool believing the
-    // browser was good, so every capture queued behind it paid its own full
-    // timeout in turn.
+    // An open but silent socket left the pool trusting the browser, so every
+    // queued capture paid its own full timeout.
     const harness = launchHarness();
     harness.socket.onSend = (message) => {
       const id = required(message.id);
@@ -482,7 +475,7 @@ describe("launchBrowser", () => {
       } else if (message.method === "Target.attachToTarget") {
         queueMicrotask(() => harness.socket.answer({ id, result: { sessionId: "session" } }));
       }
-      // Anything else is swallowed: the socket is alive and says nothing.
+      // Everything else is swallowed: the socket is alive and silent.
     };
 
     const browser = await launchBrowser("/browser", {
@@ -513,9 +506,8 @@ describe("launchBrowser", () => {
   });
 
   test("a startup failure carries what the browser itself said", async () => {
-    // Without this the only report was "The browser did not start", which on
-    // someone else's machine says nothing. The browser is the one party that
-    // knows why, and its own words were being discarded.
+    // "The browser did not start" alone says nothing on someone else's machine;
+    // the browser's own words say why.
     const process = fakeProcess(false);
     queueMicrotask(() => {
       process.stderr.write("Failed to move to new namespace\n");
@@ -631,11 +623,10 @@ describe("createBrowserPool", () => {
   });
 
   test("holds the browser open while other work is still outstanding", async () => {
-    // The idle timer used to be armed by whichever call finished last, so
-    // work still in flight lost the browser underneath it and every capture
-    // after the first failed. Proven against a real browser too: six
-    // concurrent captures with a short idle window went one fulfilled and
-    // five rejected before this, and six fulfilled after.
+    // The idle timer was armed by whichever call finished last, so in-flight
+    // work lost the browser. Against a real browser, six concurrent captures
+    // with a short idle window went one fulfilled and five rejected before
+    // this, six fulfilled after.
     let idle: (() => void) | null = null;
     const launched = fakeBrowser();
 
@@ -681,9 +672,9 @@ describe("createBrowserPool", () => {
   });
 
   test("closing while a launch is still in flight closes what the launch returns", async () => {
-    // The pool reads `closed` synchronously before awaiting, so a close that
-    // lands mid-launch is honoured by the launch's own continuation rather
-    // than by close(). Correct, and subtle enough to be worth pinning.
+    // The pool reads `closed` synchronously before awaiting, so a close
+    // mid-launch is honoured by the launch's own continuation, not by close().
+    // Subtle enough to pin.
     const launched = fakeBrowser();
     let finishLaunch!: () => void;
 
@@ -799,16 +790,13 @@ describe("reapOrphanedBrowsers", () => {
   };
 
   test("closes an orphan through the endpoint only its own browser answers", async () => {
-    // A Leglas that is force-quit, crashes, or has its terminal window closed
-    // never runs its shutdown, so the browser it launched is reparented to
-    // init and holds its memory for the life of the machine: measured at
-    // 114MB across two processes on macOS.
+    // A force-quit, crashed or terminal-closed Leglas never runs its shutdown,
+    // so its browser is reparented to init and holds its memory for good (114MB
+    // over two processes on macOS).
     //
-    // It is closed over the debugging endpoint rather than by signalling the
-    // recorded process id. The URL carries a token that browser minted, so
-    // only that browser accepts it. A process id is reused, and the gap
-    // between proving whose it is and signalling it cannot be closed, which
-    // would put a SIGKILL on whatever inherited the number.
+    // Closed over the debugging endpoint, not by pid. The URL carries a token
+    // that browser minted, so only it accepts it. A pid can be reused between
+    // proving whose it is and signalling it.
     const live = socket();
     const removed: string[] = [];
 
@@ -832,8 +820,8 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("leaves a browser alone while its Leglas is still running", async () => {
-    // Two Leglas instances on one machine is ordinary. Reaping on the
-    // directory name alone would close the other one's browser mid-capture.
+    // Two Leglas instances on one machine is ordinary; reaping by directory
+    // name alone would close the other's browser mid-capture.
     const removed: string[] = [];
 
     const reaped = await reap({
@@ -864,10 +852,9 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("spares a profile whose record has not been written yet", async () => {
-    // The owner record is written before the browser is spawned, but a
-    // directory can still be seen in the moment between being made and being
-    // filled. Treating that as proof of an orphan let one Leglas delete the
-    // profile of another one's browser mid-launch.
+    // The owner record is written before spawning, but a directory can be seen
+    // between being made and being filled. Treating that as an orphan let one
+    // Leglas delete another's profile mid-launch.
     const removed: string[] = [];
 
     const reaped = await reap({
@@ -898,9 +885,8 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("never signals a process id, whatever the record says", async () => {
-    // The guarantee behind the endpoint design: no code path here reaches a
-    // kill, so a recycled process id cannot be signalled by mistake.
-    // A dead endpoint is where a fallback would be tempting, so both are run.
+    // No path here reaches a kill, so a recycled pid can't be signalled. A dead
+    // endpoint is where a fallback would be tempting, so both cases run.
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
 
     try {
@@ -925,9 +911,8 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("leaves another user's profile alone", async () => {
-    // On Linux the temp directory is shared between every account on the
-    // machine. A profile belonging to someone else is not ours to close, and
-    // the record inside it is not ours to read.
+    // On Linux the temp directory is shared by every account. Another user's
+    // profile isn't ours to close or read.
     const removed: string[] = [];
 
     const reaped = await reap({

@@ -37,9 +37,8 @@ describe("rewording a note", () => {
     ]);
   });
 
-  // A note whose id the server no longer recognises is one the poll is about
-  // to take off the pane anyway. It has to reject rather than resolve, so the
-  // interface can say the words were not kept.
+  // A note the server no longer knows is about to leave the pane anyway. It
+  // must reject so the interface can say the words weren't kept.
   test("refuses when the note is no longer there", async () => {
     const recorded = recorder({ error: "That note has gone.", ok: false }, 404);
 

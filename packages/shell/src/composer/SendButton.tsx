@@ -1,7 +1,6 @@
 /**
- * A real send button, because Enter alone is an invisible contract. Dim and
- * inert until there is something to send; the field's one moment of light
- * once there is.
+ * A real send button, since Enter alone is invisible. Dim and inert until
+ * there's something to send.
  */
 export function SendButton({
   ready,

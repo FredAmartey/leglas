@@ -52,8 +52,8 @@ describe("parseArgs", () => {
     expect(parseArgs(["-h"]).kind).toBe("help");
   });
 
-  // The command line docs send people to `leglas <command> --help` for a
-  // command's options, so every command has to answer it.
+  // The command line docs point at `leglas <command> --help`, so every command
+  // must answer it.
   test.each([
     "init",
     "new",

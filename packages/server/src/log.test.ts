@@ -146,7 +146,7 @@ describe("composeEntry", () => {
 
     expect(entry.markdown).toContain("## Changes that did not land");
     expect(entry.markdown).toContain("try it in olive (the provider refused the login)");
-    // Once, at the foot. Listing it as something asked for reads as though it happened.
+    // Once, at the foot; listing it as asked for reads as though it happened.
     expect(entry.markdown).not.toContain("Asked for");
   });
 

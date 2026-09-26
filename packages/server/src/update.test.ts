@@ -613,8 +613,8 @@ describe("checking and remembering", () => {
   });
 
   test("uses the configured abort deadline", async () => {
-    // npm never answers, so only the deadline can end the wait: the 75ms one
-    // configured here, not the four-second default.
+    // npm never answers, so only the deadline ends the wait: the 75ms set here,
+    // not the four-second default.
     const silent = vi.fn<typeof fetch>(
       (_input, init) =>
         new Promise((_resolve, reject) => {
@@ -1267,10 +1267,10 @@ describe("Windows command lines and replacement bins", () => {
 });
 
 /**
- * What npm 11.19 printed for two failed global installs, captured from real
- * runs with only the paths and the registry host put back to the defaults. It
- * writes its error's fields (code, syscall, file, path, dest, errno) one per
- * line ahead of the message itself, per `error` in lib/utils/error-message.js.
+ * npm 11.19's output for two failed global installs, from real runs with paths
+ * and registry host reset to defaults. It prints the error's fields (code,
+ * syscall, file, path, dest, errno) one per line before the message, per
+ * `error` in lib/utils/error-message.js.
  */
 const NPM_11_EACCES = `npm error code EACCES
 npm error syscall mkdir
@@ -1517,8 +1517,8 @@ describe("installer ownership and change events", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(restart).not.toHaveBeenCalled();
     busy = false;
-    // How often it looks again is its own business; that it goes once the
-    // change is over, and only once, is the contract.
+    // How often it checks is its own business; the contract is that it goes
+    // once the change is over, exactly once.
     await vi.advanceTimersByTimeAsync(5000);
     expect(restart).toHaveBeenCalledOnce();
     expect(phases).toEqual(["installing", "waiting", "restarting"]);

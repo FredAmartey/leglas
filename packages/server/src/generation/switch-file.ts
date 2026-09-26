@@ -22,10 +22,8 @@ export async function isFile(path: string): Promise<boolean> {
 }
 
 /**
- * Where a surface's switch file is, relative to the project.
- *
- * `leglas new` puts it in `.leglas/variants/<slug>/`, but a project may keep
- * it with its components, so the fallback is the source file that both lists
+ * Where a surface's switch file is, relative to the project. `leglas new` puts
+ * it in `.leglas/variants/<slug>/`; otherwise, the source file that lists
  * directions and reads the surface's query parameter.
  */
 export async function findSwitch(cwd: string, slug: string): Promise<string | null> {
@@ -114,10 +112,9 @@ export function fallbackKey(source: string): string | null {
 }
 
 /**
- * The switch file with one import and one `DIRECTIONS` entry added per slot.
- *
- * Existing directions stay, in their order: a generation adds to a surface,
- * it never takes over one.
+ * The switch file with one import and one `DIRECTIONS` entry per slot. Existing
+ * directions stay in order: a generation adds to a surface, never takes it
+ * over.
  */
 export function addSlots(source: string, slots: readonly Slot[]): string {
   if (!MAP.test(source)) throw new Error("The switch file has no DIRECTIONS map.");

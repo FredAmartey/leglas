@@ -24,8 +24,8 @@ describe("provenanceOf", () => {
     expect(provenanceOf({ askedFor: "warmer" })).toEqual({ askedFor: "warmer", basedOn: null });
   });
 
-  // A hand-edited config can hold an empty string where a value should be, and
-  // an empty card is worse than no card.
+  // A hand-edited config can hold an empty string, and an empty card is worse
+  // than none.
   test("blank values count as absent", () => {
     expect(provenanceOf({ askedFor: "   ", basedOn: "" })).toBeNull();
   });

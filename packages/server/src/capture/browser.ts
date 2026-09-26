@@ -17,12 +17,9 @@ import {
 import type { TimerHandle } from "../timers.js";
 
 /**
- * The browser Leglas borrows for screenshots.
- *
- * Chromium already exposes the whole surface needed here over CDP. Keeping the
- * driver this small avoids making every Leglas install carry a browser package
- * while still finding the copies desktop browsers and developer tooling leave
- * on the machine.
+ * The browser Leglas borrows for screenshots. Chromium exposes everything
+ * needed over CDP, so no browser package ships with Leglas; it finds the copies
+ * desktop browsers and dev tools leave on the machine.
  */
 
 export type BrowserSearch = {
@@ -87,10 +84,8 @@ function firstOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
 }
 
 /**
- * Where the test tools put a Chrome for Testing, by platform folder.
- *
- * Every entry is tried against each cached build, because one cache holds
- * one platform and the wrong ones simply are not there.
+ * Where the test tools put a Chrome for Testing, by platform folder. Every
+ * entry is tried against each cached build, since a cache holds one platform.
  */
 const FOR_TESTING = [
   [
@@ -128,9 +123,8 @@ function buildNumber(entry: string): number {
 }
 
 /**
- * Where Playwright and Puppeteer keep their browsers on this platform, with
- * each cache's builds listed newest first. Windows keeps them under
- * LOCALAPPDATA rather than a dot directory, so the caller passes what it has.
+ * Where Playwright and Puppeteer keep their browsers here, builds newest first.
+ * Windows keeps them under LOCALAPPDATA, so the caller passes it.
  */
 function cacheRoots(
   platform: NodeJS.Platform,
@@ -187,14 +181,10 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
 
   const caches = cacheRoots(platform, home, readdir);
 
-  // A headless shell before a desktop browser, when the machine has one.
-  //
-  // It is the same Blink and the same Skia, so the picture is the same: a
-  // page captured through each was byte-identical here once the page stopped
-  // animating. What differs is the weight. Measured on this project, the
-  // shell starts in about a third of a second against two and a half, holds
-  // one process against nine, and about 90MB against 900MB. Nothing about
-  // the result changes; the machine simply gets it back.
+  // A headless shell before a desktop browser. Same Blink and Skia, so the
+  // picture is byte-identical once the page stops animating. Measured here: a
+  // third of a second to start against two and a half, one process against
+  // nine, about 90MB against 900MB.
   const shell = firstExisting(
     caches.flatMap(({ root, entries }) =>
       entries.flatMap((entry) => HEADLESS_SHELL.map((rest) => join(root, entry, ...rest))),
@@ -246,10 +236,10 @@ export function findBrowser(search: BrowserSearch = {}): string | null {
         ? join(home, "Library", "Caches", "ms-playwright")
         : join(home, ".cache", "ms-playwright");
 
-    // Playwright ships Chrome for Testing under `chromium-<build>`, and a
+    // Playwright ships Chrome for Testing under `chromium-<build>` and a
     // smaller shell under `chromium_headless_shell-<build>`. Both drive CDP,
-    // and on a machine with no desktop browser one of them is often the only
-    // Chromium there is, so both are worth finding. Newest build first.
+    // and on a machine with no desktop browser one is often the only Chromium.
+    // Newest first.
     const playwright = readdir(playwrightRoot)
       .filter(
         (entry) => entry.startsWith("chromium-") || entry.startsWith("chromium_headless_shell-"),
@@ -324,14 +314,9 @@ export type LaunchOptions = {
 };
 
 /**
- * How long a browser has to expose its debugging endpoint.
- *
- * Ten seconds is plenty for a browser that has been run before and was not
- * enough on a cold continuous-integration runner, where the first Chrome
- * start of the machine's life pays for a cold page cache and a profile that
- * does not exist yet. This is the deadline for something going wrong, not a
- * wait anybody sits through: a capture is abandoned by its own shorter
- * deadline long before this fires.
+ * How long a browser has to expose its endpoint. Ten seconds wasn't enough for
+ * the first Chrome start on a cold CI runner. It's the deadline for failure,
+ * not a wait: a capture's own shorter deadline abandons it first.
  */
 export const START_TIMEOUT_MS = 30_000;
 
@@ -391,12 +376,9 @@ async function connectWebSocket(url: string): Promise<CdpSocket> {
 }
 
 /**
- * Wait for the browser to say where its debugging endpoint is.
- *
- * Whatever it printed on the way there is kept, and a failure carries the
- * last of it. Without that this reported "The browser did not start." and
- * nothing else, which on someone else's machine is a dead end: the one party
- * that knows why is the browser, and its own words were being thrown away.
+ * Waits for the browser to print its debugging endpoint. What it printed on the
+ * way is kept and a failure carries the tail, since the browser is the one
+ * party that knows why it didn't start.
  */
 function endpoint(process: BrowserProcess, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -473,12 +455,10 @@ export type ReapDeps = {
 };
 
 /**
- * How long a profile with no owner record is left alone.
- *
- * The record is written before the browser is spawned, so a directory without
- * one is either mid-creation or debris from a launch that died between the
- * two. Waiting rules out the first, which matters because removing it would
- * delete a live browser's profile out from under it.
+ * How long a profile with no owner record is left alone. The record is written
+ * before spawning, so a directory without one is mid-creation or debris from a
+ * launch that died; waiting rules out the first, whose removal would pull a
+ * live browser's profile away.
  */
 const RECORD_GRACE_MS = 60_000;
 
@@ -491,7 +471,7 @@ function permissionDenied(cause: unknown): cause is { code: "EPERM" } {
 
 function livePid(pid: number): boolean {
   try {
-    // Signal 0 asks whether the process exists without touching it.
+    // Signal 0 checks the process exists without touching it.
     nodeProcess.kill(pid, 0);
 
     return true;
@@ -502,14 +482,10 @@ function livePid(pid: number): boolean {
 }
 
 /**
- * Ask one orphaned browser to close, over the endpoint it published.
- *
- * The URL carries a token that browser minted for itself, so nothing else
- * answers to it: a different browser on a reused port rejects it, and a
- * non-browser listening there cannot speak the protocol. That is the whole
- * reason this is not a kill by process id. Proving whose a pid is and then
- * signalling it are two steps, the number can be reused in between, and the
- * cost of losing that race is a SIGKILL delivered to unrelated work.
+ * Asks one orphaned browser to close over its own endpoint. The URL carries a
+ * token that browser minted, so a different browser on a reused port rejects it
+ * and anything else can't speak CDP. That's why this isn't a kill by pid: a pid
+ * can be reused between proving whose it is and signalling it.
  */
 async function closeOrphan(
   url: string,
@@ -520,8 +496,7 @@ async function closeOrphan(
   try {
     socket = await connect(url);
   } catch {
-    // Nothing is listening, or it does not speak CDP. The browser is already
-    // gone, or was never ours to close.
+    // Nothing listening, or not CDP: the browser is gone or was never ours.
     return false;
   }
 
@@ -547,18 +522,14 @@ async function closeOrphan(
 }
 
 /**
- * Close browsers left behind by a Leglas that never got to shut down.
+ * Closes browsers left by a Leglas that never shut down. The CLI's signal
+ * handlers close the pool; a kill, a crash or a lost machine can't be handled,
+ * and the headless browser then holds its memory invisibly (114MB per orphan on
+ * macOS).
  *
- * The graceful paths already handle this: the CLI takes SIGINT, SIGTERM and
- * SIGHUP, and each runs the pool's close. What no handler can cover is being
- * killed outright, crashing, or losing the machine. The browser is then
- * reparented to init and holds its memory for good, invisibly, because it is
- * headless. Measured on macOS at 114MB across two processes per orphan, and
- * it accrues once per session that ends badly.
- *
- * Each browser gets a profile directory of its own, and the Leglas that
- * launched it writes its own pid there before spawning. A live owner means a
- * second Leglas is using that browser right now, and it is left alone.
+ * Each browser has its own profile directory, where the launching Leglas writes
+ * its pid before spawning. A live owner means another Leglas is using it, and
+ * it's left alone.
  */
 export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number> {
   const root = deps.tmpdir ?? osTmpdir();
@@ -596,8 +567,8 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
   try {
     names = await list(root);
   } catch {
-    // An unreadable temp directory is not worth reporting: nothing depends on
-    // this having run, and the next start tries again.
+    // An unreadable temp directory isn't worth reporting; the next start tries
+    // again.
     return 0;
   }
 
@@ -608,9 +579,8 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
     if (!name.startsWith(PROFILE_PREFIX)) continue;
     const directory = join(root, name);
 
-    // On Linux the temp directory is shared by every account on the machine.
-    // Another user's profile is not ours to close, and the record inside it
-    // is not ours to read, so it is skipped before anything opens it.
+    // On Linux the temp directory is shared by every account; another user's
+    // profile is skipped before anything opens it.
     const details = await profileOf(directory).catch(() => null);
 
     if (details === null) continue;
@@ -624,7 +594,7 @@ export async function reapOrphanedBrowsers(deps: ReapDeps = {}): Promise<number>
       const parsed = raw === null ? null : parseJson(raw);
       record = isJsonRecord(parsed) ? parsed : null;
     } catch {
-      // Either mid-creation or debris; the grace period below tells them apart.
+      // Mid-creation or debris; the grace period below tells which.
     }
 
     const owner = isNumber(record?.owner) ? record.owner : null;
@@ -656,23 +626,16 @@ export async function launchBrowser(
     `leglas-browser-${randomBytes(8).toString("hex")}`,
   );
 
-  // Claim the profile before the browser exists.
-  //
-  // Order matters: a second Leglas starting at this moment sweeps the temp
-  // directory, and a profile with no owner in it looks exactly like debris.
-  // Writing first means whatever it finds already says who to ask. Best
-  // effort otherwise: a profile that cannot be written is still a browser
-  // that works, and only the tidy-up after a hard kill is lost.
-  // Written synchronously, and not merely before the spawn: awaiting here
-  // would yield the turn, and a browser that exits in that window would do it
-  // before anything is listening for the event.
+  // Claims the profile before the browser exists. A second Leglas starting now
+  // sweeps the temp directory, and a profile with no owner looks like debris.
+  // Best effort: an unwritable profile is still a working browser. Written
+  // synchronously, since awaiting would let a browser exit before anything
+  // listens for it.
   const owned = (fields: { browser?: number | null; ws?: string }): void => {
     try {
-      // Owner-only, both of them. The record ends up holding the browser's
-      // debugging URL, which is a live capability over that browser: anyone
-      // who can read it can drive it. On Linux the temp directory is shared
-      // by every account on the machine, so default permissions would hand
-      // that to them.
+      // Owner-only, both of them: the record holds the browser's debugging URL,
+      // which lets anyone who reads it drive the browser, and Linux shares the
+      // temp directory across accounts.
       mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
       writeFileSync(
         join(userDataDir, OWNER_FILE),
@@ -680,7 +643,7 @@ export async function launchBrowser(
         { encoding: "utf8", mode: 0o600 },
       );
     } catch {
-      // Nothing here is worth failing a launch over.
+      // Nothing here is worth failing a launch.
     }
   };
 
@@ -702,11 +665,10 @@ export async function launchBrowser(
       "--mute-audio",
       "--force-color-profile=srgb",
       "--window-size=1440,900",
-      // Everything a desktop browser does on the way up that a screenshot
-      // does not need. Measured on this project: about 300MB and half a
-      // second off a Chrome launch, and most of the wait off a headless
-      // shell. `--use-mock-keychain` matters most on macOS, where Chrome
-      // otherwise reaches for the login keychain before it will start.
+      // Desktop startup work a screenshot doesn't need. Measured here: about
+      // 300MB and half a second off a Chrome launch, most of the wait off a
+      // headless shell. `--use-mock-keychain` matters most on macOS, where
+      // Chrome otherwise waits on the login keychain.
       "--disable-dev-shm-usage",
       "--disable-breakpad",
       "--disable-client-side-phishing-detection",
@@ -732,9 +694,8 @@ export async function launchBrowser(
     throw error;
   }
 
-  // Now that the browser has published an endpoint, record it. The URL holds
-  // a token this browser minted, which is what lets a later Leglas close it
-  // by asking rather than by signalling a process id it cannot prove.
+  // Record the endpoint now that it exists. Its token lets a later Leglas close
+  // this browser by asking instead of signalling an unproven pid.
   owned({ browser: process.pid ?? null, ws: websocketUrl });
 
   let socket: CdpSocket;
@@ -829,11 +790,10 @@ export async function launchBrowser(
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        // A browser that has not answered in this long is wedged, not slow.
-        // Rejecting only this command left the socket believed good, so every
-        // capture queued behind it paid its own full timeout in turn while the
-        // pool went on handing the same dead browser out. Closing the socket
-        // makes the next acquire retire it and launch a replacement.
+        // A browser silent this long is wedged, not slow. Rejecting only this
+        // command would leave the socket trusted, so every queued capture would
+        // pay its own full timeout on the same dead browser. Closing the socket
+        // makes the next acquire replace it.
         socketClosed = true;
         rejectPending();
 
@@ -945,8 +905,8 @@ export async function launchBrowser(
   return {
     withPage,
     close,
-    // A socket that went with the process still alive is the same thing to
-    // a caller: nothing can be sent, so the pool must not hand it out again.
+    // A socket gone with the process alive is the same to a caller: the pool
+    // must not hand it out.
     get closed() {
       return processClosed || socketClosed;
     },
@@ -990,10 +950,8 @@ export function createBrowserPool(
   let browser: Browser | null = null;
   let exposed: Browser | null = null;
   /**
-   * Captures in flight, so the idle timer cannot close the browser out from
-   * under work that is still queued behind the one that just finished.
-   * Counting only the last completion closed it mid-queue and failed every
-   * capture after the first.
+   * Captures in flight, so the idle timer can't close the browser under queued
+   * work, which counting only the last completion would.
    */
   let working = 0;
   let launching: Promise<Browser | null> | null = null;
@@ -1048,9 +1006,8 @@ export function createBrowserPool(
 
     if (browser !== null && !browser.closed) return exposed;
 
-    // A browser whose socket went while its process lived is retired here,
-    // not merely forgotten: the process and its profile directory would
-    // otherwise outlive every replacement.
+    // Retired, not forgotten, or the process and its profile would outlive
+    // every replacement.
     if (browser !== null) {
       const dead = browser;
       browser = null;

@@ -10,9 +10,9 @@ import { createProxyHandler, startProxyServer } from "./proxy.js";
 const EVENTUALLY_MS = 15_000;
 
 /**
- * Node detaches a socket from its server once upgraded, so neither close() nor
- * closeAllConnections() will reap it and close() waits forever. Every server
- * that accepts upgrades has to track its own sockets to shut down.
+ * Node detaches an upgraded socket from its server, so neither close() nor
+ * closeAllConnections() reaps it and close() hangs. A server that accepts
+ * upgrades has to track its sockets.
  */
 function shutdown(server: http.Server, sockets: Set<net.Socket>): Promise<void> {
   return new Promise((done) => {
@@ -166,11 +166,10 @@ afterAll(async () => {
 
 describe("proxy", () => {
   /**
-   * A branch's own dev server binds whatever `localhost` resolves to, which on
-   * macOS is `::1`, so its origin is `http://[::1]:PORT`. `URL.hostname` keeps
-   * the brackets, which is right for a Host header and wrong for a socket:
-   * `getaddrinfo` answers ENOTFOUND for `[::1]` because it is not a name.
-   * Every branch preview 502'd on this.
+   * A branch's dev server binds `localhost`, which is `::1` on macOS, so its
+   * origin is `http://[::1]:PORT`. `URL.hostname` keeps the brackets, which a
+   * Host header wants and a socket can't use: `getaddrinfo` answers ENOTFOUND
+   * for `[::1]`. Every branch preview 502'd on this.
    */
   test("reaches a target that is an IPv6 literal", async () => {
     const upstream = http.createServer((_req, res) => {
@@ -324,10 +323,9 @@ describe("proxy", () => {
   });
 
   test("lets go of the upstream request when the browser gives up", async () => {
-    // A pane unmounting mid-load, a scan frame moving on, a navigation that
-    // abandons its module graph: the browser drops requests constantly. Each
-    // one used to run to completion into a response nobody would read, with
-    // its socket out of the pool until the dev server finished.
+    // The browser drops requests constantly (a pane unmounting, a scan frame
+    // moving on, an abandoned navigation), and each must release its pooled
+    // socket rather than run to completion upstream.
     await new Promise<void>((resolve, reject) => {
       const socket = net.connect(proxy.port, "127.0.0.1", () => {
         socket.write(`GET /slow HTTP/1.1\r\nHost: 127.0.0.1:${proxy.port}\r\n\r\n`);

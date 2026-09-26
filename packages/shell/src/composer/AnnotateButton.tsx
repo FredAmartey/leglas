@@ -1,8 +1,8 @@
 import { Tip } from "../ui/kit.js";
 
 /**
- * The way into annotating that is not a keystroke, and the count that says
- * the pins are still there once the mode is left.
+ * The non-keystroke way into annotating, and the count that says pins remain
+ * after leaving the mode.
  */
 export function AnnotateButton({
   annotating,

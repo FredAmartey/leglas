@@ -5,16 +5,10 @@ import { inline } from "./changelog.ts";
 import { REPO, bar, document, escape, foot, promptButton, type Assets } from "./chrome.ts";
 
 /**
- * docs/*.md, as pages.
- *
- * The manual lives in the repository as markdown so it reads on GitHub and
- * ships with the code. The site renders the same files, so there is one
- * text to keep true. Like the changelog page, this reads the markdown these
- * files actually use rather than markdown in general: headings, paragraphs,
- * bullet and numbered lists, fenced code, tables and the centred capture
- * blocks. A
- * construct the page cannot show fails here, in the pull request that
- * added it, rather than quietly rendering as its source.
+ * docs/*.md, as pages, so GitHub and the site show one text. Reads only the
+ * markdown these files use (headings, paragraphs, bullet and numbered lists,
+ * fenced code, tables, centred capture blocks); anything else fails the build
+ * instead of rendering as source.
  */
 
 export type DocPage = {
@@ -27,20 +21,11 @@ export type DocPage = {
 };
 
 /**
- * The manual, in the order the site shows it.
- *
- * Named here rather than found by reading the folder, because `docs/` holds
- * more than the manual: this repository's own conventions put uncommitted
- * notes beside it, `docs/lessons.md` and `docs/plans/`, both in
- * `.git/info/exclude`. A reader that served every markdown file it found
- * built those as pages of the public manual in any checkout that had them,
- * and failed this suite there while passing in CI, which has only what is
- * committed.
- *
- * Naming them is also the only way this file can tell a page that is missing
- * from one that was never meant to be here, so a name below with no file
- * stops the build. The other half of the bargain, that no committed page is
- * left out of this list, is `test/docs.test.ts`, which asks git.
+ * The manual, in site order. Named rather than read from the folder, because
+ * `docs/lessons.md` and `docs/plans/` are local notes beside it, and serving
+ * them would fail this suite in any maintainer's checkout while CI, with only
+ * committed files, passes. A name here with no file stops the build;
+ * `test/docs.test.ts` checks, against git, that no committed page is missing.
  */
 export const PAGES = [
   "guide",
@@ -89,9 +74,9 @@ export type Block =
   | { kind: "details"; summary: string; text: string };
 
 /**
- * The body of a page: everything after the title heading, as blocks. A
- * line that starts something this reader does not know is an error naming
- * the file and line, since the alternative is a page that shows markdown.
+ * A page's body after the title heading, as blocks. A line this reader doesn't
+ * know is an error with file and line, since the alternative is a page showing
+ * markdown.
  */
 export function parseBlocks(markdown: string, file: string): Block[] {
   const lines = markdown.split("\n");
@@ -166,8 +151,8 @@ export function parseBlocks(markdown: string, file: string): Block[] {
 
       blocks.push({ kind: "list", ordered: false, items });
     } else if (/^\d+\. /.test(line)) {
-      // GitHub numbers a list from whatever its first item says and ignores
-      // the rest, so only 1, 2, 3 reads the same there and here.
+      // GitHub numbers a list from its first item and ignores the rest, so only
+      // 1, 2, 3 reads the same in both places.
       const items: string[] = [];
 
       while (i < lines.length && /^\d+\. /.test(lines[i] ?? "")) {
@@ -188,9 +173,8 @@ export function parseBlocks(markdown: string, file: string): Block[] {
 
       blocks.push({ kind: "list", ordered: true, items });
     } else if (CAPTURE.test(line)) {
-      // The centred capture blocks the docs use. They are the one HTML the
-      // page shows, and they are rebuilt from an allowlist rather than
-      // copied, so a block is either the shape below or a build error.
+      // The centred capture blocks, the only HTML the docs use. Rebuilt from an
+      // allowlist, not copied, so a block is this shape or a build error.
       const start = i;
       const html: string[] = [];
 
@@ -204,8 +188,8 @@ export function parseBlocks(markdown: string, file: string): Block[] {
         text: captureBlock(html.join("\n"), (why) => refuse(start, why)),
       });
     } else if (line.trim() === "<details>") {
-      // A collapsible block: one summary line, then capture blocks. It is
-      // rebuilt the same way, so the page shows nothing it did not parse.
+      // A collapsible block: one summary line, then capture blocks, rebuilt the
+      // same way.
       const start = i;
       let summary: string | undefined;
       const inner: string[] = [];
@@ -280,9 +264,9 @@ export function parseBlocks(markdown: string, file: string): Block[] {
 const CAPTURE = /^<p[\s>]/;
 
 /**
- * The one HTML shape the docs use: a centred paragraph holding images, or a
- * caption in italics. Each part is parsed and written back from its values,
- * so an attribute or a tag outside this list never reaches the page.
+ * The one HTML shape the docs use: a centred paragraph of images, or an italic
+ * caption. Parsed and written back from its values, so no other attribute or
+ * tag reaches the page.
  */
 export function captureBlock(text: string, refuse: (why: string) => never): string {
   const match = /^<p align="center">([\s\S]*)<\/p>\s*$/.exec(text);
@@ -368,11 +352,9 @@ export function slug(text: string): string {
 }
 
 /**
- * A link written for GitHub, resolved for the site. Another page of the
- * manual becomes that page's directory; the repository README is the
- * homepage; anything else in the tree points at GitHub, so a link to
- * CONTRIBUTING or a source file still lands somewhere. Absolute links and
- * fragments pass through.
+ * A GitHub link resolved for the site: another manual page becomes its
+ * directory, the README the homepage, and anything else in the tree points at
+ * GitHub. Absolute links and fragments pass through.
  */
 export function resolveLink(href: string, page: DocPage, pages: DocPage[]): string {
   if (/^(https?:|mailto:|#)/.test(href)) return href;
@@ -394,9 +376,9 @@ export function resolveLink(href: string, page: DocPage, pages: DocPage[]): stri
 }
 
 /**
- * The prompt a link points at: the first ```prompt block in the section its
- * fragment names on another docs page. On the site such a link becomes a
- * button that copies the prompt; on GitHub it stays a link to the block.
+ * The first ```prompt block in the section a link's fragment names on another
+ * docs page. On the site the link becomes a copy button; on GitHub it stays a
+ * link.
  */
 export function promptFor(href: string, pages: DocPage[]): string | undefined {
   const hash = href.indexOf("#");
@@ -413,8 +395,8 @@ export function promptFor(href: string, pages: DocPage[]): string | undefined {
   const seen = new Map<string, number>();
   let inSection = false;
 
-  // Heading ids repeat the way renderBlocks writes them: a second "Setup" is
-  // "setup-1", so a link to it finds its prompt too.
+  // Ids repeat as renderBlocks writes them ("setup-1" for a second "Setup"), so
+  // a link to either finds its prompt.
   for (const block of parseBlocks(target.markdown, target.file)) {
     if (block.kind === "heading") {
       const base = slug(block.text);
@@ -432,8 +414,8 @@ const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
 export function renderBlocks(blocks: Block[], page: DocPage, pages: DocPage[]): string {
   const text = (markdown: string): string => {
-    // A link to a prompt block becomes a button. It goes in as a marker the
-    // inline pass leaves alone and comes out as markup after it.
+    // A link to a prompt block becomes a button, via a marker the inline pass
+    // leaves alone.
     const buttons: string[] = [];
 
     const marked = markdown.replace(LINK, (_, label: string, href: string) => {

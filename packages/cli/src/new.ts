@@ -14,10 +14,9 @@ export type NewPlan = {
 };
 
 /**
- * Which shape of param reading to generate. Only the distinction that changes
- * the output is drawn: whether params arrive on the server as a prop, or are
- * read from the URL in the browser. The browser form is the fallback because
- * it works anywhere React does.
+ * Params either arrive on the server as a prop or are read from the URL in the
+ * browser. The browser form is the fallback, since it works anywhere React
+ * does.
  */
 export function detectFramework(packageJson: string | null): Framework {
   if (!packageJson) return "react";
@@ -142,8 +141,8 @@ export function ${name}Switch() {
 `;
 }
 
-// The note goes in as a string expression: written straight into the JSX,
-// `import { Hero }` and `<Hero />` were read as code and threw when rendered.
+// The note is a string expression: written straight into JSX, `import { Hero }`
+// and `<Hero />` parsed as code and threw on render.
 function placeholder(label: string, note: string): string {
   return `export function ${label}() {
   return (
@@ -191,13 +190,12 @@ export function planNew(options: {
     },
   ];
 
-  // Shared with every other command that writes into .leglas/, so the two
-  // paths cannot drift into ignoring it differently.
+  // Shared with every command that writes into .leglas/ so they can't ignore it
+  // differently.
   const gitignore = ignoreEntry(options.gitignore);
 
-  // Deliberately not a relative specifier. The depth depends on where the
-  // user's component lives, and guessing it produces an import that looks
-  // authoritative and does not resolve.
+  // Not a relative specifier: the depth depends on where the user's component
+  // lives, and a guessed one looks right and doesn't resolve.
   const usage =
     framework === "next"
       ? `<${name}Switch searchParams={await searchParams} />`

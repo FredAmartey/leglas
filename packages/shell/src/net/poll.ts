@@ -1,34 +1,19 @@
 /**
- * A repeating background read that cannot outrun itself.
+ * A repeating background read that can't outrun itself. A bare `setInterval`
+ * around `fetch` enqueues a read every tick whether or not the last came back.
+ * Chrome allows six HTTP/1.1 sockets per origin, and the shell, the API and
+ * every preview iframe share one origin, so seven previews spend the budget
+ * alone. Reads then pile up faster than they drain, and a user's POST waits
+ * behind them; clicking Delete once appeared to hang for over ten minutes with
+ * the server answering in milliseconds.
  *
- * Every live surface in the shell polls: the config for directions an agent
- * registered, the queue for what a run is doing, health for whether the dev
- * server still answers. Written as a bare `setInterval` around a `fetch`,
- * each of those enqueues a read on the tick whether or not the last one ever
- * came back, and that is fine right up until the browser has no socket to
- * give. Chrome allows six per origin over HTTP/1.1, and Leglas is a single
- * origin: the shell, the API, and every preview iframe proxying the user's
- * app all share the one budget. Load a project with seven previews and the
- * budget is spent on iframes alone.
+ * Two rules, kept here so no poll can forget them:
  *
- * From there it compounds. The reads queue, the intervals keep firing, and
- * the queue grows faster than it drains, so a POST the user just made sits
- * behind a pile of polls that is longer every second. Nothing is broken and
- * nothing reports an error. The server answers every request in single-digit
- * milliseconds while the page sits there, and clicking Delete or switching
- * agent appears to hang for as long as it takes the pile to clear, which was
- * measured at over ten minutes.
- *
- * Two rules fix it, and both live here rather than at each call site so no
- * future poll can forget them:
- *
- * - One read at a time. A tick arriving while a read is in flight is
- *   dropped, not queued, which caps a loop at a single socket no matter how
- *   slow the answer is. Three loops then cost three of the six sockets
- *   instead of an unbounded number. A loop that reads more than one endpoint
- *   holds to this by reading them one after another, not at once.
- * - Every read has a deadline. A request that hangs past it is aborted, which
- *   returns the socket rather than holding it for the life of the page.
+ * - One read at a time. A tick during a read is dropped, not queued, so a loop
+ *   never holds more than one socket. A loop reading several endpoints reads
+ *   them in turn.
+ * - Every read has a deadline, after which it's aborted and its socket
+ *   returned.
  */
 
 import type { TimerHandle } from "./timers.js";
@@ -37,13 +22,10 @@ import type { TimerHandle } from "./timers.js";
 export type PollTask = (signal: AbortSignal) => Promise<void>;
 
 /**
- * Whether a read ended because this module abandoned it.
- *
- * The abort is our own doing, so the browser's wording for it ("signal is
- * aborted without reason") describes a deadline nobody outside this file
- * knows exists. A caller that puts failures on screen has to tell that apart
- * from something the server actually said, or it quotes our plumbing at the
- * user.
+ * Whether a read ended because this module abandoned it. The browser's wording
+ * for our abort ("signal is aborted without reason") describes a deadline no
+ * caller knows about, so a caller showing failures must tell it apart from what
+ * the server said.
  */
 export function wasAborted(error: unknown): error is Error & { name: "AbortError" } {
   return error instanceof Error && error.name === "AbortError";
@@ -60,28 +42,21 @@ export type PollTimers = {
 export type PollOptions = {
   everyMs: number;
   /**
-   * Something other than the clock that means "read now".
+   * Something other than the clock meaning "read now": a server nudge, run
+   * through the same `run` as a tick, so it's dropped mid-read and gets the
+   * same deadline. The caller wires it to the live socket and returns the
+   * unsubscribe.
    *
-   * The server pushes a nudge when it knows something changed, and this is
-   * how that reaches a loop without letting it out of the two rules above.
-   * A nudge goes through the same `run` an interval tick does, so it is
-   * dropped when a read is already in flight and it gets the same deadline.
-   * A caller wires this to the live socket and gets back the unsubscribe,
-   * which the stop below calls.
-   *
-   * The interval stays. It is the fallback, and a slow one: a dropped socket
-   * then means the interface is slower to notice a change rather than blind
-   * to it, which is the difference between degrading and lying. Polling
-   * fails invisibly and heals itself on the next tick; a socket that died
-   * quietly leaves a rail that looks perfectly correct and never updates
-   * again.
+   * The interval stays as a slow fallback, so a dropped socket makes the
+   * interface slower to notice rather than blind: polling heals on the next
+   * tick, while a quietly dead socket leaves a rail that looks right and never
+   * updates.
    */
   subscribe?: (run: () => void) => () => void;
   /**
-   * How long one read may take before it is abandoned. This is a backstop,
-   * not a latency target: it wants to be far longer than any honest response
-   * so a slow dev server is never cut off, and short enough that a socket
-   * lost to a wedged request comes back the same minute.
+   * How long one read may take before it's abandoned. A backstop, not a latency
+   * target: far longer than any honest response, short enough that a socket
+   * lost to a wedged request comes back within the minute.
    */
   timeoutMs?: number;
   timers?: PollTimers;
@@ -99,9 +74,8 @@ const realTimers: PollTimers = {
 type Run = { controller: AbortController; deadline: TimerHandle };
 
 /**
- * Start reading now and keep reading, returning the stop. The stop clears the
- * interval and aborts whatever is still in flight, so a torn-down effect
- * leaves no request behind to land on a component that is gone.
+ * Starts reading now and keeps reading; returns the stop, which clears the
+ * interval and aborts what's in flight.
  */
 export function startPoll(task: PollTask, options: PollOptions): () => void {
   const { everyMs, timeoutMs = POLL_TIMEOUT_MS, timers = realTimers } = options;
@@ -110,7 +84,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
   let active: Run | null = null;
 
   const run = () => {
-    // The whole guard: a tick that arrives mid-read is dropped on the floor.
+    // The whole guard: a tick mid-read is dropped.
     if (stopped || active !== null) return;
 
     const controller = new AbortController();
@@ -118,17 +92,16 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     const deadline = timers.setTimeout(() => {
       controller.abort();
 
-      // Clearing the slot as well as aborting matters for a task that does
-      // not honour its signal: the abort alone would free the socket and
-      // still leave this loop shut for the life of the page.
+      // Clearing the slot as well as aborting matters for a task that ignores
+      // its signal, or the loop stays shut for the page's life.
       if (active?.controller === controller) active = null;
     }, timeoutMs);
 
     const current: Run = { controller, deadline };
     active = current;
 
-    // A later read may already have started if this one blew its deadline,
-    // so settling only clears the slot it still owns.
+    // A later read may have started if this one missed its deadline, so
+    // settling clears only the slot it still owns.
     const settle = () => {
       if (active !== current) return;
       timers.clearTimeout(deadline);
@@ -140,8 +113,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
 
   run();
   const timer = timers.setInterval(run, everyMs);
-  // After the first read, so a nudge arriving during it is dropped by the
-  // guard rather than queueing a second one behind it.
+  // After the first read, so a nudge during it is dropped by the guard.
   const unsubscribe = options.subscribe?.(run);
 
   return () => {

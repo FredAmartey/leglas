@@ -66,8 +66,8 @@ describe("fractionsIn and boxFromFractions", () => {
     });
   });
 
-  // The point of storing fractions: the container is a different size next
-  // time, and the region still means the same part of it.
+  // The container is a different size next time, and the region still means the
+  // same part of it.
   test("puts a region back proportionally when the container has resized", () => {
     const region = fractionsIn(outer, { height: 50, width: 100, x: 200, y: 150 });
     const wider = { height: 400, width: 800, x: 0, y: 0 };
@@ -100,8 +100,8 @@ describe("placeCard", () => {
     });
   });
 
-  // The failure this exists to prevent: flipping above the bottom edge parks
-  // the card on top of the very thing it is asking about.
+  // Flipping above the element's bottom edge would park the card on the thing
+  // it's asking about.
   test("flips clear of the element rather than onto it", () => {
     const low = { height: 40, width: 300, x: 400, y: 860 };
     const placed = placeCard({ anchor: low, bounds, card });
@@ -122,8 +122,8 @@ describe("placeCard", () => {
     expect(placed.top).toBe(782);
   });
 
-  // A phone preview is narrower than the card's ideal width, and there is no
-  // placement that fits: the top left is the only answer that shows all of it.
+  // A phone preview is narrower than the card's ideal width; top left is the
+  // only placement showing all of it.
   test("gives up gracefully when the viewport cannot hold the card", () => {
     expect(
       placeCard({

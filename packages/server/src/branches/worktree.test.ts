@@ -111,8 +111,8 @@ describe("startWorktree", () => {
 
     cleanups.push(worktree.stop);
 
-    // `.leglas/` is the directory projects ignore, so a checkout anywhere
-    // else shows up in the user's git status.
+    // Projects ignore `.leglas/`, so a checkout anywhere else shows in the
+    // user's git status.
     expect(realpathSync(worktree.path).startsWith(join(realpathSync(cwd), ".leglas") + sep)).toBe(
       true,
     );
@@ -164,11 +164,10 @@ describe("startWorktree", () => {
 
 describe("startAppProcess", () => {
   /**
-   * The fixture above serves `127.0.0.1` because it was written to match the
-   * probe, so the two agreed with each other and neither matched a real dev
-   * server. Vite's default binds `localhost`, which on current macOS and Node
-   * resolves to `::1` first, and every branch preview then waited out its
-   * ninety seconds against a server that was up the whole time.
+   * The fixture above serves `127.0.0.1` to match the probe, so neither matches
+   * a real dev server. Vite binds `localhost`, which resolves to `::1` first on
+   * current macOS and Node; a probe of `127.0.0.1` alone would wait out ninety
+   * seconds against a live server.
    */
   test("finds a dev server listening on IPv6 only, and reports a URL that reaches it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-v6-"));

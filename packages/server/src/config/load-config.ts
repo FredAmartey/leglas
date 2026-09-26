@@ -14,11 +14,8 @@ export type LoadResult = {
 };
 
 /**
- * Resolve, read, and validate the project's config.
- *
- * A broken config is reported, never thrown: the server has to stay up and say
- * what is wrong, because the alternative is a crash at boot with a stack trace
- * that does not name the file the user needs to edit.
+ * Resolves, reads and validates the project's config. A broken config is
+ * reported, never thrown, so the server stays up and names the file to fix.
  */
 export async function loadConfig(cwd: string): Promise<LoadResult> {
   const path = findConfigFile(cwd);

@@ -17,13 +17,10 @@ async function readIfPresent(path: string): Promise<string | null> {
 }
 
 /**
- * Scaffold a branch point for a surface.
- *
- * Writes only into the gitignored directory and, at most, appends one line to
- * .gitignore. The single change to the user's own source is printed rather
- * than applied: rewriting somebody's component automatically is how a tool
- * breaks a codebase it does not understand, and a wrong edit there costs far
- * more than a line of copying.
+ * Scaffolds a branch point for a surface. Writes only into the ignored
+ * directory, plus at most one .gitignore line. The one change to the user's own
+ * source is printed, not applied: an automatic edit to someone's component
+ * costs far more than a line of copying.
  */
 export async function runNew(
   options: {

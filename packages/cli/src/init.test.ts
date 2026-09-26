@@ -23,9 +23,8 @@ describe("planInit", () => {
     expect(contents.indexOf("Run the tests")).toBeLessThan(contents.indexOf(AGENTS_MARKER_START));
   });
 
-  // The markers sit in projects' committed AGENTS.md files, so these two use
-  // the text already on disk rather than the module's constants: a renamed
-  // marker has to break them, not travel with them.
+  // Projects commit these markers, so the tests use the text on disk, not the
+  // module's constants: a renamed marker has to break them.
   const onDisk = "# Project\n\n<!-- leglas:start -->\nold text\n<!-- leglas:end -->\n";
 
   test("does not add a second copy when the section is already there", () => {
@@ -57,8 +56,8 @@ describe("planInit", () => {
 
     expect(contents).toContain("Before building, make sure the interface is up");
     expect(contents).toContain("Register each direction as it lands");
-    // The viewer beat must come before the build-and-register beat, or the
-    // user has nothing open while the rail fills in.
+    // The viewer step comes before build-and-register, or nothing is open while
+    // the rail fills in.
     expect(contents.indexOf("make sure the interface is up")).toBeLessThan(
       contents.indexOf("Build one direction at a time"),
     );

@@ -25,8 +25,8 @@ function host(roots: string[] | null, options: { fails?: boolean } = {}): RootsH
 
 describe("hostProject", () => {
   test("takes the declared root when the working directory is elsewhere", async () => {
-    // The Agent Plugins case: started in the plugin's own install directory,
-    // with the project only reachable over roots.
+    // Agent Plugins: started in the plugin's install directory, with the
+    // project reachable only over roots.
     const project = scratch("project");
 
     const located = await hostProject(host([project]), { cwd: scratch("plugin") }).locate();
@@ -46,8 +46,8 @@ describe("hostProject", () => {
   });
 
   test("keeps the working directory when the host declares no roots at all", async () => {
-    // Every host that starts the server in the project, which is claude mcp
-    // add and every hand-written .mcp.json.
+    // Every host that starts the server in the project: claude mcp add and any
+    // hand-written .mcp.json.
     const cwd = scratch("project");
 
     const located = await hostProject(host(null), { cwd }).locate();
@@ -75,8 +75,7 @@ describe("hostProject", () => {
   });
 
   test("refuses when the working directory is the plugin's own and nothing else answers", async () => {
-    // Acting here would write into a plugin cache and report success, which is
-    // worse than saying there is no project.
+    // Acting here would write into a plugin cache and report success.
     const pluginRoot = scratch("plugin");
 
     const located = await hostProject(host(null), {
@@ -89,9 +88,8 @@ describe("hostProject", () => {
   });
 
   test("refuses too when the host fails to answer, and says so without guessing why", async () => {
-    // A host that cannot list its roots has named no workspace, which is the
-    // same dead end as declaring none. It is settled for the session: the
-    // answer here is an error someone can act on, not a wrong directory.
+    // A host that can't list its roots named no workspace either. Settled for
+    // the session, with an error someone can act on.
     const pluginRoot = scratch("plugin");
 
     const located = await hostProject(host([], { fails: true }), {

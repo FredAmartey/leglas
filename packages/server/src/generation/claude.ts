@@ -3,21 +3,17 @@ import type { AgentEffort } from "../agents/agents.js";
 import { isJsonRecord, isString, parseJson } from "../json.js";
 
 /**
- * The effort every generation run uses, whatever the person's agent is set to.
- *
- * Measured on three directions (2026-09-23): max took 34 minutes and 444k
- * output tokens, medium 86 seconds and 19k. Anthropic's docs put max thinking
- * beyond any bound, and the one hard cap, max_tokens, cuts the file off
- * unwritten. Nobody should wait half an hour for a draft, so Leglas sets the
- * effort for these runs itself.
+ * The effort every generation run uses, whatever the agent is set to. On three
+ * directions (2026-09-23): max took 34 minutes and 444k output tokens, medium
+ * 86 seconds and 19k. Max thinking has no bound and max_tokens cuts the file
+ * off, so Leglas sets it.
  */
 export const GENERATION_EFFORT: AgentEffort = "medium";
 
 /**
- * A run that sees only what Leglas tells it. Restricted mode skips the
- * person's settings, hooks, CLAUDE.md and skills, which on one measured
- * machine sent builders off loading skills and reading the tool's own source;
- * with the listed tools and nothing else, a build took 3 model calls.
+ * Restricted mode skips the person's settings, hooks, CLAUDE.md and skills,
+ * which sent builders off loading skills and reading the tool's own source on
+ * one machine. With just the listed tools a build took 3 model calls.
  */
 const RESTRICTED = [
   "--output-format",

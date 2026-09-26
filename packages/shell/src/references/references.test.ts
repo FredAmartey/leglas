@@ -53,9 +53,8 @@ describe("imageFilesFrom", () => {
 });
 
 describe("admit", () => {
-  // The server's half is in its own suite, which uploads at this very cap
-  // and one byte over it: with the two limits one number, what is refused
-  // here would be refused there too.
+  // The server's suite uploads at this cap and one byte over, so with one
+  // shared number a refusal here is a refusal there.
   test("refuses at exactly the server's limit, so a retry can never fix a refusal", () => {
     const edge = png("edge.png", REFERENCE_BYTES_CAP);
     const over = png("over.png", REFERENCE_BYTES_CAP + 1);

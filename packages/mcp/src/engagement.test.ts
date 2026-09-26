@@ -67,8 +67,8 @@ describe("createEngagement", () => {
       clearInterval: () => {},
     });
 
-    // The caller reads the queue after this await: the runner's back-off
-    // must already be registered, so the promise cannot settle early.
+    // The caller reads the queue right after this, so the runner's back-off
+    // must be registered before it settles.
     let settled = false;
 
     const first = engagement.touch().then(() => {

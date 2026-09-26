@@ -31,16 +31,10 @@ const layout: ShareLayout = {
 };
 
 /**
- * One request on its own socket.
- *
- * `fetch` pools connections and decides for itself when to put a request
- * on the wire, which is fine when a test only cares about the answer and
- * useless when it cares about how many requests are at the server at once.
- * `sent` resolves when this one is actually written.
- *
- * It is also the only way to send a path with `..` still in it. `fetch`
- * resolves the URL before it reaches the wire, so a traversal test written
- * with it proves nothing about the server: it never sees the traversal.
+ * One request on its own socket. `fetch` pools connections, so it can't show
+ * how many requests are at the server at once; `sent` resolves when this one is
+ * written. It's also the only way to send a path with `..` in it, since `fetch`
+ * resolves the URL first.
  */
 function raw(port: number, path: string, cookie: string) {
   const request = http.request({
@@ -231,8 +225,8 @@ describe("createShareManager", () => {
     if (!created.ok) throw new Error(created.error);
     const id = created.share.grants[0].id;
     expect(await manager.viewerConfig(id)).not.toBeNull();
-    // Revoked between the request being admitted and the config being read:
-    // the read is checked against the link, not against the share.
+    // Revoked after admission but before the config read: the read checks the
+    // link, not the share.
     manager.revokeGrant({ id });
     expect(await manager.viewerConfig(id)).toBeNull();
     expect(await manager.viewerConfig("not-a-grant")).toBeNull();
@@ -300,10 +294,9 @@ describe("createShareManager", () => {
 
 describe("stopping while a share is still starting", () => {
   test("the stop wins, and no listener is left behind", async () => {
-    // A create reads previews, looks for tunnel programs and binds a port
-    // before it publishes the share. A stop arriving in there used to see
-    // nothing active, report success and leave the share to come up behind
-    // it. Held here at the first await so the race is the test, not luck.
+    // A create reads previews, finds tunnel programs and binds a port before
+    // publishing the share. Held at the first await so a stop lands in that
+    // window every time.
     let release = (): void => {};
 
     const held = new Promise<void>((resolve) => {
@@ -394,8 +387,7 @@ describe("many links to one share", () => {
     expect(revoked.share.grants[0].id).toBe(kept.id);
 
     expect((await enter(kept.localUrl)).status).toBe(302);
-    // A link that was turned off is not the same news as one that lapsed,
-    // and neither is the same as a token that was never a link here.
+    // Turned off, lapsed and never a link are three different answers.
     const gone = await enter(cut.localUrl);
     expect(gone.status).toBe(410);
     expect(await gone.text()).toMatch(/turned off/);
@@ -422,7 +414,7 @@ describe("many links to one share", () => {
     const lapsed = await enter(link.localUrl);
     expect(lapsed.status).toBe(410);
     expect(await lapsed.text()).toMatch(/expired/);
-    // And it is gone from the share rather than lingering as a live row.
+    // And it leaves the share instead of lingering as a live row.
     expect(manager.status()?.grants ?? []).toHaveLength(0);
   });
 
@@ -456,8 +448,8 @@ describe("many links to one share", () => {
 
     if (!extended.ok) throw new Error(extended.error);
     expect(extended.share.grants[0].expiresAt).toBeGreaterThan(first);
-    // A new absolute time, not an addition, so clicking twice cannot walk it
-    // into next week.
+    // An absolute time, not an addition, so clicking twice can't walk it into
+    // next week.
     expect(extended.share.grants[0].expiresAt).toBe(at + 24 * 60 * 60 * 1000);
 
     manager.revokeGrant({ id: link.id });
@@ -470,9 +462,8 @@ describe("many links to one share", () => {
   });
 
   test("revoking a link drops the sockets and the requests it was holding", async () => {
-    // A stream that never finishes on its own is exactly what "in-flight
-    // responses are allowed to finish" would have left running: cut off in
-    // name and still receiving in fact.
+    // A stream that never finishes: letting in-flight responses finish would
+    // leave the viewer receiving after the cut.
     type HeldResponse = { response: ServerResponse | null };
 
     const held: HeldResponse = { response: null };
@@ -561,8 +552,8 @@ describe("how far a viewer reaches", () => {
       routes: ["/src/main.tsx", "/node_modules/.vite/deps/"],
     });
 
-    // The shared direction is always in: a share whose own page is refused
-    // is not a share.
+    // The shared direction is always in; a share that refuses its own page
+    // isn't one.
     expect((await get("/")).status).toBe(200);
     expect((await get("/src/main.tsx")).status).toBe(200);
     // A trailing slash stands for everything beneath it.
@@ -571,18 +562,17 @@ describe("how far a viewer reaches", () => {
     const turned = await get("/api/internal/keys");
     expect(turned.status).toBe(403);
     expect(await turned.json()).toEqual({ ok: false, error: "Not shared." });
-    // The interface itself is never the app's business to be listed for.
+    // The interface itself is never subject to the list.
     expect((await get("/leglas/api/health")).status).toBe(200);
 
     expect(manager.status()?.refused).toEqual(["/api/internal/keys"]);
   });
 
   test("a refusal is remembered as what it named, not as it was spelled", async () => {
-    // The refusal list is what the sharer sees and clicks "Allow" on. A raw
-    // spelling there is a viewer-chosen string, and allowing it adds a route
-    // that no settled path will ever match, so the click does nothing and
-    // the refusal stays. Recording the settled path means the allow works,
-    // and forty spellings of one path cannot push forty real refusals out.
+    // The refusal list is what the sharer clicks Allow on. A raw spelling there
+    // is viewer-chosen and no settled path would match it, so the allow would
+    // do nothing; recording the settled path makes it work and stops forty
+    // spellings of one path pushing real refusals out.
     const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
 
     for (const path of ["/assets/../secrets/x", "/%73ecrets/x", "//secrets//x", "/secrets/x"]) {
@@ -598,12 +588,9 @@ describe("how far a viewer reaches", () => {
   });
 
   test("allowing a path that ends in a slash allows that path, not everything beneath it", async () => {
-    // The route list reads a trailing slash as "everything beneath", which
-    // is what the folder button means and not what Allow means. A refusal
-    // for a directory index settles as "/foo/", so Allow beside it used to
-    // hand the same string to the list and silently grant the subtree. The
-    // intent now travels with the request rather than riding on a slash the
-    // viewer chose.
+    // The list reads a trailing slash as a subtree, and a refused directory
+    // index settles as "/foo/", so Allow on it must not grant the subtree. The
+    // intent travels with the request.
     const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
     expect(await raw(port, "/foo/", cookie).status).toBe(403);
     expect(manager.status()?.refused).toEqual(["/foo/"]);
@@ -621,9 +608,8 @@ describe("how far a viewer reaches", () => {
   });
 
   test("a folder allowed by one click does not open what is beside it", async () => {
-    // The one-click "+ folder" action is the ordinary way to clear a
-    // refusal, so an allowed folder is the attacker's foothold: climbing
-    // back out of it must not carry the folder's permission along.
+    // "+ folder" is the ordinary way to clear a refusal, so climbing back out
+    // of an allowed folder must not carry its permission.
     const { get, port, cookie } = await startWith({ reach: "listed", routes: ["/assets/"] });
     expect((await get("/assets/app.js")).status).toBe(200);
 
@@ -639,26 +625,23 @@ describe("how far a viewer reaches", () => {
   });
 
   test("a path that only canonicalises into the interface is not the interface", async () => {
-    // The exemption and the dispatcher have to read the path the same way.
-    // These settle to "/leglas/x", so a canonical-only exemption called them
-    // the interface, while the server's own routing reads the raw path,
-    // does not recognise them, and proxies them to the dev server: exempt
-    // from the list and the ceiling by one layer, app traffic to the other.
+    // The exemption and the dispatcher must read the path the same way. These
+    // settle to "/leglas/x", but the router reads the raw path and proxies them
+    // to the dev server, so a settled-only exemption let them skip the list and
+    // the ceiling.
     const { port, cookie } = await startWith({ reach: "listed", routes: [] });
 
     for (const path of ["//leglas/x", "/./leglas/x", "/foo/../leglas/x", "/%2Fleglas/x"]) {
       expect([path, await raw(port, path, cookie).status]).toEqual([path, 403]);
     }
 
-    // The backslash spelling never reaches any of this: Node refuses a
-    // request target that does not begin with a slash.
+    // Node refuses a request target that doesn't start with a slash, so the
+    // backslash spelling never gets here.
     expect(await raw(port, "\\leglas\\x", cookie).status).toBe(400);
 
-    // A path the server would recognise as its own by the same raw reading
-    // keeps the exemption, which is the whole point of having one. Asking
-    // every spelling is the strict direction, so the risk it carries is
-    // refusing the interface rather than letting the app through: an
-    // encoded name in a file preview is the shape most likely to trip it.
+    // A path the router reads as its own keeps the exemption. Requiring every
+    // spelling errs toward refusing the interface, most likely for an encoded
+    // name in a file preview.
     for (const path of [
       "/leglas/api/health",
       "/leglas/api/config",
@@ -674,9 +657,8 @@ describe("how far a viewer reaches", () => {
   });
 
   test("the interface prefix is not a way around the list", async () => {
-    // Everything under /leglas is served without being listed, because a
-    // viewer needs the interface to be a viewer. A path that only looks
-    // like it lives there must not inherit that.
+    // Everything under /leglas skips the list, since viewers need the
+    // interface; a path that only looks like it lives there must not.
     const { get, port, cookie } = await startWith({ reach: "listed", routes: [] });
 
     for (const path of [
@@ -697,8 +679,8 @@ describe("how far a viewer reaches", () => {
     expect((await get("/late/chunk-b.js")).status).toBe(403);
     expect(manager.status()?.refused).toEqual(["/late/chunk-a.js", "/late/chunk-b.js"]);
 
-    // A directory takes everything under it, which is what a bundler's
-    // asset folder wants, and both refusals go with it.
+    // A directory takes everything under it, as a bundler's asset folder needs,
+    // and both refusals go with it.
     const allowed = manager.allowRoute({ path: "/late/", subtree: true });
     expect(allowed.ok).toBe(true);
     expect(manager.status()?.refused).toEqual([]);
@@ -712,10 +694,9 @@ describe("how far a viewer reaches", () => {
     const { get } = await startWith({ reach: "listed", routes: ["/assets/app.js"] });
     expect((await get("/assets/app.js")).status).toBe(200);
 
-    // Refusing asks every spelling, so any dangerous reading wins. Allowing
-    // has to ask one, or the most permissive reading wins instead. These two
-    // resolve inside the folder, so they are the same request as far as the
-    // dev server is concerned.
+    // Refusing checks every spelling so any dangerous reading wins; allowing
+    // checks one, or the most permissive wins. These resolve inside the folder,
+    // so the dev server sees the same request.
     expect(routeAllowed(["/assets/"], "/foo/../assets/app.js")).toBe(true);
     expect(routeAllowed(["/assets/"], "/assets/./app.js")).toBe(true);
     expect(routeAllowed(["/assets/"], "//assets//app.js")).toBe(true);
@@ -727,10 +708,8 @@ describe("how far a viewer reaches", () => {
     expect(routeAllowed(["/assets/app.js"], "/assets/app.js.map")).toBe(false);
     expect(routeAllowed([], "/anything")).toBe(false);
 
-    // Case is not folded either. The list is read off what the app itself
-    // loaded, so a case it never asked for is a path nobody has shown to be
-    // part of this share; if an app does ask, the refusal list offers it in
-    // one click.
+    // Case isn't folded either: the list comes from what the app loaded, and a
+    // case it never asked for is offered on the refusal list in one click.
     expect(routeAllowed(["/assets/app.js"], "/ASSETS/APP.JS")).toBe(false);
 
     // The root is a page, never a prefix over everything beneath it.
@@ -765,9 +744,8 @@ describe("isDevControlRequest", () => {
   });
 
   test("takes a tool's whole dev namespace, not a list of its routes", () => {
-    // Read off Next 16.3.1, Nuxt DevTools 4.0.0-alpha.16 and Parcel 2.16.4.
-    // The point of a prefix is the members not listed here, including
-    // whatever the next version adds.
+    // From Next 16.3.1, Nuxt DevTools 4.0.0-alpha.16 and Parcel 2.16.4. The
+    // prefix exists for members not listed, including future ones.
     for (const route of [
       "/__nextjs_launch-editor",
       "/__nextjs_original-stack-frame",
@@ -788,9 +766,9 @@ describe("isDevControlRequest", () => {
   });
 
   test("refuses every spelling the dev server would answer to", () => {
-    // Measured against Vite 8.2.2: it answers the uppercase form from the
-    // same middleware, so a case-sensitive list was a way through to the
-    // editor launcher. The rest are the same class, closed alongside it.
+    // Vite 8.2.2 answers the uppercase form from the same middleware, so a
+    // case-sensitive list reached the editor launcher. The rest are the same
+    // class.
     for (const route of [
       "/__OPEN-IN-EDITOR",
       "/__Open-In-Editor",
@@ -819,8 +797,8 @@ describe("isDevControlRequest", () => {
   });
 
   test("catches the one that hides in the query rather than the path", () => {
-    // Werkzeug's debugger hangs off whichever path raised the error, so the
-    // path says nothing and the query says everything.
+    // Werkzeug's debugger hangs off whichever path raised the error, so only
+    // the query tells.
     expect(isDevControlRequest("/any/app/route?__debugger__=yes&cmd=resource")).toBe(true);
     expect(isDevControlRequest("/?__debugger__=yes")).toBe(true);
     expect(isDevControlRequest("/?v-hero=table")).toBe(false);
@@ -834,7 +812,7 @@ describe("isDevControlRequest", () => {
       "/@vite/client",
       "/src/main.tsx",
       "/webpack-dev-server-ui",
-      // The asset paths each framework needs in order to run at all.
+      // Asset paths each framework needs to run at all.
       "/_next/static/chunks/main.js",
       "/_nuxt/entry.js",
       "/_app/immutable/start.js",
@@ -899,9 +877,8 @@ describe("the ceiling on viewer traffic", () => {
   }
 
   test("holds viewer traffic at twelve inside the dev server at once", async () => {
-    // Unbounded, a burst queues inside the dev server instead, where nothing
-    // here can bound, order, deadline or cancel it, and the sharer's own
-    // reload joins the back of that queue.
+    // Unbounded, a burst queues inside the dev server where nothing here can
+    // bound or cancel it, and the sharer's own reload waits behind it.
     let inside = 0;
     let peak = 0;
     let answered = 0;
@@ -938,8 +915,8 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("lets the interface through while every slot is taken", async () => {
-    // A viewer needs the shell, its config and its socket in order to be a
-    // viewer at all, and none of that is the dev server.
+    // A viewer needs the shell, its config and its socket, and none of that is
+    // the dev server.
     const holding: Array<() => void> = [];
 
     const share = await shareWith((res, req) => {
@@ -968,9 +945,8 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("a response that never ends does not keep its slot", async () => {
-    // Server-sent events are an ordinary GET that stays open. Holding the
-    // slot until the response finished would let twelve of them take every
-    // slot permanently and deadlock the share.
+    // SSE is a GET that stays open; holding the slot until it finished would
+    // let twelve streams take every slot for good.
     const open: ServerResponse[] = [];
 
     const share = await shareWith((res) => {
@@ -1012,18 +988,18 @@ describe("the ceiling on viewer traffic", () => {
     if (other === undefined) throw new Error("no second link");
     const otherCookie = await share.cookieFor(other.localUrl);
 
-    // The loud link takes every slot and queues eighteen more behind it.
+    // The loud link takes every slot and queues eighteen more.
     const loud = Array.from({ length: 30 }, (_, i) => raw(share.port, `/loud-${i}`, share.cookie));
     await Promise.all(loud.map((request) => request.sent));
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
-    // Then one request on the other link, behind all eighteen of them.
+    // Then one request on the other link, behind all eighteen.
     const quiet = raw(share.port, "/quiet", otherCookie);
     await quiet.sent;
 
-    // Free slots one at a time, paced so the quiet request has landed. Taken
-    // in order it waits behind all eighteen, so anywhere near the front is
-    // only reachable by giving its link a turn of its own.
+    // Frees slots one at a time, paced so the quiet request has landed. In
+    // plain arrival order it would wait behind all eighteen; only a turn per
+    // link gets it near the front.
     const admitted = served.length;
 
     for (let i = 0; i < 6 && !served.includes("/quiet"); i += 1) {
@@ -1121,24 +1097,16 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("sheds a request that waited out its budget", async () => {
-    // The budget is one clock over both waits, so a request reaches the
-    // queue's own refusal when the slots ahead of it stay busy for longer
-    // than it has left. Twelve at a second against a budget of one and a
-    // third: the first twelve are served, the twelve behind them are let in
-    // with too little left, and the rest are turned away while still
+    // The budget is one clock over both waits. Twelve slots each held for a
+    // second against a budget of 1.3s: the first twelve are served, the next
+    // twelve get in with too little left, and the rest are refused while
     // waiting.
     //
-    // A request is turned away only when its budget has already run out at
-    // the moment a slot frees, and slots free when the batch ahead is cut
-    // off at its own deadline. Budgets are stamped from the wall clock on
-    // arrival, so a later arrival always has the later deadline, and the
-    // third batch is refused rather than started only when it arrived in
-    // the same millisecond as the second. On this machine forty loopback
-    // requests do; on a loaded runner they spread and every one of them was
-    // started and cut off instead, so the clock the budgets are stamped from
-    // is held still while the burst arrives and released once the second
-    // batch has reached the dev server. The deadlines themselves are real
-    // timers and still fire in arrival order.
+    // A request is refused only if its budget is spent when a slot frees, and
+    // budgets are stamped from the wall clock on arrival. On a loaded runner
+    // arrivals spread and the third batch got started and cut off instead, so
+    // the stamping clock is held still during the burst. The deadlines are
+    // still real timers.
     let arrived = 0;
 
     const share = await shareWith(
@@ -1173,8 +1141,7 @@ describe("the ceiling on viewer traffic", () => {
       error: "The dev server is busy. Try again.",
     });
 
-    // Everything that was answered was answered properly, and the share is
-    // still usable rather than wedged.
+    // Everything answered was answered properly, and the share still works.
     for (const response of answers) {
       if (response !== null) expect([200, 503]).toContain(response.status);
     }
@@ -1183,8 +1150,8 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("takes back the slot when the dev server never answers", async () => {
-    // Nothing releases a slot on its own if the upstream hangs, so the
-    // budget covers the waiting and the running as one.
+    // A hung upstream never frees its slot, so the budget covers waiting and
+    // running together.
     let started = 0;
 
     const share = await shareWith(
@@ -1199,7 +1166,7 @@ describe("the ceiling on viewer traffic", () => {
     // Every slot is held by a request the dev server will never answer.
     await Promise.all(stuck.map((pending) => pending.catch(() => null)));
 
-    // The share is usable again rather than deadlocked on twelve dead slots.
+    // The share works again instead of deadlocking on twelve dead slots.
     const after = share.get("/after-the-hang");
     await vi.waitFor(() => expect(started).toBe(VIEWER_CONCURRENCY + 1));
     await after.catch(() => null);
@@ -1229,9 +1196,8 @@ describe("the ceiling on viewer traffic", () => {
     expect(reached).toHaveLength(VIEWER_CONCURRENCY);
     giveUp.abort();
     await abandoned.catch(() => undefined);
-    // The share hears the viewer leave when the closed socket reaches it, in
-    // the event loop's next poll. The wait covers a busy loop; the turns after
-    // it make sure a poll has run since, however long the process was paused.
+    // The share hears the viewer leave in the event loop's next poll. The wait
+    // covers a busy loop; the turns after it make sure a poll has run.
     await new Promise((resolve) => setTimeout(resolve, 50));
     await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
@@ -1269,8 +1235,8 @@ describe("isHiddenPath", () => {
   });
 
   test("a dotfile is hidden wherever it sits, node_modules included", () => {
-    // The carve-out is for dot *directories* a dev server serves from, not
-    // for a dotfile that happens to live under one.
+    // The carve-out is for dot directories a dev server serves from, not a
+    // dotfile under one.
     for (const path of [
       "/node_modules/.pnpm/x/node_modules/y/.env",
       "/node_modules/some-package/.env",
@@ -1281,9 +1247,8 @@ describe("isHiddenPath", () => {
   });
 
   test("leaves the dot directories a dev server serves from alone", () => {
-    // Measured on the demo app: eight of its twenty-two files live under one
-    // of these, so a blanket rule on dot segments would break every Vite app
-    // it was meant to protect.
+    // Eight of the demo app's twenty-two files live under one of these, so a
+    // blanket dot-segment rule would break every Vite app.
     for (const path of [
       "/node_modules/.vite/deps/react.js",
       "/node_modules/.vite/deps/react-dom_client.js",

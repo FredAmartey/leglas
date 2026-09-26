@@ -12,7 +12,7 @@ import {
 function fakeFrame(initial: { href: string; readyState: DocumentReadyState } | null) {
   let documentState = initial;
   // SAFETY: the watcher listens on the frame and reads its `contentDocument`,
-  // defined just below, and nothing else of it.
+  // defined below, and nothing else.
   const frame = new EventTarget() as HTMLIFrameElement;
   // SAFETY: of a document, the watcher reads `location.href` and `readyState`.
   Object.defineProperty(frame, "contentDocument", {

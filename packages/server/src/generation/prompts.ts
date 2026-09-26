@@ -1,9 +1,7 @@
 /**
- * The words a generation run is given.
- *
- * Every sentence here was measured before it went in: the plan prompt keeps
- * the planner from exploring, and the build prompt is what took a build from
- * 29 to 43 model calls down to 3. Change them by measuring again, not by feel.
+ * The words a generation run is given. Every sentence was measured: the plan
+ * prompt keeps the planner from exploring, and the build prompt took a build
+ * from 29 to 43 model calls down to 3. Change them by measuring again.
  */
 
 import { isJsonRecord, isString, parseJson, type JsonValue } from "../json.js";
@@ -132,10 +130,9 @@ export function pascal(key: string): string {
 }
 
 /**
- * The concepts in a plan reply, fenced or bare: exactly `count` of them, each
- * with a distinct kebab-case key. A reply that cannot give that many is an
- * error, not a smaller set, so the rail never shows fewer than were asked for
- * without saying why.
+ * The concepts in a plan reply, fenced or bare: exactly `count`, each with a
+ * distinct kebab-case key. Fewer is an error, so the rail never shows fewer
+ * than asked without saying why.
  */
 export function parseConcepts(reply: string, count: number): Concept[] {
   const start = reply.indexOf("[");

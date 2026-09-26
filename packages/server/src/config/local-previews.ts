@@ -6,9 +6,8 @@ import { normalizeConfig, type Preview } from "./config.js";
 import { isString, parseJson, type JsonValue, type JsonRecord } from "../json.js";
 
 /**
- * Locally added previews live beside the other machine-local artefacts, so
- * exploration cannot reach a teammate by accident. The committed config stays
- * the only shared description of a project.
+ * Local previews live with the other machine-local state, so exploration can't
+ * reach a teammate; the committed config stays the only shared description.
  */
 export const LOCAL_PREVIEWS_PATH = ".leglas/previews.json";
 
@@ -44,7 +43,7 @@ export async function readLocalPreviews(
       error instanceof Error && "code" in error && isString(error.code) ? error.code : null;
 
     if (code === "ENOENT") {
-      // Never added anything here. Not a problem, and not worth reporting.
+      // Never added anything here; nothing to report.
       return { previews: [], errors: [] };
     }
 
@@ -71,10 +70,9 @@ export async function readLocalPreviews(
     };
   }
 
-  // Validated exactly as the config is, so a hand-edited file cannot slip
-  // through a weaker check than the one the shared file gets. Only the
-  // branch-devCommand coupling is relaxed: devCommand lives in the shared
-  // config, and whether it is set there is checked where the two merge.
+  // Validated like the config, so a hand-edited file gets no weaker check. Only
+  // the branch-devCommand pairing is relaxed, since devCommand lives in the
+  // shared config and is checked where the two merge.
   const result = normalizeConfig(parsed, { requireDevCommand: false });
 
   if (result.config === null) {
@@ -134,8 +132,8 @@ export async function addLocalPreview(
 
   const path = join(cwd, LOCAL_PREVIEWS_PATH);
   await mkdir(dirname(path), { recursive: true });
-  // Indented because this file is meant to be openable: someone will read it
-  // when they wonder where a preview came from.
+  // Indented so the file reads well when someone wonders where a preview came
+  // from.
   await writeFile(
     path,
     `${JSON.stringify({ previews: [...existing.previews.map(toStored), candidate] }, null, 2)}\n`,
@@ -146,9 +144,8 @@ export async function addLocalPreview(
 }
 
 /**
- * A file preview declares no url; validation fills an empty placeholder when
- * reading. Writing that placeholder back would make the entry claim a url and
- * a file at once and fail its next read, so it is dropped on the way out.
+ * Reading fills an empty url placeholder for a file preview; writing it back
+ * would claim a url and a file at once and fail the next read, so it's dropped.
  */
 function toStored(preview: LocalPreview): Omit<LocalPreview, "local" | "url"> & { url?: string } {
   const { local: _local, url, ...rest } = preview;
@@ -157,10 +154,8 @@ function toStored(preview: LocalPreview): Omit<LocalPreview, "local" | "url"> & 
 }
 
 /**
- * Forget locally added previews by title.
- *
- * Used when an exploration ends: the directions of that surface are no longer
- * alternatives, so they leave the rail with the code they described.
+ * Forgets local previews by title, when an exploration ends and its directions
+ * leave the rail with their code.
  */
 export async function dropLocalPreviews(cwd: string, titles: readonly string[]): Promise<number> {
   const existing = await readLocalPreviews(cwd);

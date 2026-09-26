@@ -80,15 +80,9 @@ function manualClock() {
 const EVENTUALLY_MS = 15_000;
 
 /**
- * The deadline bounds a hang. It is not an assertion about latency.
- *
- * Two different tests failed here on a loaded machine, both with "condition
- * never held", both waiting on something the operating system delivers when it
- * gets to it: a filesystem watch event, a reachability probe. A suite that
- * reports a slow machine as a defect teaches people to rerun until it passes,
- * which is how a real failure gets waved through.
- *
- * Fifteen seconds costs nothing on every run where the condition holds.
+ * Bounds a hang, not latency. Watch events and reachability probes arrive when
+ * the OS gets to them, and a suite that fails a slow machine teaches people to
+ * rerun until it passes.
  */
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
@@ -100,15 +94,10 @@ const until = async (condition: () => Promise<boolean> | boolean): Promise<void>
 };
 
 /**
- * Beat the manual clock until something happens.
- *
- * One `tick()` is not enough on its own: the runner refuses to overlap a tick
- * that is still in flight, and the tail of a run does real asynchronous work
- * (writing the verdict, or dropping the finished request) after the thing a
- * test waits on is already observable. In the server that costs nothing,
- * because the real interval fires again two seconds later. With a clock the
- * test drives, a swallowed tick is the end of the story, so the test keeps
- * beating.
+ * Beats the manual clock until something happens. One tick isn't enough: the
+ * runner won't overlap a tick in flight, and a run's tail keeps working after
+ * what the test waits on is visible. The server's real interval fires again
+ * anyway; a test-driven clock has to keep beating.
  */
 const tickUntil = async (
   clock: { tick(): void },
@@ -142,7 +131,7 @@ describe("startRunner", () => {
     const clock = manualClock();
     const spawned = spawner();
     // What each call saw, so the hook is held to "tells you when state
-    // changed", not to how many updates the runner happens to make.
+    // changed", not to how many updates happen.
     const seen: boolean[] = [];
 
     const runner = startRunner({
@@ -226,8 +215,8 @@ describe("startRunner", () => {
     await until(() => !runner.snapshot().running);
     const [broken] = await readRequests(cwd);
     expect(broken?.status).toBe("failed");
-    // No story in the output, so the verdict is the honest one: the agent ran
-    // and exited nonzero, and its last words are in the terminal.
+    // No story in the output, so the verdict is that the agent exited nonzero;
+    // its last words are in the terminal.
     expect(broken?.failure).toEqual({
       code: "agent-error",
       message: "Codex exited with code 1. Its last output is in the Leglas terminal.",
@@ -339,8 +328,7 @@ describe("startRunner", () => {
   test("runs Claude through the persistent Agent SDK transport", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-"));
     await saveAgentChoice(cwd, { agent: "claude", effort: "max" });
-    // The id and the capture directory are the same fact: an attachment is
-    // only handed to a transport when it is a real file under its own
+    // An attachment reaches a transport only as a real file under its own
     // request's directory, so the test writes one.
     mkdirSync(join(cwd, ".leglas/captures/request"), { recursive: true });
     writeFileSync(join(cwd, ".leglas/captures/request/frame.png"), "frame");
@@ -535,9 +523,9 @@ describe("startRunner", () => {
     for (let turn = 1; turn <= 10; turn += 1) {
       await tickUntil(clock, () => spawned.children.length === turn);
       const argv = spawned.calls[turn - 1]?.[1] ?? [];
-      // Turn 1 opens the session, 2 through 8 ride it, 9 hits the cap and
-      // opens a fresh one, 10 rides that. The cap is the whole point: an
-      // unbounded session makes every request dearer than the last.
+      // Turn 1 opens the session, 2 through 8 ride it, 9 hits the cap and opens
+      // a fresh one, 10 rides that. Unbounded, every request costs more than
+      // the last.
       const shouldResume = turn !== 1 && turn !== 9;
       expect([turn, argv[1]]).toEqual([turn, shouldResume ? "resume" : "--json"]);
       const thread = turn <= 8 ? "th_1" : "th_2";
@@ -580,7 +568,7 @@ describe("startRunner", () => {
     expect(spawned.calls[1]?.[1][1]).toBe("resume");
     spawned.children[1]?.close(1);
 
-    // Same request, fresh process, no session: the user never saw a failure.
+    // Same request, fresh process, no session; the user never sees a failure.
     await until(() => spawned.children.length === 3);
     expect(spawned.calls[2]?.[1]).toEqual([
       "exec",
@@ -627,7 +615,7 @@ describe("startRunner", () => {
     await until(async () => (await readRequests(cwd)).length === 2);
 
     // The resumed run edits a file, then dies. Rerunning could stack a second
-    // half-edit on the first, so this must surface as a failure.
+    // half-edit, so this must surface as a failure.
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("resume");
     spawned.children[1]?.child.stdout.write(
@@ -659,9 +647,8 @@ describe("startRunner", () => {
       clearInterval: clock.clearInterval,
     });
 
-    // The boot tick finds an empty queue and goes idle. The request arrives
-    // after it, and the timer never fires in this test: only the nudge can
-    // start the run.
+    // The boot tick finds an empty queue and goes idle, and the timer never
+    // fires here, so only the nudge can start the run.
     await new Promise((resolve) => setTimeout(resolve, 20));
     await appendRequest(cwd, input("Now"));
     expect(spawned.calls).toHaveLength(0);
@@ -669,8 +656,8 @@ describe("startRunner", () => {
     await until(() => spawned.calls.length === 1);
     expect(spawned.calls[0]?.[1][1]).toBe("prompt for Now");
 
-    // While a run is live the nudge is remembered, but nothing overlaps the
-    // active child.
+    // A nudge during a live run is remembered but doesn't overlap the active
+    // child.
     await appendRequest(cwd, input("Later"));
     runner.nudge();
     await appendRequest(cwd, input("Last"));
@@ -679,8 +666,8 @@ describe("startRunner", () => {
     expect(spawned.calls).toHaveLength(1);
 
     spawned.children[0]?.close(0);
-    // No manual clock tick: the remembered nudge starts the queued successor
-    // as soon as the first tick settles instead of waiting up to two seconds.
+    // No clock tick: the remembered nudge starts the next run as soon as the
+    // first tick settles.
     await until(() => spawned.calls.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("prompt for Later");
     spawned.children[1]?.close(0);
@@ -690,8 +677,8 @@ describe("startRunner", () => {
     await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
 
-    // Stopped means stopped: a late nudge must not restart anything, even
-    // with work still queued.
+    // A late nudge must not restart anything after a stop, even with work
+    // queued.
     runner.nudge();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(spawned.calls).toHaveLength(3);
@@ -715,8 +702,8 @@ describe("startRunner", () => {
 
     await until(() => runner.snapshot().running && spawned.children.length === 1);
     expect(runner.snapshot().startedAt).toEqual(expect.any(Number));
-    // A stop naming a request that is not the active one is a no-op, so a
-    // click aimed at a finished run cannot land on its successor.
+    // A stop naming another request is a no-op, so a click aimed at a finished
+    // run can't hit its successor.
     expect(runner.cancel("some-other-request")).toBe(false);
     expect(runner.snapshot().running).toBe(true);
     expect(runner.cancel(runner.snapshot().requestId ?? undefined)).toBe(true);
@@ -725,8 +712,8 @@ describe("startRunner", () => {
     await until(() => !runner.snapshot().running);
     expect(runner.snapshot().startedAt).toBeNull();
     expect(runner.cancel()).toBe(false);
-    // Written down as stopped, not parked as picked-up: a restart must not
-    // read this back as a run still in flight.
+    // Saved as stopped, not picked-up, so a restart doesn't read it as a run in
+    // flight.
     expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
 
     clock.tick();
@@ -759,10 +746,9 @@ describe("startRunner", () => {
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
 
-    // The resume exhausts the vendor's own retry ladder against an overloaded
-    // provider: ten attempts, roughly 200 seconds, then a nonzero exit. The
-    // session is fine, so the old rule would fire a second cold run and pay
-    // the whole ladder again while the provider is still down.
+    // The resume exhausts the vendor's retry ladder against an overloaded
+    // provider (ten attempts, about 200 seconds). The session is fine, so a
+    // cold rerun would pay the whole ladder again.
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).toContain("--resume");
     spawned.children[1]?.child.stdout.write(
@@ -807,8 +793,8 @@ describe("startRunner", () => {
     expect(runner.cancel()).toBe(true);
     await until(() => !runner.snapshot().running);
 
-    // Written down, so a restart cannot read this back as "your agent is on
-    // it" and the interface can say who stopped it.
+    // Saved, so a restart doesn't read it as "your agent is on it" and the
+    // interface can say who stopped it.
     const stopped = (await readRequests(cwd))[0];
     expect(stopped?.status).toBe("cancelled");
     expect(stopped?.failure?.code).toBe("cancelled");
@@ -836,9 +822,9 @@ describe("startRunner", () => {
     });
 
     await until(() => spawned.children.length === 1);
-    // This child ignores the signal, and its streams never end: a CLI that
-    // traps SIGTERM, or a wrapper whose own child outlives it holding the
-    // pipe. Nothing will ever emit "close".
+    // This child ignores the signal and its streams never end, like a CLI that
+    // traps SIGTERM or a wrapper whose child holds the pipe. "close" never
+    // comes.
     const stubborn = spawned.children[0];
 
     if (stubborn !== undefined) stubborn.child.kill = vi.fn(() => true);
@@ -849,13 +835,13 @@ describe("startRunner", () => {
     expect(runner.snapshot().stopping).toBe(true);
     expect(runner.snapshot().running).toBe(true);
 
-    // Nothing has settled yet, so without an escalation this is where the
-    // runner used to stay for the rest of its life.
+    // Nothing has settled, so without escalation the runner would stay here for
+    // good.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(runner.snapshot().running).toBe(true);
 
-    // The stop armed its own escalation; its grace running out is the only
-    // thing that frees the runner now. Anything else armed since fires too.
+    // The stop armed its own escalation, and its grace running out is all that
+    // frees the runner now. Anything else armed since fires too.
     const sinceStop = timers.slice(armed);
     expect(sinceStop).not.toEqual([]);
 
@@ -881,8 +867,8 @@ describe("startRunner", () => {
       const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-tree-"));
       const pidFile = join(cwd, "started.pid");
       const agent = join(cwd, "agent.mjs");
-      // An agent that starts a long-lived process of its own, the way one
-      // starts a dev server or a watcher, and then waits.
+      // An agent that starts a long-lived process of its own, like a dev
+      // server, and then waits.
       writeFileSync(
         agent,
         [
@@ -1044,8 +1030,8 @@ describe("startRunner", () => {
       await until(() => spawned.children.length === 1);
       const child = spawned.children[0];
 
-      // Node reports a signal it could not deliver as an "error", and that can
-      // arrive with no "close" behind it.
+      // Node reports a signal it couldn't deliver as "error", possibly with no
+      // "close" after it.
       if (child !== undefined) {
         child.child.kill = vi.fn(() => {
           queueMicrotask(() => child.child.emit("error", new Error("kill EPERM")));
@@ -1088,8 +1074,8 @@ describe("startRunner", () => {
     await until(() => spawned.children.length === 1);
     const child = spawned.children[0];
 
-    // Two hours, with something said every twenty minutes: well past the
-    // ceiling in total, never past it in one silence.
+    // Two hours with output every twenty minutes: past the ceiling in total,
+    // never in one silence.
     for (let beat = 1; beat <= 6; beat += 1) {
       now += 20 * 60_000;
       child?.child.stdout.write('{"type":"assistant"}\n');
@@ -1116,8 +1102,7 @@ describe("startRunner", () => {
 
     const appServer: CodexTurnRunner = {
       warm: async () => {},
-      // A handshake that never answers: nothing arrives, nothing settles,
-      // until the signal says to give up.
+      // A handshake that never answers, until the signal says to give up.
       run: (_turn, signal) => {
         startSignal = signal ?? null;
 
@@ -1168,9 +1153,8 @@ describe("startRunner", () => {
     });
 
     // A fork ends by running the registration CLI, and non-interactive Claude
-    // cannot approve a Bash call on its own: without the allowance the
-    // mandatory last step is refused, the agent gives up politely, and the
-    // run exits 0 having put nothing on the rail.
+    // can't approve a Bash call itself. Without the allowance that last step is
+    // refused and the run exits 0 with nothing on the rail.
     await until(() => spawned.children.length === 1);
     const forkArgs = spawned.calls[0]?.[1] ?? [];
     const at = forkArgs.indexOf("--allowedTools");
@@ -1248,9 +1232,7 @@ describe("startRunner", () => {
       leglasCommand: "npx -y leglas",
     });
 
-    // The agent says all the right things, exits 0, and never registers.
-    // Before the verdict existed this counted as success: the request was
-    // removed, the card disappeared, and nothing reached the rail.
+    // The agent exits 0 and never registers, which must not count as success.
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
       `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
@@ -1266,8 +1248,8 @@ describe("startRunner", () => {
         "Claude finished without registering the new direction, so nothing reached the rail. Its last output is in the Leglas terminal.",
     });
 
-    // The conversation ignored its final instruction, so the session is not
-    // trusted with the next request: a fresh fork starts cold.
+    // The conversation ignored its final instruction, so the next fork starts
+    // cold.
     await appendRequest(cwd, { ...input("Another fork"), mode: "variant" });
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).not.toContain("--resume");
@@ -1277,10 +1259,9 @@ describe("startRunner", () => {
 });
 
 test("a Cursor resume that died without editing is tried once more, cold", async () => {
-  // Cursor's stream was read against the real CLI, so "not seen to edit" is
-  // evidence now, and a resumed run that died untouched gets the same one
-  // cold retry Claude and Codex get. The vendor may simply have cleaned the
-  // session up; the request is not the problem.
+  // Cursor's stream was checked against the real CLI, so "not seen to edit" is
+  // evidence and a resumed run that died untouched gets the same one cold retry
+  // as Claude and Codex.
   vi.spyOn(console, "error").mockImplementation(() => {});
   const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-rerun-"));
   await saveAgentChoice(cwd, { agent: "cursor" });
@@ -1308,7 +1289,7 @@ test("a Cursor resume that died without editing is tried once more, cold", async
   expect(spawned.calls[1]?.[1]).toEqual(expect.arrayContaining(["--resume", "chat_1"]));
   spawned.children[1]?.close(1);
 
-  // One more run, cold: no --resume, and it is allowed to finish the request.
+  // One more run, cold, with no --resume, allowed to finish the request.
   await tickUntil(clock, () => spawned.calls.length === 3);
   expect(spawned.calls[2]?.[1]).not.toContain("--resume");
   spawned.children[2]?.close(0);
@@ -1317,9 +1298,9 @@ test("a Cursor resume that died without editing is tried once more, cold", async
 });
 
 test("a Cursor resume that edited and then died is not rerun", async () => {
-  // Rerunning a run that had already changed a file could apply a
-  // half-finished change twice. The edit is read off the real event shape:
-  // `editToolCall` beside the wrapper's bookkeeping keys.
+  // Rerunning a run that already changed a file could apply a half-finished
+  // change twice. The edit is read off the real event shape: `editToolCall`
+  // beside the wrapper's bookkeeping keys.
   vi.spyOn(console, "error").mockImplementation(() => {});
   const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-edited-"));
   await saveAgentChoice(cwd, { agent: "cursor" });
@@ -1430,9 +1411,9 @@ describe("warm transports", () => {
   };
 
   test("leaves every transport cold until something asks for it", async () => {
-    // A saved choice is not a request. Warming at boot spawned the vendor
-    // process, and with it every MCP server the user has configured, for a
-    // session that may never send anything.
+    // A saved choice isn't a request. Warming at boot would spawn the vendor
+    // and every MCP server the user configured, for a session that may never
+    // send anything.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cold-boot-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const clock = manualClock();
@@ -1514,8 +1495,8 @@ describe("warm transports", () => {
   });
 
   test("a superseded warm-up does not fire a stale release", async () => {
-    // Two asks in a row arm two clocks. Only the latest may release, or the
-    // composer's second focus would be undone by the first one's timer.
+    // Two asks arm two clocks. Only the latest may release, or the composer's
+    // second focus is undone by the first timer.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-stale-release-"));
     const clock = manualClock();
     const time = timeline();
@@ -1547,9 +1528,9 @@ describe("warm transports", () => {
   });
 
   test("a vendor kept warm through a switch is let go when its run ends", async () => {
-    // Switching to Codex while Claude is mid-run must not kill the run, but
-    // the moment it ends only the vendor last asked for stays warm. Waiting
-    // for the idle clock instead left both vendor trees resident for minutes.
+    // Switching to Codex mid-run must not kill the Claude run, but once it ends
+    // only the vendor last asked for stays warm, rather than both staying
+    // resident until the idle clock.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-switch-mid-run-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     await appendRequest(cwd, input("Long"));
@@ -1623,9 +1604,9 @@ describe("warm transports", () => {
 
     await until(() => children.length === 1);
     children[0]?.close(0);
-    // Wait on the release itself, not on the queue emptying. The request is
-    // removed before the run's tail finishes, so a fixed pause after it is a
-    // guess about how fast the machine is, and a slow one fails the guess.
+    // Wait on the release, not the queue emptying: the request is removed
+    // before the run's tail finishes, and a fixed pause fails on a slow
+    // machine.
     await until(() => appServer.release.mock.calls.length > 0);
     expect((await readRequests(cwd)).length).toBe(0);
     expect(sdk.release).not.toHaveBeenCalled();
@@ -1705,8 +1686,8 @@ describe("warm transports", () => {
 
     await until(() => children.length === 1);
     expect(runner.snapshot().running).toBe(true);
-    // The composer asks again mid-run, which arms an idle clock that will run
-    // out while the run is still going.
+    // The composer asks again mid-run, arming an idle clock that runs out
+    // during the run.
     runner.prepare("claude");
     await settle();
     expect(later.fireIdle()).toBeGreaterThan(0);
@@ -1714,10 +1695,9 @@ describe("warm transports", () => {
     expect(sdk.release).not.toHaveBeenCalled();
 
     children[0]?.close(0);
-    // The run's end arms a clock of its own beside the one the mid-run ask
-    // re-armed, and the next idle window lets go. Wait on the clock itself:
-    // the queue file empties a beat before the run's tail has finished, and a
-    // read that lands mid-write sees it empty early.
+    // The run's end arms its own clock beside the re-armed one, and the next
+    // idle window releases. Wait on the clock: the queue file empties before
+    // the run's tail finishes.
     await until(() => later.armed() > 1);
     expect((await readRequests(cwd)).length).toBe(0);
     expect(later.fireIdle()).toBeGreaterThan(0);

@@ -60,18 +60,11 @@ function forUrl(host: string): string {
 }
 
 /**
- * The loopback address answering on this port, or null while none does.
- *
- * Which one that is cannot be assumed. A dev command told to serve `localhost`
- * binds whatever the machine resolves that to, and on current macOS and Node
- * it is `::1` first: Vite's default listens on IPv6 alone. Probing only
- * `127.0.0.1` therefore waits out the whole deadline against a server that has
- * been answering since its first second, and then blames the user's dev
- * command for not serving the port it was given, which it did.
- *
- * The answer is also what the URL has to be built from. Reporting
- * `127.0.0.1` for a server bound to `::1` hands the interface an address
- * nothing is listening on, which fails later and further from the cause.
+ * The loopback address answering on this port, or null. Can't be assumed:
+ * `localhost` is `::1` first on current macOS and Node, and Vite listens on
+ * IPv6 alone, so probing only `127.0.0.1` would wait out the deadline and blame
+ * the dev command. The URL is built from the answer too, or the interface gets
+ * an address nothing listens on.
  */
 async function answeringHost(port: number): Promise<string | null> {
   const reached = await Promise.all(
@@ -97,16 +90,10 @@ async function answeringHost(port: number): Promise<string | null> {
 }
 
 /**
- * Bring up a preview of another branch.
- *
- * Isolation is the exception, not the default: a direction that can live in the
- * running app should, because that is what makes switching instant. This exists
- * for the cases that genuinely cannot, of which comparing two branches is the
- * clearest, since it is inexpressible any other way.
- *
- * The checkout is detached rather than a branch checkout, so previewing a branch
- * never collides with the same branch being checked out in the user's own
- * working tree.
+ * Brings up a preview of another branch. Isolation is the exception: a
+ * direction that fits the running app should stay there. Comparing branches is
+ * the clear case that can't. The checkout is detached, so it never collides
+ * with the same branch checked out in the user's tree.
  */
 export async function startWorktree(options: {
   cwd: string;
@@ -121,8 +108,8 @@ export async function startWorktree(options: {
   const log = options.onLog ?? (() => {});
 
   await rm(path, { recursive: true, force: true });
-  // Prune first: a previous run killed mid-flight leaves a stale registration
-  // that would make this add fail for a reason the user cannot act on.
+  // Prune first: a run killed mid-flight leaves a stale registration that would
+  // fail this add.
   await run("git", ["worktree", "prune"], { cwd: options.cwd }).catch(() => {});
 
   try {
@@ -179,11 +166,9 @@ export async function startWorktree(options: {
 }
 
 /**
- * Start a dev server with its command and wait until it answers.
- *
- * Shared by the two places Leglas owns an app process: a worktree checkout,
- * and the project's own app when nothing is listening and the config says how
- * to start one (the greenfield case).
+ * Starts a dev server and waits until it answers. Used for worktree checkouts
+ * and for the project's own app when nothing is listening and the config says
+ * how to start it.
  */
 export async function startAppProcess(options: {
   cwd: string;
@@ -203,8 +188,8 @@ export async function startAppProcess(options: {
     child = spawn(substitutePort(options.devCommand, port), {
       cwd: options.cwd,
       shell: true,
-      // Own process group, so stopping kills the shell and whatever it spawned
-      // rather than orphaning a dev server holding the port.
+      // Own process group, so stopping kills the shell and everything it
+      // spawned instead of orphaning a dev server on the port.
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

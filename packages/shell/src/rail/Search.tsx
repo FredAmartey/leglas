@@ -23,8 +23,8 @@ export function Search({
         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[#D1D5DB]">
           <PIcon d={P.search} />
         </span>
-        {/* The hint steps aside once the field is in use, so it never
-            sits behind what is being typed. */}
+        {/* The hint steps aside once the field is in use, so it never sits
+            behind the typing. */}
         <kbd
           className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[#232328] bg-[#2E2E2E]/60 px-1.5 py-0.5 font-sans text-[10px] leading-none tracking-wide text-[#84848C] transition-opacity duration-150 motion-reduce:transition-none ${
             query || focused ? "opacity-0" : "opacity-100"

@@ -83,10 +83,10 @@ function AgentMenu({
                   className="size-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none"
                 />
               ) : agent.auth === "signed-out" ? (
-                /* Caught before the run instead of after
-             it: the CLI itself says its login is
-             gone, and hiding the row would only
-             hide the fix. */
+                /*
+                 * Caught before the run: the CLI says its login is gone, and
+                 * hiding the row would hide the fix.
+                 */
                 <span className="text-[10px] text-amber-400/80">signed out</span>
               ) : (
                 active && <span aria-label="current choice">✓</span>
@@ -150,9 +150,8 @@ function AgentMenu({
 
 /**
  * Who runs the changes, beside the send it configures. With no agent on the
- * machine it is the way to connect one over MCP; otherwise it is an inline
- * select: the menu hangs off the chip itself, sized to its options, the way a
- * model picker behaves in every composer people know.
+ * machine, the way to connect one over MCP; otherwise an inline select whose
+ * menu hangs off the chip, like a composer's model picker.
  */
 export function AgentPicker({
   agents,
@@ -183,9 +182,10 @@ export function AgentPicker({
       <span className="truncate">Connect agent via MCP…</span>
     </button>
   ) : (
-    /* An inline select beside the send it configures: the menu
- hangs off the chip itself, sized to its options, the way
- a model picker behaves in every composer people know. */
+    /*
+     * An inline select beside the send, its menu hanging off the chip like a
+     * composer's model picker.
+     */
     <div className="relative flex min-w-0 items-center">
       <AgentMenu
         agents={agents}
@@ -207,8 +207,8 @@ export function AgentPicker({
         aria-haspopup="dialog"
         className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-none text-[#84848C] transition-colors hover:bg-white/[0.04] hover:text-[#D1D5DB]"
         onClick={() => {
-          // Opening re-asks the CLIs about their logins, so a
-          // sign-in that happened after boot shows up here.
+          // Opening re-asks the CLIs about their logins, so a sign-in after
+          // boot shows.
           if (!open) onRefresh();
           setOpen((open) => !open);
         }}

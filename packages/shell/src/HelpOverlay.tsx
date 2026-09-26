@@ -3,10 +3,8 @@ import { useEffect, useRef } from "react";
 import { shortcutList } from "./keymap.js";
 
 /**
- * The keymap, on ? and from the tools popover.
- *
- * It reads SHORTCUTS rather than restating the bindings, so the list cannot
- * describe a key that no longer does anything.
+ * The keymap, on ? and from the tools popover. Reads SHORTCUTS, so it can't
+ * list a key that no longer works.
  */
 export function HelpOverlay({
   mac,

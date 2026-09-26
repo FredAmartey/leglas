@@ -59,8 +59,8 @@ describe("framingFor", () => {
     expect(csp("http://localhost:3000")).toBe(false);
     expect(csp("https://*.example.com")).toBe(false);
     expect(csp("http:")).toBe(true);
-    // No scheme borrows the page's own: an https page naming localhost:4100
-    // does not admit an http shell.
+    // No scheme borrows the page's own, so an https page naming localhost:4100
+    // doesn't admit an http shell.
     expect(csp("localhost:4100")).toBe(false);
     expect(csp("localhost:4100", "http://example.com/")).toBe(true);
     // No port means the scheme's default, which the shell is not on.

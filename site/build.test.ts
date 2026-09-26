@@ -78,7 +78,7 @@ describe("the site", () => {
     const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
     const written = buildSite(root, out);
     // From the manual's own index, like the build, so an uncommitted note in
-    // the same folder is not expected on the site.
+    // the folder isn't expected on the site.
     const docs = loadDocs(root).map((entry) => docsPath(entry.slug));
     expect(written.map((path) => path.slice(out.length + 1)).sort()).toEqual(
       [
@@ -143,11 +143,10 @@ async function until(tab: CdpPage, condition: string): Promise<void> {
 
 const executable = findBrowser();
 
-// What the switch's own comment in chrome.ts promises: the theme flips from
-// whatever is showing, the circle opens from the button's centre, a reader
-// who asked for less motion gets the flip alone, and the choice is kept.
-// Skipped for two reasons kept apart, as the capture tests keep them: no
-// browser on the machine, or a sandbox that will not let one start.
+// What the switch's comment in chrome.ts promises: the theme flips from what's
+// showing, the circle opens from the button's centre, reduced motion gets the
+// flip alone, and the choice is kept. Skipped with no browser, or in a sandbox
+// that won't start one.
 describe.skipIf(executable === null)("the theme switch in a real browser", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt").each([
     ["no-preference", 1],
@@ -217,8 +216,8 @@ describe.skipIf(executable === null)("the theme switch in a real browser", () =>
           );
         });
       } finally {
-        // The page's server closes whatever became of the browser, one that
-        // never started and one that would not close included.
+        // Closes whatever became of the browser, including one that never
+        // started or wouldn't close.
         try {
           await browser?.close();
         } finally {

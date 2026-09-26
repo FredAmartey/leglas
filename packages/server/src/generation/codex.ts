@@ -7,14 +7,12 @@ import { GENERATION_EFFORT } from "./claude.js";
 import { isJsonRecord, isString, parseJson } from "../json.js";
 
 /**
- * Codex as a generation agent, the counterpart of `claude.ts`.
- *
- * Measured on codex-cli 0.155.1 (2026-09-25) with the same three-direction
- * benchmark: 130 seconds for the set where Claude took about 86, three
- * strong, genuinely different designs, no fix runs. These flags keep a run to
- * what Leglas tells it: nothing kept on disk, the project's AGENTS.md and the
- * person's skills, plugins, memories and helper agents left out. One thing
- * cannot be left out: Codex always reads the global AGENTS.md in its home.
+ * Codex as a generation agent, the counterpart of `claude.ts`. On codex-cli
+ * 0.155.1 (2026-09-25), the three-direction benchmark took 130 seconds against
+ * Claude's 86, with three strong, distinct designs and no fix runs. These flags
+ * keep nothing on disk and leave out the project's AGENTS.md and the person's
+ * skills, plugins, memories and helper agents. Codex always reads the global
+ * AGENTS.md in its home.
  */
 const RESTRICTED = [
   "exec",
@@ -29,8 +27,8 @@ const RESTRICTED = [
   "skills.include_instructions=false",
   "-c",
   "skills.bundled.enabled=false",
-  // Through the config, not `--disable`: a Codex that lacks one of these
-  // ignores it here, where `--disable` refuses to start at all.
+  // Through the config, not `--disable`: an unknown feature is ignored here,
+  // while `--disable` refuses to start.
   ...[
     "multi_agent",
     "apps",
@@ -47,10 +45,9 @@ const RESTRICTED = [
 const BARE = /^[A-Za-z0-9_-]+$/;
 
 /**
- * The MCP servers the person's Codex config defines. `-c mcp_servers={}`
- * leaves them all in place, so each is switched off by name; without that a
- * set of three started every server four times over, and their start-up
- * errors filled the lines a failure is read from.
+ * The MCP servers the person's Codex config defines. `-c mcp_servers={}` leaves
+ * them in place, so each is switched off by name; otherwise a set of three
+ * started every server four times and their errors buried the failure lines.
  */
 export async function codexServers(home: string = defaultCodexHome()): Promise<string[]> {
   let config: string;
@@ -94,8 +91,8 @@ export function codexBuildArgs(prompt: string, servers: readonly string[]): stri
 }
 
 /**
- * The final answer in a Codex JSONL transcript: its last agent message.
- * Codex also reports its own warnings as items, so only a message counts.
+ * The final answer in a Codex JSONL transcript: its last agent message. Codex
+ * reports its own warnings as items too.
  */
 export function codexResultText(lines: readonly string[]): string | null {
   for (let index = lines.length - 1; index >= 0; index -= 1) {

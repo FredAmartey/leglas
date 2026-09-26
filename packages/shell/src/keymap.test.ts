@@ -5,9 +5,9 @@ import { resolveKey, shortcutList } from "./keymap.js";
 const SHORTCUTS = shortcutList(true);
 
 /**
- * Punctuation that needs AltGr on at least one common European layout. AltGr
- * arrives as ctrl+alt, which the modifier guard drops, so a binding on any of
- * these is unreachable for those keyboards no matter what the docs claim.
+ * Punctuation needing AltGr on at least one common European layout. AltGr
+ * arrives as ctrl+alt, which the modifier guard drops, so a binding on these is
+ * unreachable there.
  */
 const NEEDS_ALTGR = ["\\", "[", "]", "{", "}", "|", "@", "#", "~"];
 
@@ -80,8 +80,8 @@ describe("resolveKey", () => {
 
   test("the shortcuts it advertises are the shortcuts it resolves", () => {
     const advertised = SHORTCUTS.flatMap((shortcut) => shortcut.keys);
-    // Escape is handled where the thing being closed lives, and the search
-    // caps only mean anything together, which its own tests cover.
+    // Escape is handled where the closed thing lives, and the search caps only
+    // mean anything together, which their own tests cover.
     const skip = ["Esc", "⌘Cmd+K", "Ctrl+K"];
 
     for (const cap of advertised.filter((cap) => !skip.includes(cap))) {

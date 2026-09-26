@@ -1,20 +1,14 @@
 @import "tailwindcss";
 
-/* Tests are not markup. Tailwind scans every file it can reach for things
-   that look like class names, so a fixture title or a word in a sentence
-   ends up as a utility in the shipped stylesheet: a test that said it
-   "answers from a table" added `.table` to it. Nothing under a test file
-   is ever rendered, so nothing there should decide what ships. */
+/* Tailwind scans every reachable file for class-like words, so a test saying
+   "answers from a table" would ship `.table`. Tests render nothing. */
 @source not "./**/*.test.ts";
 @source not "./**/*.test.tsx";
 
-/* Satoshi is the default interface face and ships with the tool. Outfit,
-   Geist, and Spline Sans Mono arrive as versioned dependencies (imported
-   in main.tsx) rather than hand-downloaded files.
-
-   Every face here is one this package may redistribute. A licensed face can
-   only be named, never bundled, and a named face nobody has installed is an
-   option that silently does nothing. */
+/* Satoshi ships with the tool; Outfit, Geist and Spline Sans Mono come as
+   versioned dependencies (main.tsx). Every face here may be redistributed:
+   a licensed face could only be named, and a named face nobody installed
+   silently does nothing. */
 @font-face {
   font-family: "Satoshi";
   font-style: normal;
@@ -86,10 +80,8 @@ body {
   }
 }
 
-/* The rename field takes the title's place at the same size, so the only thing
-   left to animate is the edge arriving. It fades up from nothing rather than
-   snapping on, which is what makes an in-place edit read as the name opening
-   up instead of the row being replaced. */
+/* The rename field matches the title's size, so only its edge animates,
+   fading up so the name reads as opening rather than being replaced. */
 @keyframes leglas-rename-in {
   from {
     opacity: 0;
@@ -107,9 +99,8 @@ body {
   }
 }
 
-/* Toasts rise into place and drop out again, on the shell's own easing rather
-   than the tooltip's spring: a tooltip answers a hover and can afford to
-   bounce, while an outcome the user did not ask to see should arrive quietly. */
+/* Toasts use the shell's easing, not the tooltip's spring: an outcome nobody
+   asked to see should arrive quietly. */
 @keyframes leglas-toast-in {
   from {
     opacity: 0;
@@ -273,9 +264,8 @@ body {
   }
 }
 
-/* A reference thumbnail arrives the way the rename field does, fading up in
-   place, with the slightest growth so it reads as landing rather than
-   appearing. Removal is instant: an exit here would only delay the field. */
+/* A reference thumbnail fades up with a slight growth, so it reads as
+   landing. Removal is instant; an exit would only delay the field. */
 @keyframes leglas-reference-in {
   from {
     opacity: 0;
@@ -295,9 +285,9 @@ body {
   }
 }
 
-/* A lineage segment drawing itself in, top to bottom, and a mark arriving.
-   pathLength="1" on the element makes one dash cover any length, so the
-   same rule draws a short curve and a full-height line at the same pace. */
+/* A lineage segment drawing in, top to bottom, and a mark arriving.
+   pathLength="1" makes one dash cover any length, so short and long
+   segments draw at the same pace. */
 @keyframes leglas-draw {
   from {
     stroke-dashoffset: 1;
@@ -334,8 +324,8 @@ body {
   }
 }
 
-/* A light arriving on a lineage: fades up in place, so a change of lineage
-   reads as the current rerouting rather than starting over. */
+/* A light fades up in place, so a change of lineage reads as the current
+   rerouting. */
 @keyframes leglas-arrive {
   from {
     opacity: 0;
@@ -403,8 +393,7 @@ body {
   }
 }
 
-/* A share that is live: the light's Ember, breathing slowly, the way a mark
-   an agent is working on breathes in the gutter. */
+/* A live share: the light's Ember, breathing like a working mark. */
 .leglas-live-dot {
   background: #fb7185;
   box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45);

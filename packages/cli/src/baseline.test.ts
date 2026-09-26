@@ -3,9 +3,7 @@ import { describe, expect, test } from "vitest";
 import { baselineFrom } from "./baseline.js";
 
 describe("baselineFrom", () => {
-  // The point of re-exporting rather than copying: edit the real component
-  // and the baseline changes with it, so a comparison is never against a
-  // stale duplicate of your own code.
+  // Re-exporting means editing the real component changes the baseline too.
   test("re-exports the component instead of copying it", () => {
     const result = baselineFrom("hero", "src/Hero.tsx", "export function Hero() { return null; }");
 

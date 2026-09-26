@@ -34,11 +34,11 @@ function hover(control: Element): void {
 }
 
 /**
- * The rail fades its top and bottom edges with a mask on the scrolling list,
- * and a mask clips everything inside it, a `position: fixed` child included.
- * A row's card opens to the right, over the stage, so it was in the page at
- * full opacity and never painted. Nothing in a test can see paint, but it can
- * see the cause: the label was a descendant of whatever clips its control.
+ * The rail fades its edges with a mask on the scrolling list, and a mask clips
+ * everything inside it, `position: fixed` included. A row's card opens over the
+ * stage, so it was in the page at full opacity and never painted. Tests can't
+ * see paint, but can see the cause: the label inside whatever clips its
+ * control.
  */
 test("a tip's label mounts on the shell, outside whatever clips its control", () => {
   document.body.innerHTML = `<main data-leglas-shell=""><div id="masked-list"></div></main>`;
@@ -58,8 +58,7 @@ test("a tip's label mounts on the shell, outside whatever clips its control", ()
   const label = document.querySelector(".leglas-tip");
   expect(label?.textContent).toBe("Variant of Counter");
   expect(list.contains(label)).toBe(false);
-  // Still inside the shell, because that is where the typeface and the
-  // smoothing it is drawn with are set.
+  // Still inside the shell, where its typeface and smoothing are set.
   expect(shell.contains(label)).toBe(true);
 });
 
@@ -84,8 +83,8 @@ test("inside a modal dialog the label stays in the dialog, which is the top laye
 });
 
 test("with no shell around it the label goes to the body, and leaves when the pointer does", () => {
-  // A shell elsewhere on the page is not around the control, so it is not
-  // where the label belongs either.
+  // A shell elsewhere on the page isn't around the control, so the label
+  // doesn't belong there either.
   document.body.innerHTML = `<main data-leglas-shell=""></main><div id="app"></div>`;
   const app = must(document.getElementById("app"), "the app");
   root = createRoot(app);

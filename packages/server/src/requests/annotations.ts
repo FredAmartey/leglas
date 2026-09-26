@@ -5,17 +5,9 @@ import { dirname, join } from "node:path";
 import { isNumber, isString, isJsonRecord, type JsonValue, parseJson } from "../json.js";
 
 /**
- * Notes left on a spot in a preview, waiting to become a change request.
- *
- * The composer already takes an intent; what it could not take was a place.
- * Most of what gets typed into it is someone describing where a thing is so
- * the agent can find it, which is work the interface is standing right next to
- * and can do exactly. A note carries its own anchor, so the words left over
- * are only ever about what is wrong.
- *
- * Not a comment system. Leglas runs on one machine with no accounts and
- * nobody to reply, so a note that cannot be sent is a note nobody opens twice.
- * These exist to be spent.
+ * Notes left on a spot in a preview, waiting to become a change request. A note
+ * carries its own anchor, so its words only say what's wrong. Not a comment
+ * system: one machine, no accounts, nobody to reply. Notes exist to be sent.
  */
 
 /** Where notes wait, beside the queue and the rest of the machine-local state. */
@@ -32,12 +24,9 @@ export type AnnotationAnchor = {
   /** The point that was pointed at, as a fraction of the element's own box. */
   spot: { x: number; y: number };
   /**
-   * A dragged region, as fractions of the element's own box.
-   *
-   * Present when the annotation was swept across an area rather than aimed at
-   * one thing. The element is then the nearest thing that holds the whole
-   * region, which is what makes the note resolvable at all: the region itself
-   * belongs to no element.
+   * A dragged region as fractions of the element's box. The element is then the
+   * nearest one holding the whole region, since the region belongs to no
+   * element.
    */
   region?: { x: number; y: number; width: number; height: number };
   /** The outermost elements that region covers, for the agent to recognise it. */
@@ -84,13 +73,9 @@ function size(value: JsonValue | undefined): number {
 }
 
 /**
- * Read one anchor out of whatever the browser sent.
- *
- * Same posture as the rest of the local API: the request comes from this
- * machine, but the shape is still not this process's to assume. Every field is
- * coerced and capped rather than refused, because a note whose geometry
- * arrived malformed is still a note worth keeping; only a note with nothing to
- * point at is worthless, and that is what a missing selector means.
+ * Reads one anchor from whatever the browser sent. Every field is coerced and
+ * capped rather than refused, since a note with malformed geometry is still
+ * worth keeping; only a missing selector makes it worthless.
  */
 export function anchorFrom(value: JsonValue | undefined): AnnotationAnchor | null {
   if (!isJsonRecord(value)) return null;
@@ -177,8 +162,7 @@ export async function readAnnotations(cwd: string): Promise<Annotation[]> {
         },
       ];
     });
-    // A broken file must never stop the interface from working, the same rule
-    // the queue is read under.
+    // A broken file must never stop the interface, same rule as the queue.
   } catch {
     return [];
   }
@@ -191,27 +175,19 @@ async function write(cwd: string, annotations: readonly Annotation[]): Promise<v
 }
 
 /**
- * The tail of every change to the notes file, so they happen one at a time.
- *
- * Each of them reads the whole list, changes one entry and writes the whole
- * list back, with the file waiting on either side. Two of those overlapping
- * is one of them undone: the second write was composed from a list the first
- * had already moved on from. It is not a theoretical window either, since the
- * two writers are a person typing and a run finishing, and the run finishing
- * is exactly what makes the note worth retyping.
- *
- * One process is all this has to cover. Leglas serves the interface and hosts
- * the runner from the same one, so the two writers are the two ends of this
- * chain, and a project opened twice at once has a queue file with the same
- * story.
+ * The tail of every change to the notes file, so they run one at a time. Each
+ * reads the whole list, changes an entry and writes it back around awaits, so
+ * two overlapping lose one edit. The two writers are a person typing and a run
+ * finishing, both in this process. Two Leglas processes on one project still
+ * race, as the queue does.
  */
 let writing: Promise<unknown> = Promise.resolve();
 
 /** Run one read-change-write after whatever is already in line. */
 function inTurn<T>(work: () => Promise<T>): Promise<T> {
   const next = writing.then(work, work);
-  // The chain must survive a failed change; a rejection left on it would
-  // take down every note written after it.
+  // The chain must survive a failed change, or a rejection would take down
+  // every later note.
   writing = next.then(
     () => undefined,
     () => undefined,
@@ -233,28 +209,17 @@ export async function addAnnotation(
 }
 
 /**
- * Reword a note that is already there, handing back what it became.
+ * Rewords an existing note and returns what it became. The note keeps its
+ * place, so its pin keeps its number, and its anchor, the expensive half.
  *
- * Only the words move, and the note keeps its place in the list so the pin
- * keeps the number the interface has been showing. The anchor is the
- * expensive half of a note and the half that was got right by pointing at
- * something, so a second thought about the wording must not cost it.
+ * The words do cost its id. A change records the ids it answers and freezes its
+ * prompt when sent, and the runner forgets those ids when it lands, so a
+ * revision keeping its id would be swept by a change that never carried its
+ * words. Reissuing every time needs no look at the queue, whose answer could go
+ * stale during the write anyway. The old id points at nothing, which is already
+ * how forgetting works.
  *
- * What the words do cost is the note's identity. A change records the ids it
- * answers and freezes its prompt when it is sent, and the runner forgets
- * exactly those ids when it lands. A revision that kept its id would be swept
- * by a change that never carried its words, which is the one outcome the
- * interface promises will not happen. Reissuing every time rather than only
- * when the queue currently names it keeps that promise without asking the
- * queue anything: a change created a moment after this returns would have
- * caught the old id in a lookup and lost the race, and there is no answer
- * about what is in flight that stays true for as long as a write takes.
- *
- * The old id is left to whatever is holding it, pointing at nothing. Sweeping
- * a note that has gone is already how forgetting one works.
- *
- * A note whose id has gone is not an error worth throwing over: null says so,
- * and the same rule as forgetting applies below it, nothing is written.
+ * A missing id returns null and writes nothing.
  */
 export async function updateAnnotation(
   cwd: string,
@@ -268,10 +233,9 @@ export async function updateAnnotation(
     if (found === undefined) return null;
     const words = text(note, NOTE_CAP);
 
-    // Opening a note, reading it and pressing Enter is not a second thought.
-    // Reissuing it there would quietly take the pin out of the sweep of a
-    // change that is about to answer it, and leave it on the pane afterwards
-    // as a note about something already done.
+    // Opening a note and pressing Enter isn't a second thought. Reissuing it
+    // would pull the pin out of a change about to answer it and leave it behind
+    // as a note about finished work.
     if (words === found.note) return found;
 
     const revised: Annotation = {
@@ -297,8 +261,8 @@ export async function removeAnnotations(cwd: string, ids: readonly string[]): Pr
     const remaining = annotations.filter((entry) => !wanted.has(entry.id));
     const dropped = annotations.length - remaining.length;
 
-    // Same reason an empty queue writes nothing: a request to forget notes
-    // that were never there must not materialise .leglas/ in a fresh project.
+    // Like an empty queue: forgetting notes that were never there must not
+    // create .leglas/ in a fresh project.
     if (dropped > 0) await write(cwd, remaining);
 
     return dropped;
@@ -311,22 +275,18 @@ export function annotationsFor(annotations: readonly Annotation[], title: string
 }
 
 /**
- * One anchor as a line an agent can act on.
- *
- * Ordered by how well each fact survives a change, most durable first. The
- * words an element renders are what an agent can grep for and what a person
- * recognises, so they lead. The geometry is last because it is the first to go
- * stale and is only ever a hint about where to look.
+ * One anchor as a line an agent can act on, most durable fact first. The
+ * element's words lead, since an agent can grep them and a person recognises
+ * them; geometry is last, since it goes stale first.
  */
 export function describeAnchor(anchor: AnnotationAnchor): string {
   const where =
     `about ${anchor.rect.width}×${anchor.rect.height} at ` +
     `(${anchor.rect.x}, ${anchor.rect.y}) in a ${anchor.viewport}px-wide viewport`;
 
-  // A swept region is not "this element", and saying so would send an agent
-  // to rewrite a container when the point was the row of things inside it.
-  // What it covers leads, because that is what was being looked at; the
-  // element is named as the thing that holds them.
+  // A swept region isn't "this element"; saying so would send an agent to
+  // rewrite a container instead of the row inside it. What it covers leads, and
+  // the element is named as what holds them.
   if (anchor.region !== undefined) {
     const covered = (anchor.covers ?? [])
       .map((entry) => (entry.text === "" ? `<${entry.tag}>` : `<${entry.tag}> “${entry.text}”`))
@@ -347,12 +307,9 @@ export function describeAnchor(anchor: AnnotationAnchor): string {
 }
 
 /**
- * The notes as the numbered section of a change request.
- *
- * Numbered because the pins in the interface are numbered, and the two have to
- * be the same list read twice: someone checking the agent's work goes back and
- * forth between them. Each note leads with what was asked, because that is the
- * instruction; the anchor follows as the address it applies to.
+ * The notes as the numbered section of a change request. Numbered like the
+ * interface's pins, since someone checking the agent's work reads both. Each
+ * note leads with what was asked, then its address.
  */
 export function describeAnnotations(annotations: readonly Annotation[]): string {
   return annotations

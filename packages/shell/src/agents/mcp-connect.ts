@@ -10,11 +10,9 @@ export type McpConnectOption = {
 };
 
 /**
- * The two setup shapes Leglas can hand to an MCP host.
- *
- * These are named for the agents people are likely to recognize, not for
- * implementation details such as a filename. What matters here is whether a
- * client accepts Claude's command or standard MCP JSON.
+ * The two setup shapes Leglas can hand an MCP host, named for agents people
+ * know: what matters is whether a client takes Claude's command or standard MCP
+ * JSON.
  */
 export const MCP_CONNECT_OPTIONS: Record<McpClient, McpConnectOption> = {
   claude: {

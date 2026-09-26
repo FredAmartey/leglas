@@ -2,9 +2,8 @@ import { readJson, refusal } from "../net/api.js";
 import type { GenerationJob } from "./generation.js";
 
 /**
- * The generate endpoints, as the rail calls them. A refusal comes back as an
- * Error carrying the server's own sentence ("Building directions runs on
- * Claude or Codex…"), which says what to do where a status code would not.
+ * The generate endpoints as the rail calls them. A refusal becomes an Error
+ * carrying the server's sentence, which says what to do.
  */
 export async function readGenerations(signal?: AbortSignal): Promise<GenerationJob[]> {
   const response = await fetch("/leglas/api/generate", signal === undefined ? {} : { signal });

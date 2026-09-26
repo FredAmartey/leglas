@@ -5,28 +5,19 @@ import { fileURLToPath } from "node:url";
 /**
  * Which project the tools act on.
  *
- * Every other face of Leglas learns this the same easy way: the CLI runs in
- * the project, so the working directory is the answer. An MCP server is not
- * always so lucky. An Agent Plugins client starts a plugin's server in the
- * plugin's own install directory (Agent Plugins 1.0.0 §7.2.1), which holds a
- * copy of Leglas and never a project anyone is designing. Taken at face value
- * there, the working directory would send `init` into a plugin cache, leave
- * the rail empty, and report all of it as success.
+ * An Agent Plugins client starts the server in the plugin's install directory
+ * (Agent Plugins 1.0.0 §7.2.1), so the working directory can't be trusted. In
+ * order:
  *
- * So the directory is asked for rather than assumed:
+ * 1. `LEGLAS_PROJECT_DIR`.
+ * 2. The host's MCP roots. The working directory wins when it sits inside one,
+ *    since a host started in `packages/app` means that; with several roots and
+ *    no match, the first.
+ * 3. The working directory, which covers `claude mcp add` and a hand-written
+ *    `.mcp.json`.
  *
- * 1. `LEGLAS_PROJECT_DIR`, when someone has said outright where to work.
- * 2. The workspace the host declares over MCP roots, which is the project it
- *    has open. The working directory wins when it sits inside one of those
- *    roots, because a host started in `packages/app` means that, not the
- *    repository above it. Several roots and no match takes the first, which
- *    is a guess, and the reason the override above exists.
- * 3. The working directory, which is the right answer for every host that
- *    starts the server in the project, and the reason nothing changes for
- *    `claude mcp add` or a hand-written `.mcp.json`.
- *
- * When none of those name a project, the tools say so. Refusing is the whole
- * point: a wrong directory is worse than no directory, because it writes.
+ * With none of those the tools refuse: a wrong directory is worse than none,
+ * because it writes.
  */
 
 export type Located = { ok: true; directory: string } | { ok: false; reason: string };
@@ -48,10 +39,7 @@ export function fixedProject(directory: string): Project {
   return { locate: async () => located };
 }
 
-/**
- * The part of an MCP server this needs. The SDK's `Server` satisfies it
- * structurally, which keeps the resolution testable without a transport.
- */
+/** The part of the SDK's `Server` this needs, so it tests without a transport. */
 export type RootsHost = {
   getClientCapabilities(): { roots?: unknown } | undefined;
   listRoots(): Promise<{ roots: { uri: string }[] }>;
@@ -71,11 +59,7 @@ export type HostProjectOptions = {
   pluginRoot?: string | undefined;
 };
 
-/**
- * Worded for every way the search comes up empty: a host with no roots, a host
- * with an empty workspace, and a host that failed to answer. Naming only the
- * first would describe the others wrongly.
- */
+/** Covers no roots, an empty workspace and a failed answer alike. */
 export const UNRESOLVED_PROJECT =
   "Leglas could not tell which project to work in. This agent host started the " +
   "Leglas MCP server in the plugin's own directory and named no workspace to " +
@@ -108,8 +92,8 @@ async function discover(host: RootsHost, options: HostProjectOptions): Promise<L
 
   const pluginRoot = options.pluginRoot?.trim();
 
-  // A client that does not expand ${PLUGIN_ROOT} leaves the literal behind; it
-  // matches no real directory, so the check simply does not fire.
+  // An unexpanded ${PLUGIN_ROOT} matches no real directory, so the check just
+  // doesn't fire.
   if (pluginRoot !== undefined && pluginRoot !== "" && contains(canonical(pluginRoot), cwd)) {
     return { ok: false, reason: UNRESOLVED_PROJECT };
   }
@@ -129,17 +113,16 @@ async function declaredRoots(host: RootsHost): Promise<string[]> {
       .map((root) => toDirectory(root.uri))
       .filter((directory): directory is string => directory !== null);
   } catch {
-    // A host that advertises roots and then refuses to list them has told us
-    // nothing, which leaves the working directory as good a guess as before.
+    // Roots advertised but not listed: the working directory is as good a guess
+    // as before.
     return [];
   }
 }
 
 /**
- * Roots can only be asked for once the client has initialized; asking earlier
- * is a protocol error. A stdio server is connected well before a host gets
- * around to initializing, and the channel starts polling immediately, so this
- * wait is the ordinary path rather than an edge case.
+ * Roots can't be asked for before the client initializes. A stdio server
+ * connects well before that and the channel polls at once, so this wait is the
+ * normal path.
  */
 function initialized(host: RootsHost): Promise<void> {
   if (host.getClientCapabilities() !== undefined) return Promise.resolve();

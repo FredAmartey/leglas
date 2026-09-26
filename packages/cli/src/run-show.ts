@@ -68,17 +68,15 @@ function isHydration(value: unknown): value is NonNullable<Screenshot["hydration
 }
 
 /**
- * Longer than the server's own deadline plus a cold browser launch, so a
- * stalled capture is reported rather than sat on for good.
+ * Longer than the server's deadline plus a cold browser launch, so a stalled
+ * capture is reported.
  */
 const CAPTURE_WAIT_MS = 30_000;
 
 /**
- * Answer for one direction, for whoever was handed its reference block.
- *
- * Addressing is by config title, which is what every other command takes and
- * what the block quotes, so a renamed direction is still reachable by the name
- * the project knows it by.
+ * Everything about one direction, for whoever was handed its reference block.
+ * Addressed by config title, like every other command, so a renamed direction
+ * is still reachable.
  */
 export async function runShow(
   options: {
@@ -100,8 +98,7 @@ export async function runShow(
     ...local.previews,
   ];
 
-  // Whoever ran this may be holding the name the rail showed them rather than
-  // the one the config spells.
+  // The caller may hold the rail's name rather than the config's.
   const resolved = resolveOrExplain(
     options.title,
     previews.map((preview) => preview.title),

@@ -10,9 +10,9 @@ const LIGHT =
   "rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-800 transition-[background-color,transform] duration-150 hover:bg-neutral-200 active:scale-[0.96] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none";
 
 /**
- * How far the build has got: what it is doing, from its own stream, and how
- * long it has been at it against how long these usually take. The clock
- * ticks here, so a second passing redraws this line and nothing else.
+ * How far the build has got: what it's doing, from its own stream, and how long
+ * it's taken against the usual. The clock ticks here so each second redraws
+ * only this line.
  */
 function Progress({ slot }: { slot: GenerationSlot }) {
   const [clock, setClock] = useState(() => Date.now());
@@ -38,10 +38,9 @@ function Progress({ slot }: { slot: GenerationSlot }) {
 }
 
 /**
- * What the stage shows for a direction that is not ready: its placeholder
- * renders nothing, and a blank page would read as broken. It stands in for
- * the app, so it is white like the other stage overlays, and it says what
- * the direction is meant to be while its agent works on it.
+ * What the stage shows for a direction that isn't ready, since its placeholder
+ * renders nothing and a blank page would look broken. White like the other
+ * stage overlays, saying what the direction is meant to be.
  */
 export function GenerationCover({
   acting,

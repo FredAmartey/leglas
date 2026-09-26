@@ -1,8 +1,7 @@
 /**
- * What JSON can carry, named so a value read off the wire or out of storage
- * has a type that promises no more than JSON does. Reading a field off a
- * `JsonRecord` gives a `JsonValue` back, and a predicate says what it is
- * before it is used as anything narrower.
+ * What JSON can carry, so a value from the wire or storage promises no more
+ * than JSON does. A field of a `JsonRecord` is a `JsonValue`, narrowed by a
+ * predicate before use.
  */
 export type JsonValue =
   string | number | boolean | null | readonly JsonValue[] | { readonly [key: string]: JsonValue };
@@ -15,8 +14,8 @@ export function parseJson(text: string): JsonValue {
 }
 
 /**
- * An object with keys, as JSON or a structured clone would produce one. This
- * says nothing about which keys; that is the caller's next question.
+ * An object with keys, as JSON or structured clone makes one. Which keys is the
+ * caller's next question.
  */
 export function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);

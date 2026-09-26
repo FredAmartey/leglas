@@ -62,15 +62,15 @@ describe("nearestCorner", () => {
 
 describe("isDrag", () => {
   /**
-   * The widget is a button first and a draggable second. Without a threshold
-   * any jitter during a tap counts as a drag, which repositions it under the
-   * pointer and eats the click that was meant to open the tools.
+   * The widget is a button first. Without a threshold any jitter during a tap
+   * counts as a drag, which moves it and eats the click meant to open the
+   * tools.
    */
   test("treats pointer travel during a tap as a click, not a drag", () => {
     const start = { x: 100, y: 100 };
 
-    // A real trackpad press slides several pixels; 5 and 6 were what actually
-    // broke the widget before this threshold existed.
+    // A real trackpad press slides several pixels; 5 and 6 broke the widget
+    // before this threshold.
     for (const point of [
       { x: 100, y: 100 },
       { x: 101, y: 100 },
@@ -95,9 +95,8 @@ describe("isDrag", () => {
 describe("dragAnchor", () => {
   /**
    * The popover shares the widget's box and stays mounted while hidden, so
-   * anchoring the box at the pointer used to leave the button a popover's
-   * height below it and its width to the right. What is dragged has to be
-   * what is under the hand.
+   * anchoring the box at the pointer left the button a popover away from the
+   * hand.
    */
   test("centres the button on the pointer", () => {
     const pointer = { x: 640, y: 400 };

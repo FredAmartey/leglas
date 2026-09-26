@@ -16,10 +16,9 @@ async function readIfPresent(path: string): Promise<string | null> {
 }
 
 /**
- * Prepare a project: an AGENTS.md section so any agent entering the repo knows
- * how to author directions, a starter config, and the ignore entry. Adopting
- * Leglas in a repository is what distributes the contract; nothing has to be
- * installed per user.
+ * Prepares a project: an AGENTS.md section on authoring directions, a starter
+ * config and the ignore entry. Committing it is what spreads the contract;
+ * nothing is installed per user.
  */
 export async function runInit(
   options: { cwd: string; force: boolean; json: boolean },

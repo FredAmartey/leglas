@@ -46,10 +46,9 @@ export type CodexTurnInput = {
 
 export type CodexTurnRunner = {
   /**
-   * Complete the app-server handshake before a request reaches the queue.
-   * The session id is accepted for symmetry with Claude and ignored: a Codex
-   * thread is resumed by the run itself, through `thread/resume`, so a fresh
-   * process picks a conversation up without loading anything in advance.
+   * Completes the app-server handshake before a request arrives. The session id
+   * is ignored: a Codex thread is resumed by the run itself through
+   * `thread/resume`.
    */
   warm(sessionId?: string | null): Promise<void>;
   run(input: CodexTurnInput, signal?: AbortSignal): Promise<RunnerChild>;
@@ -82,9 +81,9 @@ function string(value: JsonValue | undefined): string | null {
 }
 
 /**
- * One turn presented through the same small child-process surface the existing
- * runner consumes. The real child is the long-lived app-server; this stream
- * ends when one turn does, while kill() maps to turn/interrupt.
+ * One turn through the small child-process surface the runner uses. The real
+ * child is the long-lived app-server; this stream ends with the turn, and
+ * kill() maps to turn/interrupt.
  */
 class CodexTurnChild implements RunnerChild {
   readonly stdout = new PassThrough();
@@ -177,12 +176,10 @@ class PersistentCodexAppServer implements CodexTurnRunner {
   ) {}
 
   /**
-   * Counts every ask for a warm process. The runner fires warm() and
-   * release() without awaiting either, so the two race in both directions:
-   * a release must outlast a warm that was queued behind its reset, and must
-   * stand down for a warm asked for after it began. A warm queued behind a
-   * reset restarts through start() rather than warm(), so waiting its turn
-   * does not read as a fresh ask.
+   * Counts every ask for a warm process. warm() and release() aren't awaited
+   * and race both ways: a release must outlast a warm queued behind its reset,
+   * and stand down for a warm asked for after it began. A queued warm restarts
+   * through start(), so waiting doesn't count as a new ask.
    */
   private generation = 0;
 
@@ -307,8 +304,8 @@ class PersistentCodexAppServer implements CodexTurnRunner {
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
 
-      // Once turn/start has been written, a missing response is ambiguous: the
-      // app-server may already be editing. Do not expose failure to the CLI
+      // Once turn/start is written, a missing response is ambiguous: the
+      // app-server may already be editing. Don't hand the failure to the CLI
       // fallback until that process is gone.
       if (signal?.aborted || turnSubmitted) {
         const current = process ?? this.process;
@@ -325,18 +322,14 @@ class PersistentCodexAppServer implements CodexTurnRunner {
   }
 
   /**
-   * Let the app-server process go without ending the transport.
-   *
-   * The runner calls this once nothing has asked for Codex in a while; the
-   * next warm() spawns and handshakes again. A thread id the runner still
-   * holds is resumed by the new process through `thread/resume`.
+   * Ends the app-server process but keeps the transport. Called after an idle
+   * spell; the next warm() spawns again and resumes a held thread through
+   * `thread/resume`.
    */
   async release(): Promise<void> {
-    // The runner fires warm() and release() without awaiting them, so a
-    // warm() queued behind an earlier reset can install a new process after
-    // that reset settles. The last call wins: keep going until nothing is
-    // running and nothing is being reset, unless a newer warm has been asked
-    // for since, which is the newer intent and owns whatever comes up next.
+    // A warm() queued behind an earlier reset can install a process after it
+    // settles. Keep going until nothing runs or resets, unless a newer warm was
+    // asked for, which wins.
     const asOf = this.generation;
 
     for (;;) {
@@ -410,8 +403,8 @@ class PersistentCodexAppServer implements CodexTurnRunner {
       threadId: active.threadId,
       turnId: active.turnId,
     }).catch(() => {
-      // The runner's existing grace timer escalates to SIGKILL if the turn
-      // does not finish, so a failed polite interrupt needs no second path.
+      // The runner's grace timer escalates to SIGKILL if the turn doesn't
+      // finish, so a failed interrupt needs no second path.
     });
   }
 

@@ -85,12 +85,9 @@ function readJob(value: JsonValue | undefined): Job | null {
 }
 
 /**
- * Build a set of directions with the configured agent and wait for it.
- *
- * The work happens in the running Leglas, which owns the switch file, the
- * rail and the renders; this command starts it, reports each direction as it
- * lands and exits 0 only when every one is ready. Leaving it early does not
- * stop the builds, which the interface can still show and stop.
+ * Builds a set with the configured agent and waits. The running Leglas does the
+ * work; this reports each direction as it lands and exits 0 only when all are
+ * ready. Leaving early doesn't stop the builds.
  */
 export async function runExploreBuild(
   options: ExploreBuildOptions,

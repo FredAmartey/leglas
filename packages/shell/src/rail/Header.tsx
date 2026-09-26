@@ -12,8 +12,8 @@ import { chipLabel, hasNews } from "../update/update.js";
 import { useUpdate } from "../update/useUpdate.js";
 
 /**
- * The version, said quietly beside the name. It brightens and wears a dot when
- * a newer Leglas exists, and opens the one place to bring it in.
+ * The version, quietly beside the name. It brightens with a dot when a newer
+ * Leglas exists and opens the one place to install it.
  */
 function VersionChip({
   buttonRef,
@@ -58,10 +58,9 @@ function VersionChip({
 }
 
 /**
- * The top of the rail: the name, the version and whether a newer one exists,
- * sharing, and the way to fold the rail away. The share and the update each
- * keep their own panel and their own reading of the server here, since
- * nothing else in the interface asks about either.
+ * The top of the rail: name, version and update status, sharing, and folding
+ * the rail away. Share and update each keep their own panel and reads here,
+ * since nothing else asks about them.
  */
 export function RailHeader({
   active,
@@ -103,15 +102,13 @@ export function RailHeader({
 
   return (
     <div className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[#232328] bg-[#1E1E22] px-2.5 py-2.5">
-      {/* The product names itself here rather than in the list below it:
-        the search field and every command already say "directions". */}
+      {/* The product names itself here, not in the list below; the search
+          field and every command already say "directions". */}
       <span className="flex min-w-0 items-center gap-2">
         <Mark size={28} />
         <Wordmark height={18} />
-        {/* The version, said quietly beside the name. It brightens and
-          wears a dot when a newer Leglas exists, and opens the one
-          place to bring it in. A viewer sees the sharer's Leglas, not
-          their own, so they get no chip. */}
+        {/* A viewer sees the sharer's Leglas, not their own, so they get no
+            version chip. */}
         {!viewing && updates.status !== null && (
           <VersionChip
             buttonRef={updateButtonRef}
@@ -141,9 +138,8 @@ export function RailHeader({
             </button>
           </Tip>
         )}
-        {/* Sharing sits with the rail it shares. While a share is live
-          the control wears the light's own dot, so the fact that
-          somebody may be looking is never more than a glance away. */}
+        {/* Sharing sits with the rail it shares. While live, the control
+            wears the light's dot, so a possible viewer is a glance away. */}
         {!viewing && (
           <Tip
             label={

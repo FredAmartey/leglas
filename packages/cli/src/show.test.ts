@@ -103,8 +103,8 @@ describe("planShow", () => {
     expect(plan.ok).toBe(true);
 
     if (!plan.ok) return;
-    // An agent handed one direction and nothing else improves it straight out
-    // of the comparison, which is the one thing the product exists to prevent.
+    // A direction handed over alone gets improved straight out of the
+    // comparison.
     expect(plan.comparedWith).toEqual(["Current", "Dot grid"]);
   });
 

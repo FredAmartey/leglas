@@ -32,31 +32,28 @@ export type Prefs = {
   order: string[];
   renames: Record<string, string>;
   /**
-   * Show framework dev overlays inside previews. Next and others paint their
-   * own floating badge over the app, which lands on top of the design being
-   * judged and fights the tools widget for the same corner. On by default:
-   * the badge belongs to the user's app, and a preview that quietly differs
-   * from what their dev server renders is the wrong thing to judge against.
+   * Show framework dev overlays inside previews. Badges like Next's sit over
+   * the design and fight the tools widget for a corner, but they're the user's
+   * app, and a preview that quietly differs from their dev server is the wrong
+   * thing to judge. On by default.
    */
   showDevOverlays: boolean;
   /**
-   * Draw each side of a split at the width the stage has on its own and scale
-   * it down to fit, rather than handing it half the room and letting it
-   * reflow. On by default, because the alternative silently changes the design
-   * being judged: at half width a layout crosses its own breakpoints, and the
-   * comparison becomes two narrow renderings of directions meant for the wide
-   * one. Turning it off is for deliberately inspecting that narrow state.
+   * On by default: each side of a split is drawn at the stage's solo width and
+   * scaled down, rather than given half the room to reflow. At half width a
+   * layout crosses its breakpoints and the comparison becomes two narrow
+   * renderings. Off is for inspecting that narrow state on purpose.
    */
   scaleSplit: boolean;
   /**
-   * Let Leglas build a set of directions itself, with Claude or Codex: the
-   * "+" in the rail's header, the brief in the composer and each direction's
-   * progress on its row. Off by default while the feature is new.
+   * Let Leglas build a set of directions with Claude or Codex: the "+" in the
+   * rail header, the brief in the composer and progress on rows. Off by default
+   * while it's new.
    */
   buildDirections: boolean;
   /**
-   * Show the tools widget over the stage. Turning it off leaves the stage to
-   * the previews alone; T reopens the tools, so the switch is never a trap.
+   * Show the tools widget over the stage. Off leaves the stage to the previews;
+   * T reopens the tools, so it's never a trap.
    */
   showWidget: boolean;
   viewport: number | null;
@@ -85,11 +82,9 @@ export function storageKey(project: string): string {
 }
 
 /**
- * Prefs outlive edits to the config, so anything keyed by preview is filtered
- * against the live set on load and scalar layout values are clamped back into
- * their legal ranges. A malformed or unreadable store falls back to defaults
- * rather than throwing: losing saved layout is a smaller failure than an
- * interface that will not start.
+ * Prefs outlive config edits, so anything keyed by preview is filtered against
+ * the live set on load and scalars are clamped. A malformed store falls back to
+ * defaults: losing layout beats an interface that won't start.
  */
 export function loadPrefs(raw: string | null, previews: readonly Preview[]): Prefs {
   const titles = previews.map((preview) => preview.title);
@@ -100,8 +95,8 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
 
     if (!isJsonRecord(saved)) return { ...DEFAULT_PREFS, order: titles };
 
-    // A saved list holds titles; anything else in it is dropped with the
-    // titles that no longer exist.
+    // A saved list holds titles; anything else goes with the titles that no
+    // longer exist.
     const titlesIn = (value: JsonValue | undefined, among: readonly string[]): string[] =>
       Array.isArray(value) ? value.filter(isString).filter((title) => among.includes(title)) : [];
 
@@ -121,8 +116,8 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
     return {
       collapsed: Boolean(saved.collapsed),
       collapsedFamilies: titlesIn(saved.collapsedFamilies, available),
-      // An unrecognised corner would leave the widget unpositioned, and it is
-      // the only way into the tools.
+      // An unknown corner would leave the widget unpositioned, and it's the
+      // only way into the tools.
       corner: CORNERS.find((corner) => corner === saved.corner) ?? DEFAULT_PREFS.corner,
       deleted,
       font: isString(saved.font) ? saved.font : DEFAULT_PREFS.font,
@@ -152,10 +147,9 @@ export function loadPrefs(raw: string | null, previews: readonly Preview[]): Pre
 }
 
 /**
- * Permanently clear directions from the rail and every preference keyed by
- * them. The tombstone keeps a shared config direction from reappearing on the
- * next poll, while machine-local directions are also removed from Leglas's
- * registry by the server.
+ * Permanently clears directions from the rail and every pref keyed by them. The
+ * tombstone keeps a shared config direction from coming back on the next poll;
+ * machine-local ones are also removed from the registry by the server.
  */
 export function deleteDirections(prefs: Prefs, titles: readonly string[]): Prefs {
   const removed = new Set(titles);
@@ -175,13 +169,10 @@ export function deleteDirections(prefs: Prefs, titles: readonly string[]): Prefs
 }
 
 /**
- * The rail's row order, from saved order and the previews that exist now.
- *
- * Saved order used to be reconciled with the config once, at load. Previews
- * can appear mid-session now, registered by an agent while the interface is
- * open, and a saved order that predates them would leave their rows invisible.
- * So the reconciliation happens every render: saved order first, minus titles
- * that no longer exist, with unknown titles appended in config order.
+ * The rail's row order from the saved order and the previews that exist now.
+ * Recomputed every render, since an agent can register previews mid-session:
+ * saved order first minus titles that are gone, then unknown titles in config
+ * order.
  */
 export function railOrder(order: readonly string[], titles: readonly string[]): string[] {
   if (order.length === 0) return [...titles];

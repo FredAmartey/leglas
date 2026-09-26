@@ -38,16 +38,9 @@ function exportNameFor(to: string): string {
 }
 
 /**
- * Plan the end of an exploration.
- *
- * Exploring is only safe to start because finishing is cheap, and finishing
- * means the winner leaves the ignored directory for real source while the
- * alternatives disappear entirely. Leglas can do this only because it knows
- * where it put those files; anything it did not generate is refused rather than
- * guessed at.
- *
- * The one step left to the user is the import in their own component, for the
- * same reason `leglas new` prints it rather than applying it.
+ * Plan the end of an exploration: the winner moves into real source and the
+ * rest is deleted. Anything Leglas didn't generate is refused, not guessed at.
+ * The import in the user's own component is left to them, as with `leglas new`.
  */
 export function planKeep(options: {
   title: string;
@@ -77,8 +70,8 @@ export function planKeep(options: {
 
   const to = normalize(options.to);
 
-  // The move joins this onto the project, so an absolute path would land
-  // nested inside it rather than where it points.
+  // The move joins this onto the project, so an absolute path would land nested
+  // inside it.
   if (to.startsWith("..") || isAbsolute(to)) {
     return { ok: false, error: "The destination has to be inside the project." };
   }
@@ -90,8 +83,8 @@ export function planKeep(options: {
     };
   }
 
-  // Every direction of this surface goes, winner included: it is being kept as
-  // ordinary code now, not as one of several alternatives.
+  // Every direction of the surface goes, the winner included: it's ordinary
+  // code now.
   const dropTitles = options.previews
     .filter((preview) => surfaceOf(preview.url) === surface)
     .map((preview) => preview.title);

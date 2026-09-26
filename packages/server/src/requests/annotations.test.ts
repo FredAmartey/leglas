@@ -42,8 +42,8 @@ describe("anchorFrom", () => {
     expect(anchorFrom(anchor())).toEqual(anchor());
   });
 
-  // Without something to point at, a note is just a sentence with no address,
-  // which is the thing the composer already does better.
+  // Without something to point at, a note is just a sentence, which the
+  // composer already does better.
   test("refuses an anchor with nothing to point at", () => {
     expect(anchorFrom({ ...anchor(), selector: "" })).toBeNull();
     expect(anchorFrom({ ...anchor(), selector: 42 })).toBeNull();
@@ -51,8 +51,8 @@ describe("anchorFrom", () => {
     expect(anchorFrom("main > div")).toBeNull();
   });
 
-  // Geometry that arrived broken is not a reason to lose the note; it is the
-  // one part of an anchor the agent needs least.
+  // Broken geometry isn't a reason to lose the note; it's the part the agent
+  // needs least.
   test("keeps a note whose geometry arrived malformed", () => {
     const read = anchorFrom({ ...anchor(), rect: { width: "wide" }, viewport: null });
 
@@ -85,8 +85,8 @@ describe("anchorFrom", () => {
     expect(anchorFrom({ ...anchor(), spot: { x: -3, y: 40 } })?.spot).toEqual({ x: 0, y: 1 });
   });
 
-  // Notes written before the spot existed sat at the middle of the element,
-  // which is where they still belong.
+  // Notes from before the spot existed sat at the element's middle, and still
+  // do.
   test("a note with no spot recorded lands in the middle", () => {
     const { spot: _spot, ...without } = anchor();
     expect(anchorFrom(without)?.spot).toEqual({ x: 0.5, y: 0.5 });
@@ -135,10 +135,8 @@ describe("the notes file", () => {
     expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["b"]);
   });
 
-  // A note is a sentence about a place, and the place is the expensive half.
-  // Rewording one must not cost it: the anchor is handed back exactly as it
-  // was found, and the note keeps its turn in the list so the pin keeps its
-  // number.
+  // The anchor is the expensive half of a note, so rewording keeps it exactly
+  // and the note keeps its place, so the pin keeps its number.
   test("rewords a note and leaves what it points at alone", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "looks fake"));
@@ -154,8 +152,8 @@ describe("the notes file", () => {
     ]);
   });
 
-  // Clearing a note is a real edit. The pin still carries an address, which
-  // is most of what a note is for, so the words are allowed to go.
+  // Clearing a note is a real edit; the pin still carries an address, so the
+  // words may go.
   test("rewording a note to nothing empties it rather than dropping it", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "looks fake"));
@@ -190,12 +188,11 @@ describe("the notes file", () => {
     expect(read.find((entry) => entry.id === second.id)).toEqual(second);
   });
 
-  // The whole reason a reworded note takes a new identity. A change in flight
-  // recorded the ids it answers and the runner forgets exactly those when it
-  // lands, so a revision that kept its id would be swept away by the request
-  // whose words it was written to replace. Every rewording is reissued rather
-  // than only the ones the queue names right now, because a change sent a
-  // moment later would have caught the old id either way.
+  // Why a reworded note gets a new id: a change in flight recorded the ids it
+  // answers and the runner forgets those when it lands, so a revision keeping
+  // its id would be swept away by the request it replaces. Every rewording is
+  // reissued, since a change sent a moment later would have caught the old id
+  // anyway.
   test("a note reworded while a change holds it survives that change landing", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "looks fake"));
@@ -209,9 +206,8 @@ describe("the notes file", () => {
     expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["looks printed"]);
   });
 
-  // Both the interface and the runner write this whole file back, and both do
-  // it around an await. Overlapping, the later write lands on a list the
-  // earlier one has already changed, and one of the two edits is gone.
+  // The interface and the runner both write the whole file back around an
+  // await; overlapping, one edit is lost.
   test("a revision and a sweep landing together cannot overwrite each other", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "looks fake"));
@@ -353,8 +349,8 @@ describe("a swept region", () => {
     expect(required(covers[0]).text).toMatch(/^x+$/);
   });
 
-  // Sending an agent to rewrite the container when the point was the row of
-  // things inside it is the failure this wording exists to prevent.
+  // Sending an agent to rewrite the container when the point was the row inside
+  // it is what this wording prevents.
   test("is described as an area, not as the element that holds it", () => {
     const written = describeAnchor(region);
 

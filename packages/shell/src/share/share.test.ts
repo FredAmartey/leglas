@@ -100,10 +100,9 @@ describe("unshareableReason", () => {
 });
 
 describe("sameShare", () => {
-  // The panel offers an update when the rail as it is now makes a different
-  // manifest from the live share's. Renames and folds come back in whatever
-  // order they were made, and the route list grows as the sharer allows
-  // things (sameShare's own comment); none of that is a new share.
+  // An update is offered when the rail makes a different manifest from the live
+  // share. Rename and fold order and the growing route list (see sameShare)
+  // don't make a new share.
   test("is blind to rename order, fold order and its route list, and to nothing else", () => {
     const families: Preview[] = [
       { title: "Aurora", url: "/?v=aurora", tags: [] },
@@ -212,8 +211,8 @@ describe("observedRoutes", () => {
       origin,
     );
 
-    // Sorted, deduplicated, this origin only, and nothing from a direction
-    // the share does not carry.
+    // Sorted, deduplicated, this origin only, and only from directions the
+    // share carries.
     expect(routes).toEqual(["/@vite/client", "/src/main.tsx"]);
   });
 
@@ -265,8 +264,7 @@ describe("words", () => {
   test("directoryOf offers the folder beside a refused path, never the root", () => {
     expect(directoryOf("/node_modules/.vite/deps/react.js")).toBe("/node_modules/.vite/deps/");
     expect(directoryOf("/assets/app.js")).toBe("/assets/");
-    // A path at the root has no folder worth offering: it would be every
-    // path there is.
+    // A path at the root has no folder worth offering: it would be every path.
     expect(directoryOf("/favicon.ico")).toBeNull();
     expect(directoryOf("/")).toBeNull();
   });

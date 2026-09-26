@@ -68,10 +68,9 @@ const page = (name: string): DocPage => {
 };
 
 /**
- * The manual is read on GitHub and on the site from the same files, so the
- * page has to show every construct those files use and refuse one it would
- * pass through as source. These run against the real docs/ folder, which is
- * where a new construct would first appear.
+ * The manual is read on GitHub and on the site from the same files, so the page
+ * must show every construct they use and refuse one it would pass through as
+ * source. Runs against the real docs/ folder.
  */
 describe("docs/", () => {
   // The order of the rest is test/docs.test.ts's, against docs/README.md.
@@ -82,11 +81,9 @@ describe("docs/", () => {
   });
 
   /**
-   * `docs/` is the public manual, but it is also where this repository's own
-   * conventions put notes that are never committed: `docs/lessons.md` and
-   * `docs/plans/`, both in `.git/info/exclude`. A reader that served every
-   * markdown file it found turned those into pages of the manual in any
-   * checkout that had them, which is every maintainer's.
+   * `docs/lessons.md` and `docs/plans/` are local notes in `.git/info/exclude`.
+   * Serving every markdown file turned them into manual pages in any
+   * maintainer's checkout.
    */
   test("a file the manual does not name is not one of its pages", () => {
     const dir = manual();
@@ -224,8 +221,8 @@ describe("the reader", () => {
     expect(render("# T\n\nA sentence.\n1. then a step\n")).toBe(
       "<p>A sentence.</p>\n<ol><li>then a step</li></ol>",
     );
-    // GitHub starts the list at whatever number comes first and ignores the
-    // rest, so anything but 1, 2, 3 would read differently there and here.
+    // GitHub numbers a list from its first item and ignores the rest, so only
+    // 1, 2, 3 reads the same in both places.
     expect(() => render("# T\n\n2. starts late\n")).toThrow(
       "x.md:3: a numbered list that does not count from 1",
     );

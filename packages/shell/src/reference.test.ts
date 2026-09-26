@@ -28,8 +28,8 @@ describe("referenceText", () => {
     expect(reference().split("\n")[0]).toBe('Leglas direction "Warm"');
   });
 
-  // Every command addresses a direction by its config title, so a renamed row
-  // has to carry both or the reference names something the CLI cannot find.
+  // Commands address directions by config title, so a renamed row must carry
+  // both or the reference names something the CLI can't find.
   test("prints both names when the rail shows a different one", () => {
     expect(reference({}, "Sunrise").split("\n")[0]).toBe(
       'Leglas direction "Warm" (shown as "Sunrise")',
@@ -93,8 +93,8 @@ describe("absoluteUrl", () => {
     );
   });
 
-  // A branch preview runs on its own port, and a config may point at staging.
-  // Concatenating an origin onto either produces a URL that goes nowhere.
+  // A branch preview runs on its own port and a config may point at staging;
+  // concatenating an origin onto either goes nowhere.
   test("leaves an already absolute preview alone", () => {
     expect(absoluteUrl("http://localhost:5174/", "http://localhost:4173")).toBe(
       "http://localhost:5174/",

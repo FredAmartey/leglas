@@ -12,9 +12,9 @@ type Load =
   | { status: "ready"; config: ConfigPayload }
   | { status: "failed"; message: string }
   /**
-   * A shared interface whose server stopped answering. The person sharing
-   * stops, or their Leglas goes, and the link goes with it; the rail that
-   * was on screen is kept behind this so a return brings it straight back.
+   * A shared interface whose server stopped answering: the sharer stopped or
+   * their Leglas went. The last rail stays behind this so a return brings it
+   * straight back.
    */
   | { status: "ended"; config: ConfigPayload; final: boolean };
 
@@ -44,9 +44,9 @@ export function App() {
   /** A viewer asking again, after the share went quiet. */
   const [retries, retry] = useReducer((count: number) => count + 1, 0);
   /**
-   * Reads that failed in a row. A tunnel edge answers one bad page while it
-   * reconnects, and a viewer's own network blinks; neither is the share
-   * ending, so the rail stays until a second read agrees.
+   * Failed reads in a row. A tunnel edge serves one bad page while reconnecting
+   * and a viewer's network blinks, so the rail stays until a second read
+   * agrees.
    */
   const misses = useRef(0);
 
@@ -62,17 +62,13 @@ export function App() {
         return readJson<ConfigPayload>(response);
       });
 
-    // An agent registers directions while this is open, so new previews have
-    // to appear as they are added. The server says when: it watches the
-    // config and the previews file and nudges, and this reads on the nudge.
-    // The interval underneath is the fallback for a socket that died
-    // quietly, which is why it is slow rather than the pace.
+    // New previews must appear as an agent registers them. The server watches
+    // the config and previews file and nudges; this reads on the nudge, with a
+    // slow fallback interval for a quietly dead socket.
     //
-    // Updates only apply on a changed payload, so the steady state
-    // re-renders nothing, and a failure once the rail is up changes nothing:
-    // transient server hiccups are the health banner's story, not a reason
-    // to blank it. A failure before that is the difference between a started
-    // interface and none, so it shows.
+    // Only a changed payload updates state, so the steady state renders
+    // nothing. A failure after the rail is up changes nothing (the health
+    // banner covers hiccups); one before it shows.
     const stop = startPoll(
       (signal) =>
         read(signal)
@@ -90,10 +86,9 @@ export function App() {
             if (cancelled) return;
 
             if (!wasAborted(cause)) misses.current += 1;
-            // The share listener refusing the cookie is the sharer having
-            // stopped: final, and a new link is the only way back. Anything
-            // else is the tunnel or the network, and two misses in a row is
-            // what it takes to call it.
+            // The share listener refusing the cookie means the sharer stopped:
+            // final, only a new link helps. Anything else is the tunnel or the
+            // network, and takes two misses in a row.
             const refused = cause instanceof Refused && cause.status === 403;
             setLoad((current) =>
               (current.status === "ready" || current.status === "ended") &&
@@ -105,8 +100,8 @@ export function App() {
                   ? current
                   : {
                       status: "failed",
-                      // An abandoned read is the poll's own deadline, not
-                      // anything the server said, and its wording is internal.
+                      // An abandoned read is the poll's own deadline, and its
+                      // wording is internal.
                       message: wasAborted(cause)
                         ? "it did not answer in time"
                         : cause instanceof Error
@@ -161,8 +156,8 @@ export function App() {
     );
   }
 
-  // A config that failed validation is reported here rather than swallowed:
-  // the server stays up precisely so this screen can say what to fix.
+  // A config that failed validation is shown here; the server stays up so this
+  // screen can say what to fix.
   if (load.config.errors.length > 0) {
     return (
       <Notice title="Your config needs fixing">

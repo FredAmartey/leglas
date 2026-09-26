@@ -15,7 +15,7 @@ describe("resolveTitle", () => {
   });
 
   test("a name from the rail resolves to the title the config knows", () => {
-    // The whole point: the user says the name their own interface showed them.
+    // The user says the name their own interface showed them.
     expect(resolveTitle("Sunrise", titles, { Cool: "Sunrise" })).toEqual({
       ok: true,
       title: "Cool",
@@ -23,8 +23,8 @@ describe("resolveTitle", () => {
   });
 
   test("a config title beats a local nickname of the same word", () => {
-    // The shared config is what a teammate sees; a local rename must not
-    // shadow it, or two people run the same command on different directions.
+    // The shared config is what a teammate sees; a local rename must not shadow
+    // it, or one command hits different directions for two people.
     expect(resolveTitle("Warm", titles, { Cool: "Warm" })).toEqual({ ok: true, title: "Warm" });
   });
 

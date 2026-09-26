@@ -19,13 +19,9 @@ async function sameDirectory(left: string, right: string): Promise<boolean> {
 export type FoundLeglas = { ok: true; port: number; base: string } | { ok: false; error: string };
 
 /**
- * The Leglas serving this project, for a command that needs the running one.
- *
- * An explicit port wins; then the record the running server wrote; then the
- * default, since a record can be missing while a server is up (two servers on
- * one project, the newer one gone first). The health answer decides whichever
- * way the port was found, and a Leglas serving another project is not this
- * one: acting on it would act on the wrong project's directions.
+ * The Leglas serving this project: an explicit port, else the server's record,
+ * else the default (a record can be missing while a server is up). Health
+ * decides either way, and a Leglas serving another project is refused.
  */
 export async function findLeglas(
   cwd: string,

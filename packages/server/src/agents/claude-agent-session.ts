@@ -55,9 +55,9 @@ export type ClaudeTurnInput = {
 
 export type ClaudeTurnRunner = {
   /**
-   * Spawn Claude Code and complete the SDK initialize handshake. With a
-   * session id, the process loads that conversation, so a session released
-   * while idle carries on where it was instead of on the cold CLI path.
+   * Spawns Claude Code and completes the SDK handshake. With a session id the
+   * process loads that conversation, so one released while idle carries on
+   * instead of taking the CLI path.
    */
   warm(sessionId?: string | null): Promise<void>;
   run(input: ClaudeTurnInput, signal?: AbortSignal): Promise<RunnerChild>;
@@ -144,9 +144,9 @@ function waitForAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
 }
 
 const defaultStartup: ClaudeSdkStartup = async (params) => {
-  // Type-only coupling is deliberate: if the optional SDK cannot load, warm()
-  // rejects and the runner retains the installed `claude -p` fallback instead
-  // of making the whole Leglas server fail at module import time.
+  // Type-only coupling on purpose: if the optional SDK can't load, warm()
+  // rejects and the runner keeps the `claude -p` fallback instead of the server
+  // failing at import.
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
   return sdk.startup(params);
@@ -259,12 +259,10 @@ class ClaudeTurnChild implements RunnerChild {
 }
 
 /**
- * One long-lived Agent SDK streaming-input session.
- *
- * startup() pays the native CLI spawn and initialize handshake while Leglas is
- * idle. The first request consumes that warm handle; later requests enqueue a
- * user message into the same process. A result message ends only the synthetic
- * child for that turn, not Claude itself.
+ * One long-lived Agent SDK streaming session. startup() pays the spawn and
+ * handshake while Leglas is idle; the first request takes the warm handle and
+ * later ones enqueue into the same process. A result message ends only that
+ * turn's synthetic child.
  */
 class PersistentClaudeSession implements ClaudeTurnRunner {
   private warmQuery: ClaudeWarmQuery | null = null;
@@ -281,11 +279,10 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
   private warmedFor: string | null = null;
   private closed = false;
   /**
-   * Counts every ask for a warm process. The runner fires warm() and
-   * release() without awaiting either, so the two race in both directions:
-   * a release must outlast a warm that started while it was settling, and
-   * must stand down for a warm asked for after it began. The generation a
-   * release captured at entry says which side of that it is on.
+   * Counts every ask for a warm process. warm() and release() aren't awaited
+   * and race both ways: a release must outlast a warm that started while it
+   * settled, and stand down for a warm asked for after it began. The generation
+   * it captured says which.
    */
   private generation = 0;
 
@@ -305,10 +302,9 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
     if (this.warmQuery !== null || this.warming !== null) {
       if (this.warmedFor === sessionId) return this.warming ?? Promise.resolve();
 
-      // A process cannot change which session it loaded, so a handle warmed
-      // for another conversation (or for a fresh one when this needs a
-      // resume) goes, and the right one starts. One spawn, which is what the
-      // ask would have cost anyway.
+      // A process can't change the session it loaded, so a handle warmed for
+      // another conversation is replaced. One spawn, which the ask would have
+      // cost anyway.
       return this.resetQuery().then(() => this.warm(sessionId));
     }
 
@@ -369,19 +365,16 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
 
       if (signal?.aborted) throw new Error("cancelled");
 
-      // The runner deliberately starts fresh after its bounded session cap. A
-      // null session id therefore rotates the process instead of quietly
-      // carrying old context into what the caller believes is a clean turn.
+      // The runner starts fresh after its session cap, so a null session id
+      // rotates the process rather than carrying old context into a clean turn.
       if (this.query !== null && input.sessionId === null) await this.resetQuery();
 
       if (signal?.aborted) throw new Error("cancelled");
 
       if (this.query === null) {
         // A saved session with no live process is loaded into a fresh one.
-        // Without this, the first request after an idle release fell to the
-        // `claude --resume` CLI path, and so did every request after it for
-        // the rest of the conversation, since the process never had the
-        // session the runner kept asking for.
+        // Otherwise the first request after an idle release, and every one
+        // after it, would fall to the `claude --resume` CLI.
         await waitForAbort(this.startQuery(signal, input.sessionId), signal);
       } else if (
         input.sessionId !== null &&
@@ -402,8 +395,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       this.active = child;
 
       // null clears only the SDK's flag layer and falls back to the user's own
-      // Claude setting. No model is supplied, so their selected model remains
-      // authoritative too.
+      // setting. No model is passed, so theirs stands too.
       if (input.effort !== this.appliedEffort) {
         await waitForAbort(query.applyFlagSettings({ effortLevel: input.effort }), signal);
         this.appliedEffort = input.effort;
@@ -429,20 +421,15 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
   }
 
   /**
-   * Let the native process go without ending the transport.
-   *
-   * The process is the cost, not this object: a warm session is Claude Code
-   * plus every MCP server the user has configured, held for a request that
-   * may never come. The runner calls this once nothing has asked for Claude
-   * in a while, and the next warm() starts it again. A session id the runner
-   * still holds is served by the `claude --resume` fallback in the meantime.
+   * Ends the native process but keeps the transport. A warm session is Claude
+   * Code plus every MCP server the user configured, held for a request that may
+   * not come. Called after an idle spell; the next warm() starts it again, and
+   * a held session id goes through `claude --resume` meanwhile.
    */
   async release(): Promise<void> {
-    // warm() does not wait for a reset in flight, so one started while an
-    // earlier release was still settling lands a new process after it. The
-    // last call wins: reset again until nothing is warm or warming, unless a
-    // newer warm has been asked for since, in which case it is the newer
-    // intent and this release has nothing left to say.
+    // warm() doesn't wait for a reset in flight, so one started during an
+    // earlier release lands a process after it. Reset until nothing is warm or
+    // warming, unless a newer warm was asked for, which wins.
     const asOf = this.generation;
 
     do {

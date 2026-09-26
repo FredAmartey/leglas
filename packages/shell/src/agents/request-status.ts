@@ -7,28 +7,23 @@ export type RequestStatus = {
   /** The notes this change answers, by id. Empty when it was typed alone. */
   notes?: readonly string[];
   /**
-   * "running" is the server's overlay for the one request in flight; the
-   * other four are the queue's own. "cancelled" is separate from "failed" on
-   * purpose: the same card treated a stop and a provider outage alike, and
-   * offering to run the thing the user just stopped is the one reaction that
-   * is always wrong.
+   * "running" is the server's overlay for the one request in flight; the rest
+   * are the queue's own. "cancelled" is separate from "failed" because offering
+   * to rerun what the user just stopped is always wrong.
    */
   status: "queued" | "picked-up" | "running" | "failed" | "cancelled";
   /**
-   * A variant is built beside the direction it was asked of and leaves it
-   * alone; a replace rewrites it. Absent on a payload from an older server,
-   * which is read as a replace, the cautious answer.
+   * A variant is built beside the direction it was asked of; a replace rewrites
+   * it. Absent from an older server, and read as replace, the cautious answer.
    */
   mode?: "variant" | "replace";
   failure?: RequestFailure | null;
 };
 
 /**
- * The vendor's own backoff, while a run is inside one.
- *
- * Claude reports each attempt as it retries; nothing else reaches the
- * interface during that time, which is how a 200-second wait on an overloaded
- * provider came to look like an agent quietly thinking.
+ * The vendor's own backoff while a run is in one. Claude reports each retry
+ * attempt; nothing else reaches the interface then, so a 200-second wait on an
+ * overloaded provider looked like the agent thinking.
  */
 export type AgentWaiting = {
   attempt: number;
@@ -46,10 +41,7 @@ export type AgentStatus = {
   /** A stop has been asked for and the agent has not gone yet. */
   stopping?: boolean;
   waiting?: AgentWaiting | null;
-  /**
-   * When a run that has gone quiet last said anything; null while it talks.
-   * Absent from an older server, which never says.
-   */
+  /** When a quiet run last said anything; null while it talks, absent from an older server. */
   quietSince?: number | null;
 };
 
@@ -64,11 +56,9 @@ export type AgentOption = {
 };
 
 /**
- * Directions whose source may change before their current request settles.
- *
- * A fork is not one of them: the agent is told to leave the parent exactly as
- * it is and build beside it. Counting the parent here forgot its duplicate
- * verdict and read the page again after every fork, the default request.
+ * Directions whose source may change before their current request settles. Not
+ * a fork's parent, which the agent leaves alone; counting it dropped its
+ * duplicate verdict after every fork.
  */
 export function changingRequestTitles(requests: readonly RequestStatus[]): string[] {
   return [
@@ -86,16 +76,10 @@ export function changingRequestTitles(requests: readonly RequestStatus[]): strin
 }
 
 /**
- * Notes that are already inside a change nobody has finished with.
- *
- * A request freezes its prompt when it is sent, so the words in it are the
- * words that were there at the time. Rewording such a note afterwards is a
- * note about the next change, not a correction to the one in flight, and the
- * interface has to say which it is: a pin that had been sent and one that had
- * never been read looked exactly alike.
- *
- * Failed and cancelled requests are left out. Their notes were never answered
- * and are waiting to be sent again, which is what an unmarked pin means.
+ * Notes already inside an unfinished change. A request freezes its prompt when
+ * sent, so rewording such a note afterwards is about the next change, and the
+ * pin has to show that it was sent. Failed and cancelled requests are left out,
+ * since their notes are waiting to be sent again.
  */
 export function notesAwaitingChange(requests: readonly RequestStatus[]): Set<string> {
   return new Set(
@@ -122,12 +106,8 @@ export function workingRequestTitles(requests: readonly RequestStatus[]): Set<st
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
- * What the chip in the composer says: who Enter sends to.
- *
- * This used to share one slot with the run status, which meant a running
- * request hid the chooser and switching agents mid-queue was impossible. The
- * chip is now permanent composer furniture, so its state depends only on the
- * choice, never on the queue.
+ * What the composer chip says: who Enter sends to. It depends only on the
+ * choice, never on the queue, so a running request can't hide the chooser.
  */
 export type ComposerAgent =
   { kind: "chosen"; id: string; name: string } | { kind: "choose" } | { kind: "none" };
@@ -138,8 +118,7 @@ export function composerAgent(
   customRun: string | null = null,
 ): ComposerAgent {
   if (choice === "custom") {
-    // The chip wears the command's own name: "aider" says more than
-    // "Custom" ever will, and the command's first word is its name.
+    // The chip wears the command's own name: "aider" says more than "Custom".
     const word = customRun?.trim().split(/\s+/)[0] ?? "";
     const name = word === "" ? "Custom" : (word.split("/").pop() ?? "Custom");
 
@@ -148,8 +127,8 @@ export function composerAgent(
 
   const selected = choice === null ? undefined : available.find((option) => option.id === choice);
 
-  // A chosen binary that has left the PATH cannot run anything, so the chip
-  // must not keep wearing its name.
+  // A chosen binary that left the PATH can't run anything, so the chip drops
+  // its name.
   if (selected?.available) return { kind: "chosen", id: selected.id, name: selected.name };
 
   if (!available.some((option) => option.available)) return { kind: "none" };
@@ -158,18 +137,17 @@ export function composerAgent(
 }
 
 /**
- * The card above the composer: what is happening to requests right now.
- *
- * One card, highest event wins. A failure keeps until the queue is busy with
- * something newer, then resurfaces once things calm down, which mirrors how
- * the queue itself treats failed requests: parked, never blocking.
+ * The card above the composer, highest event wins. A failure stays until
+ * something newer happens, then comes back once things calm down, as the queue
+ * parks failed requests without blocking.
  */
 export type RequestCard =
   | {
       kind: "running";
-      /** Which request the stop button means; null while only the agent poll
-       * knows about the run, in which case a stop falls back to "the active
-       * one". */
+      /**
+       * Which request stop means; null while only the agent poll knows the run,
+       * when stop falls back to the active one.
+       */
       id: string | null;
       name: string;
       activity: string | null;
@@ -188,12 +166,10 @@ export type RequestCard =
   | { kind: "stopped"; id: string; title: string };
 
 /**
- * What a run is waiting on, in one short line under the agent's name.
- *
- * Leglas cannot shorten a vendor's backoff and must not kill a run to escape
- * it: the same process may be mid-edit, and the attempt after this one may be
- * the one that works. What it can do is stop the wait being unexplained, so
- * the stop button becomes a decision instead of a guess.
+ * What a run is waiting on, in one line under the agent's name. Leglas can't
+ * shorten a vendor's backoff and mustn't kill a run to escape it (it may be
+ * mid-edit, and the next attempt may work), but it can explain the wait so
+ * stopping is a decision.
  */
 export function waitingLabel(waiting: AgentWaiting): string {
   const of =
@@ -216,10 +192,9 @@ export function waitingLabel(waiting: AgentWaiting): string {
 }
 
 /**
- * The card's two lines, worked out here rather than in nested ternaries down
- * in the markup. The headline says what happened; the detail says the one
- * useful thing about it, which for a failure is the server's own verdict and
- * never the agent's raw output.
+ * The card's two lines, computed here instead of nested ternaries in markup.
+ * The headline says what happened; the detail is the one useful thing about it,
+ * for a failure the server's verdict, never the agent's raw output.
  */
 export function cardHeadline(card: RequestCard): string {
   return card.kind === "running"
@@ -238,12 +213,10 @@ export function cardHeadline(card: RequestCard): string {
 }
 
 /**
- * The card's second line, read against the card's own clock where the line
- * depends on time. A quiet run shows how long it has been quiet instead of
- * the last thing it was doing: a stalled agent used to go on reading
- * "editing hero.tsx" for as long as it stalled, which says the opposite of
- * what is happening. A vendor's retry outranks the silence because it is the
- * better explanation of it.
+ * The card's second line, against the card's clock where time matters. A quiet
+ * run shows how long it's been quiet rather than its last step, which a stalled
+ * agent would otherwise keep showing. A vendor retry outranks the silence as a
+ * better explanation.
  */
 export function cardDetail(card: RequestCard, now: number | null = null): string | null {
   return card.kind === "running"
@@ -265,11 +238,7 @@ export function cardDetail(card: RequestCard, now: number | null = null): string
           : null;
 }
 
-/**
- * Seconds under a minute, then whole minutes with seconds. Runs are minutes
- * long at most, so hours would be dressing the format up for a case the
- * cancel button exists to prevent.
- */
+/** Seconds under a minute, then minutes and seconds. Runs are minutes long at most. */
 export function formatElapsed(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
 
@@ -294,8 +263,7 @@ export function requestCard(
       startedAt: agent.startedAt,
       title: running?.title ?? null,
       stopping: agent.stopping === true,
-      // A run on its way out is not waiting on a provider any more, and is
-      // not quiet either: it is stopping.
+      // A run on its way out isn't waiting or quiet; it's stopping.
       waiting: agent.stopping === true ? null : (agent.waiting ?? null),
       quietSince: agent.stopping === true ? null : (agent.quietSince ?? null),
     };

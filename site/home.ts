@@ -1,9 +1,8 @@
 import { bar, document, foot, type Assets } from "./chrome.ts";
 
 /**
- * The homepage. Everything on it is in the README and docs at greater length; this is
- * the short form, in the same chrome as the changelog, for someone arriving
- * from a link rather than from npm.
+ * The homepage: the README and docs in short form, in the changelog's chrome,
+ * for someone arriving from a link.
  */
 
 /** The README's own captures, copied beside the page by build.ts. */

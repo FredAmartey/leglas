@@ -73,9 +73,9 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain("the pouch looks fake");
   });
 
-  // The whole point of the mode: a variant is its parent plus the change. An
-  // agent told only to build something new produces a fresh design wearing a
-  // related name, which is not comparable with what it came from.
+  // A variant is its parent plus the change. An agent told only to build
+  // something new makes a fresh design under a related name, not comparable
+  // with its source.
   test("starts the new direction from a copy of the parent's file", () => {
     const { prompt, target } = composeRequest(
       preview("Poster", "/?v-hero=poster"),
@@ -179,8 +179,8 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain("note-1.png  what note 1 points at, with room around it");
     expect(prompt).toContain('Alongside it on screen is "Ledger"');
     expect(prompt).toContain("Reference images the user attached");
-    // Named as files, because only some ways in carry the pictures
-    // themselves and every one of them can open a path.
+    // Named as files, because only some agents get the pictures themselves and
+    // all of them can open a path.
     expect(prompt).toContain(
       "Each path above is a file in this project. Open every one and look at it before changing anything.",
     );
@@ -242,8 +242,8 @@ describe("composeRequest, as a variant", () => {
     }
   });
 
-  // A quote in the request would end the argument early and hand the shell
-  // the rest of the sentence.
+  // A quote in the request would end the argument and hand the shell the rest
+  // of the sentence.
   test("quotes the request so a typed quote cannot break the command", () => {
     const { prompt } = composeRequest(
       preview("Poster", "/?v-hero=poster"),
@@ -285,8 +285,8 @@ describe("composeRequest, as a variant", () => {
     );
   });
 
-  // The two prompts ask for opposite work, and the failure mode of getting it
-  // wrong is an overwritten direction.
+  // The two prompts ask for opposite work, and getting it wrong overwrites a
+  // direction.
   test("never tells the agent to edit the parent", () => {
     const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
 
@@ -353,8 +353,8 @@ describe("composeRequest", () => {
       "replace",
     ).prompt;
 
-    // The measured cost of leaving this out is minutes of post-edit test
-    // runs and repo searches per request, not seconds.
+    // Leaving this out cost minutes of post-edit test runs and repo searches
+    // per request.
     expect(known).toContain("Make the change in that file and finish.");
     expect(unknown).toContain("Once found, make the change and finish.");
 
@@ -456,9 +456,8 @@ describe("request lifecycle", () => {
     const queue = join(root, ".leglas/requests.json");
     mkdirSync(join(root, ".leglas"));
     writeFileSync(queue, JSON.stringify({ requests: [input] }));
-    // A request written before the two modes existed rewrote the direction in
-    // place, so that is what it is read back as. Nothing is written to say so:
-    // the file on disk is left exactly as it was found.
+    // A request from before the two modes rewrote the direction in place, so it
+    // reads back as that. The file on disk is left untouched.
     expect(await readRequests(root)).toEqual([
       { ...input, id: "0", mode: "replace", status: "queued" },
     ]);
@@ -475,9 +474,8 @@ describe("request lifecycle", () => {
   });
 
   test("clear keeps a request that arrived while the agent was working", async () => {
-    // The queue is a mailbox the user keeps typing into. An agent that clears
-    // everything it did not collect throws away an ask it never saw, and the
-    // user has no way of knowing: the toast said the request landed.
+    // The user keeps typing into the queue. An agent clearing what it didn't
+    // collect throws away an ask it never saw, after the toast said it landed.
     const root = cwd();
     await appendRequest(root, input);
     await collectRequests(root);
@@ -581,13 +579,13 @@ describe("terminal requests", () => {
       }),
     ).toBe(true);
 
-    // Read back by a process that never saw the run, which is the whole point:
-    // the interface used to say "your agent is on it" about this forever.
+    // Read back by a process that never saw the run, which must not read as
+    // "your agent is on it".
     const [stored] = await readRequests(root);
     expect(stored?.status).toBe("failed");
     expect(stored?.failure?.code).toBe("provider-overloaded");
-    // A stop is its own state, so nothing downstream can read it as a failure
-    // worth rerunning on the user's behalf.
+    // A stop is its own state, so nothing downstream reads it as a failure
+    // worth rerunning.
     await markFailed(root, queued?.id ?? "", {
       code: "cancelled",
       message: "You stopped this run.",
@@ -634,8 +632,8 @@ describe("terminal requests", () => {
       message: "You stopped this run.",
     });
 
-    // Asking for the change the user just stopped would be the worst possible
-    // reading of the queue.
+    // Handing over the change the user just stopped would be the worst reading
+    // of the queue.
     expect((await collectRequests(root)).map((request) => request.title)).toEqual(["Live"]);
     const after = await readRequests(root);
     expect(after.map((request) => request.status)).toEqual(["cancelled", "picked-up"]);
@@ -651,8 +649,7 @@ describe("terminal requests", () => {
       message: "Codex exited with code 1.",
     });
 
-    // The failed one is finished with, not outstanding work, so it is swept up
-    // rather than reported as still pending.
+    // The failed one is finished with, so it's swept, not reported as pending.
     expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 1 });
     expect((await readRequests(root)).map((request) => request.title)).toEqual(["Waiting"]);
   });
@@ -812,8 +809,8 @@ describe("agents that receive paths rather than attachments", () => {
       captured,
     );
 
-    // Cursor, a custom command and `leglas watch` get this text and nothing
-    // else, so the paths and the instruction have to carry the whole job.
+    // Cursor, a custom command and `leglas watch` get only this text, so the
+    // paths and instruction must carry the whole job.
     expect(prompt).toContain(".leglas/captures/r1/frame.png");
     expect(prompt).toContain(".leglas/captures/r1/reference-1.png");
     expect(prompt).toContain("Open every one and look at it");

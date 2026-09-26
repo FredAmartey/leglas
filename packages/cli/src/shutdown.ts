@@ -1,20 +1,9 @@
 /**
- * The signals that mean "this Leglas is over", and what it owes on the way out.
- *
- * Leglas holds things the operating system will not tidy up for it: the dev
- * servers it started, the checkouts it made, and a headless browser for
- * captures. Only a handler can release those, so every signal a terminal
- * routinely sends has to have one.
- *
- * SIGHUP is the one that was missing, and it is the most ordinary of the
- * three: it arrives when the terminal window closes. Node's default action
- * for it is to terminate at once, so the shutdown never ran and the browser
- * was reparented to init, holding its memory until the machine restarted.
- * Invisibly, because it is headless.
- *
- * SIGKILL is deliberately absent. It cannot be handled by anyone, which is
- * why the browser also records who launched it, and a later Leglas closes the
- * ones whose owner is gone.
+ * The signals that end this Leglas. It holds dev servers, checkouts and a
+ * headless capture browser that only a handler can release, so every signal a
+ * terminal sends needs one. SIGHUP arrives when the terminal window closes, and
+ * Node's default exits at once. SIGKILL can't be handled; the browser records
+ * its owner so a later Leglas can close it.
  */
 export const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
@@ -25,12 +14,8 @@ export type SignalTarget = {
 };
 
 /**
- * Wire every shutdown signal to one stop, and run it at most once.
- *
- * Two signals in quick succession is ordinary: an impatient second Ctrl-C, or
- * a SIGHUP chasing a SIGTERM as a terminal tears down. Stopping twice would
- * close a browser mid-close and race the server's own teardown, so the second
- * one is ignored rather than queued.
+ * Wires every shutdown signal to one stop, run at most once. A second signal
+ * soon after is ordinary, and stopping twice would close a browser mid-close.
  */
 export function installShutdown(
   stop: () => Promise<void>,

@@ -263,7 +263,7 @@ export function detectInstall(
   }
 
   // pnpm can resolve a dlx cache entry into its links store. A dependency
-  // linked from the current project was accounted for before this fallback.
+  // linked from the current project was handled before this fallback.
   if (path.includes("/pnpm/") && /\/store\/[^/]+\/links\//.test(path) && manager === "pnpm")
     return installation("npx", "pnpm");
 
@@ -577,9 +577,9 @@ export function installerReason(stdout: string, stderr: string): string | null {
   const errors = lines(stderr);
   const output = lines(stdout);
 
-  // npm writes its error's fields one per line ahead of the message (`error`
-  // in npm's lib/utils/error-message.js), so the first npm line after them is
-  // the reason. Skipping only `code` reported "syscall mkdir" for EACCES.
+  // npm prints its error's fields one per line before the message (`error` in
+  // lib/utils/error-message.js), so the first npm line after them is the
+  // reason. Skipping only `code` reported "syscall mkdir" for EACCES.
   const npm = [...errors, ...output].find(
     (line) =>
       /^npm error\s+\S/.test(line) &&
@@ -607,8 +607,8 @@ function installVersion(
   },
 ): RunningInstaller {
   if (install.kind !== "global" && install.kind !== "project") throw new Error(CHECKOUT_NOTICE);
-  // Install keeps its public shape. Its displayed command distinguishes the
-  // two Yarn project dialects without parsing a shell command into arguments.
+  // Install keeps its public shape; the displayed command tells the two Yarn
+  // project dialects apart without parsing a shell command.
   const classic = install.command === commandParts("project", "yarn", "latest", true).join(" ");
   const parts = commandParts(install.kind, install.manager, version, classic);
   const command = parts.join(" ");
@@ -704,8 +704,8 @@ function installVersion(
 
     if (child.pid === undefined) onGone();
   });
-  // close follows the final stdout/stderr bytes, unlike exit. pnpm's reason
-  // arrives on stdout, so both streams must have drained before reporting it.
+  // close comes after the last stdout and stderr bytes, unlike exit, and pnpm's
+  // reason is on stdout.
   child.once("close", (code: number | null) => {
     const reason = installerReason(stdout, stderr);
     finish(

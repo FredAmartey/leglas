@@ -10,11 +10,10 @@ export const LIVE_PATH = "/leglas/api/live";
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /**
- * Annotations deliberately ride `requests`: the shell reads both on one beat,
- * keeping them on one socket against the six-connection-per-origin budget.
- * A separate `annotations` kind would split that pair into independent channels.
- * Updates earn a kind because the server knows every transition while the
- * interface was polling once a second through a five minute install.
+ * Annotations ride `requests`: the shell reads both on one beat, keeping them
+ * on one socket within the six-connections-per-origin budget. Updates get a
+ * kind because the server sees every transition; without it the interface would
+ * poll once a second through a five-minute install.
  */
 export type LiveChange = "config" | "requests" | "health" | "share" | "update" | "generation";
 
@@ -65,17 +64,11 @@ export function encodeFrame(opcode: number, payload: Buffer | string): Buffer {
 }
 
 /**
- * Turn a burst of changes into one nudge each.
- *
- * A single save often reaches a watcher as several events, and a request
- * being answered rewrites the queue and the annotations together, so without
- * this the shell would be told to read three times for one thing happening.
- *
- * The timers are injectable because the behaviour worth proving is exactly
- * the one real time makes untestable: that two changes inside the window
- * produce one nudge and two outside it produce two. Asserting that against a
- * live watcher measures how quickly the operating system delivered an event,
- * which is not a property of this code and fails on a loaded machine.
+ * Turns a burst of changes into one nudge each. One save often arrives as
+ * several watcher events, and an answered request rewrites the queue and
+ * annotations together. The timers are injectable because the thing to prove
+ * (two changes in the window make one nudge, two outside make two) can't be
+ * tested against a live watcher without measuring the OS.
  */
 export type Coalescer = {
   schedule(change: LiveChange): void;
@@ -106,8 +99,8 @@ export function createCoalescer(
   const clearLater: NonNullable<typeof options.clearTimeout> =
     options.clearTimeout ?? ((handle) => clearTimeout(handle));
 
-  // One pending nudge per kind, so a burst of config changes cannot delay a
-  // requests nudge that arrived in the middle of it.
+  // One pending nudge per kind, so a burst of config changes can't delay a
+  // requests nudge.
   const pending = new Map<LiveChange, () => void>();
   let closed = false;
 
@@ -228,8 +221,8 @@ export function createLiveHub(
       }
 
       if (opcode === 0x9) write(listener, 0xa, payload);
-      // Text, binary, continuation and pong frames from the client carry no
-      // protocol information for this one-way channel and are ignored.
+      // Text, binary, continuation and pong frames carry nothing for this
+      // one-way channel and are ignored.
     }
   };
 

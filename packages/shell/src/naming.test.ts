@@ -36,8 +36,7 @@ describe("checkName", () => {
     expect(checkName("Warm", "Hero A", names)).toEqual({ kind: "same" });
   });
 
-  // Two identical rows in the rail cannot be told apart, so this is refused
-  // rather than written and confusing.
+  // Two identical rail rows can't be told apart, so this is refused.
   test("refuses a name another direction already shows", () => {
     expect(checkName("Hero B", "Hero A", names)).toEqual({ kind: "taken", by: "Hero B" });
   });
@@ -50,8 +49,8 @@ describe("checkName", () => {
     expect(checkName("Warm", "Hero B", names)).toEqual({ kind: "taken", by: "Warm" });
   });
 
-  // "Hero A" is that direction's title but it answers to Warm now, so the name
-  // is free: refusing it for clashing with something invisible reads as a bug.
+  // "Hero A" answers to Warm now, so the name is free; refusing it for clashing
+  // with something invisible reads as a bug.
   test("allows a title that has been renamed away", () => {
     expect(checkName("Hero A", "Hero B", names)).toEqual({ kind: "set", value: "Hero A" });
   });

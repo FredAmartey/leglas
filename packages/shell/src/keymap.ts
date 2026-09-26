@@ -1,20 +1,13 @@
 /**
  * Keystrokes resolved to actions, and the list the help overlay renders.
+ * Separate from the listener so bindings test without a DOM and the overlay
+ * can't drift from the real keys.
  *
- * Separated from the listener for two reasons: the bindings can be tested
- * without a DOM, and the overlay is generated from the same source that
- * resolves the keys, so a documented shortcut cannot drift from a real one.
- *
- * Every binding is a letter, a digit or an arrow, deliberately. The first
- * version used `\` to split and `[` to collapse the rail, and both were
- * unreachable on most of Europe: `\` is AltGr+ß on a German layout and
- * AltGr+8 on a French one, `[` needs AltGr on both. AltGr arrives as ctrl+alt
- * on Windows and as alt on macOS, which `resolveKey` drops so the browser and
- * the OS keep their own shortcuts. The two guards together meant those
- * keystrokes could never fire outside a US layout.
- *
- * Shift is deliberately not a guard: `?` is shift+/ everywhere, and AZERTY
- * needs shift for its digits.
+ * Every binding is a letter, digit or arrow. The first version used `\` and
+ * `[`, which need AltGr on German and French layouts; AltGr arrives as ctrl+alt
+ * on Windows and alt on macOS, which `resolveKey` drops to leave the browser
+ * and OS their shortcuts, so those keys never fired outside a US layout. Shift
+ * isn't a guard: `?` is shift+/ everywhere, and AZERTY needs shift for digits.
  */
 
 export type KeyAction =
@@ -42,10 +35,9 @@ export type Keystroke = {
 export const MAX_JUMP = 9;
 
 export function resolveKey(stroke: Keystroke): KeyAction | null {
-  // Search is the one binding that holds a modifier, and the only one that
-  // still works from inside a text field: reaching for it while typing an
-  // intent should take you to the search rather than insert a character.
-  // Deliberately not alt or shift, which are other applications' bindings.
+  // Search is the one binding with a modifier, and the only one that works from
+  // a text field: reaching for it mid-intent should go to search, not type. Not
+  // alt or shift, which belong to other apps.
   if (
     (stroke.metaKey || stroke.ctrlKey) &&
     !stroke.altKey &&
@@ -77,8 +69,8 @@ export function resolveKey(stroke: Keystroke): KeyAction | null {
 
   if (letter === "r") return { kind: "request" };
 
-  // The way back to the tools when the widget is switched off from inside
-  // them, as well as a shortcut in its own right.
+  // The way back to the tools when the widget was switched off from inside
+  // them, and a shortcut in its own right.
   if (letter === "t") return { kind: "tools" };
 
   if (key.length === 1 && key >= "1" && key <= String(MAX_JUMP)) {
@@ -96,20 +88,17 @@ export type Shortcut = {
 };
 
 /**
- * How the search chord is written, for the hint in the search field and the
- * overlay. Spelled out beside the symbol on a Mac; Ctrl has no symbol worth
- * showing, so Windows and Linux read the words alone.
+ * How the search chord is written in the search hint and the overlay: symbol
+ * and word on a Mac, words alone elsewhere.
  */
 export function searchCap(mac: boolean): string {
   return mac ? "⌘Cmd+K" : "Ctrl+K";
 }
 
 /**
- * The keymap as the overlay lists it, in the order it is shown. Ordered by how
- * often a key is reached for rather than alphabetically or by kind.
- *
- * Takes the platform rather than reading it, so the list stays pure and the
- * caps can be tested for both.
+ * The keymap as the overlay lists it, ordered by how often each key is used.
+ * Takes the platform as an argument so it stays pure and both sets of caps can
+ * be tested.
  */
 export function shortcutList(mac: boolean, viewer = false): readonly Shortcut[] {
   const all: readonly (Shortcut & { changes?: boolean })[] = [
@@ -125,9 +114,8 @@ export function shortcutList(mac: boolean, viewer = false): readonly Shortcut[] 
     { keys: ["Esc"], label: "Clear the search, or close what is open" },
   ];
 
-  // A viewer of a share can look and compare, never change what runs, so the
-  // keys that ask for work are not listed: a documented key that does nothing
-  // is the drift this list exists to prevent.
+  // A viewer can look and compare, never change what runs, so the keys that ask
+  // for work aren't listed.
   const listed: Shortcut[] = [];
 
   for (const { changes, ...shortcut } of all) {

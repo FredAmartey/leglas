@@ -7,8 +7,8 @@ const verdict = (input: Parameters<typeof classifyFailure>[0]): FailureCode =>
 
 describe("classifyFailure", () => {
   test("what Leglas did itself outranks anything the agent said", () => {
-    // A stop lands as a SIGTERM, and a dying CLI can print anything on its way
-    // out. None of it changes who ended the run.
+    // A stop lands as SIGTERM, and a dying CLI can print anything; none of it
+    // changes who ended the run.
     expect(
       verdict({
         agent: "Claude",
@@ -85,8 +85,8 @@ describe("classifyFailure", () => {
   test("an agent that just exited gets an honest, quotable message", () => {
     const failure = classifyFailure({ agent: "Claude", exitCode: 2, lines: ["oh dear"] });
     expect(failure.code).toBe("agent-error");
-    // The output stays in the terminal: a card is the wrong place for a log
-    // that can carry a prompt, a path or a token.
+    // The output stays in the terminal: a log can carry a prompt, a path or a
+    // token.
     expect(failure.message).not.toContain("oh dear");
     expect(failure.message).toBe(
       "Claude exited with code 2. Its last output is in the Leglas terminal.",
@@ -94,8 +94,8 @@ describe("classifyFailure", () => {
   });
 
   test("a run that went quiet is ended by Leglas, and says so", () => {
-    // The same process would sit on the same unanswerable question a second
-    // time, which is why this is not a conversation failure either.
+    // The same process would sit on the same question again, so this isn't a
+    // conversation failure either.
     const failure = classifyFailure({
       agent: "Cursor",
       error: "silent",

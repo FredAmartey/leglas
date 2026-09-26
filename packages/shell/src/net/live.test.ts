@@ -1,8 +1,8 @@
 /// <reference types="node" />
 import { describe, expect, test, vi } from "vitest";
 
-// The server's side of the protocol, for the kinds it can send. Its module
-// imports Node built-ins, hence the reference above.
+// The server's side of the protocol. Its module imports Node built-ins, hence
+// the reference above.
 import type { LiveChange as ServerChange } from "../../../server/src/live.js";
 import type { TimerHandle } from "./timers.js";
 
@@ -71,9 +71,9 @@ function manualTimers() {
 }
 
 /**
- * Every kind the server nudges with, keyed by the server's own type, so this
- * list and that one cannot drift apart without failing `pnpm typecheck`, which
- * sees this file only because the shell's tsconfig includes its tests.
+ * Every kind the server nudges with, keyed by the server's own type so the two
+ * lists can't drift without failing `pnpm typecheck` (the shell's tsconfig
+ * includes its tests).
  */
 const SENT = {
   config: true,
@@ -90,8 +90,8 @@ describe("what a frame can say", () => {
   });
 
   test("refuses everything else", () => {
-    // Annotations are not a kind. They ride "requests" on purpose, so the
-    // queue and its notes keep costing one socket instead of two.
+    // Annotations ride "requests" on purpose, so the queue and its notes cost
+    // one socket, not two.
     expect(changeFrom(JSON.stringify({ changed: "annotations" }))).toBeNull();
     expect(isLiveChange("annotations")).toBe(false);
 
@@ -107,8 +107,8 @@ describe("retryDelay", () => {
     expect(retryDelay(1)).toBe(FIRST_RETRY_MS * 2);
     expect(retryDelay(2)).toBe(FIRST_RETRY_MS * 4);
     expect(retryDelay(40)).toBe(MAX_RETRY_MS);
-    // A Leglas that is gone for the afternoon is dialled twice a minute,
-    // not continuously.
+    // A Leglas gone for the afternoon is dialled twice a minute, not
+    // continuously.
     expect(retryDelay(99)).toBe(MAX_RETRY_MS);
   });
 });
@@ -130,8 +130,8 @@ describe("startLive", () => {
     socket.emit("message", { data: JSON.stringify({ changed: "config" }) });
     expect(config).toHaveBeenCalledOnce();
 
-    // Anything unreadable is ignored rather than thrown, because the
-    // fallback read covers it and a bad frame must not kill the socket.
+    // Anything unreadable is ignored, not thrown: the fallback read covers it
+    // and a bad frame mustn't kill the socket.
     socket.emit("message", { data: "{" });
     socket.emit("message", { data: JSON.stringify({ changed: "annotations" }) });
     expect(config).toHaveBeenCalledOnce();
@@ -192,8 +192,8 @@ describe("startLive", () => {
     timers.advance(1);
     expect(sockets).toHaveLength(3);
 
-    // A socket that actually opens puts the backoff back to the start, so a
-    // server that restarts twice is not punished for the first restart.
+    // A socket that actually opens resets the backoff, so a server restarting
+    // twice isn't punished for the first.
     sockets[2]?.emit("open");
     sockets[2]?.emit("close");
     timers.advance(FIRST_RETRY_MS);

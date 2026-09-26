@@ -20,10 +20,8 @@ function target() {
 
 describe("installShutdown", () => {
   test("handles every signal a terminal routinely sends, SIGHUP included", () => {
-    // SIGHUP is what closing the terminal window sends, and it was the one
-    // signal with no handler. Node terminates on it by default, so the
-    // shutdown never ran and the capture browser was orphaned, holding its
-    // memory until the machine restarted.
+    // SIGHUP is what closing the terminal sends. Unhandled, Node exits without
+    // the shutdown and orphans the capture browser.
     const listening = target();
     installShutdown(async () => {}, listening);
 
@@ -42,8 +40,8 @@ describe("installShutdown", () => {
   });
 
   test("a second signal does not start a second shutdown", async () => {
-    // An impatient second Ctrl-C, or a SIGHUP chasing a SIGTERM as the
-    // terminal tears down. Stopping twice would close a browser mid-close.
+    // A second Ctrl-C, or SIGHUP chasing SIGTERM as the terminal tears down.
+    // Stopping twice would close a browser mid-close.
     const stop = vi.fn(async () => {});
     const listening = target();
     const shutdown = installShutdown(stop, listening);

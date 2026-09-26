@@ -22,11 +22,9 @@ import type { RunOptions } from "./args.js";
 import { devServerOwnerWarning, inspectLocalDevServer } from "./dev-server-owner.js";
 
 /**
- * Locate the built interface. The published package is self-contained, with
- * the shell bundled beside this file at dist/shell/, so that is looked for
- * first; the workspace resolves it through the package graph instead. A
- * missing build is survivable: the server falls back to a placeholder rather
- * than refusing to start.
+ * The built interface: bundled beside this file at dist/shell/ in the published
+ * package, else resolved through the workspace. Missing is survivable; the
+ * server shows a placeholder.
  */
 function findShellDir(): string | null {
   const bundled = join(dirname(fileURLToPath(import.meta.url)), "shell");
@@ -52,10 +50,9 @@ function shellWord(value: string): string {
 }
 
 /**
- * The embedded agent is a child of this exact CLI process, so registration
- * can call the already-running package directly. Falling back keeps source
- * imports and unusual programmatic hosts working without pretending a bin
- * file exists beside them.
+ * The embedded agent is a child of this CLI process, so registration can call
+ * the running package directly. The fallback covers source imports and
+ * programmatic hosts with no bin file.
  */
 function embeddedLeglasCommand(): string {
   const entry = join(dirname(fileURLToPath(import.meta.url)), "bin.js");
@@ -94,12 +91,9 @@ export type RunResult = {
 };
 
 /**
- * Boot Leglas: resolve config, start the server, open the interface.
- *
- * Nothing here is fatal except being unable to bind a port. A missing config,
- * an invalid config, or a dev server that is not running are all reported and
- * survivable, because the user is mid-setup and needs to be told what to fix,
- * not handed a stack trace.
+ * Boots Leglas: resolve config, start the server, open the interface. Only
+ * failing to bind a port is fatal; a missing or invalid config or a stopped dev
+ * server is reported, since the user is mid-setup.
  */
 export async function run(
   options: RunOptions & { cwd: string },
@@ -127,8 +121,7 @@ export async function runWithServices(
       ? (loaded.config?.devServer ?? "http://localhost:3000")
       : `http://localhost:${options.userPort}`;
 
-  // Locally added previews append after the shared ones, so the committed
-  // config keeps its authored order and exploration accumulates below it.
+  // Local previews go after the shared ones, keeping the committed order.
   const merged =
     loaded.config === null
       ? null
@@ -137,10 +130,9 @@ export async function runWithServices(
   const previewErrors: string[] = [];
   const previews: Preview[] = [];
 
-  // The greenfield case, half one: nothing is listening, but the config says
-  // how to start the app, so Leglas starts it the way it already starts a
-  // checkout. Skipped when --user-port named a server explicitly: starting a
-  // different one behind that flag would lie about what is being previewed.
+  // Nothing is listening but the config says how to start the app, so Leglas
+  // starts it like a checkout. Not behind --user-port, which names a server
+  // explicitly.
   let app: RunningApp | null = null;
 
   const needsApp = (merged?.previews ?? []).some(
@@ -169,10 +161,9 @@ export async function runWithServices(
     }
   }
 
-  // File previews are the one preview source the CLI resolves before server
-  // startup, because their directories become mounts on the Leglas origin.
-  // Branch previews stay registered with their authored path; the server owns
-  // their checkout and replaces that path with a worktree URL only once ready.
+  // File previews are resolved before the server starts, because their
+  // directories become mounts on the Leglas origin. Branch previews keep their
+  // authored path until the server's worktree is ready.
   const fileMounts = new Map<string, string>();
 
   for (const preview of merged?.previews ?? []) {
@@ -223,8 +214,8 @@ export async function runWithServices(
     configWarnings,
     fileMounts,
     shellDir: findShellDir(),
-    // The config file identifies the project when there is one; otherwise the
-    // directory does. Either way saved layout survives a port change.
+    // The config file identifies the project, else the directory, so saved
+    // layout survives a port change.
     project: loaded.path ?? options.cwd,
     cwd: options.cwd,
     leglasCommand: embeddedLeglasCommand(),
@@ -326,8 +317,8 @@ export async function runWithServices(
       stopped = true;
 
       if (updateTimer !== null) clearInterval(updateTimer);
-      // The server owns branch worktrees; the CLI still owns the project app
-      // it may have started for the greenfield case.
+      // The server owns branch worktrees; the CLI owns the app it may have
+      // started.
       await app?.stop().catch(() => {});
       await server.close();
     },

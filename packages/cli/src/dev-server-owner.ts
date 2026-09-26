@@ -61,10 +61,9 @@ export function parseOwnerCwds(output: string): DevServerOwner[] {
 }
 
 /**
- * Read the working directory of the process listening on a local dev-server
- * port. This is best-effort by design: unsupported platforms, missing lsof,
- * permissions and a process exiting mid-read all mean "no evidence", not a
- * failed Leglas startup.
+ * The working directory of the process on a local dev-server port. Best effort:
+ * no lsof, no permission or a process exiting mid-read all mean no evidence,
+ * never a failed start.
  */
 export async function inspectLocalDevServer(origin: string): Promise<DevServerOwner[]> {
   const port = localDevServerPort(origin);

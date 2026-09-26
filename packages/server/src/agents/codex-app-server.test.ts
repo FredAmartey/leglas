@@ -65,8 +65,8 @@ class FakeProcess {
   }
 
   /**
-   * A reply sent from inside the read lands before any timer can fire, which
-   * a reply sent after polling for the request does not.
+   * A reply sent from inside the read lands before any timer can fire; one sent
+   * after polling doesn't.
    */
   private answer(message: Message): void {
     const { method } = message;
@@ -121,10 +121,9 @@ async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
 
 describe("Codex app-server transport", () => {
   test("a release outlasts a warm queued behind an earlier reset", async () => {
-    // The runner fires warm() and release() without awaiting them. A warm
-    // queued behind a reset in flight used to install a fresh process after
-    // a later release had already returned, leaving Codex resident beside
-    // the vendor that was actually chosen. The last call wins.
+    // warm() and release() aren't awaited, so a warm queued behind a reset
+    // could install a process after a later release returned, leaving Codex
+    // resident beside the chosen vendor. The last call wins.
     const { server, spawned } = await initialize();
 
     const first = server.release();
@@ -148,10 +147,9 @@ describe("Codex app-server transport", () => {
   });
 
   test("a warm asked for after a release began survives it", async () => {
-    // The other direction of the same race: the idle clock fires as the
-    // composer takes focus. The release started first, but the warm is the
-    // newer intent, and the process it brings up is the one the request
-    // about to arrive will use.
+    // The reverse race: the idle clock fires as the composer takes focus. The
+    // release started first, but the warm is newer and its process serves the
+    // coming request.
     const { server, spawned } = await initialize();
 
     const release = server.release();
@@ -332,8 +330,8 @@ describe("Codex app-server transport", () => {
     await until(() => byMethod(process, "turn/start").length === 1);
     const turn = required(byMethod(process, "turn/start")[0]);
 
-    // Both lines arrive in one stdout batch. The completion is handled before
-    // run() resolves and before the queue can attach its close listener.
+    // Both lines arrive in one stdout batch, so the completion is handled
+    // before run() resolves and before the queue attaches its close listener.
     process.stdout.write(
       `${JSON.stringify({ id: turn.id, result: { turn: { id: "turn_quick" } } })}\n` +
         `${JSON.stringify({
@@ -367,11 +365,10 @@ describe("Codex app-server transport", () => {
   });
 
   test("terminates an ambiguously accepted turn before reporting its timeout", async () => {
-    // Every request shares the one timeout, and here it is short enough to
-    // expire. So the fake answers the handshake and the thread as it reads
-    // them, and only the turn, which it never answers, can time out.
-    // The fake shrugs off SIGTERM, so the process is only gone once Leglas
-    // escalates to SIGKILL. The timeout must not be reported before then.
+    // All requests share the one timeout, short enough here to expire. The fake
+    // answers the handshake and thread as it reads them, so only the turn can
+    // time out. It ignores SIGTERM, so the timeout must not be reported until
+    // Leglas escalates to SIGKILL.
     const spawned = harness(false, {
       initialize: () => ({ userAgent: "codex-test" }),
       "thread/start": () => ({ thread: { id: "th_timeout" } }),
@@ -379,8 +376,8 @@ describe("Codex app-server transport", () => {
 
     const server = createCodexAppServer("/project", spawned.spawn, 10);
 
-    // Caught from the start: the turn can time out before anything below
-    // runs, and a rejection nobody is waiting on yet is reported as unhandled.
+    // Caught from the start: the turn can time out before anything below runs,
+    // and an unawaited rejection is reported as unhandled.
     const reported = server
       .run({ prompt: "timeout", effort: null, sessionId: null, images: [] })
       .then(

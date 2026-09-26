@@ -9,13 +9,10 @@ export const SERVER_INFO_PATH = ".leglas/server.json";
 export type ServerInfo = { port: number; url: string; pid: number };
 
 /**
- * Write the record, refusing to write through anything but our own file.
- *
- * Starting Leglas writes this path without being asked, which makes it a
- * standing offer to overwrite whatever it points at. A link in its place, or
- * in `.leglas` itself, is left alone instead of followed. The write goes to a
- * temporary file first and is renamed into place, so a reader never sees half
- * a record.
+ * Writes the record, only through our own file. Leglas writes this path
+ * unasked, so a link in its place or in `.leglas` is refused, not followed.
+ * Written to a temporary file and renamed, so a reader never sees half a
+ * record.
  */
 export async function writeServerInfo(cwd: string, info: ServerInfo): Promise<void> {
   const path = join(cwd, SERVER_INFO_PATH);
@@ -62,12 +59,10 @@ export async function readServerInfo(cwd: string): Promise<ServerInfo | null> {
 }
 
 /**
- * Remove the record, but only the one this server wrote.
- *
- * Two Leglas processes can serve one project, and the later one overwrites
- * the file. The earlier one closing must not take the newer record with it,
- * or `show --screenshot` loses a server that is still running. With no
- * expectation given the file goes regardless, which is what a test wants.
+ * Removes the record, but only the one this server wrote. Two Leglas processes
+ * can serve one project; the earlier one closing must not take the newer
+ * record, or `show --screenshot` loses a running server. With no expectation,
+ * the file goes regardless.
  */
 export async function removeServerInfo(
   cwd: string,
