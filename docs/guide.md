@@ -15,8 +15,8 @@ survives restarts.
 
 A small tools widget floats over the stage and can be dragged to any
 corner. Its popover holds the viewport presets and a few preferences,
-including hiding the dev badge your framework paints over the corner of
-the app when it lands on the part you are judging.
+such as hiding your framework's dev badge when it covers the part you are
+judging.
 
 ## Comparing
 
@@ -41,9 +41,10 @@ new variant beside that direction; the chip next to the send button
 switches it to a change in place, for when a change really is a fix.
 
 Pick an agent once from the picker beside the send button and the card
-above the field shows it working: which file it is editing, how long it
-has been, how long it has gone quiet if it goes quiet, a stop if you change
-your mind and a retry when a run goes wrong.
+above the field shows it working: the file it is editing, how long it has
+run or been quiet, a stop if you change your mind and a retry when a run
+goes wrong.
+
 Every request carries a screenshot of the direction at the width you are
 looking at, a crop of anything you pointed at, the other pane when you are
 comparing and any image you pasted in as a reference. Leglas runs no model

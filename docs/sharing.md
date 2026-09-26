@@ -23,19 +23,21 @@ live-reload socket is a way in; they refresh to see a change.
 
 ## How far a viewer can go
 
-What a viewer can do is read what your dev server serves, and you choose
-how much of it. **Anywhere in the app** is the whole dev server over GET,
-source included, because Leglas proxies it faithfully and that is the
-point; it suits a demo. **Only what you shared** serves the pages you shared
-and the files they load, refuses the rest before the dev server hears of it
-and holds against a console or curl as well as a browser. The list is read
-off what your own directions loaded while you looked at them, not written
-by hand, and anything it did not predict shows up in the panel with one
-click to let that path or its folder through. Bounded still means a viewer
-sees everything your shared pages themselves load. Either way Leglas
-refuses the routes a dev server mounts to act on your machine, Vite's
-editor launcher among them, hidden files like `.env` however the path is
-spelled and a service worker that would outlive the share.
+A viewer can read what your dev server serves, and you choose how much:
+
+- **Anywhere in the app** is the whole dev server over GET, source
+  included, since Leglas proxies it faithfully. It suits a demo.
+- **Only what you shared** serves the pages you shared and the files they
+  load, and refuses the rest before the dev server hears of it, from a
+  console or curl as well as a browser. The list is read off what your own
+  directions loaded while you looked at them; anything it did not predict
+  shows up in the panel with one click to let that path or its folder
+  through. A viewer still sees everything your shared pages load.
+
+Either way Leglas refuses the routes a dev server mounts to act on your
+machine, Vite's editor launcher among them, hidden files like `.env`
+however the path is spelled and a service worker that would outlive the
+share.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/FredAmartey/leglas/main/.github/assets/screenshots/share-reach.png" width="426" alt="The share panel before starting: The whole rail, 6 directions, 2 on branches left out; The direction on stage, Table; How far they can go: Anywhere in the app, Your whole dev server over GET; Only what you shared, These pages and the 22 files they loaded; a Start sharing button" />

@@ -9,20 +9,20 @@ pnpm test        # the suite, build included
 pnpm typecheck   # every package
 pnpm format      # prettier, over everything but prose and vendored files
 pnpm lint        # oxlint with the anti-slop rules in tools/oxlint
-pnpm site        # the homepage and changelog, into dist/site
+pnpm site        # the homepage, docs and changelog, into dist/site
 ```
 
 ## Where things are
 
 | Path              | What it is                                                                                          |
 | ----------------- | --------------------------------------------------------------------------------------------------- |
-| `packages/server` | Config loading, the proxy and the local server                                                      |
+| `packages/server` | The local server: config, the proxy, the API, the request queue and the agent runner                |
 | `packages/shell`  | The interface, a React application built with Vite                                                  |
 | `packages/cli`    | The `leglas` binary                                                                                 |
 | `packages/mcp`    | The `leglas-mcp` stdio server for agent hosts                                                       |
 | `skills/leglas`   | The agent skill. With `plugin.json` and `mcp.json` at the root it makes the repository an Agent Plugin |
 | `schemas`         | The Agent Plugins schemas, vendored so the manifests validate without the network                   |
-| `site`            | The homepage, the changelog page and the release notes, all made from `CHANGELOG.md`                |
+| `site`            | The homepage, the manual's pages under `/docs/`, the changelog page and the release notes           |
 | `scripts`         | `pnpm api:update`, which records the public API surface in `api-surface.txt`                        |
 | `test`            | Tests about the repository itself: the manifests, the publish workflow, what the CLI tells people to type |
 | `docs`            | The manual the README links to: using the interface, sharing, setting up a project, agents, the command line, and how Leglas is built |
@@ -63,12 +63,11 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 - If your change touches what the packages export, run `pnpm api:update`
   and commit `api-surface.txt`. It is the record of the public surface, and
   a patch release is refused when it has moved since the previous one.
-- Add an entry to the Unreleased section of `CHANGELOG.md`. Say what
-  changed and why in plain words, and end it the way the existing entries
-  do, with the name of what it reaches in backticks and parentheses: the
-  CLI, the MCP server or the plugin. The changelog page on the site is made
-  from that file and nothing else, so the entry is the whole job of
-  describing the change.
+- Add an entry to the Unreleased section of `CHANGELOG.md`. Say what a
+  user would notice and what to do about it, in plain words, and end it the
+  way the existing entries do, with the name of what it reaches in backticks
+  and parentheses: the CLI, the MCP server or the plugin. The changelog page
+  and the GitHub release notes are made from that entry alone.
 - A change to the interface comes with a screenshot of it, before and
   after where that helps.
 - A new page in the manual is linked from `docs/README.md` and named in
@@ -94,7 +93,7 @@ into that version with a title for what the release was about, push a
 publishing. A tag that disagrees with the manifests is refused. No npm
 token exists anywhere in the project.
 
-The [site](https://leglas.vercel.app/) is two pages, the homepage and the
-[changelog](https://leglas.vercel.app/changelog/), written by `site/build.ts`
-and built by Vercel from `vercel.json` on every push. `main` is the live site,
-and every pull request gets a preview.
+The [site](https://leglas.vercel.app/) is the homepage, the manual under
+`/docs/` and the [changelog](https://leglas.vercel.app/changelog/), written by
+`site/build.ts` and built by Vercel from `vercel.json` on every push. `main`
+is the live site, and every pull request gets a preview.

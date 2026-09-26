@@ -45,8 +45,8 @@ app, it only forwards HTTP to it.
 
 The server pushes to the interface over one WebSocket, which it implements
 itself. A push is a nudge that names what moved (the config, the requests,
-the dev server's health, a share, an update), and the interface fetches
-that again. Nothing else holds a connection open.
+the dev server's health, a share, an update, a set being built), and the
+interface fetches that again. Nothing else holds a connection open.
 
 A POST to the API is accepted only from this machine, and when the browser
 sends an Origin it has to match the address the server was reached by. That
