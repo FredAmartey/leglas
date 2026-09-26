@@ -1,25 +1,15 @@
 import { REPO, bar, document, escape, foot, type Assets } from "./chrome.ts";
 
 /**
- * CHANGELOG.md, as a page.
- *
- * The changelog is the record: every release edits it, a cut dates it, and it
- * is what a GitHub or npm reader already sees. The page is made from it and
- * from nothing else, so there is one text to keep true and no second copy to
- * drift. `pnpm site` (build.ts) writes the page under dist/site, and Vercel
- * runs the same build on every push.
- *
- * The reader understands the markdown this file actually uses rather than
- * markdown in general: a release heading, a group heading, a bullet with a
- * bold lead and an audience tag, a paragraph, an image line. A construct the
- * page cannot show fails here, in the pull request that added it, rather than
- * quietly dropping off the site.
+ * CHANGELOG.md, as a page. The file is the only source, so there's no second
+ * copy to drift. Reads only the markdown the changelog uses (release and group
+ * headings, bullets with a bold lead and audience tag, paragraphs, images);
+ * anything else fails the build instead of dropping off the site.
  */
 
 /**
- * The three things a release reaches, spelled the way the tag at the end of a
- * bullet spells them. An unknown spelling is refused rather than shown as a
- * fourth thing.
+ * The three things a release reaches, spelled as the bullet's closing tag
+ * spells them. An unknown spelling is refused.
  */
 export const TARGETS = {
   "`leglas`": { key: "cli", label: "leglas" },
@@ -51,10 +41,9 @@ export type Group = { kind: "group"; heading: string; blocks: (Item | Paragraph 
 export type Block = Item | Paragraph | Media | Group;
 
 /**
- * One release. `versions` is usually one number; the first entry covers two
- * releases and names both. `date` and `title` come off the heading, written
- * as `## 0.8.0 (2026-08-28): What the release is about`, and an Unreleased
- * section carries neither.
+ * One release. `versions` is usually one number; the first entry names two.
+ * `date` and `title` come from a heading like `## 0.8.0 (2026-08-28): What the
+ * release is about`; Unreleased has neither.
  */
 export type Entry = {
   versions: string[];
@@ -72,9 +61,8 @@ const IMAGE = /^!\[([^\]]*)\]\(([^)\s]+)(?: "([^"]*)")?\)$/;
 const TAG = /\s*\(((?:`[^`]+`|plugin)(?:, (?:`[^`]+`|plugin))*)\)$/;
 
 /**
- * A real tag anywhere else: one that punctuation or a sentence has pushed off
- * the end. Only the three names count, since a parenthetical of commands,
- * "(`claude auth status`, `codex login status`)", is ordinary prose.
+ * A real tag that punctuation or a sentence pushed off the end. Only the three
+ * names count, so a parenthetical of commands stays prose.
  */
 const AUDIENCE = Object.keys(TARGETS)
   .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
@@ -117,9 +105,9 @@ export function parseChangelog(markdown: string): Changelog {
       paragraphs[last] = paragraphs[last]!.slice(0, -tagged[0].length).trim();
     }
 
-    // A tag followed by a full stop, or one in the middle of a sentence,
-    // would otherwise stay in the prose and the chip would quietly not
-    // appear. The bullet ends with the tag, or it has no tag.
+    // A tag followed by a full stop or mid-sentence would stay in the prose and
+    // the chip would silently not show. The bullet ends with the tag or has
+    // none.
     const stray = paragraphs.find((text) => STRAY_TAG.test(text));
 
     if (stray !== undefined) {
@@ -194,9 +182,9 @@ export function parseChangelog(markdown: string): Changelog {
       const [, alt = "", src = "", caption] = IMAGE.exec(line)!;
       container().push({ kind: "media", src, alt, caption: caption ?? null });
     } else {
-      // A group holds bullets and pictures. Prose here is nearly always a
-      // bullet's second paragraph that lost its indent, which would split
-      // the list in two around a stray paragraph and nothing would say so.
+      // A group holds bullets and pictures. Prose here is almost always a
+      // bullet's second paragraph that lost its indent, which would silently
+      // split the list.
       if (group !== null) {
         throw new Error(
           `A paragraph inside "${group.heading}": "${line.trim()}". ` +
@@ -250,8 +238,8 @@ export const anchor = (entry: Entry): string =>
   /^\d/.test(entry.versions[0]!) ? `v${entry.versions[0]!}` : entry.versions[0]!.toLowerCase();
 
 function renderItem(item: Item): string {
-  // A lead running straight into punctuation ("**`leglas`**, the command
-  // line tool") keeps no space; one followed by a sentence gets one.
+  // A lead running straight into punctuation keeps no space; one followed by a
+  // sentence gets one.
   const joiner = item.text === "" || /^[,.;:!?)]/.test(item.text) ? "" : " ";
 
   const lead =
@@ -294,11 +282,9 @@ function renderBlocks(blocks: (Item | Paragraph | Media)[], paragraphClass: stri
     if (block.kind === "paragraph") {
       out.push(`<p class="${paragraphClass}">${inline(block.text)}</p>`);
     } else {
-      // A capture is shot at 2x and cropped to its subject, so its natural
-      // size is twice what it should take up and its subject is often
-      // narrower than the column. `#w=<css px>` on the URL says how wide to
-      // draw it; a fragment is ignored by every image host and by GitHub, so
-      // CHANGELOG.md reads the same everywhere.
+      // Captures are shot at 2x and cropped, so natural size is twice too big.
+      // `#w=<css px>` sets the width; image hosts and GitHub ignore the
+      // fragment, so CHANGELOG.md reads the same everywhere.
       const [src, hint] = block.src.split("#w=");
       const width = hint !== undefined && /^\d+$/.test(hint) ? ` style="max-width:${hint}px"` : "";
 

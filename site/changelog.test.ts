@@ -12,11 +12,9 @@ import { releasesIndex } from "./release-notes.ts";
 const root = join(import.meta.dirname, "..");
 
 /**
- * The page is made from CHANGELOG.md and nothing else, so the file has to
- * hold what the page shows: a date and a title on every release heading, and
- * bullets whose audience tag names one of the three things a release ships.
- * A slip here is cheapest in the pull request that made it, which is where
- * this runs.
+ * The page is made from CHANGELOG.md alone, so the file must hold what it
+ * shows: a date and title on every release heading, and bullets tagged with one
+ * of the three things a release ships.
  */
 describe("CHANGELOG.md", () => {
   const changelog = parseChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8"));

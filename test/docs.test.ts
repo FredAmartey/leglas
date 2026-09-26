@@ -7,16 +7,10 @@ import { expect, test } from "vitest";
 import { PAGES } from "../site/docs.ts";
 
 /**
- * The manual names its pages in `site/docs.ts` rather than finding them, so
- * that the uncommitted notes this repository keeps in the same folder,
- * `docs/lessons.md` and `docs/plans/`, are not served as part of it.
- *
- * That leaves one way to go wrong: write a page, link it from the index, and
- * forget the list. Nothing would say so. The site would build, the suite
- * would pass, and the page would simply not be on leglas.vercel.app.
- *
- * So the question is asked here instead, of git, which is the only thing that
- * can tell a page of the manual from a note somebody keeps beside it.
+ * `site/docs.ts` names the manual's pages so local notes in docs/ aren't
+ * served. That leaves one silent mistake: a new page left off the list, which
+ * builds, passes and never reaches the site. Git is the only thing that can
+ * tell a page from a note.
  */
 const root = join(import.meta.dirname, "..");
 
@@ -35,14 +29,9 @@ test("every committed page of the manual is one the site knows to serve", () => 
 });
 
 /**
- * The cost of naming the pages in code is a second list: the index a reader
- * actually sees. Two lists drift, and this one drifts quietly, since a page
- * missing from the index is still built and still reachable from every other
- * page's nav. Nobody notices until somebody opens the manual at the front.
- *
- * Asking where each name appears in the file, rather than which links the
- * file holds, keeps this out of the business of parsing markdown: that was
- * tried, and every round of it found another shape that dropped a page.
+ * The index a reader sees is a second list, and a page missing from it is still
+ * built and linked from the nav, so nobody notices. Checking where each name
+ * appears avoids parsing markdown, which kept missing shapes.
  */
 test("the index mentions every page, in the order the site shows them", () => {
   const index = readFileSync(join(root, "docs/README.md"), "utf8");

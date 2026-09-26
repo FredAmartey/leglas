@@ -2,25 +2,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * What `leglas` and `leglas-mcp` promise to anyone who imports them.
+ * What `leglas` and `leglas-mcp` promise to anyone who imports them. Both ship
+ * `types`, so a changed signature breaks consumers even if nothing here fails
+ * (#6 changed two that way). The snapshot beside this file is the promise, the
+ * test compares the build with it, and publish.yml refuses a patch tag when it
+ * moved.
  *
- * Both packages ship `types`, so their exported signatures are part of what
- * npm serves, and changing one is a breaking change whether or not anything
- * here noticed. #6 changed `registerLeglasTools` and `startChannel` from
- * `{ cwd }` to `{ project }` and nothing failed, because nothing in this
- * repository imports those packages the way a consumer does.
- *
- * So the surface is written down. The snapshot beside this file is the
- * promise, the test compares it against the build, and publish.yml refuses a
- * patch tag when it has moved since the last release. A breaking change then
- * costs two deliberate acts: updating the snapshot, and picking a version that
- * admits what you did.
- *
- * This reads the emitted `.d.ts` rather than the source. TypeScript 7 is the
- * native port and no longer exposes a compiler API to JavaScript, and the
- * declarations are the better answer anyway: they are the artifact in the
- * tarball, so this describes what consumers actually receive rather than what
- * we believe we wrote.
+ * Reads the emitted `.d.ts`: TypeScript 7 has no compiler API in JavaScript,
+ * and the declarations are what the tarball actually ships.
  */
 
 /** Entry modules, by the name a consumer types into `npm install`. */
@@ -41,9 +30,8 @@ function isWorkspace(specifier: string): specifier is keyof typeof WORKSPACE {
 export const SNAPSHOT = "api-surface.txt";
 
 /**
- * The declarations are build output, so this reads nothing until `pnpm build`
- * has run. CI builds before it tests; locally the message says so rather than
- * surfacing as an empty surface that looks like every export was deleted.
+ * Declarations are build output, so this needs `pnpm build` first. The message
+ * says so instead of reporting an empty surface.
  */
 function declarations(path: string): string {
   try {
@@ -54,17 +42,9 @@ function declarations(path: string): string {
 }
 
 /**
- * Blank out everything that is not code, keeping every character's position so
- * the mask can be read line for line against the original.
- *
- * Depth counting has to ignore comments and string literals or it is not
- * counting code. `tsc` copies JSDoc into the declarations verbatim, so an
- * ordinary sentence with one unmatched bracket in it, "Tests gate this (see
- * below", used to unbalance the count and swallow the declaration it was
- * attached to. The name then fell through to the unresolved fallback and read
- * like an external module rather than a parse failure, which is the worst
- * shape a bug in this file can take: the surface it stops describing is the
- * surface it stops protecting, and nothing says so.
+ * Blanks out everything but code, keeping each character's position. Depth
+ * counting must skip comments and strings: `tsc` copies JSDoc verbatim, and one
+ * unmatched bracket in prose used to swallow a declaration without any error.
  */
 function maskNonCode(source: string): string {
   const masked = source.split("");
@@ -123,13 +103,10 @@ function maskNonCode(source: string): string {
 }
 
 /**
- * Split a `.d.ts` into its top-level declarations, keyed by the name each one
- * introduces. Hand-rolled because the alternative is a parser dependency for a
- * file shape the compiler generates and therefore never gets creative with:
- * one declaration per top-level statement, brackets balanced, no JSX.
- *
- * Every decision reads the masked copy and every captured line comes from the
- * original, so comments survive into the snapshot without ever being counted.
+ * Splits a `.d.ts` into its top-level declarations by name. Hand-rolled, since
+ * compiler output is regular: one declaration per statement, balanced brackets,
+ * no JSX. Decisions read the masked copy and lines come from the original, so
+ * comments reach the snapshot without being counted.
  */
 export function topLevelDeclarations(source: string): Map<string, string> {
   const found = new Map<string, string>();
@@ -181,9 +158,8 @@ export function topLevelDeclarations(source: string): Map<string, string> {
 type Reexport = { names: string[]; from: string };
 
 /**
- * The entry `.d.ts` is nothing but re-exports, so it names the surface without
- * describing it. Read the names here, then fetch each one's declaration from
- * the module that owns it.
+ * The entry `.d.ts` is only re-exports: take the names here, then each
+ * declaration from the module that owns it.
  */
 function reexports(source: string): Reexport[] {
   const found: Reexport[] = [];
@@ -202,11 +178,9 @@ function reexports(source: string): Reexport[] {
 }
 
 /**
- * Where a module specifier's declarations live. Relative specifiers resolve
- * beside the file that named them, which is why the containing directory is
- * carried through the walk rather than assumed to be the package we started
- * in: `leglas` re-exports from `@leglas/server`, and that package's own
- * `./requests.js` means a file in *its* dist, not ours.
+ * Where a specifier's declarations live. Relative specifiers resolve beside the
+ * file that named them, so the directory travels with the walk:
+ * `@leglas/server`'s `./requests.js` means a file in its dist, not ours.
  */
 function moduleFile(root: string, from: string, specifier: string): string | null {
   if (specifier.startsWith(".")) {
@@ -241,16 +215,10 @@ type Resolution =
   | { kind: "missing" };
 
 /**
- * Find one name by following the path it actually travels: the module the
- * export names, then whatever that module re-exports it from, and so on.
- *
- * Deliberately not a flat index of every declaration seen along the way.
- * Merging files into one map keyed by name alone lets a module-local helper
- * reached earlier shadow a genuinely public declaration of the same name
- * reached later, and the snapshot would then describe the wrong type while
- * looking complete. There is no collision in this repository today, which is
- * exactly why it is worth closing now: the failure is silent, and this file's
- * whole job is noticing when something changes shape.
+ * Finds one name along the path it travels: the module the export names, then
+ * wherever that re-exports it from. Not a flat index, where a local helper
+ * reached first could shadow a public declaration of the same name and the
+ * snapshot would describe the wrong type.
  */
 export function resolve(root: string, file: string, name: string, seen: Set<string>): Resolution {
   if (seen.has(file)) return { kind: "missing" };
@@ -278,10 +246,7 @@ export function resolve(root: string, file: string, name: string, seen: Set<stri
   return { kind: "missing" };
 }
 
-/**
- * The surface as text, sorted by name, so reordering an export list is not a
- * diff and a real change is a small one a reviewer can read.
- */
+/** Sorted by name, so reordering an export list isn't a diff. */
 export function publicSurface(root: string): string {
   const sections: string[] = [
     "# Public API surface",
@@ -305,11 +270,9 @@ export function publicSurface(root: string): string {
           }
 
           /**
-           * Every file on the way was ours and we read all of them, so the
-           * name being absent means the reader failed rather than that the
-           * declaration lives somewhere off the map. Refusing is the point: a
-           * silent gap in this file is a silent gap in the release gate, and
-           * it would read as an ordinary limitation forever.
+           * Every file on the chain was ours and was read, so a missing name is
+           * a reader bug. Refused, since a silent gap here is a gap in the
+           * release gate.
            */
           throw new Error(
             `${packageName} exports ${name}, but no module on the chain declares it. ` +
@@ -317,8 +280,7 @@ export function publicSurface(root: string): string {
           );
         }),
       )
-      // By name, not by declaration text: sorting on the text would let a
-      // changed signature move an entry, turning one edit into a shuffle.
+      // By name, not text, so a changed signature doesn't move its entry.
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 
     sections.push("", `## ${packageName}`, "", ...described.map((entry) => entry.text));
@@ -328,10 +290,8 @@ export function publicSurface(root: string): string {
 }
 
 /**
- * `pnpm api:update` writes the snapshot. Running the module directly is the
- * whole entry point: the test imports the same function, so there is one
- * definition of the surface and no way for the writer and the checker to
- * disagree about what it is.
+ * `pnpm api:update` writes the snapshot. The test imports the same function, so
+ * writer and checker can't disagree.
  */
 if (import.meta.main) {
   const root = join(import.meta.dirname, "..");

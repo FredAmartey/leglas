@@ -4,22 +4,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 /**
- * Nothing has to be installed to use Leglas: `npx leglas` fetches the CLI on
- * first use, and every instruction the tool writes for agents uses that form.
- * A message that tells someone to run `leglas explore hero` is telling them to
- * run something that is not on their PATH.
+ * `npx leglas` needs no install and every instruction Leglas writes uses it, so
+ * an example telling someone to run bare `leglas explore hero` names something
+ * not on their PATH. c81128b fixed one and left three siblings, which is worse
+ * than none.
  *
- * That drifted once already. c81128b fixed one such example by hand and left
- * three siblings in the same file spelling it the other way, which is worse
- * than not having fixed it: with both forms present there is no way to tell
- * which one is meant.
- *
- * Deliberately one construction rather than a rule about the word "leglas".
- * The word appears in three roles and only this one wants the prefix: naming
- * the subcommand someone just ran ("leglas keep takes one direction title")
- * reads worse with it, and the usage block in --help is a usage block. Widening
- * this to "run" was tried and immediately matched prose. A check that fires on
- * correct code is a check somebody deletes.
+ * One construction, not a rule about the word: naming the command just run
+ * ("leglas keep takes one direction title") and --help's usage block read fine
+ * without the prefix. Widening this to "run" matched prose at once.
  */
 
 const root = join(import.meta.dirname, "..");
@@ -38,9 +30,8 @@ function sources(directory: string): string[] {
 }
 
 /**
- * Join string literals split across lines for width, so a message is read as
- * the one sentence it prints as. The classify example was written that way and
- * a line-at-a-time reading walked straight past it.
+ * Joins string literals split across lines, so a message is checked as the one
+ * sentence it prints.
  */
 const oneLine = (source: string): string => source.replace(/["'`]\s*\+\s*\n\s*["'`]/g, "");
 

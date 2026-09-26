@@ -23,8 +23,8 @@ function runStep(name: string, version: string) {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-publish-"));
 
   try {
-    // Functions intercept every external command in these steps, so the real
-    // workflow logic runs without publishing packages or creating a release.
+    // Functions stand in for every external command, so the real workflow logic
+    // runs without publishing anything.
     const stubs = `
       pnpm() { printf '%s\\n' "$@"; }
       gh() { if [ "$2" = view ]; then return 1; fi; printf '%s\\n' "$@"; }

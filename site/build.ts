@@ -8,9 +8,8 @@ import { CAPTURES, renderHome } from "./home.ts";
 import { releasesIndex } from "./release-notes.ts";
 
 /**
- * The site: a homepage, the docs and the changelog, written under dist/site, which is
- * ignored, so nothing generated is ever committed. `pnpm site` runs this and
- * Vercel does the same on every push, as vercel.json says.
+ * The site: homepage, docs and changelog, written under the ignored dist/site.
+ * `pnpm site` runs this, and so does Vercel on every push.
  */
 export function buildSite(root: string, out: string): string[] {
   const assets = loadAssets(root);
@@ -37,8 +36,7 @@ export function buildSite(root: string, out: string): string[] {
     write(path, renderDoc(page, pages, assets));
   }
 
-  // The homepage shows the README's captures, which stay in the tree because
-  // they ship with the documentation.
+  // The homepage shows the README's captures, which ship with the docs.
   for (const capture of CAPTURES) {
     copyFileSync(
       join(root, ".github", "assets", "screenshots", capture),
