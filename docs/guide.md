@@ -95,9 +95,11 @@ once. They build side by side. Each row says whether its direction is
 building, being checked, failed or stopped, and the stage shows what a
 direction still being built is meant to be. Leglas opens every one before
 calling it ready and gives one that does not render one attempt to fix
-itself. Stop it, retry it or ask for a new idea from its row or the stage.
-Once two are ready, **Compare all** on the card puts the ready ones on the
-stage side by side, each drawn at its own width; a name opens that direction.
+itself. A build that edits any other file is stopped, and Leglas puts back
+the switch, existing directions and the files they import. Stop it, retry it
+or ask for a new idea from its row or the stage. Once two are ready,
+**Compare all** on the card puts the ready ones on the stage side by side,
+each drawn at its own width; a name opens that direction.
 
 To take one further, open the brief while it is on the stage and press
 **More like Menu** in its header. The agent builds variations that keep the

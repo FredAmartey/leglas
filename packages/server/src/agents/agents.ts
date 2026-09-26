@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { constants, readdirSync } from "node:fs";
+import { constants, readdirSync, realpathSync } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
+import { delimiter, dirname, isAbsolute, join, normalize, relative } from "node:path";
 
 import { WATCH_PATH } from "./agent-command.js";
 import type { RetryNotice } from "./failure.js";
@@ -644,6 +644,71 @@ function cursorActivity(event: JsonRecord, cwd: string): string | null {
   const path = shownPath(args?.path, cwd);
 
   return path === null ? `using ${tool}` : `using ${tool} on ${path}`;
+}
+
+/** Every file a stream line says was edited, relative to `cwd`. Codex shell-command writes don't show up. */
+export function editedFiles(agent: AgentChoice, line: string, cwd: string): string[] {
+  let event: JsonRecord | null;
+
+  try {
+    event = record(parseJson(line));
+  } catch {
+    return [];
+  }
+
+  const paths: JsonValue[] = [];
+
+  if (agent === "claude" && event?.type === "assistant") {
+    const content = record(event.message)?.content;
+
+    for (const rawBlock of Array.isArray(content) ? content : []) {
+      const block = record(rawBlock);
+      const input = record(block?.input);
+
+      if (
+        block?.type === "tool_use" &&
+        isString(block.name) &&
+        ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(block.name)
+      )
+        paths.push(input?.file_path ?? input?.notebook_path ?? null);
+    }
+  }
+
+  if (
+    agent === "codex" &&
+    (event?.type === "item.started" || event?.type === "item.completed") &&
+    record(event.item)?.type === "file_change"
+  ) {
+    const item = record(event.item);
+
+    for (const change of Array.isArray(item?.changes) ? item.changes : [])
+      paths.push(record(change)?.path ?? null);
+    paths.push(item?.path ?? null);
+  }
+
+  if (paths.length === 0) return [];
+
+  // The agent may report either side of a symlinked root.
+  let root = cwd;
+
+  try {
+    root = realpathSync(cwd);
+  } catch {
+    // Compared as given.
+  }
+
+  return paths.flatMap((path) => {
+    if (!isString(path) || path === "") return [];
+
+    if (!isAbsolute(path)) return [normalize(path)];
+
+    // Outside both roots: keep the absolute path.
+    const shown = [relative(cwd, path), relative(root, path)].find(
+      (form) => !form.startsWith(".."),
+    );
+
+    return [normalize(shown ?? path)];
+  });
 }
 
 /** Reduce one agent JSONL event to a short, user-facing activity label. */

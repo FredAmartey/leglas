@@ -1,10 +1,10 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 
 import { buildArgs, planArgs, resultText } from "./claude.js";
 import { codexBuildArgs, codexPlanArgs, codexResultText, codexServers } from "./codex.js";
-import { factsBlock, readProjectFacts } from "./facts.js";
+import { componentFile, factsBlock, readProjectFacts } from "./facts.js";
 import {
   buildPrompt,
   fixPrompt,
@@ -14,9 +14,21 @@ import {
   replacePrompt,
   type Concept,
 } from "./prompts.js";
-import { addSlots, directionKeys, findSwitch, isFile, placeholderSource } from "./switch-file.js";
+import {
+  addSlots,
+  directionKeys,
+  findSwitch,
+  isFile,
+  placeholderSource,
+  readDirections,
+} from "./switch-file.js";
 
-import { activityFrom, agentEnvironment, type SavedAgentChoice } from "../agents/agents.js";
+import {
+  activityFrom,
+  agentEnvironment,
+  editedFiles,
+  type SavedAgentChoice,
+} from "../agents/agents.js";
 import { classifyFailure, type FailureCode } from "../agents/failure.js";
 import { ownGroup, signalTree } from "../agents/process-tree.js";
 import type { RunnerChild, RunnerSpawn } from "../agents/runner.js";
@@ -66,7 +78,8 @@ export type GenerationFailure = {
     | "broken"
     | "unreadable-plan"
     | "same-failure"
-    | "unexpected";
+    | "unexpected"
+    | "outside-file";
   message: string;
 };
 
@@ -147,6 +160,38 @@ export type Generations = {
 
 type Outcome = { code: number | null; lines: string[]; error: string | null; timedOut: boolean };
 
+/** Per build attempt: the kept files as read, and every other file it edited. */
+type Guard = { kept: Map<string, string>; strays: Set<string> };
+
+const guardKey = (slot: GenerationSlot, attempt: number): string => `${slot.key}#${attempt}`;
+
+/** "a", "a and b", "a, b and c". */
+function listed(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/** The failure shown for a build that strayed. */
+function strayMessage(
+  paths: readonly string[],
+  restored: readonly string[],
+  named: readonly string[],
+): string {
+  const which = paths.length === 1 ? "which is not its own file" : "which are not its own files";
+
+  const back =
+    restored.length === 0
+      ? ""
+      : restored.length === paths.length
+        ? ` and put ${paths.length === 1 ? "the file" : "them"} back`
+        : ` and put ${listed(restored)} back`;
+
+  const check = named.length === 0 ? "." : `. Check ${listed(named)} before trying again.`;
+
+  return `The build edited ${listed(paths)}, ${which}, so Leglas stopped it${back}${check}`;
+}
+
 /** Who runs a set's work, and how Leglas talks to them. The CLI is named as the agent is. */
 type Profile = {
   id: GenerationAgent;
@@ -195,6 +240,8 @@ type Live = {
   attempts: Map<string, number>;
   base: GenerationBase | null;
   agent: Profile;
+  /** By `slot#attempt`. */
+  guards: Map<string, Guard>;
   /** Work still running after the call that started it answered; see `detach`. */
   pending: Set<Promise<void>>;
 };
@@ -376,7 +423,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
       child.once("close", (code) => {
         clearTimeout(deadline);
 
-        if (buffered !== "") lines.push(buffered);
+        // The last line may lack a newline.
+        if (buffered !== "") {
+          lines.push(buffered);
+          onLine?.(buffered);
+        }
+
         resolve({ code, lines, error: null, timedOut });
       });
     });
@@ -523,10 +575,127 @@ export function createGenerations(deps: GenerationDeps): Generations {
     changed();
   };
 
+  /** Restores the kept files an attempt strayed into and returns its failure, or null. Runs even if the attempt lost its slot. */
+  const strayed = async (
+    live: Live,
+    slot: GenerationSlot,
+    attempt: number,
+  ): Promise<GenerationFailure | null> => {
+    const guard = live.guards.get(guardKey(slot, attempt));
+
+    if (guard === undefined || guard.strays.size === 0) return null;
+    const paths = [...guard.strays];
+    const restored: string[] = [];
+    const named: string[] = [];
+
+    // Never restore over a direction that is still building, in any set.
+    const building = new Set(
+      lives.flatMap((other) =>
+        other.job.slots.flatMap((each) =>
+          each.state === "building" || each.state === "checking" ? [normalize(each.file)] : [],
+        ),
+      ),
+    );
+
+    for (const path of paths) {
+      const kept = guard.kept.get(path);
+
+      if (kept === undefined || building.has(path)) {
+        named.push(path);
+        continue;
+      }
+
+      await writeFile(join(deps.cwd, path), kept, "utf8").catch(() => {});
+      restored.push(path);
+    }
+
+    // Unblocks sibling page checks.
+    guard.strays.clear();
+
+    return { code: "outside-file", message: strayMessage(paths, restored, named) };
+  };
+
+  /** Kept files strayed into but not yet restored, in every set, with their restore content. */
+  const pendingStrays = (except?: GenerationSlot): Map<string, string> => {
+    const pending = new Map<string, string>();
+
+    for (const [key, guard] of lives.flatMap((other) => [...other.guards.entries()])) {
+      if (except !== undefined && key.startsWith(`${except.key}#`)) continue;
+
+      for (const path of guard.strays) {
+        const kept = guard.kept.get(path);
+
+        if (kept !== undefined) pending.set(path, kept);
+      }
+    }
+
+    return pending;
+  };
+
+  /**
+   * The switch, its directions and their imports, one level deep. A set's first builds share the
+   * plan's read; retries read fresh, so a newer set's switch is never reverted.
+   */
+  const keptFiles = async (
+    live: Live,
+    own: ReadonlySet<string> = new Set(live.job.slots.map((slot) => normalize(slot.file))),
+  ): Promise<Map<string, string>> => {
+    const switchPath = live.switchPath;
+    const pending = pendingStrays();
+
+    // A file mid-restore is read as it will be.
+    const read = async (path: string): Promise<string | null> =>
+      pending.get(normalize(path)) ??
+      (await readFile(join(deps.cwd, path), "utf8").catch(() => null));
+
+    const source = await read(switchPath);
+    const kept = new Map<string, string>();
+
+    if (source === null) return kept;
+    kept.set(normalize(switchPath), source);
+
+    const keep = async (path: string | null): Promise<string | null> => {
+      if (path === null || own.has(normalize(path)) || kept.has(normalize(path))) return null;
+      const body = await read(path);
+
+      if (body !== null) kept.set(normalize(path), body);
+
+      return body;
+    };
+
+    for (const direction of readDirections(source)) {
+      const path = await componentFile(deps.cwd, switchPath, direction.from);
+      const body = await keep(path);
+
+      if (path === null || body === null) continue;
+
+      // from, side-effect and dynamic imports; aliases like `@/copy` aren't followed.
+      for (const match of body.matchAll(/(?:from\s+|import\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g)) {
+        await keep(await componentFile(deps.cwd, path, match[1] ?? ""));
+      }
+    }
+
+    return kept;
+  };
+
   /** A run's own stream says what it is doing; only a change is worth a nudge, and only while the attempt holds the slot. */
   const follow =
     (live: Live, slot: GenerationSlot, attempt: number) =>
     (line: string): void => {
+      // Note every stray, even after a stop; the first one stops the run.
+      const guard = live.guards.get(guardKey(slot, attempt));
+
+      for (const path of editedFiles(live.agent.id, line, deps.cwd)) {
+        if (guard === undefined || path === normalize(slot.file) || guard.strays.has(path))
+          continue;
+        guard.strays.add(path);
+
+        if (guard.strays.size > 1 || !owns(live, slot, attempt)) continue;
+        const running = live.runs.get(slot.key);
+
+        if (running !== undefined) detach(live, running.stop(), () => {});
+      }
+
       const activity = activityFrom(live.agent.id, line, deps.cwd);
 
       if (activity === null || activity === slot.activity || !owns(live, slot, attempt)) return;
@@ -549,6 +718,26 @@ export function createGenerations(deps: GenerationDeps): Generations {
     slot.activity = null;
     changed();
 
+    const key = guardKey(slot, attempt);
+
+    // First attempts already carry the plan's guard.
+    if (!live.guards.has(key))
+      live.guards.set(key, { kept: await keptFiles(live), strays: new Set() });
+
+    try {
+      if (!owns(live, slot, attempt)) return;
+      await buildOwned(live, slot, attempt, concept);
+    } finally {
+      live.guards.delete(key);
+    }
+  };
+
+  const buildOwned = async (
+    live: Live,
+    slot: GenerationSlot,
+    attempt: number,
+    concept: Concept,
+  ): Promise<void> => {
     const others = [...live.concepts.values()].filter((other) => other !== concept);
 
     const prompt = buildPrompt({
@@ -572,6 +761,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     live.runs.set(slot.key, building);
     const outcome = await building.done;
+    const outside = await strayed(live, slot, attempt);
 
     // A stop or a newer attempt took the slot over while this run was ending.
     if (!owns(live, slot, attempt)) return;
@@ -581,7 +771,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     if (!owns(live, slot, attempt)) return;
 
-    if (outcome.timedOut) {
+    if (outside !== null) {
+      fail(live, slot, outside);
+    } else if (outcome.timedOut) {
       fail(live, slot, {
         code: "too-slow",
         message: `The build took longer than ${BUILD_DEADLINE_MS / 60_000} minutes, so Leglas stopped it.`,
@@ -626,12 +818,16 @@ export function createGenerations(deps: GenerationDeps): Generations {
       const errors = report?.errors ?? [];
       const names = (file: string): boolean => errors.some((error) => error.includes(file));
 
+      // Wait out another build's pending restore.
+      const pending = [...pendingStrays(slot).keys()];
+
       const waiting =
         !names(slot.file) &&
-        others.some(
-          (other) =>
-            (other.state === "building" || other.state === "checking") && names(other.file),
-        );
+        (pending.some(names) ||
+          others.some(
+            (other) =>
+              (other.state === "building" || other.state === "checking") && names(other.file),
+          ));
 
       if (!waiting || now() >= until) {
         return errors.filter((error) => !others.some((other) => error.includes(other.file)));
@@ -664,12 +860,19 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
+      const outside = await strayed(live, slot, attempt);
 
       if (!owns(live, slot, attempt)) return;
       slot.activity = null;
       changed();
 
       if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
+
+      if (outside !== null) {
+        fail(live, slot, outside);
+
+        return;
+      }
 
       if (outcome.timedOut || outcome.error !== null || outcome.code !== 0) {
         fail(
@@ -818,6 +1021,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
       "utf8",
     );
 
+    // Read now: first attempts must begin without an await.
+    const kept = await keptFiles(live, new Set(slots.map((slot) => normalize(slot.file))));
+
     // One at a time: registration rewrites one file, and parallel writers would lose entries.
     for (const slot of slots) {
       await serially(() =>
@@ -851,6 +1057,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     await Promise.all(
       job.slots.map((slot) => {
         const attempt = begin(live, slot);
+        live.guards.set(guardKey(slot, attempt), { kept, strays: new Set() });
 
         return guarded(build(live, slot, attempt), (message) => lost(live, slot, attempt, message));
       }),
@@ -988,6 +1195,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         attempts: new Map(),
         base,
         agent: agent === "codex" ? codex(await codexServers(deps.codexHome)) : CLAUDE,
+        guards: new Map(),
         pending: new Set(),
       };
 
