@@ -343,6 +343,10 @@ export async function runShare(
       else deps.log(`  local    ${label}${link.localUrl}`);
     }
 
+    if (share.links.length === 0) {
+      deps.log("  links    no link is live; npx leglas share --rotate starts one");
+    }
+
     const tunnel = tunnelLine(share.tunnel, installed);
 
     if (tunnel !== null) deps.log(`  tunnel   ${tunnel}`);

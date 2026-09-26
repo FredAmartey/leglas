@@ -396,6 +396,21 @@ describe("runShare", () => {
     ]);
   });
 
+  test("--revoke of the last live link says how to get a new one", async () => {
+    const cwd = scratch();
+    const leglas = fakeLeglas(cwd);
+    leglas.running({ scope: "rail", titles: [] });
+    const { deps, lines } = collect();
+
+    await runShare(options(cwd, { revoke: "grant-1", json: false }), {
+      ...deps,
+      fetch: leglas.fetch,
+      sleep: instantly,
+    });
+
+    expect(lines.join("\n")).toContain("no link is live; npx leglas share --rotate starts one");
+  });
+
   test("--revoke refuses a link the share doesn't have, and ends nothing", async () => {
     const cwd = scratch();
     const leglas = fakeLeglas(cwd);
