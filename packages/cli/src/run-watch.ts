@@ -287,7 +287,8 @@ export async function runWatch(
       // A running agent shares this process group, so Ctrl-C reached it too.
       // Its bookkeeping must still land before this settles, since the caller
       // exits on it and a successful request would be stranded as picked-up.
-      // The last heartbeat is best effort.
+      // The last heartbeat is best effort; the window it opens closes by itself
+      // in six seconds.
       void Promise.resolve(inflight)
         .catch(() => {})
         .then(() => heartbeat(false))

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
-/* Tailwind scans every reachable file for class-like words, so a test that
-   said "answers from a table" shipped `.table`. Tests render nothing. */
+/* Tailwind scans every reachable file for class-like words, so a test saying
+   "answers from a table" would ship `.table`. Tests render nothing. */
 @source not "./**/*.test.ts";
 @source not "./**/*.test.tsx";
 

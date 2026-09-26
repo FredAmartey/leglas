@@ -121,9 +121,9 @@ async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
 
 describe("Codex app-server transport", () => {
   test("a release outlasts a warm queued behind an earlier reset", async () => {
-    // warm() and release() aren't awaited. A warm queued behind a reset used to
-    // install a process after a later release returned, leaving Codex resident
-    // beside the chosen vendor. The last call wins.
+    // warm() and release() aren't awaited, so a warm queued behind a reset
+    // could install a process after a later release returned, leaving Codex
+    // resident beside the chosen vendor. The last call wins.
     const { server, spawned } = await initialize();
 
     const first = server.release();

@@ -12,7 +12,7 @@ const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /**
  * Annotations ride `requests`: the shell reads both on one beat, keeping them
  * on one socket within the six-connections-per-origin budget. Updates get a
- * kind because the server sees every transition, where the interface used to
+ * kind because the server sees every transition; without it the interface would
  * poll once a second through a five-minute install.
  */
 export type LiveChange = "config" | "requests" | "health" | "share" | "update" | "generation";

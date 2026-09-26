@@ -89,8 +89,9 @@ export function placeCard(options: {
   const gap = options.gap ?? 8;
   const { anchor, bounds, card } = options;
 
-  // Clear of the target on whichever side has room; flipping above at the
-  // bottom edge alone would cover a short element.
+  // Clear of the target on whichever side has room. Below is measured from the
+  // element's bottom and above from its top; flipping from the bottom edge
+  // would cover a short element.
   const below = anchor.y + anchor.height + gap;
   const above = anchor.y - gap - card.height;
   const flipped = below + card.height > bounds.height && above >= 0;

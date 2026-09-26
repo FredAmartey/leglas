@@ -50,8 +50,7 @@ const PROBE_DEADLINE_MS = 30_000;
 
 const PROBE_INTERVAL_MS = 1500;
 
-/** Past the deadline the link is asked about less often, for as long as it takes. */
-/** After the deadline the asks back off, doubling from here to the cap. */
+/** Past the deadline the link is asked less often, from this interval doubling to the cap. */
 const SLOW_PROBE_INTERVAL_MS = 4000;
 
 const SLOW_PROBE_CAP_MS = 30_000;

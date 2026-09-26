@@ -34,8 +34,8 @@ function renameExport(source: string, to: string): string {
 /**
  * Writes down the exploration before it's deleted, since the directions, their
  * requests and the captures are the record. Returns where it was written, or
- * null if there was nothing to say. Never fatal: the winner is already in
- * source.
+ * null if there was nothing to say. Throws on failure; the caller reports it
+ * and carries on, since the winner is already in source.
  */
 async function writeLogEntry(options: {
   cwd: string;

@@ -11,9 +11,10 @@ export const REPO = "https://github.com/FredAmartey/leglas";
 export const NPM = "https://www.npmjs.com/package/leglas";
 
 /**
- * A spring (stiffness 600, damping 25, unit mass) sampled as an easing, so the
- * star overshoots to about 115% and settles within half a second. Browsers
- * without linear() keep the bezier declared before it.
+ * A spring (stiffness 600, damping 25, unit mass) sampled as an easing: it
+ * reaches the target a third of the way in, overshoots to about 115% and
+ * settles, so half a second reads as a quick flick. Browsers without linear()
+ * keep the bezier declared before it.
  */
 const SPRING =
   "linear(0, .108, .349, .622, .859, 1.028, 1.123, 1.155, 1.143, 1.107, 1.065, 1.027, .999, .983, .976, .977, .982, .989, .995, 1, 1.002, 1.004, 1.004, 1.003, 1)";

@@ -324,8 +324,8 @@ describe("proxy", () => {
 
   test("lets go of the upstream request when the browser gives up", async () => {
     // The browser drops requests constantly (a pane unmounting, a scan frame
-    // moving on, an abandoned navigation). Each used to run to completion
-    // upstream, holding a pooled socket.
+    // moving on, an abandoned navigation), and each must release its pooled
+    // socket rather than run to completion upstream.
     await new Promise<void>((resolve, reject) => {
       const socket = net.connect(proxy.port, "127.0.0.1", () => {
         socket.write(`GET /slow HTTP/1.1\r\nHost: 127.0.0.1:${proxy.port}\r\n\r\n`);

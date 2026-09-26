@@ -254,7 +254,7 @@ export const VIEWER_DEADLINE_MS = 30_000;
  * A list of what's known, not a boundary: the share tells the user plainly that
  * a viewer reads what their dev server serves. "read" entries come from the
  * package source at the named version; "reported" ones came from review and
- * aren't confirmed here.
+ * aren't confirmed here. Adding an entry is one line.
  *
  * Checked and needing nothing: Astro 7.3.1 (only `/_astro/status`), SvelteKit
  * 2.70.3, Angular 22.1.7 (only `/@ng/` update routes), Storybook 10.6.0
@@ -336,16 +336,6 @@ export const DEV_CONTROL_PREFIXES: readonly string[] = [
 export const DEV_CONTROL_QUERY_KEYS: readonly string[] = ["__debugger__"];
 
 /**
- * Every spelling of a path to consider, since the dev server does its own
- * matching. Vite 8.2.2 answers `/__OPEN-IN-EDITOR` like the lowercase one, so
- * case is the confirmed gap; `//a`, `/./a` and `/x/../a` are the same class,
- * closed because refusing a path the app never had costs nothing.
- *
- * Decoded once: decoding in a loop would refuse paths that legitimately contain
- * an encoded percent. A backslash is a slash, since both of Node's URL parsers
- * read `/foo\..\x` as `/x`.
- */
-/**
  * The one reading that says what will be served. {@link spellings} is for
  * refusing, where any dangerous reading should win; for allowing, the most
  * permissive reading would win, so allow decisions use this settled path only.
@@ -362,6 +352,16 @@ function canonical(path: string): string {
   return posix.normalize(form.replaceAll("\\", "/").replace(/\/{2,}/g, "/"));
 }
 
+/**
+ * Every spelling of a path to consider, since the dev server does its own
+ * matching. Vite 8.2.2 answers `/__OPEN-IN-EDITOR` like the lowercase one, so
+ * case is the confirmed gap; `//a`, `/./a` and `/x/../a` are the same class,
+ * closed because refusing a path the app never had costs nothing.
+ *
+ * Decoded once: decoding in a loop would refuse paths that legitimately contain
+ * an encoded percent. A backslash is a slash, since both of Node's URL parsers
+ * read `/foo\..\x` as `/x`.
+ */
 function spellings(path: string): string[] {
   const seen = new Set<string>();
 
@@ -410,7 +410,6 @@ export function isDevControlRequest(url: string): boolean {
   return DEV_CONTROL_QUERY_KEYS.some((key) => keys.has(key) || keys.has(key.toUpperCase()));
 }
 
-/** Where file previews are served, the same prefix the server mounts them under. */
 /**
  * Whether a path reaches for something hidden. A leading dot usually means
  * credentials (`.env`, `.git`, `.ssh`, `.aws`), so it's refused whatever the
@@ -437,6 +436,7 @@ export function isHiddenPath(path: string): boolean {
   });
 }
 
+/** Where file previews are served, the same prefix the server mounts them under. */
 const FILES_PREFIX_PATH = "/leglas/files/";
 
 /** How long a detection of tunnel programs stands before the next ask looks again. */
@@ -769,9 +769,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
   let creating = false;
   /**
    * Bumped by every stop. A create reads it before starting and again once it
-   * holds a listener, since a stop in between (while reading previews, finding
-   * tunnels, binding a port) used to report success and leave the share to come
-   * up behind it. Same shape as `closed` below.
+   * holds a listener: a stop in between (while reading previews, finding
+   * tunnels, binding a port) must not report success and leave the share to
+   * come up behind it. Same shape as `closed` below.
    */
   let stops = 0;
   let closed = false;
@@ -1181,15 +1181,13 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       return sendJson(res, 403, { ok: false, error: "Not available to viewers." });
     }
 
-    // Leglas's own paths are the interface, which viewers need; the list is
-    // about the app behind it.
     const url = req.url ?? "/";
 
     // The interface skips the list and the ceiling. Exempting takes the
     // opposite quantifier to refusing: every reading must be safe. Checking
-    // only the settled path exempted "//leglas/x" while the router read the raw
-    // path and proxied it to the dev server; requiring every spelling includes
-    // the raw one, so the two can't disagree.
+    // only the settled path would exempt "//leglas/x" while the router reads the
+    // raw path and proxies it to the dev server; requiring every spelling
+    // includes the raw one, so the two can't disagree.
     const interfaceOwn = spellings(path).every(
       (form) => form === OWN_PREFIX || form.startsWith(`${OWN_PREFIX}/`),
     );
@@ -1233,9 +1231,9 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
       options.request(req, res, { publicOrigin: publicOrigin(req), grantId: grant.id });
     };
 
-    // The interface isn't the dev server, so it's never counted or queued. Same
-    // settled check as the list, so borrowing the prefix doesn't dodge the
-    // ceiling.
+    // The interface isn't the dev server, so it's never counted or queued. The
+    // same every-spelling check as above, so borrowing the prefix doesn't dodge
+    // the ceiling.
     if (interfaceOwn) return run();
     admit(share, grant, req, res, run);
   };
@@ -1282,8 +1280,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
     grant.viewers += 1;
     options.live.nudge("share");
     // A dropped connection can end in `error` and `end` with no `close`, which
-    // left the panel counting a viewer who was gone. The live hub releases on
-    // the same three.
+    // would leave the panel counting a viewer who is gone. The live hub
+    // releases on the same three.
     let gone = false;
 
     const letGo = (): void => {
@@ -1412,8 +1410,8 @@ export function createShareManager(options: ShareManagerOptions): ShareManager {
           share.runningTunnel = runTunnel({
             provider,
             port,
-            // Whichever link exists when the tunnel starts; the probe only
-            // needs a path the listener answers.
+            // Whichever link exists when the tunnel starts; a share always has
+            // one, and the probe only needs a path the listener answers.
             entryPath: `${ENTRY_PREFIX}${Array.from(share.grants.values())[0]?.token ?? ""}`,
             onState: (next) => {
               if (active !== share || JSON.stringify(share.tunnel) === JSON.stringify(next)) return;

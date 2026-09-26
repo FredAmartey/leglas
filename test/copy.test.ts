@@ -6,12 +6,11 @@ import { describe, expect, test } from "vitest";
 /**
  * `npx leglas` needs no install and every instruction Leglas writes uses it, so
  * an example telling someone to run bare `leglas explore hero` names something
- * not on their PATH. c81128b fixed one and left three siblings, which is worse
- * than none.
+ * not on their PATH. With both forms present nobody can tell which is meant.
  *
  * One construction, not a rule about the word: naming the command just run
  * ("leglas keep takes one direction title") and --help's usage block read fine
- * without the prefix. Widening this to "run" matched prose at once.
+ * without the prefix. Widening this to "run" matches prose.
  */
 
 const root = join(import.meta.dirname, "..");

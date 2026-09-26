@@ -470,9 +470,8 @@ export function AnnotateLayer({
   }, [open]);
 
   /**
-   * Everything the region covers, outermost first. Only elements wholly inside
-   * the sweep, and anything inside another listed element is dropped: a card,
-   * its heading and the heading's span are one thing.
+   * Everything the region covers: the innermost elements the sweep touches,
+   * since a card, its heading and the heading's span are one thing.
    */
   const sweep = (at: Geometry, region: Box) => {
     const all = [...at.doc.body.querySelectorAll("*")].slice(0, SCAN_CAP);

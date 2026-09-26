@@ -374,7 +374,7 @@ class PersistentClaudeSession implements ClaudeTurnRunner {
       if (this.query === null) {
         // A saved session with no live process is loaded into a fresh one.
         // Otherwise the first request after an idle release, and every one
-        // after it, fell to the `claude --resume` CLI.
+        // after it, would fall to the `claude --resume` CLI.
         await waitForAbort(this.startQuery(signal, input.sessionId), signal);
       } else if (
         input.sessionId !== null &&

@@ -1232,8 +1232,7 @@ describe("startRunner", () => {
       leglasCommand: "npx -y leglas",
     });
 
-    // The agent exits 0 and never registers. This used to count as success:
-    // request removed, card gone, rail unchanged.
+    // The agent exits 0 and never registers, which must not count as success.
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
       `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
@@ -1412,9 +1411,9 @@ describe("warm transports", () => {
   };
 
   test("leaves every transport cold until something asks for it", async () => {
-    // A saved choice isn't a request. Warming at boot spawned the vendor and
-    // every MCP server the user configured, for a session that may never send
-    // anything.
+    // A saved choice isn't a request. Warming at boot would spawn the vendor
+    // and every MCP server the user configured, for a session that may never
+    // send anything.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cold-boot-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     const clock = manualClock();
@@ -1530,8 +1529,8 @@ describe("warm transports", () => {
 
   test("a vendor kept warm through a switch is let go when its run ends", async () => {
     // Switching to Codex mid-run must not kill the Claude run, but once it ends
-    // only the vendor last asked for stays warm. Waiting for the idle clock
-    // left both resident for minutes.
+    // only the vendor last asked for stays warm, rather than both staying
+    // resident until the idle clock.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-switch-mid-run-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     await appendRequest(cwd, input("Long"));

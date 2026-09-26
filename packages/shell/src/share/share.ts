@@ -220,13 +220,6 @@ export function viewersLine(viewers: number): string {
   return `${viewers} watching`;
 }
 
-/**
- * What the shared directions already loaded in this browser. Nobody can list a
- * bundler's asset graph by hand, but the sharer's browser has loaded these
- * directions through Leglas, so their same-origin timing entries are readable.
- * Partial: only directions that were on stage count, and scroll-loaded chunks
- * are missing. The share reports what it refuses, which is how the list grows.
- */
 /** What `observedRoutes` reads of a frame, so a test can hand it one it made. */
 export type RouteFrame = {
   dataset: { preview?: string | undefined };
@@ -235,6 +228,13 @@ export type RouteFrame = {
   } | null;
 };
 
+/**
+ * What the shared directions already loaded in this browser. Nobody can list a
+ * bundler's asset graph by hand, but the sharer's browser has loaded these
+ * directions through Leglas, so their same-origin timing entries are readable.
+ * Partial: only directions that were on stage count, and scroll-loaded chunks
+ * are missing. The share reports what it refuses, which is how the list grows.
+ */
 export function observedRoutes(
   frames: Iterable<RouteFrame>,
   titles: readonly string[],

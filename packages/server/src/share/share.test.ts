@@ -588,9 +588,9 @@ describe("how far a viewer reaches", () => {
   });
 
   test("allowing a path that ends in a slash allows that path, not everything beneath it", async () => {
-    // The list reads a trailing slash as a subtree. A refused directory index
-    // settles as "/foo/", so Allow on it used to grant the subtree silently.
-    // The intent now travels with the request.
+    // The list reads a trailing slash as a subtree, and a refused directory
+    // index settles as "/foo/", so Allow on it must not grant the subtree. The
+    // intent travels with the request.
     const { manager, port, cookie } = await startWith({ reach: "listed", routes: [] });
     expect(await raw(port, "/foo/", cookie).status).toBe(403);
     expect(manager.status()?.refused).toEqual(["/foo/"]);
@@ -1097,9 +1097,10 @@ describe("the ceiling on viewer traffic", () => {
   });
 
   test("sheds a request that waited out its budget", async () => {
-    // The budget is one clock over both waits. Twelve requests at a second each
-    // against a budget of 1.33s: the first twelve are served, the next twelve
-    // get in with too little left, and the rest are refused while waiting.
+    // The budget is one clock over both waits. Twelve slots each held for a
+    // second against a budget of 1.3s: the first twelve are served, the next
+    // twelve get in with too little left, and the rest are refused while
+    // waiting.
     //
     // A request is refused only if its budget is spent when a slot frees, and
     // budgets are stamped from the wall clock on arrival. On a loaded runner

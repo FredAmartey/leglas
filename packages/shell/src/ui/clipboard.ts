@@ -2,8 +2,8 @@
  * Copying, and knowing whether it happened. `navigator.clipboard` is missing
  * outside a secure context, as when the shell is opened from a phone on the
  * LAN, and rejects when the document isn't focused or permission is refused.
- * Those used to fail silently. So: the real clipboard, then the deprecated
- * command, then an honest failure, on which the caller shows the link.
+ * So: the real clipboard, then the deprecated command, then an honest failure,
+ * on which the caller shows the link.
  */
 export type CopyOutcome = "blocked" | "copied";
 

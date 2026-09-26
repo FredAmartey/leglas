@@ -7,14 +7,13 @@ const MEANINGFUL_TEXT = 12;
 
 /**
  * What a preview actually drew. Comparing what the server sent can't work for a
- * client-rendered app, where every URL gets the same shell; that check had to
- * be silenced for exactly the apps that needed it. Two previews are the same
- * when they look the same.
+ * client-rendered app, where every URL gets the same shell. Two previews are
+ * the same when they look the same.
  *
  * Text, structure and paint together: text alone misses different layouts of
  * the same copy, structure alone misses different headlines, and without paint
- * colour variants were flagged as duplicates. An accidental duplicate matches
- * in all three.
+ * colour variants read as duplicates. An accidental duplicate matches in all
+ * three.
  *
  * Returns a digest, not the sample, since twins are found by equality and a
  * real page's sample runs past a megabyte.

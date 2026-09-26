@@ -9,8 +9,7 @@ const SPINNER =
 /** What kind of event the card is about, before a word of it is read. */
 export function Glyph({ kind }: { kind: RequestCard["kind"] }) {
   if (kind === "stopped") {
-    // The same square as the stop button: a stop isn't a warning, which the
-    // amber triangle implied.
+    // The same square as the stop button: a stop isn't a warning.
     return (
       <span
         aria-hidden="true"

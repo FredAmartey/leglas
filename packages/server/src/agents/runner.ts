@@ -50,9 +50,9 @@ export const IDLE_RELEASE_MS = 5 * 60_000;
  * honours SIGTERM is gone in under a second, and a spawned agent's whole
  * process group gets the signal. This bounds the run that doesn't end: a CLI
  * that traps the signal, a transport turn that ignores its interrupt, or a
- * stray process holding the output pipe so "close" never comes. That used to
- * wedge the runner for good. Escalation only follows a stop, the user's or the
- * silence ceiling's.
+ * stray process holding the output pipe so "close" never comes. Without it such
+ * a run wedges the runner for good. Escalation only follows a stop, the user's
+ * or the silence ceiling's.
  */
 const CANCEL_GRACE_MS = 5000;
 
@@ -492,7 +492,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
     // Cancellation must exist before an embedded transport starts. Warming,
     // thread creation and turn start all await vendor work before there's a
-    // child to signal, which made Stop a no-op here.
+    // child to signal, so without this Stop would be a no-op.
     active = current;
     activeAgent = resolved.agent;
 
@@ -526,8 +526,8 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         // A compliant transport rejects only after its startup cleanup ends.
         // The grace path tears down the process of one that ignores its abort,
         // so the queue never advances while a late process can still appear.
-        // Released, not closed: closing it left every later run on the cold CLI
-        // path.
+        // Released, not closed: closing it would leave every later run on the
+        // cold CLI path.
         current.abandon = () => {
           void persistent
             .release()
@@ -632,7 +632,7 @@ export function startRunner(options: RunnerOptions): RunningAgent {
         if (activity !== null) {
           if (activity.startsWith("editing")) observed.edited = true;
 
-          // Any other output ends the wait.
+          // Any new activity ends the wait.
           if (active === current) {
             setState((value) => ({ ...value, activity, waiting: null }));
           }
@@ -815,9 +815,9 @@ export function startRunner(options: RunnerOptions): RunningAgent {
 
       if (outcome.ok && outcome.code === 0) {
         // An exit 0 that registered nothing didn't finish its last step.
-        // Counting it as success made three runs vanish: request removed, card
-        // gone, rail unchanged. The conversation ignored its final instruction,
-        // so it isn't resumed either.
+        // Counted as success, the request would be removed and the card gone
+        // with the rail unchanged. The conversation ignored its final
+        // instruction, so it isn't resumed either.
         if (request.mode === "variant" && (await registered()) === before) {
           sessions.delete(resolved.agent);
           await reportFailure(request, classifyFailure({ agent, error: "not-registered" }), lines);

@@ -178,8 +178,8 @@ async function write(cwd: string, annotations: readonly Annotation[]): Promise<v
  * The tail of every change to the notes file, so they run one at a time. Each
  * reads the whole list, changes an entry and writes it back around awaits, so
  * two overlapping lose one edit. The two writers are a person typing and a run
- * finishing. One process covers it: Leglas serves the interface and hosts the
- * runner.
+ * finishing, both in this process. Two Leglas processes on one project still
+ * race, as the queue does.
  */
 let writing: Promise<unknown> = Promise.resolve();
 

@@ -51,8 +51,8 @@ export function ToolsPopover({
       aria-hidden={!open}
       aria-label="Leglas tools"
       className={`w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-        // Out of the layout while dragging; hidden, it still took its box and
-        // pushed the button off the pointer.
+        // `hidden` while dragging: closed, the panel is only transparent and
+        // still holds its box, which pushed the button off the pointer.
         parked ? "hidden " : ""
       }${
         open

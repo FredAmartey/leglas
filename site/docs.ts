@@ -23,9 +23,9 @@ export type DocPage = {
 /**
  * The manual, in site order. Named rather than read from the folder, because
  * `docs/lessons.md` and `docs/plans/` are local notes beside it, and serving
- * them broke this suite in every maintainer's checkout. A name here with no
- * file stops the build; `test/docs.test.ts` checks, against git, that no
- * committed page is missing.
+ * them would fail this suite in any maintainer's checkout while CI, with only
+ * committed files, passes. A name here with no file stops the build;
+ * `test/docs.test.ts` checks, against git, that no committed page is missing.
  */
 export const PAGES = [
   "guide",

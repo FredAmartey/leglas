@@ -152,9 +152,9 @@ export type Release = {
 };
 
 /**
- * Where an update has got to. The server owns this; the interface reads it
- * every second while anything is happening and reloads once the restarted
- * Leglas answers.
+ * Where an update has got to. The server owns this and nudges on every change;
+ * the interface also reads it every second while waiting for a restarted
+ * Leglas, and reloads once that answers.
  */
 export type UpdatePhase =
   | { status: "idle" }

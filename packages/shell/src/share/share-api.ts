@@ -63,9 +63,8 @@ async function shareWrite(path: string, body: JsonRecord, fallback: string): Pro
   return payload.share;
 }
 
-/** Let a path through that a listed share turned away. */
 /**
- * `subtree` is the folder button. It travels with the request, not on a
+ * Lets through a path a listed share turned away. `subtree` is the folder button. It travels with the request, not on a
  * trailing slash, since a refused directory index ends in one and Allow on it
  * must not become the folder.
  */

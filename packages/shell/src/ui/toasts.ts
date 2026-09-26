@@ -1,7 +1,7 @@
 /**
- * The shell's one voice for what an action did. Copy, rename and remove used to
- * be silent, and a vanished row reads as "did that work?". A toast names what
- * happened, and hands back the undo where there is one.
+ * The shell's one voice for what an action did, since a row that vanishes
+ * silently reads as "did that work?". A toast names what happened, and hands
+ * back the undo where there is one.
  *
  * Grouped by `kind`: repeated copies replace one line, while three removals
  * keep three undos, since each is a different offer.

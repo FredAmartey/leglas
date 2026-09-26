@@ -1,10 +1,10 @@
 import type { Preview } from "./types.js";
 
 /**
- * What the clipboard carries when a direction is copied. A bare preview URL was
- * useless: a localhost address for a teammate, an opaque string for an agent.
- * The block says what the direction is, where its source lives and how to get
- * the rest.
+ * What the clipboard carries when a direction is copied. A bare preview URL is
+ * useless to both readers: a localhost address for a teammate, an opaque string
+ * for an agent. The block says what the direction is, where its source lives
+ * and how to get the rest.
  *
  * The config title leads, since every command (`leglas add`, `leglas keep`,
  * `leglas explore --based-on`) takes it; a rail name differing from it is

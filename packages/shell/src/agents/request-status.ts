@@ -78,9 +78,8 @@ export function changingRequestTitles(requests: readonly RequestStatus[]): strin
 /**
  * Notes already inside an unfinished change. A request freezes its prompt when
  * sent, so rewording such a note afterwards is about the next change, and the
- * interface has to show that: a sent pin and an unread one looked alike. Failed
- * and cancelled requests are left out, since their notes are waiting to be sent
- * again.
+ * pin has to show that it was sent. Failed and cancelled requests are left out,
+ * since their notes are waiting to be sent again.
  */
 export function notesAwaitingChange(requests: readonly RequestStatus[]): Set<string> {
   return new Set(
@@ -107,9 +106,8 @@ export function workingRequestTitles(requests: readonly RequestStatus[]): Set<st
 export type AgentEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
- * What the composer chip says: who Enter sends to. It used to share a slot with
- * the run status, so a running request hid the chooser; now it depends only on
- * the choice.
+ * What the composer chip says: who Enter sends to. It depends only on the
+ * choice, never on the queue, so a running request can't hide the chooser.
  */
 export type ComposerAgent =
   { kind: "chosen"; id: string; name: string } | { kind: "choose" } | { kind: "none" };
@@ -216,9 +214,9 @@ export function cardHeadline(card: RequestCard): string {
 
 /**
  * The card's second line, against the card's clock where time matters. A quiet
- * run shows how long it's been quiet, since a stalled agent used to keep
- * reading "editing hero.tsx". A vendor retry outranks the silence as a better
- * explanation.
+ * run shows how long it's been quiet rather than its last step, which a stalled
+ * agent would otherwise keep showing. A vendor retry outranks the silence as a
+ * better explanation.
  */
 export function cardDetail(card: RequestCard, now: number | null = null): string | null {
   return card.kind === "running"

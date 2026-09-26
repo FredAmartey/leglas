@@ -540,8 +540,8 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
    * Stat-polls a file only when its native watcher failed or died. The case is
    * a filesystem where `fs.watch` never fires (network mounts, some container
    * bind mounts); without this those setups get no nudges and wait out the
-   * shell's 15s fallback, slower than the old polling. Every caller is an error
-   * handler; with a working `fs.watch`, nothing is polled.
+   * shell's 15s fallback. Every caller is an error handler; with a working
+   * `fs.watch`, nothing is polled.
    */
   const fallbackWatch = (target: WatchedTarget): void => {
     if (closed || fallback.has(target.path)) return;
@@ -590,8 +590,8 @@ function watchLiveFiles(cwd: string, configPath: string | null, live: LiveHub): 
       }
 
       // Look again shortly. Until then only the parent watcher would notice
-      // `.leglas` being created, and one missed event there left the state
-      // directory unwatched for the session with no sign why. Short in
+      // `.leglas` being created, and one missed event there would leave the
+      // state directory unwatched for the session with no sign why. Short in
       // practice: the server writes its rendezvous file into `.leglas` on
       // listen.
       retryLeglas();
@@ -2289,10 +2289,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
-    // Dismissing a failed request. The runner won't touch it again, so removal
-    // only syncs the file, but it's limited to failed ids so a live request
-    // can't be swept.
-    //
     // The notes on a preview and the two ways they change. Read every poll like
     // the queue, since a note can be left in one pane while another is open.
     if (path === `${LEGLAS_PREFIX}/api/annotations` && req.method === "GET") {
@@ -2414,6 +2410,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
     }
 
+    // Dismissing an ended request. The runner won't touch it again, so removal
+    // only syncs the file, but it's limited to ended ids so a live request
+    // can't be swept.
     if (path === `${LEGLAS_PREFIX}/api/requests/dismiss` && req.method === "POST") {
       if (!hasJsonBody(req)) {
         return sendJson(res, 400, { ok: false, error: "Dismiss must be JSON." });

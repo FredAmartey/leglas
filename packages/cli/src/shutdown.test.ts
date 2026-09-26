@@ -20,8 +20,8 @@ function target() {
 
 describe("installShutdown", () => {
   test("handles every signal a terminal routinely sends, SIGHUP included", () => {
-    // SIGHUP (closing the terminal) had no handler, so Node exited without the
-    // shutdown and orphaned the capture browser.
+    // SIGHUP is what closing the terminal sends. Unhandled, Node exits without
+    // the shutdown and orphans the capture browser.
     const listening = target();
     installShutdown(async () => {}, listening);
 

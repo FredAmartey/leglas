@@ -44,7 +44,7 @@ function declarations(path: string): string {
 /**
  * Blanks out everything but code, keeping each character's position. Depth
  * counting must skip comments and strings: `tsc` copies JSDoc verbatim, and one
- * unmatched bracket in prose used to swallow a declaration without any error.
+ * unmatched bracket in prose would swallow a declaration without any error.
  */
 function maskNonCode(source: string): string {
   const masked = source.split("");

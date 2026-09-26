@@ -1452,7 +1452,7 @@ describe("startServer", () => {
 
   test("a verdict inherited from an earlier process is still actionable", async () => {
     // Nothing ran here: the queue arrived with a request an earlier process
-    // failed. Before verdicts were saved this read as picked-up forever.
+    // failed, which must not read as picked-up.
     const cwd = mkdtempSync(join(tmpdir(), "leglas-inherited-"));
     mkdirSync(join(cwd, ".leglas"), { recursive: true });
     writeFileSync(
@@ -2827,8 +2827,8 @@ describe("startServer", () => {
 
     // The first probe sets the baseline and emits nothing; probes never
     // overlap, so a second one means the first's verdict is recorded. A fixed
-    // wait lost the flip when a loaded machine held the first probe until the
-    // target closed.
+    // wait would lose the flip when a loaded machine holds the first probe
+    // until the target has closed.
     await eventually(() => probes >= 2);
     expect(live.changes).toEqual([]);
 
@@ -3674,8 +3674,8 @@ describe("mutation trust", () => {
   test("an origin-less request is trusted only from the machine itself", () => {
     expect(isTrustedMutation(request({ host: "localhost:4100" }, "127.0.0.1"))).toBe(true);
     expect(isTrustedMutation(request({ host: "localhost:4100" }, "::ffff:127.0.0.1"))).toBe(true);
-    // A curl from across the LAN sends no Origin; before the runner existed the
-    // worst it could do was queue text.
+    // A curl from across the LAN sends no Origin, and the API now decides what
+    // runs on this machine.
     expect(isTrustedMutation(request({ host: "192.168.1.20:4100" }, "192.168.1.44"))).toBe(false);
     expect(isTrustedMutation(request({ host: "desk.local:4100" }, "192.168.1.44"))).toBe(false);
   });

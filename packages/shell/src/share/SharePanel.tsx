@@ -255,7 +255,6 @@ function ShareSetup({
   );
 }
 
-/** During a share: the link, whether it answers, who is looking, update or stop. */
 /**
  * One link as a row: its name and who's on it, then the address and its
  * actions. Actions appear under the pointer, since a share can hold sixteen
@@ -400,6 +399,7 @@ function NewLink({ busy, onCreate }: { busy: Busy; onCreate: (name: string) => v
   );
 }
 
+/** During a share: the link, whether it answers, who is looking, update or stop. */
 function ShareLive({
   busy,
   changed,
@@ -890,7 +890,6 @@ export function SharePanel({
       .finally(() => setBusy(null));
   };
 
-  /** A failed tunnel is tried again with what was shared, not with the rail now. */
   /**
    * One shape for the four link writes: mark busy, take the share the server
    * returns and say what happened. The server nudges too; this just makes it
@@ -907,6 +906,7 @@ export function SharePanel({
       .finally(() => setBusy(null));
   };
 
+  /** A failed tunnel is tried again with what was shared, not with the rail now. */
   const retry = () => {
     if (busy !== null || share === null) return;
 

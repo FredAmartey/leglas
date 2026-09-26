@@ -654,12 +654,10 @@ export function SkeletonOverlay({ loaded }: { loaded: boolean }) {
   );
 }
 
-/** Shown when a preview never loads: a quiet title, the reason, one affordance. */
 /**
  * Where a branch's design will be until its checkout runs. A branch preview is
- * a full checkout, install and server; that used to happen before the interface
- * appeared, for every branch, opened or not. Now it happens on open, and this
- * covers the seconds between.
+ * a full checkout, install and server, done when it's opened rather than for
+ * every branch at startup; this covers the seconds between.
  */
 export function BranchOverlay({
   branch,
@@ -701,6 +699,7 @@ export function BranchOverlay({
   );
 }
 
+/** Shown when a preview never loads: a quiet title, the reason, one affordance. */
 export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reason: string }) {
   return (
     <div

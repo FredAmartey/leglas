@@ -791,9 +791,9 @@ export async function launchBrowser(
       const timer = setTimeout(() => {
         pending.delete(id);
         // A browser silent this long is wedged, not slow. Rejecting only this
-        // command left the socket trusted, so every queued capture paid its own
-        // full timeout on the same dead browser. Closing the socket makes the
-        // next acquire replace it.
+        // command would leave the socket trusted, so every queued capture would
+        // pay its own full timeout on the same dead browser. Closing the socket
+        // makes the next acquire replace it.
         socketClosed = true;
         rejectPending();
 
@@ -951,7 +951,7 @@ export function createBrowserPool(
   let exposed: Browser | null = null;
   /**
    * Captures in flight, so the idle timer can't close the browser under queued
-   * work. Counting only the last completion closed it mid-queue.
+   * work, which counting only the last completion would.
    */
   let working = 0;
   let launching: Promise<Browser | null> | null = null;

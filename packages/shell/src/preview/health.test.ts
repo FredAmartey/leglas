@@ -25,8 +25,8 @@ describe("nextHealthState", () => {
   });
 
   test("hands back the same state when nothing changed, so a poll is not a render", () => {
-    // The health poll folds its answer in every three seconds; a fresh object
-    // for the same answer re-rendered the whole interface.
+    // Every health read folds its answer in; a fresh object for the same answer
+    // re-rendered the whole interface.
     expect(nextHealthState(up, true)).toBe(up);
     expect(nextHealthState(down, false)).toBe(down);
   });

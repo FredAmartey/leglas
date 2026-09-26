@@ -334,7 +334,7 @@ describe("paintSample", () => {
 describe("signature size", () => {
   test("the signature is a digest, not the sample it was read from", () => {
     // A visual sample is hundreds of elements at a couple of kilobytes each,
-    // and one used to be kept per direction for the page's life.
+    // too much to keep one per direction for the page's life.
     const visual = Array.from(
       { length: 720 },
       (_, index) => `DIV{rect:${index},${index * 2},1280,64;${"display:block;".repeat(120)}}`,

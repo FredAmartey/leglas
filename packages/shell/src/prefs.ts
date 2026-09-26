@@ -39,10 +39,10 @@ export type Prefs = {
    */
   showDevOverlays: boolean;
   /**
-   * Draw each side of a split at the stage's solo width and scale it down,
-   * rather than giving it half the room to reflow. At half width a layout
-   * crosses its breakpoints and the comparison becomes two narrow renderings.
-   * Off is for inspecting that narrow state on purpose.
+   * On by default: each side of a split is drawn at the stage's solo width and
+   * scaled down, rather than given half the room to reflow. At half width a
+   * layout crosses its breakpoints and the comparison becomes two narrow
+   * renderings. Off is for inspecting that narrow state on purpose.
    */
   scaleSplit: boolean;
   /**

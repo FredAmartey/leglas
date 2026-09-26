@@ -1635,8 +1635,8 @@ export function Shell({
     };
   }, [requestsTick, viewing]);
   // Two readings of one snapshot: the chip says who Enter sends to, the card
-  // what's happening now. They used to share one footer slot, so a running
-  // request hid the chooser.
+  // what's happening now. Separate, so a running request never hides the
+  // chooser.
   const chip = composerAgent(agentState.choice, agentState.agents, agentState.customRun);
 
   // Who builds a set: the chosen agent, when it is one Leglas can build with.
@@ -1682,14 +1682,14 @@ export function Shell({
       ? agentState.effort
       : null;
 
+  /** The notes waiting on the direction the composer is aimed at. */
+  const activeNotes = st.active === null ? [] : notes.filter((note) => note.title === st.active);
+
   /**
    * Where the direction being changed came from, said unasked. The rail shows
    * this on hover for browsing, but for the direction in the composer's sights
    * its origin and last ask decide what's typed next.
    */
-  /** The notes waiting on the direction the composer is aimed at. */
-  const activeNotes = st.active === null ? [] : notes.filter((note) => note.title === st.active);
-
   const activeOrigin = (() => {
     const origin = provenanceOf(st.active === null ? undefined : st.previewFor(st.active));
 
@@ -1865,8 +1865,7 @@ export function Shell({
         });
 
     // The server probes the dev server once for every interface and says so
-    // only when the answer changes. A restart is still noticed on the same
-    // beat.
+    // only when the answer changes. A restart is noticed on the next beat.
     const stop = startPoll(poll, {
       everyMs: FALLBACK_MS,
       subscribe: (run) => liveConnection().on("health", run),
@@ -2157,11 +2156,11 @@ export function Shell({
   }, []);
 
   /**
-   * The duplicate check without waiting for clicks. Signatures used to come
-   * only from opened panes, so "Same as" showed up one click at a time, after
-   * the judgment it protects. One hidden off-stage frame walks every
-   * same-origin preview in turn at a fixed size, records its signature and
-   * unmounts: one extra app instance at a time, independent of the stage size.
+   * The duplicate check without waiting for clicks, so "Same as" shows before
+   * the judgment it protects, not one click at a time after it. One hidden
+   * off-stage frame walks every same-origin preview in turn at a fixed size,
+   * records its signature and unmounts: one extra app instance at a time,
+   * independent of the stage size.
    *
    * Parked off-viewport, not display:none, since a hidden document lays out
    * nothing. Proxied previews queue only while the dev server answers; previews
@@ -2183,7 +2182,7 @@ export function Shell({
   // A result recorded before an edit must not reappear when the queue settles,
   // so the directions being edited are cleared once per live-work transition
   // and hidden in the render that first reports the work. Only those: a run
-  // naming no direction, which can show for a beat between requests, used to
+  // naming no direction, which can show for a beat between requests, must not
   // clear every verdict.
   useEffect(() => {
     if (changingTitles.length === 0) return;
@@ -2307,9 +2306,8 @@ export function Shell({
       if (viewing || st.renaming || st.query.trim() || st.rows.length < 2) return;
 
       // Buttons keep their clicks and selectable elements their selection. The
-      // note used to be selectable, which took the bottom half of every row out
-      // of the drag gesture; now the press's direction decides the gesture, not
-      // where it started.
+      // note isn't selectable, so the whole row takes the drag gesture; the
+      // press's direction decides the gesture, not where it started.
       if (event.target instanceof Element && event.target.closest("button, [data-selectable]"))
         return;
       const list = listRef.current;

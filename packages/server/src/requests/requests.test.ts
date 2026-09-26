@@ -579,8 +579,8 @@ describe("terminal requests", () => {
       }),
     ).toBe(true);
 
-    // Read back by a process that never saw the run; the interface used to say
-    // "your agent is on it" about this forever.
+    // Read back by a process that never saw the run, which must not read as
+    // "your agent is on it".
     const [stored] = await readRequests(root);
     expect(stored?.status).toBe("failed");
     expect(stored?.failure?.code).toBe("provider-overloaded");

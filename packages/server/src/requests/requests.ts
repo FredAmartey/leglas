@@ -376,10 +376,10 @@ export const REQUESTS_PATH = ".leglas/requests.json";
 
 /**
  * Where a request has got to. `queued` and `picked-up` are live, and removal is
- * the only completion signal. The terminal states exist because a run that
- * ended badly used to be tracked only in memory: after a restart it read as
- * `picked-up`, and the interface said "your agent is on it" for days with no
- * way to dismiss it.
+ * the only completion signal. The terminal states are saved so a run that ended
+ * badly survives a restart; kept in memory only, it would read as `picked-up`,
+ * with the interface saying "your agent is on it" for days and no way to
+ * dismiss it.
  */
 export type RequestStatus = "queued" | "picked-up" | "failed" | "cancelled";
 

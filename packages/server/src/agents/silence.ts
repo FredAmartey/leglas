@@ -1,8 +1,8 @@
 /**
  * How long an agent may be silent before Leglas says so, and before it gives
- * up. A CLI stuck on a prompt nothing here can answer (trust, approval) used to
- * hold its run and the queue until someone pressed Stop. But a model thinking
- * hard is silent too.
+ * up. Without a limit, a CLI stuck on a prompt nothing here can answer (trust,
+ * approval) holds its run and the queue until someone presses Stop. But a model
+ * thinking hard is silent too.
  *
  * Measured on 2026-09-22 as gaps between events within one turn: Claude Code on
  * the benchmark tasks went quiet 221 times, longest 2 minutes. Codex exec,

@@ -137,9 +137,8 @@ export function createProxyHandler(options: ProxyOptions): ProxyHandler {
         );
       });
 
-      // The browser abandons requests all the time. Each used to run to
-      // completion upstream with its socket out of the pool; let go when the
-      // browser does.
+      // The browser abandons requests all the time. Let go when it does, or
+      // each runs to completion upstream with its socket out of the pool.
       res.on("close", () => {
         if (!res.writableFinished) upstream.destroy();
       });

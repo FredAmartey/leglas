@@ -62,7 +62,7 @@ function forUrl(host: string): string {
 /**
  * The loopback address answering on this port, or null. Can't be assumed:
  * `localhost` is `::1` first on current macOS and Node, and Vite listens on
- * IPv6 alone, so probing only `127.0.0.1` waited out the deadline and blamed
+ * IPv6 alone, so probing only `127.0.0.1` would wait out the deadline and blame
  * the dev command. The URL is built from the answer too, or the interface gets
  * an address nothing listens on.
  */

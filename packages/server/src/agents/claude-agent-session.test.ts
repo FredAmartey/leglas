@@ -137,7 +137,7 @@ async function nextInput(warm: FakeWarmQuery): Promise<Message> {
 describe("Claude Agent SDK transport", () => {
   test("a release outlasts a warm started while an earlier release was settling", async () => {
     // warm() doesn't wait for a reset in flight, so one started between two
-    // releases used to land a process after the second returned. The last call
+    // releases could land a process after the second returned. The last call
     // wins.
     const sdk = harness();
     const session = createClaudeAgentSession("/project", [], sdk.startup);

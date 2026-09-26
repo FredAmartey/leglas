@@ -1,14 +1,14 @@
 /**
- * The server telling the interface that something changed. Three timer loops
- * used to ask: an idle tab made 100 requests a minute and moved 108KB, nearly
- * all answered "no", and a newly registered direction waited up to three
- * seconds to show.
+ * The server telling the interface that something changed, so loops needn't ask
+ * on a timer: three of them made an idle tab send 100 requests a minute (108KB,
+ * nearly all answered "no") and left a newly registered direction up to three
+ * seconds from showing.
  *
- * Now the server says when and the shell keeps its reads: each frame names a
- * kind and nothing else. Pushing state instead would put a second copy on the
- * wire to keep in agreement. Each loop keeps a slow fallback interval, because
- * a dead socket would otherwise leave a rail that looks right and silently
- * stops updating. Websockets don't count against the browser's six HTTP/1.1
+ * The server says when and the shell keeps its reads: each frame names a kind
+ * and nothing else. Pushing state instead would put a second copy on the wire
+ * to keep in agreement. Each loop keeps a slow fallback interval, because a
+ * dead socket would otherwise leave a rail that looks right and silently stops
+ * updating. Websockets don't count against the browser's six HTTP/1.1
  * connections per origin, which the API and every preview iframe share.
  */
 

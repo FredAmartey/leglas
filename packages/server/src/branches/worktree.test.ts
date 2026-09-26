@@ -164,10 +164,10 @@ describe("startWorktree", () => {
 
 describe("startAppProcess", () => {
   /**
-   * The fixture above serves `127.0.0.1` to match the probe, so neither matched
+   * The fixture above serves `127.0.0.1` to match the probe, so neither matches
    * a real dev server. Vite binds `localhost`, which resolves to `::1` first on
-   * current macOS and Node, and every branch preview waited out ninety seconds
-   * against a live server.
+   * current macOS and Node; a probe of `127.0.0.1` alone would wait out ninety
+   * seconds against a live server.
    */
   test("finds a dev server listening on IPv6 only, and reports a URL that reaches it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-v6-"));

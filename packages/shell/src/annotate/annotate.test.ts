@@ -100,8 +100,8 @@ describe("placeCard", () => {
     });
   });
 
-  // Flipping above at the bottom edge would park the card on the thing it's
-  // asking about.
+  // Flipping above the element's bottom edge would park the card on the thing
+  // it's asking about.
   test("flips clear of the element rather than onto it", () => {
     const low = { height: 40, width: 300, x: 400, y: 860 };
     const placed = placeCard({ anchor: low, bounds, card });
