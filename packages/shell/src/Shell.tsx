@@ -54,6 +54,7 @@ import {
 import { PALETTE, Trail } from "./lineage/Trail.js";
 import { TOAST_TTL } from "./ui/toasts.js";
 import { useShellState } from "./useShellState.js";
+import { readLink } from "./link.js";
 import { provenanceLine, provenanceOf } from "./lineage/provenance.js";
 import { AnnotateLayer } from "./annotate/AnnotateLayer.js";
 import { ReferenceStrip } from "./references/ReferenceStrip.js";
@@ -228,6 +229,10 @@ export function Shell({
   const onToggleTools = useCallback(() => setWidgetOpen((open) => !open), []);
   const onToggleNote = useCallback(() => setAnnotating((on) => !on), []);
 
+  const [link] = useState(() =>
+    typeof window === "undefined" ? null : readLink(window.location.search),
+  );
+
   const st = useShellState({
     previews,
     project,
@@ -241,6 +246,7 @@ export function Shell({
     // behind it. ? still closes it.
     suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
     viewer: viewer === undefined ? undefined : { layout: viewer.layout },
+    link,
   });
 
   /**
@@ -1271,8 +1277,11 @@ export function Shell({
   // Flipping shows a difference over time; a split shows it at once, for the
   // last two contenders. A comparison share opens as the comparison: the
   // sharer's pair side by side.
-  const [split, setSplit] = useState(viewer?.scope === "compare");
-  const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
+  const [split, setSplit] = useState(viewer?.scope === "compare" || st.linkedCompare !== null);
+
+  const [comparePin, setComparePin] = useState<string | null>(
+    viewer?.layout.compare ?? st.linkedCompare,
+  );
 
   // A pushed share moves the stage with it, settled during render so the old
   // pair never shows.

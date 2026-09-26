@@ -333,6 +333,97 @@ describe("the rail and the stage", () => {
   });
 });
 
+describe("a link into the interface", () => {
+  const opening = (address: string) => window.history.replaceState(null, "", address);
+
+  /** The directions on stage, left to right. */
+  const onStage = () =>
+    [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")]
+      .flatMap((frame) =>
+        frame.closest(".hidden") === null
+          ? [
+              {
+                title: frame.dataset.preview,
+                order: frame.closest<HTMLElement>('[style*="order"]')?.style.order ?? "",
+              },
+            ]
+          : [],
+      )
+      .toSorted((left, right) => left.order.localeCompare(right.order))
+      .map((pane) => pane.title);
+
+  afterEach(() => opening("/"));
+
+  test("opens on the direction it names, and leaves the address bar as it found it", async () => {
+    opening("/leglas?direction=Menu&theirs=1");
+    await mount({});
+
+    expect(row("Menu").getAttribute("aria-pressed")).toBe("true");
+    expect(onStage()).toEqual(["Menu"]);
+    expect(window.location.search).toBe("?theirs=1");
+  });
+
+  test("naming two puts them side by side, the second on the right", async () => {
+    opening("/leglas?direction=Olive&compare=Menu");
+    await mount({});
+
+    expect(onStage()).toEqual(["Olive", "Menu"]);
+  });
+
+  test("brings back a direction taken off the list or folded into its family", async () => {
+    localStorage.setItem(
+      "leglas:a-project",
+      JSON.stringify({ hidden: ["Menu"], collapsedFamilies: ["Counter"] }),
+    );
+    opening("/leglas?direction=Olive&compare=Menu");
+    await mount({});
+
+    const rows = [...document.querySelectorAll("li[data-title]")].map((li) =>
+      li.getAttribute("data-title"),
+    );
+
+    expect(rows).toContain("Olive");
+    expect(rows).toContain("Menu");
+    expect(row("Olive").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("a compare with no direction opens nothing and leaves the address bar", async () => {
+    opening("/leglas?compare=Menu");
+    await mount({});
+
+    expect(onStage()).toEqual(["Table"]);
+    expect(window.location.search).toBe("");
+  });
+
+  test("naming a direction this rail doesn't have changes nothing and says so", async () => {
+    opening("/leglas?direction=Aurora");
+    await mount({});
+
+    expect(row("Table").getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain("Aurora");
+  });
+
+  test("when only the second direction is here, it goes on the stage alone", async () => {
+    opening("/leglas?direction=Aurora&compare=Menu");
+    await mount({});
+
+    expect(onStage()).toEqual(["Menu"]);
+    expect(document.body.textContent).toContain("Aurora");
+  });
+
+  test("is not followed on somebody else's rail", async () => {
+    opening("/leglas?direction=Menu");
+    await mount({
+      viewer: {
+        scope: "rail",
+        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
+      },
+    });
+
+    expect(row("Table").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 describe("the keys", () => {
   test("T opens the tools, and a typeface chosen there is the one the shell wears", async () => {
     await mount({});

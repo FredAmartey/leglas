@@ -61,5 +61,8 @@ If it does not:
 - `npx leglas show "<title>" --screenshot` renders a direction with a
   headless browser and writes the PNG. Read it after registering each
   direction and fix anything visibly broken before saying it is done.
+- `npx leglas link "<title>"` prints a link that opens the interface on a
+  direction; name two to put them side by side. Hand it to the user when a
+  direction they asked for is ready.
 - For agent hosts that cannot run shell commands, the `leglas-mcp`
   server exposes the same operations as MCP tools over stdio.

@@ -118,6 +118,12 @@ const FACES = {
       "--json": ENVELOPE,
     },
   },
+  link: {
+    argv: ["link"],
+    tool: { name: "link" },
+    positional: ["titles"],
+    flags: { "--port": RECORD, "--json": ENVELOPE },
+  },
   requests: {
     argv: ["requests"],
     tool: { name: "requests" },

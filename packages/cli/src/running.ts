@@ -1,8 +1,8 @@
 import { realpath } from "node:fs/promises";
 
-import { DEFAULT_PORT, readServerInfo } from "@leglas/server";
+import { DEFAULT_PORT, LEGLAS_PREFIX, readServerInfo } from "@leglas/server";
 
-import { isJsonObject, isString, type JsonValue } from "./json.js";
+import { bodyOf, isJsonObject, isString, type JsonValue } from "./json.js";
 
 export const NOT_RUNNING = "Leglas is not running here. Start it with npx leglas, then try again.";
 
@@ -61,4 +61,67 @@ export async function findLeglas(
   } catch {
     return { ok: false, error: NOT_RUNNING };
   }
+}
+
+/**
+ * The interface on one direction, or two side by side; none opens the rail.
+ * On localhost, like the address Leglas opens, because the rail keeps its
+ * layout per origin.
+ */
+export function interfaceUrl(port: number, titles: readonly string[]): string {
+  const url = new URL(`http://localhost:${port}${LEGLAS_PREFIX}`);
+  const [direction, compare] = titles;
+
+  if (direction !== undefined) url.searchParams.set("direction", direction);
+
+  if (compare !== undefined) url.searchParams.set("compare", compare);
+
+  return url.href;
+}
+
+/**
+ * The titles on the rail a running Leglas serves, as its interface reads them.
+ * They can differ from the files: a branch or file direction registered while
+ * it runs joins only after a restart.
+ */
+export async function railTitles(
+  port: number,
+  request: typeof fetch,
+): Promise<ReadonlySet<string> | null> {
+  try {
+    const response = await request(`http://127.0.0.1:${port}${LEGLAS_PREFIX}/api/config`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+
+    if (!response.ok) return null;
+    const payload = await bodyOf(response);
+
+    if (!isJsonObject(payload) || !Array.isArray(payload.previews)) return null;
+
+    return new Set(
+      payload.previews.flatMap((preview) =>
+        isJsonObject(preview) && isString(preview.title) ? [preview.title] : [],
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export type Rail = { port: number; titles: ReadonlySet<string> };
+
+/**
+ * This project's running rail, known only from the record its server writes:
+ * without one there is no link to give, and nothing is asked.
+ */
+export async function recordedRail(cwd: string, request: typeof fetch): Promise<Rail | null> {
+  const record = await readServerInfo(cwd);
+
+  if (record === null) return null;
+  const found = await findLeglas(cwd, record.port, request);
+
+  if (!found.ok) return null;
+  const titles = await railTitles(found.port, request);
+
+  return titles === null ? null : { port: found.port, titles };
 }

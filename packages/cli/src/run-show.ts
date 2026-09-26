@@ -1,7 +1,7 @@
 import { loadConfig, readLocalPreviews, readRenames, readRequests } from "@leglas/server";
 
 import { resolveOrExplain } from "./resolve-title.js";
-import { findLeglas, NOT_RUNNING } from "./running.js";
+import { findLeglas, interfaceUrl, NOT_RUNNING, railTitles, recordedRail } from "./running.js";
 import { planShow } from "./show.js";
 
 export type ShowDeps = {
@@ -123,7 +123,7 @@ export async function runShow(
 
   type ShowEnvelope = {
     ok: true;
-    direction: typeof plan.direction;
+    direction: typeof plan.direction & { interfaceUrl: string | null };
     variants: typeof plan.variants;
     comparedWith: typeof plan.comparedWith;
     requests: typeof plan.requests;
@@ -132,11 +132,14 @@ export async function runShow(
 
   const envelope: ShowEnvelope = {
     ok: true,
-    direction: plan.direction,
+    direction: { ...plan.direction, interfaceUrl: null },
     variants: plan.variants,
     comparedWith: plan.comparedWith,
     requests: plan.requests,
   };
+
+  const request = deps.fetch ?? fetch;
+  let running: number | null = null;
 
   if (options.screenshot) {
     const fail = (error: string) => {
@@ -146,11 +149,11 @@ export async function runShow(
       return { exitCode: 1 };
     };
 
-    const request = deps.fetch ?? fetch;
     const found = await findLeglas(options.cwd, options.port, request);
 
     if (!found.ok) return fail(found.error);
     const port = found.port;
+    running = port;
 
     let response: Response;
 
@@ -194,13 +197,22 @@ export async function runShow(
     };
   }
 
+  const rail =
+    running === null
+      ? await recordedRail(options.cwd, request)
+      : { port: running, titles: (await railTitles(running, request)) ?? new Set<string>() };
+
+  if (rail !== null && rail.titles.has(plan.direction.title)) {
+    envelope.direction.interfaceUrl = interfaceUrl(rail.port, [plan.direction.title]);
+  }
+
   if (options.json) {
     deps.log(JSON.stringify(envelope));
 
     return { exitCode: 0 };
   }
 
-  const { direction } = plan;
+  const { direction } = envelope;
   deps.log(`  ${direction.title}${direction.local ? "  (local)" : ""}`);
 
   if (direction.note !== null) deps.log(`  ${direction.note}`);
@@ -210,6 +222,8 @@ export async function runShow(
 
   if (direction.branch !== null) deps.log(`  branch      ${direction.branch}`);
   deps.log(`  url         ${direction.url}`);
+
+  if (direction.interfaceUrl !== null) deps.log(`  open        ${direction.interfaceUrl}`);
 
   if (direction.tags.length > 0) deps.log(`  tags        ${direction.tags.join(", ")}`);
 

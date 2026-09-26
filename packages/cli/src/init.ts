@@ -120,6 +120,10 @@ Useful to know:
 - Titles identify previews and must be unique. The user may rename one in the
   rail, which renames it on their machine only; the commands answer to either
   name, so use whichever they said.
+- \`npx leglas link "<title>"\` prints a link that opens the interface on that
+  direction, and \`npx leglas link "<new>" "<old>"\` one that puts two side by
+  side. Give it to the user when you finish a direction they asked for, rather
+  than telling them where to click.
 - \`npx leglas list\` shows every direction, shared and local.
 - \`npx leglas show "<title>" --json\` answers for one of them: the file behind it,
   the variants based on it, what it is being compared against and anything

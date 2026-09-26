@@ -9,6 +9,7 @@ import { runExplore } from "./run-explore.js";
 import { runExploreBuild } from "./run-explore-build.js";
 import { runInit } from "./run-init.js";
 import { runKeep } from "./run-keep.js";
+import { runLink } from "./run-link.js";
 import { runNew } from "./run-new.js";
 import { runLog } from "./run-log.js";
 import { runAdd, runList, runRequests } from "./run-previews.js";
@@ -187,6 +188,15 @@ if (parsed.kind === "share") {
       json: parsed.json,
       cwd: process.cwd(),
     },
+    previewDeps,
+  );
+
+  process.exit(outcome.exitCode);
+}
+
+if (parsed.kind === "link") {
+  const outcome = await runLink(
+    { titles: parsed.titles, port: parsed.port, json: parsed.json, cwd: process.cwd() },
     previewDeps,
   );
 
