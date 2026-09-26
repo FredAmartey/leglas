@@ -1,7 +1,7 @@
 import { loadConfig, readLocalPreviews, readRenames, readRequests } from "@leglas/server";
 
 import { resolveOrExplain } from "./resolve-title.js";
-import { findLeglas, interfaceUrl, NOT_RUNNING, recordedPort } from "./running.js";
+import { findLeglas, interfaceUrl, NOT_RUNNING, railTitles, recordedRail } from "./running.js";
 import { planShow } from "./show.js";
 
 export type ShowDeps = {
@@ -197,10 +197,13 @@ export async function runShow(
     };
   }
 
-  running ??= await recordedPort(options.cwd, request);
+  const rail =
+    running === null
+      ? await recordedRail(options.cwd, request)
+      : { port: running, titles: (await railTitles(running, request)) ?? new Set<string>() };
 
-  if (running !== null) {
-    envelope.direction.interfaceUrl = interfaceUrl(running, [plan.direction.title]);
+  if (rail !== null && rail.titles.has(plan.direction.title)) {
+    envelope.direction.interfaceUrl = interfaceUrl(rail.port, [plan.direction.title]);
   }
 
   if (options.json) {

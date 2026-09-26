@@ -9,6 +9,7 @@ import { readLink } from "../../shell/src/link.js";
 import { runLink } from "./run-link.js";
 import { runAdd } from "./run-previews.js";
 import { NOT_RUNNING } from "./running.js";
+import { leglasServing } from "./test-helpers.js";
 
 async function project(): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-link-"));
@@ -45,10 +46,7 @@ async function link(cwd: string, titles: string[], fetch: typeof globalThis.fetc
   return { outcome, envelope: JSON.parse(lines[0] ?? "{}") };
 }
 
-const serving = (cwd: string) =>
-  vi
-    .fn<typeof globalThis.fetch>()
-    .mockImplementation(async () => new Response(JSON.stringify({ cwd }), { status: 200 }));
+const serving = (cwd: string) => leglasServing(cwd, ["Aurora", "Ember"]);
 
 describe("runLink", () => {
   test("opens the pair side by side, taking the name the rail shows", async () => {
@@ -73,6 +71,14 @@ describe("runLink", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(envelope.error).toContain("Both names are Aurora");
+  });
+
+  test("refuses a direction the running rail doesn't show yet", async () => {
+    const cwd = await project();
+    const { outcome, envelope } = await link(cwd, ["Ember"], leglasServing(cwd, ["Aurora"]));
+
+    expect(outcome.exitCode).toBe(1);
+    expect(envelope.error).toContain("Ember isn't on the running rail yet");
   });
 
   test("says Leglas isn't running when nothing answers", async () => {

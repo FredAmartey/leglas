@@ -9,6 +9,7 @@ import { readLink } from "../../shell/src/link.js";
 
 import { runAdd } from "./run-previews.js";
 import { runShow } from "./run-show.js";
+import { leglasServing } from "./test-helpers.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-show-"));
@@ -69,28 +70,31 @@ describe("runShow", () => {
     expect(envelope(lines).direction).toMatchObject({ title: "Cool" });
   });
 
-  test("gives the address that opens the interface on the direction, while Leglas runs", async () => {
+  test("gives the address that opens the interface on a direction the running rail shows", async () => {
     const cwd = scratch();
     await add(cwd, "Cool", "/?v-hero=cool");
+    await add(cwd, "Warm", "/?v-hero=warm");
     await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
-    const { deps, lines } = collect();
+    const fetch = leglasServing(cwd, ["Cool"]);
 
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockImplementation(async () => new Response(JSON.stringify({ cwd }), { status: 200 }));
+    const shown = async (title: string) => {
+      const { deps, lines } = collect();
+      await runShow(
+        { title, json: true, screenshot: false, width: null, port: null, cwd },
+        { ...deps, fetch },
+      );
 
-    await runShow(
-      { title: "Cool", json: true, screenshot: false, width: null, port: null, cwd },
-      { ...deps, fetch },
-    );
+      return envelope(lines).direction?.interfaceUrl;
+    };
 
-    const address = envelope(lines).direction?.interfaceUrl;
+    const address = await shown("Cool");
 
     expect(address).toEqual(expect.any(String));
     const opens = new URL(address ?? "");
 
     expect(`${opens.origin}${opens.pathname}`).toBe("http://localhost:4321/leglas");
     expect(readLink(opens.search)).toEqual({ direction: "Cool", compare: null });
+    expect(await shown("Warm")).toBeNull();
   });
 
   test("a config title still wins over another direction's local nickname", async () => {
@@ -353,7 +357,9 @@ describe("whose server a screenshot comes from", () => {
 
     expect(outcome.exitCode).toBe(0);
     expect(envelope(lines).screenshot?.hydration).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toContain(
+      "http://127.0.0.1:4321/leglas/api/capture",
+    );
   });
 });
 

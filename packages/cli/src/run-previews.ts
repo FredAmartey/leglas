@@ -11,7 +11,7 @@ import {
 } from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
-import { interfaceUrl, recordedPort } from "./running.js";
+import { interfaceUrl, recordedRail } from "./running.js";
 
 import type { AddPreview } from "./args.js";
 
@@ -135,11 +135,12 @@ export async function runAdd(
   const needsDevCommand =
     options.preview.branch !== undefined && loaded.config?.devCommand === undefined;
 
-  // A branch or file preview reaches the rail only after a restart, so a link
-  // to it now would open on nothing.
-  const joinsLive = options.preview.branch === undefined && options.preview.file === undefined;
-  const port = joinsLive ? await recordedPort(options.cwd, deps.fetch ?? fetch) : null;
-  const opens = port === null ? null : interfaceUrl(port, [options.preview.title]);
+  const rail = await recordedRail(options.cwd, deps.fetch ?? fetch);
+
+  const opens =
+    rail !== null && rail.titles.has(options.preview.title)
+      ? interfaceUrl(rail.port, [options.preview.title])
+      : null;
 
   if (options.json) {
     const added: AddedPreview = { added: options.preview.title };
@@ -203,7 +204,7 @@ export async function runList(
   ];
 
   if (options.json) {
-    const port = await recordedPort(options.cwd, deps.fetch ?? fetch);
+    const rail = await recordedRail(options.cwd, deps.fetch ?? fetch);
 
     envelope(deps, errors.length === 0, {
       // The whole record: a preview's note, tags and base direction are what
@@ -218,7 +219,10 @@ export async function runList(
         local: preview.local,
         branch: preview.branch ?? null,
         file: preview.file ?? null,
-        interfaceUrl: port === null ? null : interfaceUrl(port, [preview.title]),
+        interfaceUrl:
+          rail !== null && rail.titles.has(preview.title)
+            ? interfaceUrl(rail.port, [preview.title])
+            : null,
       })),
       errors,
     });

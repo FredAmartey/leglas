@@ -6,6 +6,8 @@ import { describe, expect, test, vi } from "vitest";
 
 import { readLink } from "../../shell/src/link.js";
 
+import { leglasServing } from "./test-helpers.js";
+
 import type { AddPreview } from "./args.js";
 
 import { runAdd, runList, runRequests } from "./run-previews.js";
@@ -104,16 +106,10 @@ describe("runAdd with --json", () => {
 });
 
 describe("the address of the running interface", () => {
-  /** A Leglas on 4321 that says which project it serves. */
-  const serving = (cwd: string) =>
-    vi
-      .fn<typeof globalThis.fetch>()
-      .mockImplementation(async () => new Response(JSON.stringify({ cwd }), { status: 200 }));
-
   test("add and list give one that opens on the direction, for this project's Leglas", async () => {
     const cwd = scratch();
     await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
-    const fetch = serving(cwd);
+    const fetch = leglasServing(cwd, ["App", "Night sky"]);
 
     const added = collect();
     await runAdd(
@@ -156,31 +152,38 @@ describe("the address of the running interface", () => {
     const added = collect();
     await runAdd(
       { preview: preview({}), json: true, cwd },
-      { ...added.deps, fetch: serving(scratch()) },
+      { ...added.deps, fetch: leglasServing(scratch(), ["X"]) },
     );
 
     expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
   });
 
-  test.each([
-    { kind: "branch", over: { title: "On a branch", branch: "aurora" } },
-    { kind: "file", over: { title: "A page", url: undefined, file: "page.html" } },
-  ])(
-    "is left out for a $kind preview, which a running rail shows after a restart",
-    async ({ over }) => {
-      const cwd = scratch();
-      await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+  // A branch or file direction added while Leglas runs reaches its rail only
+  // after a restart.
+  test("is left out for a direction the running rail doesn't show yet", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+    const fetch = leglasServing(cwd, ["App"]);
 
-      const added = collect();
-      await runAdd(
-        { preview: preview(over), json: true, cwd },
-        { ...added.deps, fetch: serving(cwd) },
-      );
+    const added = collect();
+    await runAdd(
+      { preview: preview({ title: "On a branch", branch: "aurora" }), json: true, cwd },
+      { ...added.deps, fetch },
+    );
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
 
-      expect(JSON.parse(added.lines[0] ?? "{}")).toMatchObject({ ok: true, added: over.title });
-      expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
-    },
-  );
+    const previews: { title: string; interfaceUrl: string | null }[] = JSON.parse(
+      listed.lines[0] ?? "{}",
+    ).previews;
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).toMatchObject({ ok: true, added: "On a branch" });
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(previews.find((entry) => entry.title === "On a branch")?.interfaceUrl).toBeNull();
+    expect(previews.find((entry) => entry.title === "App")?.interfaceUrl).toEqual(
+      expect.any(String),
+    );
+  });
 });
 
 describe("runRequests", () => {

@@ -1,7 +1,7 @@
 import { loadConfig, readLocalPreviews, readRenames } from "@leglas/server";
 
 import { resolveOrExplain } from "./resolve-title.js";
-import { findLeglas, interfaceUrl } from "./running.js";
+import { findLeglas, interfaceUrl, railTitles } from "./running.js";
 
 export type LinkDeps = {
   log(line: string): void;
@@ -50,9 +50,21 @@ export async function runLink(
     return fail(`Both names are ${first}. Name two different directions to put side by side.`);
   }
 
-  const found = await findLeglas(options.cwd, options.port, deps.fetch ?? fetch);
+  const request = deps.fetch ?? fetch;
+  const found = await findLeglas(options.cwd, options.port, request);
 
   if (!found.ok) return fail(found.error);
+  const rail = await railTitles(found.port, request);
+
+  if (rail === null) return fail("Leglas did not say which directions are on its rail.");
+  const absent = titles.find((title) => !rail.has(title));
+
+  if (absent !== undefined) {
+    return fail(
+      `${absent} isn't on the running rail yet. A branch or file direction joins it when Leglas restarts.`,
+    );
+  }
+
   const url = interfaceUrl(found.port, titles);
 
   if (options.json) deps.log(JSON.stringify({ ok: true, url }));

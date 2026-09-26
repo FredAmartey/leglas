@@ -17,8 +17,9 @@ Each entry ends with which of the three it reaches.
   `leglas link Aurora Dusk` puts the two side by side. `add`, `show` and `list`
   include the same link while Leglas is running, and the MCP server has a
   `link` tool, so your agent can hand you one when a direction is ready. A
-  direction you took off the list comes back when a link names it. (`leglas`,
-  `leglas-mcp`)
+  direction you took off the list comes back when a link names it. A branch or
+  file direction added while Leglas runs gets a link once Leglas restarts.
+  (`leglas`, `leglas-mcp`)
 
 ### Fixed
 
