@@ -692,6 +692,11 @@ export function Shell({
     if (last === null || st.active !== last.title) {
       followedSlot.current = null;
 
+      // Taken off the rail from outside, by its config line or `leglas remove`.
+      if (st.active !== "" && st.previewFor(st.active) === undefined) {
+        st.setActive(st.rows[0] ?? "");
+      }
+
       return;
     }
 

@@ -333,6 +333,31 @@ describe("the rail and the stage", () => {
   });
 });
 
+describe("a direction taken off the rail from outside", () => {
+  test("leaves the stage on the first direction still here, not on the app's own page", async () => {
+    await mount({});
+    await after(() => click(row("Menu")));
+
+    await act(async () => {
+      root.render(
+        <Shell
+          previews={PREVIEWS.filter((preview) => preview.title !== "Menu")}
+          project="a-project"
+          scanPreviews={false}
+        />,
+      );
+      await vi.advanceTimersByTimeAsync(450);
+    });
+
+    expect(row("Table").getAttribute("aria-pressed")).toBe("true");
+    expect(
+      [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].flatMap((frame) =>
+        frame.closest(".hidden") === null ? [frame.dataset.preview] : [],
+      ),
+    ).toEqual(["Table"]);
+  });
+});
+
 describe("a link into the interface", () => {
   const opening = (address: string) => window.history.replaceState(null, "", address);
 
