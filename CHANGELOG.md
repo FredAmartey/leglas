@@ -12,6 +12,11 @@ Each entry ends with which of the three it reaches.
 
 ### Fixed
 
+- **A build that edits a file other than its own is stopped.** One stray edit
+  to the switch used to break every direction in the set and leave it broken.
+  Now the build fails and names the file, and puts it back if it's the switch,
+  an existing direction or a file one of them imports. (`leglas`)
+
 - **The MCP tools refuse what the command line refuses.** `add` saved an empty
   note and answered a missing URL with `previews[0] needs a url.`, and `show`
   with a width but no screenshot, or `share` stopping with a direction named,
