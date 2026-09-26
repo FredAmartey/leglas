@@ -78,9 +78,17 @@ and a run ended this way is not retried on its own.
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
 same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
 `classify`, `explore`, `scaffold`, `keep`, `requests`, `share` and `init`. Each
-tool calls exactly what the CLI calls and returns the same envelope. The
-`start` tool boots the viewer and returns its URL, and anything it started
-stops when the session ends.
+tool calls exactly what the CLI calls, returns the same envelope and refuses
+what the CLI refuses. A call outside what the tool's schema allows, such as a
+screenshot wider than 3840 pixels, gets the MCP SDK's input validation error;
+every other refusal comes back in the CLI's own words. The `start` tool boots
+the viewer and returns its URL, and anything it started stops when the session
+ends.
+
+`watch` and `log` have no tool. The command line keeps a few flags to itself:
+`--user-port` and `--config` when starting, `--tunnel` and `--port` when
+sharing, `--port` for a screenshot. Building a set with `explore --build` stays
+there too.
 
 ```sh
 claude mcp add leglas -- npx -y leglas-mcp
