@@ -86,6 +86,13 @@ every other refusal comes back in the CLI's own words. The `start` tool boots
 the viewer and returns its URL, and anything it started stops when the session
 ends.
 
+Each tool also tells the host whether it only reads, whether it can delete or
+overwrite something, whether a repeated call is safe and whether it reaches past
+this machine, so the host can decide what to ask you before it runs. `list`,
+`link`, `classify` and `explore` only read, and `show` overwrites nothing but its
+own earlier capture. The server's instructions carry the workflow, for hosts
+that load no skill.
+
 `watch` and `log` have no tool. The command line keeps a few flags to itself:
 `--user-port` and `--config` when starting, `--tunnel` and `--port` when
 sharing and linking, `--port` for a screenshot. Building a set with

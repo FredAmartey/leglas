@@ -13,6 +13,8 @@ export {
 
 export type { Channel, ChannelEvent } from "./channel.js";
 
+export { SERVER_INSTRUCTIONS } from "./instructions.js";
+
 export { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
 
 export type { HostProjectOptions, Located, Project, RootsHost } from "./project.js";

@@ -5,7 +5,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { installShutdown } from "leglas";
 
-import { CHANNEL_CAPABILITY, CHANNEL_INSTRUCTIONS, startChannel } from "./channel.js";
+import { CHANNEL_CAPABILITY, startChannel } from "./channel.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { hostProject } from "./project.js";
 import { registerLeglasTools } from "./tools.js";
 
@@ -26,7 +27,7 @@ const server = new McpServer(
   { name: "leglas", version: version() },
   // Inert on hosts without channels. On Claude Code, change requests from the
   // interface arrive in the open session as events.
-  { capabilities: { experimental: CHANNEL_CAPABILITY }, instructions: CHANNEL_INSTRUCTIONS },
+  { capabilities: { experimental: CHANNEL_CAPABILITY }, instructions: SERVER_INSTRUCTIONS },
 );
 
 const project = hostProject(server.server, {
