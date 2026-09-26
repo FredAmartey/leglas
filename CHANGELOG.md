@@ -43,6 +43,15 @@ Each entry ends with which of the three it reaches.
 
 ### Fixed
 
+- **A build that edits another file is stopped.** While Leglas built a set,
+  one build could change the switch, another direction or a file one of them
+  imports, and every direction on the page broke with it. Now a build that
+  edits any file but its own fails with that file named, and Leglas puts the
+  switch, the directions already on it and the files they import by relative
+  path back as they were. Any other file it touched, a direction of the same
+  set included, is named for you to check and left alone. Edits Codex makes
+  through a shell command aren't seen. (`leglas`)
+
 - **The stage moves on when its direction leaves the rail.** A direction
   taken off the rail from outside, by editing the config or with
   `leglas remove`, left your app's own page on the stage with no row
