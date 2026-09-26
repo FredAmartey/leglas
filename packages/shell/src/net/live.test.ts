@@ -73,8 +73,7 @@ function manualTimers() {
 /**
  * Every kind the server nudges with, keyed by the server's own type, so this
  * list and that one cannot drift apart without failing `pnpm typecheck`, which
- * sees this file only because the shell's tsconfig includes its tests. It used
- * to be written out by hand, three kinds long, and the shell dropped `update`.
+ * sees this file only because the shell's tsconfig includes its tests.
  */
 const SENT = {
   config: true,

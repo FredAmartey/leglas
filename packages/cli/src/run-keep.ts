@@ -108,9 +108,8 @@ export async function runKeep(
 
   if (!resolved.ok) return fail(resolved.error);
 
-  // An absolute destination inside the project names the same file as its
-  // relative form, which is what agents tend to pass. One outside comes out
-  // as `..` or still absolute, and planKeep refuses both.
+  // Agents tend to pass absolute paths. One outside the project comes out as
+  // `..` or still absolute, and planKeep refuses both.
   const destination = isAbsolute(options.to) ? relative(options.cwd, options.to) : options.to;
   const plan = planKeep({ title: resolved.title, previews, to: destination });
 

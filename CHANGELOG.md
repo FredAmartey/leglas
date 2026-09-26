@@ -1,1047 +1,701 @@
 # Changelog
 
-Leglas ships as three things from one repository, and a release moves all
-of them together:
+Leglas ships as three things, released together under one version number:
 
 - **`leglas`**, the command line tool, on npm
-- **`leglas-mcp`**, the MCP server for agent hosts that cannot run a shell, on npm
+- **`leglas-mcp`**, the MCP server for agent hosts without a shell, on npm
 - **the Agent Plugin**, which is this repository's own directory
 
-They share a version number, so a plugin, a CLI and a server picked up at the
-same time are the same release. Each entry says who a change actually reaches,
-because most reach only one of the three, and each release heading says what
-it was about.
+Each entry ends with which of the three it reaches.
+
+## Unreleased
+
+### Fixed
+
+- **The MCP tools refuse what the command line refuses.** `add` saved an empty
+  note and answered a missing URL with `previews[0] needs a url.`, and `show`
+  with a width but no screenshot, or `share` stopping with a direction named,
+  ignored the extra input. Each tool now checks the command line's rules first
+  and answers in its words, like `--note needs a value.` `explore` also takes
+  any count the command line takes; it stopped at 24. (`leglas-mcp`)
+
+- **`leglas --help` lists `init --force` and `requests --clear`.** Both worked,
+  but the help never mentioned them. (`leglas`)
 
 ## 1.3.0 (2026-09-25): Build a set of directions from a brief
 
 ### Added
 
-- **Build a set of directions from a brief, with Claude or Codex.** Turn
-  on **Build directions with Claude or Codex** under Labs in the tools,
-  press **+** at the top of the rail, say what the directions should
-  explore, pick how many, up to six, and press **Build 3 with Claude**,
-  named for whichever of the two is your agent. The agent plans the whole
-  set first, so the directions differ from each other and from the ones
-  already there, and all of them appear on the rail at once and build side
-  by side. Each row says whether its direction is building, being checked,
-  failed or stopped, and you can stop it, try it again or ask for a new idea
-  from its row or the stage. Leglas opens every direction before calling it
-  ready and gives one that does not render one attempt to fix itself. It
-  runs on your own plan at medium effort, with your MCP servers, skills and
-  plugins left out: on the demo app Claude built three directions in about
-  a minute and a half, and Codex in a little over two minutes.
-  `leglas explore hero --build --brief "…"` does the same from a terminal.
-  (`leglas`)
+- **Build a set of directions from a brief, with Claude or Codex.** Turn on
+  **Build directions with Claude or Codex** under Labs in the tools, press
+  **+** at the top of the rail, say what to explore, pick how many (up to six)
+  and press **Build 3 with Claude**, named for your agent. The agent plans the
+  set first, so the directions differ from each other and from what's already
+  on the rail, then builds them side by side. Each row shows whether its
+  direction is building, being checked, failed or stopped, and you can stop
+  it, retry it or ask for a new idea. One that doesn't render gets one attempt
+  to fix itself. Runs use your own plan at medium effort, without your MCP
+  servers, skills or plugins. On the demo app Claude built three in about a
+  minute and a half, Codex in a little over two. From a terminal:
+  `leglas explore hero --build --brief "…"`. (`leglas`)
 
-- **See a set side by side, and ask for more like one.** Once two
-  directions of a set are ready, **Compare all** on its card puts the ready
-  ones on the stage side by side, each at the width it was drawn for. To
-  take one further, open the brief while it is on the stage and press
-  **More like Menu**, named for it: the agent builds variations that keep
-  the direction and each change one thing, and they sit under it on the
-  rail. What to vary is optional there. From a terminal, add
-  `--based-on "Menu"` to `explore --build`.
-  (`leglas`)
+- **See a set side by side, and ask for more like one.** Once two directions
+  of a set are ready, **Compare all** on the set's card puts the ready ones on
+  the stage side by side, each at its own width. With a direction on the
+  stage, **More like Menu** in the brief (named for that direction) builds
+  variations that keep it and each change one thing, and puts them under it.
+  What to vary is optional. From a terminal, add `--based-on "Menu"` to
+  `explore --build`. (`leglas`)
 
-- **`leglas watch --json` prints one line per event.** The instructions
-  `leglas init` writes into every project, the plugin's skill and the docs
-  all said every command takes `--json`, but `watch` refused it, so an agent
-  following its own instructions got an error. Now `watch --json` prints one
-  JSON object per line as it works: when it starts watching, when it hands a
-  change to the agent, when that change is done or fails, when reading the
-  queue goes wrong, and when it stops. The agent's own output moves to
-  stderr, so stdout carries only those lines. Without `--json`, `watch`
-  prints what it always did.
-  (`leglas`, plugin)
+- **`leglas watch --json` prints a JSON line per event.** The instructions
+  `leglas init` writes, the plugin's skill and the docs all said every command
+  takes `--json`, but `watch` refused it. It now prints a line when it starts,
+  hands a change to the agent, finishes or fails one, can't read the queue,
+  and stops. With `--json` the agent's own output goes to stderr; without it,
+  nothing changes. (`leglas`, plugin)
 
 ### Fixed
 
-- **The update chip hears about an update as it happens.** The server tells
-  the interface when an update check settles, an install starts or an
-  install fails, but since the update check arrived in 1.1.0 the interface
-  ignored those messages and only caught up on its next scheduled look: up
-  to fifteen seconds later with the panel open, up to fifteen minutes with
-  it closed. It reacts straight away now.
+- **Update notices reach the interface right away.** Since 1.1.0 the interface
+  ignored the server's update messages and only caught up on its next check:
+  up to 15 seconds late with the panel open, 15 minutes with it closed.
   (`leglas`)
 
-- **A failed update says what npm said.** When an update from the panel
-  failed, the reason under it was one of npm's fields rather than its
-  message: `syscall mkdir` for a permissions problem, `syscall getaddrinfo`
-  when you were offline. It now shows npm's own message, such as
+- **A failed update shows npm's message.** It showed one of npm's fields
+  instead, like `syscall mkdir`. Now it shows the message itself, such as
   `Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'`.
   (`leglas`)
 
-- **`keep --to` takes a full path.** An absolute destination, which is how
-  agents usually write paths, was nested inside the project instead of used:
-  `--to /home/me/app/src/hero.tsx` wrote `app/home/me/app/src/hero.tsx`. A
-  full path inside the project now lands where its short form would, and
-  one outside the project is refused with "The destination has to be inside
-  the project."
-  (`leglas`, `leglas-mcp`)
+- **`keep --to` accepts a full path.** An absolute path was nested inside the
+  project: `--to /home/me/app/src/hero.tsx` wrote
+  `app/home/me/app/src/hero.tsx`. It now lands where its relative form would,
+  and a path outside the project is refused. (`leglas`, `leglas-mcp`)
 
-- **The starting point `leglas new` writes no longer breaks your page.**
-  Without `--from`, `leglas new` writes a placeholder for your current
-  design, with a note on how to replace it. The note's example code was read
-  as code rather than text, so the placeholder used a component it never
-  imported, and the page threw `Hero is not defined` until you replaced it.
-  The note is plain text now. It had been this way since 0.1.0.
-  (`leglas`, `leglas-mcp`)
+- **The placeholder `leglas new` writes no longer breaks your page.** Without
+  `--from`, the example code in its note was read as JSX, and the page threw
+  `Hero is not defined` until you replaced the placeholder. Broken since
+  0.1.0. (`leglas`, `leglas-mcp`)
 
-- **The agents guide names the project the MCP server really uses.** It
-  said the server in an Agent Plugins client takes the host's workspace and
-  falls back to `LEGLAS_PROJECT_DIR`. It is the other way round, as the
-  release that added the variable said: `LEGLAS_PROJECT_DIR` wins when it
-  is set, and the host's workspace is used otherwise.
+- **The agents guide gets `LEGLAS_PROJECT_DIR` right.** It said the host's
+  workspace wins over the variable. The variable wins when it's set.
   (`leglas-mcp`)
 
 ## 1.2.1 (2026-09-24): Screenshots wait for late fonts, pictures and code
 
 ### Changed
 
-- **How Leglas is built, on one page.** The architecture page in the docs
-  opens with a map of the ten pieces and the path a change takes through
-  them, a plain-language twin folded beneath it, and a button that copies a
-  setup prompt for your agent. The README's front page was reworked
-  alongside it.
+- **The architecture page opens with a map.** The docs' architecture page
+  starts with a diagram of Leglas's ten parts and the path a change takes
+  through them, a plain-language version under it and a button that copies a
+  setup prompt for your agent. The README's front page was reworked too.
   (`leglas`)
 
 ### Fixed
 
-- **A screenshot waits for the fonts, pictures and code a page asks for
-  after it loads.** A React app in Vite draws after the page's load event, so
-  every stylesheet, web font, image and lazy chunk a direction uses is asked
-  for after it, and Leglas took the shot at load. A web font came back as its
-  fallback, a picture as empty space, and a stylesheet with a precedence,
-  which holds the whole render back until it arrives, as a blank page. The
-  shot now waits until nothing the page asked for is still on its way and one
-  more look asks for nothing new. A part that loads on demand gets the moment
-  React holds it back before showing it, so it is not shot as its
-  placeholder. At most two seconds more, and about thirty milliseconds on a
-  plain page.
+- **Screenshots wait for fonts, images and code that load late.** A React app
+  in Vite asks for most of them after the page's load event, which is when
+  Leglas took the shot, so a capture could show fallback fonts, missing images
+  or a blank page. Leglas now waits until nothing the page asked for is still
+  loading: at most two seconds more, about 30 ms on a plain page.
   (`leglas`, `leglas-mcp`)
 
 - **Adding a direction no longer reloads the page.** The switch file
-  `leglas new` writes exported, beside the component, the helper that picks a
-  direction from the address bar, and a file whose exports are not all
-  components makes the browser's hot update reload the page instead of
-  swapping the file in place. Every direction an agent added reloaded the
-  page you were watching. The helper is private now. A switch file written
-  before this release keeps the old shape until you make it again.
-  (`leglas`)
+  `leglas new` writes exported a helper beside the component, which stops hot
+  reload swapping the file in, so every direction an agent added reloaded the
+  page you were looking at. A switch file written before this release keeps
+  the old shape; one written from now on doesn't. (`leglas`)
 
 ## 1.2.0 (2026-09-22): Share from a terminal, and an agent that goes quiet says so
 
 ### Added
 
-- **Share from a terminal, or let an agent do it.** `npx leglas share`
-  shares the whole rail, `npx leglas share "Aurora"` one direction, and two
-  names put them side by side. It waits for the tunnel, prints the link and
-  when it stops working, and `--stop` ends the share. The MCP server has the
-  same as a `share` tool, for an agent host that cannot run a shell. From a
-  terminal the rail is the project's: every direction in config order,
-  under the names you gave them in the interface.
-  (`leglas`, `leglas-mcp`)
+- **Share from a terminal or an agent.** `npx leglas share` shares the whole
+  rail, `npx leglas share "Aurora"` one direction, and two names put them side
+  by side. It prints the link once the tunnel is up and when it stops working,
+  and `--stop` ends it. The MCP server has a `share` tool that does the same.
+  A share started this way uses the project's rail: every direction in config
+  order, under the names you gave them. (`leglas`, `leglas-mcp`)
 
 ### Changed
 
-- **An agent that goes quiet says so, and cannot hold up the queue.** A run
-  that stopped to ask something nothing in Leglas can answer, a trust prompt
-  or an approval, used to sit under the last file it touched for as long as
-  you let it, and every change queued behind it waited too. After three
-  minutes without a word, the card now says how long the agent has been
-  quiet. After thirty, Leglas ends the run and says why, and the next change
-  starts. Anything the agent prints resets both, so a long build or a model
-  thinking hard is never cut off: thirty minutes is half as long again as the
-  longest silence measured in real runs.
-  (`leglas`)
+- **A quiet agent says so, and can't hold up the queue.** An agent stuck on
+  something nothing in Leglas can answer, like a trust prompt, used to block
+  every change behind it for as long as it sat there. After 3 minutes of
+  silence the card says how long it's been quiet. After 30 minutes, Leglas
+  ends the run with a reason and starts the next change. Any output resets
+  both, so a long build isn't cut off. (`leglas`)
 
 ### Fixed
 
-- **A preview of a site that refuses frames says so.** A direction pointed
-  at another site's address, a deployed page or a staging server, showed
-  the browser's own broken page when that site forbids being shown inside
-  another page, and nothing said why. The pane now names the site, quotes
-  the header that refused it and gives you a button to open the page in a
-  tab. If the site is yours, it also tells you the one header that would
-  let Leglas show it. Leglas asks the page without your cookies, so if a
-  page you are signed in to frames after all, "Show the frame anyway"
-  uncovers it for the rest of the session.
-  (`leglas`)
+- **A site that refuses to be framed says so.** A direction pointing at a site
+  that forbids framing showed the browser's broken page. The pane now names
+  the site and the header that refused it, offers to open it in a tab, and if
+  the site is yours, says which header to change. Leglas checks without your
+  cookies, so if a signed-in page does frame, **Show the frame anyway** shows
+  it for the rest of the session. (`leglas`)
 
-- **Every command answers `--help`.** The command line docs send you to
-  `leglas <command> --help` for a command's options, but `init`, `explore`,
-  `list`, `log`, `show`, `requests` and `keep` refused the flag, and
-  `leglas log -h` went looking for a log entry called "-h". They all print
-  the help now.
-  (`leglas`)
+- **Every command answers `--help`.** `init`, `explore`, `list`, `log`,
+  `show`, `requests` and `keep` refused it, and `leglas log -h` looked for an
+  entry called "-h". (`leglas`)
 
-- **Stopping an agent stops what it started.** Stop, and the thirty minute
-  silence limit, signalled only the agent's own process, so anything it had
-  launched, a dev server holding its port or a watcher still writing files,
-  kept running after the run ended. An agent Leglas starts itself now runs
-  in a process group of its own, and a stop reaches the whole group. The MCP
-  server also shuts down properly when the terminal under its host closes,
-  so an agent it started is not left running then either. Claude and Codex
-  usually run through a session Leglas keeps warm, where a stop is still the
-  vendor's own interrupt.
-  (`leglas`, `leglas-mcp`)
+- **Stopping an agent stops what it started.** A stop, or the 30 minute
+  silence limit, only reached the agent itself, so a dev server or watcher it
+  had launched kept running. Agents Leglas starts now run in their own process
+  group, and a stop reaches all of it. The MCP server also shuts down when its
+  host's terminal closes. Claude and Codex runs in a warm session still stop
+  with the vendor's own interrupt. (`leglas`, `leglas-mcp`)
 
 ## 1.1.2 (2026-09-18): The card on a row is drawn again
 
 ### Fixed
 
-- **A direction's card shows when you hover its row.** A direction made
-  from another one, or from something you asked for, carries a card that
-  says where it came from, and hovering its row in the rail is meant to
-  open it beside the row. Since 0.9.0 it opened and was never drawn. The
-  rail fades its top and bottom edges with a mask, and a mask hides
-  everything inside it that reaches past its box, which is exactly where
-  the card opens: to the right, over the stage. Every tip now draws on the
-  interface as a whole, so nothing a row sits inside can cut it off.
-  (`leglas`)
+- **A direction's card shows when you hover its row.** Since 0.9.0 the card
+  that says where a direction came from opened but was never drawn: the rail's
+  faded edges clipped it. Tips now draw over the whole interface. (`leglas`)
 
-- **A screen reader is told about the attach button once, not twice.** The
-  button that attaches a reference image sits in front of a hidden file
-  input, and that input carried no name of its own, so it was announced as a
-  second, unnamed control beside the one that does the job. It is hidden from
-  assistive technology now. (`leglas`)
+- **A screen reader announces the attach button once.** The hidden file input
+  behind it was announced as a second, unnamed control. (`leglas`)
 
 ## 1.1.1 (2026-09-17): The links on the npm page work
 
 ### Fixed
 
-- **The links on the npm page work.** The README is the npm package page,
-  and npm resolves its relative links against the package's directory in
-  the repository, `packages/cli`, where nothing they point at exists. The
-  Contributing and License links had pointed at nothing since the first
-  release, and the links to the new docs pages would have too. The README's
-  links are absolute now. (`leglas`, `leglas-mcp`)
+- **The links on the npm page work.** npm resolves the README's relative links
+  against `packages/cli`, so the Contributing and License links pointed at
+  nothing, and the new docs links would have too. They're absolute now.
+  (`leglas`, `leglas-mcp`)
 
 ## 1.1.0 (2026-09-07): Leglas says when a newer version is out
 
 ### Added
 
-- **Leglas says when a newer version is out, and brings it in from the
-  interface.** Until now a release went to npm and nobody was told: a global
-  install stayed where it was, and the interface never said which Leglas it
-  was. Now the version sits beside the wordmark. When Leglas starts it asks
-  npm, once a day, whether there is a newer one, and if there is, the
-  terminal says so under the startup block and the version wears a dot. Open
-  it and there is one button. Update installs the new version the way this
-  one was installed, with npm, pnpm, yarn or bun, globally or in the
-  project, and a Leglas started through npx, pnpm dlx, bunx or yarn dlx
-  needs only the restart. Then it starts Leglas again on the same port and
-  the page reloads into it. Skip quietens that version until the next one.
-  You can check by hand from the same panel at any time, and the startup
-  check is off under `CI` or with `LEGLAS_NO_UPDATE_CHECK=1`. Every release
-  now also appears on GitHub, so watching the repository for releases gets
-  you a note the moment one is cut. (`leglas`)
+- **Leglas tells you when a newer version is out, and updates from the
+  interface.** The version sits beside the wordmark. Once a day at startup
+  Leglas asks npm for a newer one; if there is, the terminal says so and the
+  version gets a dot. Open it and press **Update**: Leglas installs the new
+  version the way this one was installed (npm, pnpm, yarn or bun, global or in
+  the project, or just a restart if you run it through npx, pnpm dlx, bunx or
+  yarn dlx), starts again on the same port and reloads the page. **Skip**
+  hides that version until the next. You can also check by hand from the
+  panel. The startup check is off under `CI` or with
+  `LEGLAS_NO_UPDATE_CHECK=1`. Releases are on GitHub now too, so you can watch
+  the repository for them. (`leglas`)
 
 ![The version chip's panel: 1.1.0 is out, the release title, You have 1.0.0, an Update button and Skip, and the command Update will run](https://raw.githubusercontent.com/FredAmartey/docs-assets/c5e1dbd0debd30a5df3f517c0db76c6a843eb8dd/projects/leglas/pull-requests/0067-updates/panel-available.png#w=440 "What a 1.0.0 sees once this release is on npm: the panel behind the version, with Update and what it will run.")
 
 ### Fixed
 
-- **A Cursor run from Leglas now starts.** Picking Cursor in the composer
-  and sending a change ended in a second with nothing on the card, in any
-  project Cursor had not already been trusted for by hand: its print mode
-  stopped at a workspace-trust prompt that nothing in Leglas could answer.
-  Leglas now tells it the project is yours, which is the one permission a
-  run needs. Its edits are seen as edits too, so a run whose session had
-  quietly ended is tried once more the way a Claude or Codex run is, and
-  the card says which file it is changing. Read against the real
-  `cursor-agent` rather than its documentation, which had the tool that
-  changes a file under a different name. (`leglas`)
+- **Cursor runs start.** In a project Cursor hadn't been trusted for by hand,
+  a run stopped at Cursor's workspace-trust prompt and ended in a second with
+  nothing on the card. Leglas now trusts the project for the run. Cursor's
+  edits are recognised too, so the card shows the file it's changing and a run
+  whose session ended is retried once, as with Claude and Codex. (`leglas`)
 
 ## 1.0.0 (2026-09-06): Share the rail with someone who has no repo
 
 ### Added
 
-- **Share what is on your rail with someone who has no repo.** The rail is
-  local, and the README has promised for a while that a teammate could open a
-  direction live rather than a screenshot; that was only ever true on the same
-  machine. The rail's header now carries a share control. Pick the whole rail
-  as you see it, or what is on stage, a direction or the pair being compared,
-  and Leglas opens a second listener on this machine, points a tunnel at it
-  (cloudflared or ngrok, whichever is installed; nothing is bundled and no
-  account is needed) and puts the link on your clipboard the moment it
-  answers. Whoever opens it gets the real app running, in your order, under
-  your names, with your families folded and your viewport, and can flip,
-  compare, search and change the width. They cannot change anything: every
-  request that arrives through the share listener is remote by construction,
-  so nothing on it may write, and without the cookie the link sets every path
-  on it answers 403, so your dev server never faces the internet bare. The
-  panel says whether the tunnel has answered and how many people are looking,
-  offers to push the rail as you have it now when it has moved since you
-  shared and stops the share; the share also stops with Leglas. A viewer
-  reads whatever the dev server serves, so the routes a dev server mounts to
-  act on your machine are refused, Vite's editor launcher among them, and so
-  is registering a service worker that would outlive the share. Branch
-  directions run on their own port and are left out of a share for now, and
-  the panel says so. (`leglas`)
-- **Hand out more than one link, and turn each one off on its own.** A share
-  used to be one address, so ending it for the client ended it for the
-  contractor too. A share now holds up to sixteen links. Name each one for
-  the person it is for, and the panel lists them with how long each has left
-  and how many sessions are on it. Turn one off and the others keep working;
-  it stops at once, mid-page if need be, and whoever was using it is told it
-  was turned off. Each link lasts a day,
-  long enough for someone in another timezone to start their morning and get
-  to it, and one click gives it another. A link that has run out is not
-  brought back, because every copy of it would come back too; make a new
-  one, and whoever opens the old one is told it expired and to ask for a
-  fresh link. "Replace all" ends every link and gives the share a fresh address,
-  for when a link has gone somewhere you cannot follow. One thing to know: a
-  link belongs to a browser, not a person. Open two links in the same
-  browser and the second replaces the first, which is why the panel counts
-  sessions rather than people. (`leglas`)
-- **Choose how much of your app a viewer can reach.** Until now a link
-  opened your whole dev server, which is fine for a demo and too much for a
-  client project: anyone with the link could ask for any route, your source
-  included. The share panel now asks how far they can go. "Anywhere in the
-  app" is what you had before, and it is still there. "Only what you shared"
-  serves the pages you shared and the files those pages load, and refuses
-  everything else, whether a browser, a script or a console asks for it. You
-  do not write that list. Leglas reads it from what your own directions
-  loaded while you looked at them, and tells you the count before you
-  start. If a page later asks for something the list did not predict, a
-  chunk that loads on scroll, say, it is refused and shown in the panel,
-  where one click lets that file or its whole folder through. Whichever you
-  choose, a viewer still sees everything your shared pages themselves load,
-  and files that start with a dot, `.env` and `.git` among them, are never
-  served to a viewer. (`leglas`)
-- **A busy share cannot slow your own work down.** Someone flipping through
-  your shared rail, or a script hammering the link, used to send every
-  request straight to your dev server, and your own reloads queued behind
-  them. Leglas now lets viewers have twelve requests in your dev server at a
-  time, twice what one browser asks for, so a page load for them never
-  waits and a flood never reaches you. Anything above that waits its turn in
-  Leglas, shared fairly between links, and is turned away if it waits too
-  long. Measured on two hundred requests at once: your own reload went from
-  136 milliseconds to 21, and the burst itself finished sooner held than
-  loose. (`leglas`)
+- **Share what is on your rail with someone who has no repo.** The share
+  control in the rail's header shares the whole rail as you see it, or what's
+  on the stage. Leglas opens a second listener, points a tunnel at it
+  (cloudflared or ngrok, whichever is installed; no account needed) and copies
+  the link once it answers. Viewers get your real app in your order and names,
+  and can flip, compare, search and change the width, but can't change
+  anything: everything through the share is read-only, and without the link's
+  cookie every path answers 403. The panel shows whether the tunnel is up and
+  how many people are looking, offers to update the share when your rail has
+  changed and stops it. The share also stops with Leglas. Dev server routes
+  that act on your machine, like Vite's open-in-editor, are refused, and so is
+  registering a service worker. Branch directions aren't shared yet, and the
+  panel says so. (`leglas`)
+- **Several links, each turned off on its own.** A share holds up to sixteen
+  named links. The panel lists each with its time left and its sessions.
+  Turning one off ends it at once, even mid-page, and tells whoever was on it.
+  A link lasts a day, and one click gives it another. An expired link can't be
+  brought back, because every copy of it would come back too, so make a new
+  one. **Replace all** ends every link and gives the share a new address. A
+  link belongs to a browser, not a person: a second link opened in the same
+  browser replaces the first. (`leglas`)
+- **Choose how much of your app a viewer can reach.** "Anywhere in the app" is
+  how sharing worked before: a link reaches any route your dev server has,
+  your source included. "Only what you shared" serves the shared pages and the
+  files they load, which Leglas learns from what your directions loaded while
+  you looked at them, and refuses everything else. If a page later needs
+  something it refused, like a chunk that loads on scroll, the panel shows it
+  and one click allows that file or its folder. Files starting with a dot,
+  like `.env` and `.git`, are never served to a viewer. (`leglas`)
+- **A busy share can't slow you down.** Viewers get at most twelve requests in
+  your dev server at once. The rest wait in Leglas, shared fairly between
+  links, and are turned away if they wait too long. With 200 requests at once,
+  your own reload went from 136 ms to 21 ms. (`leglas`)
 
 ## 0.9.0 (2026-09-03): The rail shows where each direction came from
 
 ### Changed
 
-- **The rail shows where each direction came from.** A rail of eight rows read
-  as eight siblings even when the head said four directions and a chain of
-  passes on one of them, because every variant was flattened under its family
-  root in saved order. The rail now keeps lineage order: each variant follows
-  the direction it was made from, and a gutter beside the titles draws the
-  family the way `git log --graph` draws a history, with a lane per branch and
-  a fork where a later sibling leaves the line. Dots mark where a line starts,
-  ends or forks; a ring marks the row on stage. Each card starts where its
-  text does, so the graph runs in the gutter beside the cards and a variant's
-  card sits inside its root's. The line from a direction's
-  root down to it carries a slow current of colour and a soft surge every few
-  seconds, and resting on a row or on a crumb aims it there; the crumbs under
-  the composer say the same ancestry in words, and clicking one goes there,
-  shift-click compares against it. Reordering holds a row among its siblings:
-  drag one and the families around it fold away for the drag, a family
-  travels as one row behind its root, and a row pushed past its siblings says
-  why on the way and again when it is let go. Folding a family is a view
-  transition; a new direction blooms where it lands. With less motion asked
-  for, the line is still coloured and nothing moves. (`leglas`)
+- **The rail shows where each direction came from.** Variants were flattened
+  under their family's first direction, so eight rows read as eight siblings.
+  Each variant now follows the direction it was made from, and a gutter draws
+  the family like `git log --graph`: a lane per branch, a fork where a sibling
+  leaves, a ring on the row on stage. The line back to the root is lit, and
+  hovering a row aims it there. The crumbs under the composer name the same
+  ancestry; click one to go there, shift-click to compare. Dragging a row
+  moves it among its siblings, and a family moves with its root. With reduced
+  motion on, nothing animates. (`leglas`)
 
 ![The rail with Counter's family open: Olive Night on stage, its line lit back to Counter, then the family folded away and opened again](https://raw.githubusercontent.com/FredAmartey/docs-assets/b7ebfaa5bf87e2c749757e850ba9fb0eb13116b0/projects/leglas/changelog/0.9.0-rail-lineage/rail-lineage.gif#w=368 "Olive Night traced back to Counter, the line aimed at whichever row the pointer rests on, then the family folded away and back.")
 
 ### Fixed
 
-- **The interface blanked on a project with a branch preview that had not
-  started.** A branch preview has no url until its checkout is up, and the
-  duplicate scan read one off it anyway, which took the whole interface down
-  with it on load. Such a preview is now skipped until it is running. (`leglas`)
+- **A branch preview that hadn't started no longer blanks the interface.** The
+  duplicate check read its URL before it had one and took the page down on
+  load. (`leglas`)
 
-- **A variant of a captured page came back with unwanted elements from its
-  parent.** Fork the served HTML of a page that rebuilds itself in the browser
-  (a captured production site, a static export, any hydrating app served as a
-  file) and the parent's hero, logo and buttons showed up in the variant for a
-  few seconds after every load, or for good: the framework rebuilt the page
-  from the parent's JavaScript, and the agent's only evidence was one line
-  lost under the console error cap. The capture now keeps that line whatever
-  else the page logged, the request tells the agent the page rebuilds itself
-  and that the change belongs where its JavaScript gets what it renders (a
-  per-direction override with the original as default, which the additive
-  rule now names as allowed), and `leglas show` reports it. Directions
-  switched in components were never affected.
-  (`leglas`, `leglas-mcp`, plugin)
+- **A variant of a captured page no longer shows pieces of its parent.** On a
+  page that rebuilds itself in the browser (a captured production site, a
+  static export, any hydrating app served as a file), a variant could show the
+  parent's hero, logo and buttons, because the framework rebuilt it from the
+  parent's JavaScript. The capture now always keeps the console line that
+  shows it, the request tells the agent to make the change where the
+  JavaScript gets its content, and `leglas show` reports it. Directions
+  switched in components weren't affected. (`leglas`, `leglas-mcp`, plugin)
 
 ## 0.8.0 (2026-08-28): An exploration writes down what it decided
 
-A minor, because the public surface moved: an exploration now writes
-down what it decided, and `leglas log` reads it back.
+For code that imports `leglas`: `ParseResult` gained a `log` kind.
 
 ### Added
 
-- **An exploration writes down what it decided.** Everything an exploration
-  produces was thrown away when it ended: the directions with their notes, the
-  words typed at each of them, the captures the agent was sent, and which one
-  won. That is right for the working files, which is why `.leglas/` is
-  gitignored, and wrong for the record. `leglas keep` now writes an entry to
-  `design-log/` first: plain markdown and PNGs, committed, so a pull request
-  can link it and somebody can read it in three months without this tool.
-  Nothing is invented; a direction with no note gets no note. A change that
-  failed is listed once, at the foot, with why, rather than reading as though
-  it happened. `leglas log` lists what is there and prints one entry, and the
-  instructions Leglas writes for agents now tell them to read it before
-  exploring a surface, so nobody proposes a direction that was already
-  rejected. Set `logDir` to put it somewhere other than `design-log`.
-  (`leglas`)
+- **An exploration writes down what it decided.** `leglas keep` now writes an
+  entry to `design-log/` before clearing the exploration: markdown and PNGs
+  you commit, with every direction, its note, its capture, the words asked of
+  it and which one won. Nothing is invented, and a change that failed is
+  listed once at the end with why. `leglas log` lists entries and prints one,
+  and the instructions Leglas writes for agents tell them to read it before
+  exploring, so a rejected direction isn't proposed again. `logDir` changes
+  the folder. (`leglas`)
 
 ![A design-log entry as GitHub renders it: hero, 2026-08-28; Table won and became src/hero.tsx, 8 directions were compared; then the Table section with its capture and the words that were asked for it](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.8.0-design-log/design-log-entry.jpg "What leglas keep writes before it clears the exploration: the winner, every direction with its note and its capture, and the words typed at each of them.")
 
-
 ### Changed
 
-- **A branch stops when nobody is looking at it.** 0.7.4 made a branch preview
-  start when you open it. Nothing stopped one afterwards, so a branch opened
-  once held a checkout and a dev server until the session ended. Ten minutes
-  without traffic and it is stopped and its checkout removed; opening it starts
-  it again. A branch still serving, including one holding a live-reload
-  connection, is left alone, and one that is still starting is never touched.
-  (`leglas`)
-- **The interface stops asking for answers it already has.** `/api/config`,
-  `/api/requests`, `/api/annotations` and `/api/health` answered in full every
-  time, and an idle tab reads them sixteen times a minute, almost always
-  unchanged. They carry an ETag now and answer 304 to a matching revalidation,
-  which on a small project is about 1.25KB a tick down to headers alone. One
-  combined endpoint would cut the request count further and was not done: the
-  four would then share a failure, so a slow health probe would hold up the
-  queue. (`leglas`)
+- **An idle branch stops.** A branch preview opened once kept its checkout and
+  dev server until the session ended. After ten minutes without traffic it's
+  stopped and its checkout removed, and opening it starts it again. A branch
+  still serving, like one holding a live-reload connection, or one still
+  starting, is left alone. (`leglas`)
+- **The interface stops downloading unchanged answers.** `/api/config`,
+  `/api/requests`, `/api/annotations` and `/api/health` send an ETag and
+  answer 304 when nothing changed. (`leglas`)
 
 ### Fixed
 
-- **A branch preview served nothing but 502.** Its dev server is reached
-  through a proxy so Leglas can tell when it was last looked at, and the proxy
-  dialled the address exactly as `URL.hostname` gives it, brackets and all. A
-  branch binding IPv6, which is Vite's default on macOS, has an origin of
-  `http://[::1]:PORT`, and `[::1]` is not a name: every lookup answered
-  ENOTFOUND. (`leglas`)
+- **Branch previews served only 502.** The proxy looked up an IPv6 address
+  like `[::1]` with its brackets, which fails, so any branch bound to IPv6
+  (Vite's default on macOS) was unreachable. (`leglas`)
 
 ## 0.7.4 (2026-08-27): Branches start when you open them
 
-A patch: a branch preview is checked out when you open it rather than
-when Leglas starts, so a project with branches is usable in a second
-instead of ten.
-
 ### Changed
 
-- **A branch preview starts when you open it, not when Leglas does.** A branch
-  is a whole second copy of the project: checked out, installed and served.
-  Every one of them was brought up before the interface appeared, in sequence,
-  whether or not anybody opened one, and the README's own pitch is comparing
-  seven of them. On a small project with two, that was 8.3s of waiting and
-  272MB of checkouts before anything was on screen. Opening one is the trigger
-  now, so the interface is up in 1.6s and only the branch you look at costs
-  anything. The pane says where its checkout has got to while it runs, a
-  failure says why and offers to try again, and asking twice joins the one
-  start rather than checking out twice. The rail shows a branch preview's
-  branch instead of its URL, which was a loopback address on a port picked at
-  random. (`leglas`)
+- **A branch preview starts when you open it.** Every branch used to be
+  checked out, installed and served before the interface appeared, opened or
+  not: 8.3 seconds and 272 MB for two branches on a small project. Now the
+  interface is up in 1.6 seconds and only the branch you open costs anything.
+  The pane shows which step it's on, a failure says why and offers a retry,
+  and the rail shows a branch preview's branch instead of a random loopback
+  URL. (`leglas`)
 
 ![The pane of a branch preview while it starts: a spinner, the line Installing what it needs, and under it A branch runs in its own checkout, built the first time you open it this session](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.7.4-branch-starts-when-opened/installing-what-it-needs.png#w=500 "Opening a branch is what starts it, and the pane says which step it is on: checking out, installing, starting its dev server.")
 
-
 ## 0.7.3 (2026-08-27): Branch previews on a default Vite project
-
-A patch: branch previews could not start at all on a project whose dev
-server binds IPv6, which is the default one.
 
 ### Fixed
 
-- **Branch previews could not start at all, on a default Vite project.** The
-  wait for a dev command to come up connected to `127.0.0.1` and nothing else.
-  A dev server told to serve `localhost` binds whatever the machine resolves
-  that to, and on current macOS and Node that is `::1` first, so Vite's default
-  listens on IPv6 alone. Every branch waited out its full ninety seconds
-  against a server that had been answering since its first second, then was
-  reported as not serving the port it was given, which it was, and its checkout
-  was deleted. The wait now tries both loopback addresses and builds the
-  preview's URL from whichever one answered, since reporting `127.0.0.1` for a
-  server bound to `::1` moves the failure later and further from its cause.
-  The same wait starts a project's own app when the config carries a
-  `devCommand`, so that path was equally affected. (`leglas`)
+- **Branch previews start on a default Vite project.** Leglas waited for a
+  branch's dev server on `127.0.0.1` only, but Vite's default on current macOS
+  and Node listens on `::1`, so every branch timed out after 90 seconds and
+  its checkout was deleted. The wait now tries both addresses. A project's own
+  `devCommand` had the same problem and is fixed too. (`leglas`)
 
-## 0.7.2 (2026-08-27): The server says when
-
-A patch: the interface stops polling on a timer and the server says
-when instead. Nothing a caller uses changes, and the public surface
-does not move.
+## 0.7.2 (2026-08-27): The interface stops polling
 
 ### Changed
 
-- **The interface stops asking.** Three loops used to poll on a timer: the
-  config every 3s, the queue and its annotations every 2s, health every 3s.
-  A tab sitting idle with nobody touching it made 100 requests a minute and
-  moved 108KB, almost all of it answered no. The server now says when, over
-  one websocket at `/leglas/api/live`, and the shell keeps the reads it
-  already had. A frame names what changed and nothing else, so the queue file
-  stays the durable record and push is latency rather than truth. Idle cost
-  falls to 16 requests and 8KB a minute, and a direction an agent has just
-  registered reaches the rail in about 223ms rather than waiting up to 3s for
-  a tick to notice it. Measured with resource timings on both ends; summing
-  response bodies instead gives about 22KB for the same before-minute. A
-  dropped socket falls back to a slow read every 15s, so it degrades slower
-  rather than wrong, and the three loops keep independent fallbacks rather
-  than sharing one read, since a single slow endpoint should not become every
-  loop's problem. (`leglas`)
+- **The interface stops polling.** It polled the config, the queue and health
+  every 2 to 3 seconds: 100 requests and 108 KB a minute from an idle tab. The
+  server now sends a notice over a websocket at `/leglas/api/live` when
+  something changes, and the interface reads it then. An idle tab makes 16
+  requests (8 KB) a minute, and a direction an agent registers reaches the
+  rail in about 223 ms instead of up to 3 seconds. If the socket drops, each
+  read falls back to every 15 seconds. (`leglas`)
 
-## 0.7.1 (2026-08-27): The route the guard never saw
-
-A patch: a request body of four characters could end the server, on the one
-route the guard that closed that hole never saw.
+## 0.7.1 (2026-08-27): A malformed body can't stop the server
 
 ### Fixed
 
-- **A malformed body could still take the server down, on one route.** 0.7.0
-  folded every body-reading route onto one reader that refuses anything which
-  is not a JSON object, and shipped `POST /api/capture` in the same release,
-  written to the old hand-rolled pattern. Four characters sent to loopback,
-  `null`, ended the process: the interface, the queue's own writer and
-  whatever run was under way. `/api/annotations/update` had the same shape,
-  though it repeated the check inline and so was never exploitable. Both use
-  the reader now. (`leglas`)
-- **Every route that reads a body is covered by the same guard**, including
-  any added after it: the routes are read out of the server rather than
-  listed by hand, the two that genuinely take something else carry a named
-  reason, and a source scan fails if any route parses a body by hand again.
-  (`leglas`)
+- **A malformed request body can't stop the server.** 0.7.0 made every route
+  that reads a body refuse anything but a JSON object, but
+  `POST /api/capture`, added in the same release, skipped that check: `null`
+  sent to it from this machine ended the server and the run under way. It uses
+  the check now, and so does `/api/annotations/update`, which already checked
+  inline. (`leglas`)
+- **A route added later can't miss that check**: the test reads the routes out
+  of the server rather than from a list. (`leglas`)
 
 ## 0.7.0 (2026-08-27): The agent sees what you see
 
-Every change request carries what the user sees, and embedded agents warm up
-when you mean it. A minor: how every run starts changed underneath, `leglas`
-gained an optional dependency, and the public surface moved.
+For code that imports `leglas`: its exports changed, and it gained an optional
+dependency on the Claude Agent SDK.
 
 ### Added
 
-- **Every change request carries what the user sees.** Sending a change from
-  the interface renders the direction with a headless browser found on the
-  machine (Chrome, Chromium, Brave, Edge, Arc, or a Playwright or Puppeteer
-  cache; `LEGLAS_BROWSER` overrides) at the width the design is drawn at, and
-  files the PNG under `.leglas/captures/<request>/` beside a crop of each
-  note, the compared direction when the stage is split, and any reference
-  images attached in the composer. The prompt names every file and says what
-  each one is, and console errors logged on load ride along as text. The
-  embedded Claude session receives the images as content blocks, the embedded
-  Codex app-server as `localImage` inputs, and a cold Codex run gets `-i` per
-  image. Every other way in, a Claude CLI fallback, Cursor, a custom command
-  and `leglas watch`, gets the paths in the prompt and is told to open them. With no browser on the machine the request still goes, with one
-  sentence saying why nothing was captured. Captures leave with their request
-  and orphans are pruned at boot. (`leglas`)
+- **Every change request carries what you see.** Sending a change renders the
+  direction in a headless browser found on your machine (Chrome, Chromium,
+  Brave, Edge, Arc, or a Playwright or Puppeteer cache; `LEGLAS_BROWSER`
+  overrides) at its design width, and saves it under
+  `.leglas/captures/<request>/` with a crop of each note, the compared
+  direction when the stage is split, and any reference images. The prompt
+  names each file and console errors from the load come along as text.
+  Claude's warm session and Codex get the images directly; everything else,
+  the `claude -p` fallback included, gets the paths. With no browser, the
+  request still goes and says why nothing was captured. Captures are removed
+  with their request. (`leglas`)
 
 ![The composer a moment after sending: the field is disabled, a reference thumbnail sits above it, and the hint reads Capturing the design for your agent](https://raw.githubusercontent.com/FredAmartey/docs-assets/377e0b3810067971eee37f8f940c9bf690b256fa/projects/leglas/pull-requests/0032-agent-eyes/composer-capturing.png#w=480 "Send, and the direction is captured for the agent first; a reference image attached to the composer rides along.")
 
 - **Reference images in the composer.** Paste, drop or attach up to four PNG,
-  JPEG, WebP or GIF images of 10MB or less to a change. They upload as they
-  are attached and ride with the request. (`leglas`)
+  JPEG, WebP or GIF images of 10 MB or less. (`leglas`)
 - **`leglas show <title> --screenshot`** renders a direction and prints the
-  PNG's path. `--width` picks the viewport, 320 to 3840, and `--port` names a
-  Leglas other than the one `.leglas/server.json` records. The MCP `show` tool
-  takes `screenshot: true` and returns the image. The agent instructions
-  `leglas init` writes, the explore brief and the skill now ask for one look
-  at each direction before it is called done, and a composed request asks the
-  agent to look once after the change. (`leglas`, `leglas-mcp`, plugin)
+  PNG's path. `--width` sets the viewport (320 to 3840) and `--port` picks
+  another running Leglas. The MCP `show` tool takes `screenshot: true` and
+  returns the image. The instructions for agents now ask them to look at each
+  direction once before calling it done. (`leglas`, `leglas-mcp`, plugin)
 
 ![A rendered direction: a dark landing page whose headline reads Catch it while it's still humming, over orange sound waves](https://raw.githubusercontent.com/FredAmartey/docs-assets/377e0b3810067971eee37f8f940c9bf690b256fa/projects/leglas/pull-requests/0032-agent-eyes/what-the-agent-received-frame.png "What one request handed the agent: the direction at the width it was drawn at, filed under .leglas/captures/.")
 
-- **`.leglas/server.json`** records the running server's port so a second
-  process can find it. Removed when the server stops, and only by the instance
-  that wrote it. `/leglas/api/health` also names the project directory it
-  serves, so a command pointed at the wrong Leglas is told so instead of
-  capturing someone else's direction. (`leglas`)
+- **`.leglas/server.json`** records the running server's port so other
+  commands can find it, and `/leglas/api/health` names the project it serves,
+  so a command pointed at the wrong Leglas is told so. (`leglas`)
 
-- **A direction says when an agent is working on it.** Its row in the rail
-  carries a working badge while an agent has the request in hand, and not
-  before: a request that is only queued shows nothing on the row, so the
-  badge means work under way rather than work waiting. (`leglas`)
-- **An annotation opens again.** Click a pin and the card it was written in
-  comes back with the words in it, ready to be reworded or dropped. Enter
-  saves, Escape closes and `Forget it` is a button in the card. Dropping a
-  note used to live on the hover label beside the badge, with a gap between
-  the two that ended the hover on the way across, so removing a pin meant
-  aiming at a target that kept vanishing. Nothing you have to reach now lives
-  in a hover state, the badge takes a larger hit area than it draws, and
-  pins answer the keyboard. (`leglas`)
-- **A pin says when its words are already with an agent.** A note carried by
-  a change that has been sent and has not settled takes a ring, and its card
-  says the same in words. The prompt is composed when you press send, so
-  rewording such a note is about the next change rather than the one in
-  flight, and a pin that had been read looked exactly like one that never
-  had. Rewording one hands it a new identity, because a change forgets the
-  notes it answered as it lands and would otherwise take the new words down
-  with the old. (`leglas`)
+- **A row shows when an agent is working on it.** The badge appears while an
+  agent has the request, not while it's only queued. (`leglas`)
+- **An annotation opens again.** Click a pin to reopen its card and reword or
+  drop the note. Enter saves, Escape closes and **Forget it** removes it.
+  Nothing you need to reach hides behind a hover any more, and pins work from
+  the keyboard. (`leglas`)
+- **A pin shows when its words are already with an agent.** A note in a sent
+  change gets a ring until the change settles. Rewording it then applies to
+  the next change, not the one in flight. (`leglas`)
 
 ### Changed
 
-- The Claude Code allowance a composed request carries covers `leglas show` as
-  well as `leglas add`. (`leglas`)
+- The Claude Code permission a request carries covers `leglas show` as well as
+  `leglas add`. (`leglas`)
 
-- **Embedded Claude runs now use one persistent Agent SDK session, warmed
-  when you mean it.** Leglas starts the Claude process when the composer takes
-  focus or an agent is chosen, keeps its native process and context alive
-  across bounded turns, applies the user's chosen effort per turn and maps
-  stop to the SDK interrupt. Claude's model, project/user settings, tools
-  and edit permissions remain authoritative. Nothing is warmed at startup and
-  only one vendor is ever warm, because a warm session is Claude Code plus
-  every MCP server your settings configure: measured at 591MB across eight
-  processes on a machine with six of them, held for a session that may never
-  send a request. Five idle minutes let that process go, and the next time you
-  aim at the composer it comes back with the same conversation loaded, so a
-  follow-up still knows what came before. If the optional SDK cannot load
-  or initialize, Leglas falls back to the existing `claude -p` path. The SDK
-  is an optional dependency of `leglas`, so an install that cannot fetch it
-  still gets a working Leglas. (`leglas`)
-- **Embedded Codex runs stay warm between requests, on the same terms.**
-  Leglas warms one Codex app-server process on the same signals, starts and
-  resumes threads through its streamed protocol and maps cancellation to a
-  turn interrupt. The selected model, effort, project instructions, tools,
-  workspace-write boundary and live preview access are unchanged. It idles
-  out like Claude and picks its thread back up when it returns. Older Codex
-  builds or a failed app-server handshake fall back to the existing
-  `codex exec` path. (`leglas`)
-- **Cursor continues its chat between requests.** `cursor-agent` has no
-  persistent transport to hold open, so its process still starts per request,
-  but Leglas now records the session each run reports and resumes it on the
-  next one, which is the saving the other two get from a warm session: the
-  repository survey happens once instead of every time. (`leglas`)
+- **Claude runs use one warm session.** Leglas starts Claude when the composer
+  takes focus or you pick an agent, keeps it across requests and stops a run
+  with the SDK's interrupt. Your model, settings, tools and permissions still
+  apply. Nothing starts with Leglas, only one agent is kept warm, and five
+  idle minutes let it go; it comes back with the conversation intact. If the
+  optional SDK can't load, Leglas falls back to `claude -p`. (`leglas`)
+- **Codex runs stay warm the same way**, through one Codex app-server, and
+  fall back to `codex exec` on older Codex builds. (`leglas`)
+- **Cursor continues its chat between requests.** Leglas resumes the session
+  each run reports, so the project is read once rather than every time.
+  (`leglas`)
 
 ### Fixed
 
-- **A screenshot browser no longer outlives the Leglas that started it.**
-  Closing the terminal window sends SIGHUP, which Node acts on by exiting at
-  once, so the shutdown never ran and the headless browser was reparented to
-  init: 114MB across two processes, invisible because it is headless, held
-  until the machine restarted. That signal is handled now. A Leglas killed
-  outright or crashing cannot run any handler, so each browser also records
-  who launched it and how to reach it, in a profile directory only its own
-  user can read, and the next Leglas closes the ones whose owner is gone by
-  asking them over their own debugging endpoint. Nothing is signalled by
-  process id, since a process id is reused and the browser that answers a
-  token is the one that minted it. A browser belonging to a second Leglas
-  running right now is left alone, and so is a profile belonging to another
-  user of the machine. (`leglas`)
-- **Flipping between directions no longer loads every one of them twice.**
-  The duplicate check reads each direction off stage once, but opening one
-  looked like its document had been replaced, so the direction just clicked
-  was read again in a hidden frame: every flip cost two loads of the app
-  instead of one. Ten flips against a Next dev server went from 25 page
-  compiles to 9. Asking for a variant no longer forgets the verdict of the
-  direction it was asked of either, since a variant is built beside it and
-  leaves it alone, and the check pauses while the tab is in the background.
+- **The screenshot browser closes with Leglas.** Closing the terminal left the
+  headless browser running, unseen, until you restarted the machine. It closes
+  now, and a Leglas that crashed has its browser closed by the next one, which
+  leaves another running Leglas's browser and other users' alone. (`leglas`)
+- **Flipping between directions loads each one once.** The duplicate check
+  read the direction you'd just opened a second time in a hidden frame. Ten
+  flips on a Next dev server went from 25 page compiles to 9, and the check
+  pauses while the tab is in the background. (`leglas`)
+- **The dev server drops requests the browser gave up on.** When a preview
+  goes away, the proxy ends its request instead of letting it finish.
   (`leglas`)
-- **Requests the browser gave up on are dropped at the dev server too.** When
-  a preview unmounts or the duplicate check moves on, the proxy now ends the
-  matching upstream request instead of letting it run to completion into a
-  response nobody will read, holding a connection the whole time. (`leglas`)
-- **The interface no longer re-renders every three seconds.** The dev-server
-  health poll folded an unchanged answer into new state on every beat. A
-  direction's duplicate signature is also a short digest now, rather than the
-  megabyte of sampled layout it was read from. (`leglas`)
-- **Cursor says what it is doing.** Its activity was read as though its output
-  had Claude's shape, so every tool call read as nothing: a Cursor run showed
-  no file it was touching, and Leglas could not tell that it had edited
-  anything. Its own event shape is read now. (`leglas`)
-- **`leglas watch` could ignore a stop.** The watcher registered its stop
-  handler after resolving the agent and writing the template, so a stop that
-  arrived inside that window was never heard: the loop kept running and the
-  caller waited on it for good. A stop that lands during startup now stops it.
-  (`leglas`)
-- **A malformed request body no longer takes the server down with it.** Every
-  route that reads one now refuses anything that is not a JSON object. `null`
-  is valid JSON, and reading a field off it threw where nothing was waiting to
-  catch it, which on Node's terms ends the process: the interface, the queue's
-  own writer and whatever run was under way, from four characters sent by
-  anything that could reach loopback. (`leglas`)
+- **The interface no longer re-renders every three seconds.** The health poll
+  replaced unchanged state on every tick. (`leglas`)
+- **Cursor runs show what they're doing.** Leglas read Cursor's output as
+  Claude's, so the card never showed a file and Leglas couldn't tell it had
+  edited anything. (`leglas`)
+- **`leglas watch` hears a stop during startup.** A stop sent while it was
+  starting was ignored and the loop kept running. (`leglas`)
+- **A malformed request body can't stop the server.** Every route that reads a
+  body refuses anything but a JSON object. Sending `null` to loopback used to
+  end the process. (`leglas`)
 
-- **One Escape backs out one step while annotating.** The card's field and
-  the layer both answered the key, and because React flushes a keystroke
-  synchronously the second answer read a state the first had already
-  cleared: closing a card left the mode as well. (`leglas`)
-- **A reachable localhost port no longer silently passes as the intended app.**
-  At startup, Leglas checks the working directory of a local port's listening
-  process. If it sits outside the configured project, the CLI and interface
-  name the likely mismatch and point to `devServer` or `--user-port` without
-  blocking previews. Unsupported systems and unavailable process details stay
-  on the existing best-effort path. (`leglas`)
-- **A newly queued request starts immediately even as the previous run is
-  finishing.** A request arriving during the final queue write of an active
-  runner used to lose its immediate wake-up and wait for the two-second poll.
-  Wake-ups are now latched until the active tick settles, without ever running
-  two agents at once. (`leglas`)
-- **Routine agent reads no longer wait behind stale authentication probes.**
-  Leglas starts the initial CLI detection alongside server startup. Once it
-  has a truthful result, ordinary reads return it immediately and refresh an
-  expired answer in the background; opening the picker still waits for the
-  explicitly requested fresh result. (`leglas`)
-- **A preview's loading state belongs to the document that produced it.**
-  Readiness was keyed by title alone, so a load event from a frame that had
-  since been replaced, by an agent swapping the URL in place or a retry
-  remounting the same one, could finish the loader early, leave it stuck or
-  describe the wrong direction. It is now tracked by direction, URL and
-  reload generation together, and events from an older frame are ignored.
-  (`leglas`)
-- **The duplicate check reads the page it was asked about.** A scan's verdict
-  is recorded against the exact URL that produced it, so a direction whose
-  URL changed under the same title is read again rather than trusted. Scans
-  run one at a time, a read that failed is recorded as failed for this page
-  load instead of retrying forever or passing as a signature, and the check
-  waits on a direction with a request queued or running, since its source is
-  about to change. (`leglas`)
-- **Reading or choosing an agent cannot hang the picker.** Agent reads time
-  out after five seconds and selections after ten. A selection that times
-  out re-reads the server before reporting, so one accepted just before the
-  deadline stays selected; otherwise the picker names the agent that was not
-  selected and offers to try again. The chooser also stays available until
-  an agent is chosen: the "I'll run my own" dismissal is gone, since
-  `leglas watch` announces an external agent on its own. (`leglas`)
+- **One Escape backs out one step while annotating.** Closing a card also left
+  annotate mode. (`leglas`)
+- **Leglas warns when your dev server's port looks like another project.** At
+  startup it checks where the process on that port runs, and if that's outside
+  the project, the terminal and interface say so and point to `devServer` or
+  `--user-port`. It's best effort, skipped where the process can't be read,
+  and never blocks previews. (`leglas`)
+- **A request sent as a run finishes starts right away**, instead of waiting
+  for the next two-second poll. (`leglas`)
+- **Reading the agent list doesn't wait on a slow login check.** Leglas checks
+  installed agents at startup and answers with the last result while
+  refreshing it. Opening the picker still asks for a fresh one. (`leglas`)
+- **A preview's loading state follows the right page.** A load event from a
+  replaced frame could end the loader early, leave it stuck or name the wrong
+  direction. (`leglas`)
+- **The duplicate check reads the page it was asked about.** A direction whose
+  URL changed is read again, a failed read counts as failed instead of
+  retrying forever, and a direction with a change queued or running waits
+  until it's done. (`leglas`)
+- **The agent picker can't hang.** Reading agents times out after five seconds
+  and choosing one after ten. A choice that timed out is checked before it's
+  reported as failed. The "I'll run my own" option is gone, since
+  `leglas watch` announces itself. (`leglas`)
 
 ## 0.6.1 (2026-08-20): A broken first load comes back
 
 ### Fixed
 
-- **A preview that broke on its first try comes back with the others.** When
-  the dev server returns, Leglas reloads the previews that depend on it, but
-  it only reloaded the ones that had rendered successfully at least once. A
-  preview whose very first navigation failed had never rendered, so it was
-  skipped: its error notice was cleared and the dead frame left in place, with
-  nothing on screen to say it was still broken and no way back short of a
-  manual reload. Every app-backed preview now reloads. (`leglas`)
+- **A preview that failed on its first load comes back with the others.** When
+  the dev server returned, Leglas reloaded only previews that had loaded once,
+  so one that failed the first time stayed dead with no error showing. Every
+  app preview reloads now. (`leglas`)
 
 ## 0.6.0 (2026-08-20): The picker knows what is installed
 
 ### Changed
 
-- **Agent choice now reflects what is actually installed.** Leglas checks the
-  inherited `PATH` plus conventional per-user CLI locations, so a detached
-  server finds the same Claude Code, Codex and Cursor commands as the user's
-  terminal. Opening the picker requests a fresh detection instead of waiting
-  for a stale cache to expire. Claude Code and Codex also gain an optional
-  effort selector from Low through Maximum, remembered separately for each
-  agent; `Agent default` passes no override and keeps the CLI's own setting.
-  (`leglas`)
+- **The agent picker shows what's installed.** Leglas looks on your `PATH` and
+  in the usual per-user install folders, so it finds the same Claude Code,
+  Codex and Cursor your terminal does, and opening the picker checks again.
+  Claude Code and Codex also get an effort setting from Low to Maximum,
+  remembered per agent; **Agent default** keeps the CLI's own. (`leglas`)
 
 ![The agent picker open above the composer: Claude, Codex with a tick, an Effort row set to Agent default, and Connect agent via MCP](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/picker-with-effort.png#w=500 "The picker lists what is actually installed, with an effort row for Claude Code and Codex.")
 
-- **MCP connection is now a complete, verifiable flow.** The agent picker has
-  one clearly named `Connect agent via MCP` path instead of mixing a custom
-  command editor with a nested copy panel. A focused dialog distinguishes
-  Claude Code from Codex, Cursor, and other MCP clients, shows the exact setup,
-  confirms a copy
-  beside the control, explains the next step and reports once an MCP agent has
-  used a Leglas tool. The same path stays visible when no local agent is
-  installed. Custom commands remain available through `leglas watch --run`
-  without occupying the primary picker. (`leglas`)
+- **Connecting an agent over MCP is one flow.** "Connect agent via MCP" in the
+  picker opens a dialog for Claude Code, or for Codex, Cursor and other MCP
+  clients, shows the exact setup to copy and confirms once the agent uses a
+  Leglas tool. Custom commands moved to `leglas watch --run`. (`leglas`)
 
 ![The Connect agent via MCP dialog: a choice between Claude Code and Codex, Cursor and others, the terminal command with a copy button, and a row reading Waiting for agent activity](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.6.0-picker-and-mcp/connect-agent-via-mcp.png#w=570 "One dialog for the whole flow: pick the client, copy the exact setup, and watch it confirm once the agent uses a Leglas tool.")
 
-
 ### Fixed
 
-- **The interface stays responsive with a rail full of directions.** Every
-  live surface polls: the config for directions an agent registered, the
-  queue for what a run is doing, health for whether the dev server still
-  answers. Each one used to start a read on every tick whether or not the
-  last had come back. A browser allows six connections per origin, and Leglas
-  is a single origin shared with every preview iframe proxying the app, so a
-  project with several directions open could spend that budget and leave the
-  polls queueing behind each other. Nothing reported an error: the server
-  answered in single-digit milliseconds while a click sat there for minutes.
-  Each loop now keeps one read in flight at a time, and abandons one that
-  outlives its deadline so the connection comes back. (`leglas`)
+- **The interface stays responsive with many directions.** Its polls started a
+  new read every tick even if the last hadn't returned, and could use up the
+  browser's six connections to Leglas, leaving clicks waiting for minutes.
+  Each poll now keeps one read in flight and gives up on it after a deadline.
+  (`leglas`)
 
 ## 0.5.0 (2026-08-20): Point at what is wrong
 
-This is a minor rather than a patch because the public API surface moved:
-`PendingRequest.status` gained two values, and the type gained `failure`,
-`mode` and `notes`.
+For code that imports `leglas`: `PendingRequest.status` gained two values, and
+the type gained `failure`, `mode` and `notes`.
 
 ### Added
 
-- **Point at what is wrong instead of describing where it is.** Press `A`, or
-  use the Annotate chip beside the send button, and the preview turns into a
-  picker: hovering outlines the element under the pointer, clicking drops a
-  numbered pin and takes a note, and dragging marks an area and names every
-  element it covers. The page still scrolls while the mode is on, so what is
-  below the fold is as reachable as what is not. Annotations alone are a
-  complete request, so the composer can be left empty; what it does take is
-  the sentence about the change rather than the paragraph about which element.
-  Each one carries the element's own words, its tag and classes, a CSS path
-  and the rectangle it filled, and the request tells the agent which of those
-  to trust as the design moves under them. One whose element has gone says so
-  rather than pointing confidently at the wrong thing. The card that takes the
-  words keeps clear of what it is asking about, flipping and shifting at the
-  edges of the pane rather than hanging off them. They live in
-  `.leglas/annotations.json`, and a change made in place forgets the ones it
-  answered. (`leglas`)
+- **Point at what's wrong instead of describing it.** Press `A`, or the
+  Annotate chip beside send: hovering outlines elements, clicking drops a
+  numbered pin with a note and dragging marks an area. The page still scrolls.
+  Annotations are a complete request, so the text field can stay empty. Each
+  note carries the element's text, tag, classes, CSS path and position, and
+  says so if the element has gone. Notes live in `.leglas/annotations.json`,
+  and a change made in place forgets the ones it answered. (`leglas`)
 
 ![The interface in annotate mode: a dashed region covers the headline and the pouch with a numbered pin at its corner, the Annotate chip counts one note, and the composer offers to send with no words](https://raw.githubusercontent.com/FredAmartey/docs-assets/2ad249d23aba5f967d2f1ab4da2ea46ea978aa83/projects/leglas/pull-requests/0025-agent-run-legibility/annotate-region-kept.png "A region marked on the design. Pin 1 covers the headline and the pouch, and the note alone is a complete request.")
 
-- **A change makes a variant instead of overwriting the direction.** Sending
-  "the pouch looks fake" at a direction used to edit that direction's file, so
-  the thing being compared against was gone. It now builds a new direction
-  from a copy of the parent, registered under it in the rail with the parent
-  as its default comparison. A chip beside the send button switches to
-  changing the direction itself, for the times a change really is a fix.
-  (`leglas`)
-- **A direction says where it came from.** Hovering a row shows its note in
-  full, the direction it was built from, and the change that was asked for in
-  the words that were typed. The selected direction carries the same line
-  under the composer without being hovered. Registration takes it as
-  `leglas add --asked-for`, which the `add` MCP tool exposes too. (`leglas`,
-  `leglas-mcp`)
+- **A change makes a variant instead of overwriting.** A change now builds a
+  new direction from a copy of the one you're looking at, nested under it with
+  the original as its comparison. A chip beside send switches to editing the
+  direction itself, for when a change really is a fix. (`leglas`)
+- **A direction says where it came from.** Hovering a row shows its full note,
+  the direction it was built from and the change that was asked for. The
+  selected direction shows the same under the composer. Agents register it
+  with `leglas add --asked-for`, also on the MCP `add` tool.
+  (`leglas`, `leglas-mcp`)
 
 ### Fixed
 
-- **Embedded Codex changes keep their quality without paying orchestration
-  tax.** Leglas still respects the user's selected model and reasoning effort,
-  but Codex can now reach the live localhost preview from its workspace
-  sandbox. Interface-generated requests say that exploration, collection and
-  server startup are already complete, and registration calls the exact
-  running Leglas CLI instead of asking `npx` to discover and possibly fetch a
-  package. This removes the cache probes, duplicate dev-server attempts and
-  version hunt that could turn a small design edit into a multi-minute run.
-  (`leglas`)
+- **Codex changes finish faster.** Codex can now reach the live preview from
+  its sandbox, the request tells it setup is already done, and registration
+  calls the running Leglas directly instead of `npx`, which cuts the extra
+  checks that could stretch a small edit to minutes. Your model and effort are
+  unchanged. (`leglas`)
 
-- **Codex works in a project that is not a git repository.** `codex exec`
-  refuses such a directory before it reaches a model, so every Codex request
-  in one failed with nothing in the interface to say why. Each codex argv now
-  carries `--skip-git-repo-check`, which moves that precondition and nothing
-  else: writes stay confined by `-s workspace-write`. (`leglas`)
-- **A stopped run is recorded as stopped.** Cancelling used to leave the
-  request looking exactly like a failure, offered back for a rerun, and only
-  in the server's memory: a restart read it as `picked-up` and the card said
-  "your agent is on it" forever. Stops and failures are now written into the
-  queue and told apart on the card. (`leglas`)
-- **A failed change says what went wrong.** "That change failed" is now
-  followed by the reason: you stopped it, the provider was overloaded, the
-  CLI is signed out, its command is gone, Codex refused the directory. The
-  agent's own output stays in the terminal running Leglas rather than being
-  piped into the browser. (`leglas`)
-- **A new direction reaches the rail instead of stopping at the last step.**
-  Claude runs non-interactively under Leglas, where it can accept file edits
-  but has nobody to approve a command, so the `leglas add` that puts a new
-  direction on the rail was refused every time. The run built the whole
-  direction, explained that it could not register it, and exited cleanly;
-  Leglas read that as success and dropped the request, so the card vanished
-  and nothing appeared. The runner now permits exactly that one command, and
-  a run that finishes without registering is recorded as a failure with its
-  reason rather than disappearing as though it had worked. (`leglas`)
-- **A run waiting on an overloaded provider says so.** Claude retries a 529
-  ten times over roughly 200 seconds without a word; the card now reads
-  "provider is overloaded · retry 4 of 10" instead of a spinner. Leglas does
-  not shorten or kill the vendor's backoff, so a run that recovers still
-  finishes. (`leglas`)
-- **A stopped agent cannot wedge the runner.** A child that ignores SIGTERM,
-  or whose own child outlives it holding the output pipe, never reported that
-  it had closed: the run stayed "running" and everything queued behind it
-  waited forever. A stop now escalates after five seconds and the queue moves
-  on. The same wait bit the agent auth probe, which could leave
-  `/leglas/api/agents` unanswered for the life of the server. (`leglas`)
-- **A failed request no longer costs two provider turns.** A resumed session
-  that died was always rerun cold. That is right for a session the vendor
-  cleaned up, and wrong for an outage: it aimed a second full retry ladder at
-  a provider that was already down. Only a failure with no other explanation
-  earns the rerun now. (`leglas`)
-- **The same change cannot be queued twice by accident.** Sending identical
-  words at the same direction while one is still waiting is refused with a
-  line saying so; anything else still queues, and the composer stays open
-  during a run. (`leglas`)
+- **Codex works outside a git repository.** `codex exec` refuses such folders,
+  so every Codex request there failed without saying why. Leglas passes
+  `--skip-git-repo-check`; writes stay confined by `-s workspace-write`.
+  (`leglas`)
+- **A stopped run is recorded as stopped**, not as a failure offered for a
+  rerun, and it stays that way across a restart. (`leglas`)
+- **A failed change says why**: you stopped it, the provider is overloaded,
+  the CLI is signed out or missing, or Codex refused the folder. The agent's
+  own output stays in the terminal. (`leglas`)
+- **A new direction reaches the rail.** Claude couldn't run the `leglas add`
+  that registers it, since nobody was there to approve the command, and Leglas
+  took the clean exit as success. Leglas now allows exactly that command, and
+  a run that ends without registering is a failure with a reason. (`leglas`)
+- **A run waiting on an overloaded provider says so**: "provider is overloaded
+  · retry 4 of 10" instead of a spinner. The vendor's retries are left alone.
+  (`leglas`)
+- **A stopped agent can't jam the queue.** An agent that ignored the stop kept
+  its run going forever; a stop now escalates after five seconds. The same fix
+  unsticks the agent login check. (`leglas`)
+- **A failed request doesn't cost two provider turns.** A dead resumed session
+  is retried cold only when nothing else explains the failure, not during an
+  outage. (`leglas`)
+- **The same change can't be queued twice by accident.** Identical words at
+  the same direction are refused while one is waiting. (`leglas`)
 
 ## 0.4.1 (2026-08-14): Deleting for good, dragging from anywhere
 
 ### Added
 
-- **Removed directions can be deleted for good.** The removed list now has a
-  per-direction Delete action and a Clear all action, both behind a
-  confirmation. Machine-local directions leave `.leglas/previews.json` while
-  shared config and preview source files stay untouched. (`leglas`)
+- **Removed directions can be deleted for good**, one at a time or all at
+  once, after a confirmation. Local directions leave `.leglas/previews.json`;
+  shared config and source files stay. (`leglas`)
 
 ### Fixed
 
-- **A direction can be dragged from anywhere on its row.** Vertical movement
-  reorders while horizontal movement still selects text, so the note no longer
-  leaves most of the row unable to drag. (`leglas`)
+- **Drag a direction from anywhere on its row.** Moving up or down reorders;
+  moving sideways still selects text. (`leglas`)
 
 ![Before: a text selection painted across four rows of the rail, nothing moved](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0017-row-drag-rename/row-drag-before.png#w=372 "Before: pressing on a note and dragging painted a selection across four rows and moved nothing.")
 
 ![After: the dragged row lifted out of the list, the others making room](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0017-row-drag-rename/row-drag-after.png#w=372 "After: the row lifts and the others make room.")
 
-- **Rename fields keep Enter and Space.** The row keyboard shortcut now runs
-  only when the row itself has focus, so Enter submits a rename and spaces can
-  be typed into its name. (`leglas`)
-- **An unreadable local registry no longer hides working directions.** Leglas
-  keeps the previews it booted with if `.leglas/previews.json` becomes invalid
-  or unreadable. (`leglas`)
-- **Delete confirmations keep keyboard focus contained.** Focus stays inside
-  the dialog until it closes, then returns to the control that opened it.
-  (`leglas`)
+- **Rename fields keep Enter and Space.** The row's shortcuts only run when
+  the row itself has focus. (`leglas`)
+- **A broken local registry no longer hides directions.** If
+  `.leglas/previews.json` becomes unreadable, Leglas keeps the previews it
+  started with. (`leglas`)
+- **Delete confirmations keep keyboard focus inside**, then return it to the
+  control that opened them. (`leglas`)
 
 ## 0.4.0 (2026-08-13): The interface runs your agent
 
-The interface runs your agent itself. Asking for a change no longer
-needs a second terminal: pick an agent once and every request runs as
-you send it.
-
 ### Added
 
-- **The server runs your agent.** The composer carries its own agent
-  picker, the way a chat carries a model picker: the CLIs found on your
-  machine (Claude Code, Codex, Cursor, or a command of your own) sit one
-  click away beside the send button. Pick one and Leglas spawns it per
-  request, one at a time in queue order. Each run reports in a card
-  above the field: who is working, which file they are touching, a
-  ticking clock, a stop button while it runs, retry and dismiss when it
-  fails. Your agent, your subscription, no keys and no login. (`leglas`)
+- **The interface runs your agent.** Pick Claude Code, Codex, Cursor or a
+  command of your own beside the send button, and Leglas runs it for each
+  request, one at a time in order. A card above the field shows who's working,
+  on which file and for how long, with stop, retry and dismiss. It's your
+  agent and your subscription: no keys, no login. (`leglas`)
 
 ![A run reporting in its card above the composer: Codex is on it, editing directions/hero-a.html, 1m 10s, a stop button](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0011-embedded-agent-runner/runner-running.png#w=600 "A run reporting in its card: who is working, the file they are touching, the clock and a stop button.")
 
-- **The picker knows who is signed in.** Each detected CLI is asked for
-  its own login status (`claude auth status`, `codex login status`), so
-  a signed-out agent is marked in the menu before a run fails instead
-  of after. The answer is cached and refreshed behind the scenes; no
-  request waits on it twice. (`leglas`)
-- **Any command is an agent.** The picker's "Add your own" entry takes
-  the command you already run: aider, goose, a script of your own. Your
-  request is handed to it as its last argument, so there is no syntax
-  to learn; `{prompt}` still places it elsewhere for the command that
-  needs that, in the menu and in `leglas watch --run` alike. The chip
-  wears the command's own name, and the run loop treats it exactly like
-  the built-in three. (`leglas`)
+- **The picker knows who's signed in.** Leglas asks each CLI
+  (`claude auth status`, `codex login status`), so a signed-out agent is
+  marked before a run fails. (`leglas`)
+- **Any command can be the agent.** "Add your own" takes a command like aider
+  or goose. Your request goes in as its last argument, or wherever `{prompt}`
+  sits. The same works in `leglas watch --run`. (`leglas`)
 
 ![The picker open above the chip: Claude, Codex with a tick, and a row reading Add your own](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0011-embedded-agent-runner/runner-picker.png#w=560 "The picker above the chip: the CLIs found on the machine, and a row for a command of your own.")
 
-- **`leglas watch` needs no `--run` once an agent is picked.** The
-  choice is shared through `.leglas/watch.json`, and an external watcher
-  always wins over the embedded runner, so the two never race for a
-  request. (`leglas`)
-- **Consecutive requests share the agent's session.** The first request
-  pays for reading the project; the ones after it resume the same
-  conversation (`codex exec resume`, `claude --resume`) and skip
-  straight to the change, measured 25 to 40 percent faster. A session
-  ends on any failure, stop, or after eight turns, and a resume the
-  vendor no longer remembers falls back to a fresh start on its own,
-  so nothing new can break a request. (`leglas`)
-- **Connect the agents Leglas cannot spawn.** The picker's "Connect
-  another agent" entry hands out the MCP wiring for IDE panels and chat
-  hosts: the Claude Code command or an `mcp.json` entry, one copy each.
-  An agent working the queue over MCP now counts as attached, so the
-  embedded runner stays out of its way while it works and takes back
-  over once it goes quiet. (`leglas`, `leglas-mcp`)
+- **`leglas watch` doesn't need `--run` once an agent is picked.** The choice
+  is shared through `.leglas/watch.json`, and an external watcher always wins
+  over the built-in runner. (`leglas`)
+- **Requests share the agent's session.** After the first request, runs resume
+  the same conversation (`codex exec resume`, `claude --resume`), measured 25
+  to 40 percent faster. A session ends on a failure, a stop or after eight
+  turns, and starts fresh if the vendor has forgotten it. (`leglas`)
+- **Connect agents Leglas can't run.** "Connect another agent" gives the MCP
+  setup for IDE panels and chat hosts. An agent working the queue over MCP
+  counts as attached, so the built-in runner stays out of its way until it
+  goes quiet. (`leglas`, `leglas-mcp`)
 
 ![The connect sheet: Give your agent the Leglas tools, with a copy button beside Claude Code command and beside mcp.json for everything else](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0014-mcp-connect/connect-sheet.png#w=520 "The sheet behind Connect another agent: the Claude Code command or an mcp.json entry, one copy each.")
 
-
 ### Changed
 
-- **Runs start the moment you send and finish in half the time.** A new
-  request no longer waits out the runner's poll, and the composed prompt
-  now says how small the job is, so the agent makes the change and
-  finishes instead of verifying a design tweak with test runs. Measured
-  on real runs: the typical small change went from about a minute with
-  two-minute outliers to under thirty seconds. (`leglas`)
-- Writing to `/leglas/api/` now happens only from the machine running
-  Leglas: every POST needs a loopback socket, and the browser's Origin
-  must match its Host on top of that. An API that decides what executes
-  on your computer cannot take instructions from the network. Shared
-  links keep working for what they promised, opening and viewing live
-  directions. (`leglas`)
+- **Runs start when you send and finish in half the time.** Requests no longer
+  wait for a poll, and the prompt tells the agent how small the job is, so it
+  doesn't run tests on a design tweak. A typical small change went from about
+  a minute to under thirty seconds. (`leglas`)
+- Changes through `/leglas/api/` are only accepted from your own machine:
+  every POST needs a loopback connection, and a browser's Origin has to match
+  its Host. Shared links still open and view directions. (`leglas`)
 
 ## 0.3.0 (2026-08-09): Installable as one thing
 
-Leglas becomes installable as one thing. The skill teaches an agent the
-workflow, the plugin carries the skill and the server together, and the server
-learned to find your project when a plugin client starts it somewhere else.
-
 ### Added
 
-- **An installable agent skill.** `npx skills add FredAmartey/leglas` teaches an
-  agent the workflow in any project, including ones that have never seen
-  Leglas. It sets the project up itself and gets to work.
+- **An installable agent skill.** `npx skills add FredAmartey/leglas` teaches
+  an agent the workflow in any project, setup included.
 - **The repository is an [Agent Plugin](https://agent-plugins.org).**
-  `plugin.json` and `mcp.json` at the root, the skill in `skills/leglas/`. A
-  client that implements the standard picks up the skill and the server
-  together. Nothing is built or generated; the directory is the package.
-- **An Install section in the README**, saying plainly that there is nothing you
-  have to install.
-- **The published API is recorded and guarded.** `api-surface.txt` lists what
-  both npm packages export. A test compares it against the build, so a changed
-  signature turns up in the pull request that caused it, and a release refuses
-  a patch tag when the surface has moved.
-- **A weekly check on the vendored Agent Plugins schemas**, which opens an
-  issue if the published ones change.
-- **The plugin manifests are checked against the standard's own schemas**, so a
-  typo fails the suite rather than making a client quietly skip a component.
+  `plugin.json` and `mcp.json` sit at the root and the skill in
+  `skills/leglas/`, so a client that supports the standard gets the skill and
+  the server together.
+- **An Install section in the README**, saying there's nothing you have to
+  install.
+- **The published API is recorded.** `api-surface.txt` lists what both npm
+  packages export, a test compares it with the build, and a patch release is
+  refused if it moved.
+- **A weekly check on the vendored Agent Plugins schemas** opens an issue when
+  they change.
+- **The plugin manifests are checked against the standard's schemas**, so a
+  typo fails the tests instead of a client quietly skipping a component.
 
 ### Fixed
 
-- **The MCP server no longer sets up the wrong directory.** An Agent Plugins
-  client starts a plugin's server inside the plugin's own install folder, not
-  inside your project. The server used to trust that folder, so `init` wrote
-  `AGENTS.md` into a plugin cache and reported success. It now takes the
-  project from the workspace the host declares over MCP roots, falls back to
-  the working directory only when that sits inside one, and lets
-  `LEGLAS_PROJECT_DIR` override both. When nothing answers, the tools say there
-  is no project rather than writing somewhere nobody meant.
-
-  If you reach the server through `claude mcp add` or a hand-written
-  `.mcp.json`, nothing changes: your working directory is already the project,
-  and it is still used.
-- **Change requests the agent never collected are no longer cleared**, so
-  `--clear` can only drop what was actually handed over.
+- **The MCP server no longer sets up the wrong folder.** A plugin client
+  starts the server inside the plugin's install folder, so `init` wrote
+  `AGENTS.md` into a plugin cache. The server now takes the project from the
+  workspace the host declares, uses the working directory only when it's
+  inside one, and `LEGLAS_PROJECT_DIR` overrides both. With none of them, the
+  tools say there's no project. Through `claude mcp add` or a hand-written
+  `.mcp.json`, nothing changes.
+- **Change requests the agent never collected aren't cleared**, so `--clear`
+  only drops what was handed over.
 - **Config edits that need a restart say so**, and unknown `/leglas` paths
-  return 404 instead of the interface.
+  return 404.
 
 ### Changed
 
-- Commands read as `npx leglas ...` wherever one is suggested, since nothing
-  has to be installed first.
+- Suggested commands read `npx leglas ...`, since nothing has to be installed
+  first.
 
 ### Changed, and only if you import the packages
 
-- `registerLeglasTools` and `startChannel`, both exported from `leglas-mcp`,
-  now take `{ project }` where they took `{ cwd }`.
-
-  This is the whole of the breaking change, and it is why this release is
-  `0.3.0` rather than `0.2.1`. It does not affect running `npx leglas`, and it
-  does not affect calling the MCP tools: those are the same ten tools, with the
-  same names and arguments, as in 0.2.0. It affects only code that imports from
-  `leglas-mcp` directly, which is an unusual thing to do.
+- `registerLeglasTools` and `startChannel` from `leglas-mcp` take
+  `{ project }` instead of `{ cwd }`. Running `npx leglas` and calling the MCP
+  tools are unchanged.
 
 ## 0.2.0 (2026-08-05): Ask for a change without leaving
-
-Change requests, so you can ask for edits without leaving the comparison.
 
 ### Added
 
 - **Ask for a change from the interface.** Type what you want changed on the
-  direction you are looking at. Leglas writes a prompt naming that direction
-  and the file behind it, copies it to your clipboard, and queues it, with a
-  lifecycle the interface can show.
+  direction you're looking at. Leglas writes a prompt naming that direction
+  and its file, copies it to your clipboard and queues it, and the interface
+  shows where it's got to.
 
 ![The input bar under the rail with a notice above it: Asked for a change to Aurora. Prompt copied. The hint reads 1 change queued for your agent](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0002-change-request-lifecycle/request-queued.png#w=560 "A change asked for from the input bar: the prompt is on the clipboard and the hint says one change is queued.")
 
 - **`leglas watch --run "<command>"`** hands each request to your agent as it
-  arrives, so you can keep working while it acts on them.
+  arrives, so you can keep working.
 
 ![The Leglas interface with Aurora selected, its gradient now warm orange fading to blue, and the hint under the input bar reading Your agent is listening](https://raw.githubusercontent.com/FredAmartey/docs-assets/d6ae73e3ac9ce4e1411156da21c4596a3503c5da/projects/leglas/pull-requests/0003-agent-watch/aurora-after.png "Aurora after the watcher handed a change to the agent. The hint under the input bar reads Your agent is listening.")
 
-- **Channel push.** On hosts that speak channels, the MCP server delivers each
-  request straight into the open session instead of waiting to be asked.
-- **`leglas show <title>`** answers everything about one direction: its entry,
-  the file behind it, its variants, what it is being compared against, and
-  anything still pending on it.
+- **Channel push.** On hosts that support channels, the MCP server delivers
+  each request straight into the open session instead of waiting to be asked.
+- **`leglas show <title>`** prints everything about one direction: its entry,
+  its file, its variants, what it's compared against and anything pending on
+  it.
 - **Directions appear in the rail as an agent registers them**, so you watch a
-  set fill in rather than waiting for the whole set.
-- **Variants group under the direction they are based on.**
-- A logo across the readme, favicon and interface. A keymap on `?` and reworked
-  keyboard shortcuts. Loading states, tag colours drawn from the text, and two
-  distinct ways to copy a direction.
+  set fill in.
+- **Variants group under the direction they're based on.**
+- A logo across the README, favicon and interface. A keymap on `?` and
+  reworked keyboard shortcuts. Loading states, tag colours drawn from the
+  text, and two distinct ways to copy a direction.
 
 ### Fixed
 
-- The duplicate check sees colour, and scans directions you have not opened yet.
+- The duplicate check sees colour, and scans directions you haven't opened
+  yet.
 - Tooltips stay inside the viewport, and refit when their label changes while
   open.
 - Dragging and tapping the tools widget.
@@ -1049,26 +703,26 @@ Change requests, so you can ask for edits without leaving the comparison.
 
 ### Changed
 
-- The agent owns the design angles; Leglas prescribes none of them.
-- Releases run from CI on a `v*` tag through npm trusted publishing, so no
-  token exists anywhere. 0.2.0 onward carry build provenance.
+- The agent picks the design angles; Leglas prescribes none.
+- Releases are published from CI through npm trusted publishing, and carry
+  build provenance from 0.2.0 on.
 
 ## 0.1.0 and 0.1.1 (2026-08-01): First release
 
-First release, and a same-day documentation correction. Both were published by
-hand before the CI pipeline existed, which is why they carry no provenance and
-why the `v0.1.0` tag does not line up with them cleanly.
+The first release, and a documentation fix the same day. Both were published
+by hand, so they carry no provenance, and the `v0.1.0` tag doesn't match them
+exactly.
 
-Point Leglas at the dev server you are already running, list the URLs you want
-to compare, and flip between them in one interface. Every preview is your real
-application: real data, real authentication, real behaviour.
+Point Leglas at the dev server you already run, list the URLs you want to
+compare, and flip between them in one interface. Every preview is your real
+app: real data, real auth, real behaviour.
 
-- The rail, the stage, split comparison, and per-project saved layout.
-- `leglas init` writes an `AGENTS.md` section teaching agents the workflow.
+- The rail, the stage, split comparison and a saved layout per project.
+- `leglas init` writes an `AGENTS.md` section that teaches agents the
+  workflow.
 - `leglas new`, `explore`, `classify`, `add`, `list` and `keep`.
-- `leglas-mcp` for agent hosts that cannot run a shell.
-- Branch-backed previews, plain HTML directions with no dev server, and a
-  duplicate check for two directions that render the same page.
+- `leglas-mcp` for agent hosts that can't run a shell.
+- Branch previews, plain HTML directions with no dev server, and a duplicate
+  check for two directions that render the same page.
 
 ![The first Leglas interface: a rail headed Directions with five of them and Table selected, and the Simmer hero running full width on the stage](https://raw.githubusercontent.com/FredAmartey/docs-assets/e78751b8258d1c33f29946465b54080b20d9321c/projects/leglas/changelog/0.1.0-first-release/rail-and-stage.jpg "Leglas 0.1.0, built from its tag and pointed at a demo app: the rail on the left, and the selected direction running as the real app on the stage.")
-

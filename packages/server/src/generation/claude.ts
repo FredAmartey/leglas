@@ -60,7 +60,7 @@ export function resultText(lines: readonly string[]): string | null {
       if (isJsonRecord(event) && event.type === "result" && isString(event.result))
         return event.result;
     } catch {
-      // A line that is not JSON is the CLI's own chatter; the result event is.
+      // Not JSON: the CLI's own chatter, never the result.
     }
   }
 

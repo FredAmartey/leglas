@@ -198,7 +198,7 @@ async function dependencyNames(cwd: string): Promise<string[]> {
 
     return isJsonRecord(pkg) && isJsonRecord(pkg.dependencies) ? Object.keys(pkg.dependencies) : [];
   } catch {
-    // No package.json, or one that does not parse: the builders simply are not told.
+    // No package.json, or one that does not parse: the builders are not told.
     return [];
   }
 }

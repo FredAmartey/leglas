@@ -63,8 +63,7 @@ describe("runKeep", () => {
     expect(existsSync(join(cwd, ".leglas/variants/hero"))).toBe(false);
   });
 
-  // Agents tend to pass absolute paths. One inside the project names the same
-  // file as its relative form, so it lands where the relative one would.
+  // Agents tend to pass absolute paths.
   test("an absolute destination inside the project lands where the relative one would", async () => {
     const cwd = await project();
 

@@ -15,11 +15,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { parseArgs } from "leglas";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
 
-import { UNRESOLVED_PROJECT, fixedProject, hostProject } from "./project.js";
+import { UNRESOLVED_PROJECT, fixedProject, hostProject, type Project } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
 const cleanups: LeglasTools[] = [];
@@ -47,7 +48,7 @@ function scratch(): string {
 /** A linked in-process pair: the same wire protocol a host speaks, no stdio. */
 async function connect(
   cwd: string,
-  options: { touches?: { count: number } } = {},
+  options: { touches?: { count: number }; project?: Project } = {},
 ): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
 
@@ -60,7 +61,9 @@ async function connect(
     stop: async () => {},
   };
 
-  cleanups.push(registerLeglasTools(server, { project: fixedProject(cwd), engagement }));
+  cleanups.push(
+    registerLeglasTools(server, { project: options.project ?? fixedProject(cwd), engagement }),
+  );
   const client = new Client({ name: "test-host", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -329,10 +332,9 @@ describe("the MCP face", () => {
     expect(envelope["requests"]).toEqual([]);
   });
 
-  // This is the one test that boots the viewer the way the published package
-  // does, bundle and all, and a booting server asks each agent CLI whether it
-  // is logged in. Stand-ins that answer "no" sit first on PATH, where agent
-  // detection looks before anywhere else, so no real CLI is run.
+  // The one test that boots the bundle the package publishes, and a booting
+  // server asks each agent CLI whether it is logged in. Stand-ins that answer
+  // "no" come first on PATH, so no real CLI runs.
   test.skipIf(process.platform === "win32")(
     "start boots the viewer, is idempotent, and shutdown stops it",
     async () => {
@@ -447,5 +449,81 @@ describe("a host that works somewhere other than the project", () => {
     expect(envelope["ok"]).toBe(false);
     expect(envelope["error"]).toBe(UNRESOLVED_PROJECT);
     expect(existsSync(join(pluginRoot, "AGENTS.md"))).toBe(false);
+  });
+});
+
+describe("the MCP face refuses what the command line refuses", () => {
+  const refusals: {
+    name: string;
+    tool: string;
+    args: { [key: string]: JsonValue };
+    argv: string[];
+    /** The command line's message for this, as it shipped before the tools asked the rules. */
+    error: string;
+  }[] = [
+    {
+      name: "add with nothing to show",
+      tool: "add",
+      args: { title: "Aurora" },
+      argv: ["add", "--title", "Aurora"],
+      error:
+        "leglas add needs --url (for example --url '/?v-hero=aurora') or --file for a page Leglas serves itself.",
+    },
+    {
+      name: "add with an empty note",
+      tool: "add",
+      args: { title: "Aurora", url: "/", note: "" },
+      argv: ["add", "--title", "Aurora", "--url", "/", "--note", ""],
+      error: "--note needs a value.",
+    },
+    {
+      name: "show with a width but no screenshot",
+      tool: "show",
+      args: { title: "Aurora", width: 390 },
+      argv: ["show", "Aurora", "--width", "390"],
+      error: "leglas show --width needs --screenshot.",
+    },
+    {
+      name: "share stopping with a direction named",
+      tool: "share",
+      args: { titles: ["Aurora"], stop: true },
+      argv: ["share", "Aurora", "--stop"],
+      error: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "share stopping with a reach",
+      tool: "share",
+      args: { reach: "listed", stop: true },
+      argv: ["share", "--reach", "listed", "--stop"],
+      error: "leglas share --stop ends the share; it takes no directions, reach or tunnel.",
+    },
+    {
+      name: "scaffold with an empty baseline path",
+      tool: "scaffold",
+      args: { surface: "hero", from: "" },
+      argv: ["new", "hero", "--from", ""],
+      error: "--from needs a path, for example --from src/Hero.tsx",
+    },
+  ];
+
+  // No project to act on, so a refusal that comes back proves it ran before the tool looked for one.
+  const nowhere: Project = { locate: async () => ({ ok: false, reason: UNRESOLVED_PROJECT }) };
+
+  test.each(refusals)("$name, in the command line's words", async ({ tool, args, argv, error }) => {
+    expect(parseArgs(argv)).toEqual({ kind: "error", message: error });
+    const client = await connect(scratch(), { project: nowhere });
+    const { envelope, isError } = await call(client, tool, args);
+
+    expect(isError).toBe(true);
+    expect(envelope).toEqual({ ok: false, error });
+  });
+
+  test("takes an explore count the command line takes", async () => {
+    expect(parseArgs(["explore", "hero", "--count", "30"]).kind).toBe("explore");
+    const client = await connect(scratch());
+    const { envelope, isError } = await call(client, "explore", { surface: "hero", count: 30 });
+
+    expect(isError).toBe(false);
+    expect(envelope["ok"]).toBe(true);
   });
 });

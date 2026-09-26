@@ -1051,16 +1051,36 @@ describe("the ceiling on viewer traffic", () => {
     });
 
     const full = VIEWER_CONCURRENCY + VIEWER_QUEUE;
+    const filling: Array<ReturnType<typeof raw>> = [];
 
-    const filling = Array.from({ length: full }, (_, i) =>
-      raw(share.port, `/fill-${i}`, share.cookie),
-    );
+    let answered = 0;
 
-    await Promise.all(filling.map((request) => request.sent));
+    // One at a time: macOS caps the listen backlog at 128, and macOS 27
+    // refuses connections past it.
+    for (let i = 0; i < full; i += 1) {
+      const request = raw(share.port, `/fill-${i}`, share.cookie);
+      filling.push(request);
+      void request.status.then(() => (answered += 1));
+      await request.sent;
+    }
+
     await vi.waitFor(() => expect(holding.length).toBe(VIEWER_CONCURRENCY));
 
     const over = raw(share.port, "/one-too-many", share.cookie);
-    expect(await over.status).toBe(503);
+    let wait: ReturnType<typeof setTimeout> | undefined;
+
+    const answer = await Promise.race([
+      over.status,
+      new Promise<"no answer">((resolve) => {
+        wait = setTimeout(() => resolve("no answer"), 5000);
+      }),
+    ]);
+
+    clearTimeout(wait);
+    expect(answer).toBe(503);
+    // None of the 140 was refused, so the limit isn't lower either.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(answered).toBe(0);
 
     for (const request of filling) request.stop();
 
