@@ -47,6 +47,7 @@ existing file's behaviour, builds on its own git branch instead.
 | `leglas classify --change … --rewrite …` | Says where a direction should live before it is written: in-app, where switching is instant, or on its own branch. |
 | `leglas add --title … --url …` | Registers a direction on this machine. |
 | `leglas show "Aurora" --json` | Everything about one direction: its entry, the file behind it, its variants, what it is compared against, what is pending. `--screenshot` renders it too, so an agent can look at what it built. |
+| `leglas link "Aurora" "Dusk"` | A link that opens the interface with Aurora on the stage and Dusk beside it; one title opens it alone. While Leglas runs, `add`, `show` and `list` give the same link for each direction as `interfaceUrl`. |
 | `leglas requests --json` | The change requests queued from the interface; `--clear` acknowledges them. |
 | `leglas keep "Aurora" --to src/components/hero.tsx` | Moves the winner into real source and ends the exploration, writing what it decided into `design-log/` as markdown and PNGs. `leglas log` lists what is there. |
 
@@ -77,7 +78,8 @@ and a run ended this way is not retried on its own.
 
 For agent hosts that cannot run shell commands, `leglas-mcp` exposes the
 same operations as MCP tools over stdio: `start`, `add`, `list`, `show`,
-`classify`, `explore`, `scaffold`, `keep`, `requests`, `share` and `init`. Each
+`link`, `classify`, `explore`, `scaffold`, `keep`, `requests`, `share` and
+`init`. Each
 tool calls exactly what the CLI calls, returns the same envelope and refuses
 what the CLI refuses. A call outside what the tool's schema allows, such as a
 screenshot wider than 3840 pixels, gets the MCP SDK's input validation error;
@@ -87,8 +89,8 @@ ends.
 
 `watch` and `log` have no tool. The command line keeps a few flags to itself:
 `--user-port` and `--config` when starting, `--tunnel` and `--port` when
-sharing, `--port` for a screenshot. Building a set with `explore --build` stays
-there too.
+sharing and linking, `--port` for a screenshot. Building a set with
+`explore --build` stays there too.
 
 ```sh
 claude mcp add leglas -- npx -y leglas-mcp

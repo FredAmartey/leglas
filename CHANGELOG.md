@@ -10,6 +10,16 @@ Each entry ends with which of the three it reaches.
 
 ## Unreleased
 
+### Added
+
+- **Links that open Leglas on a direction.** `leglas link Aurora` prints a link
+  that opens the interface with Aurora on the stage, and
+  `leglas link Aurora Dusk` puts the two side by side. `add`, `show` and `list`
+  include the same link while Leglas is running, and the MCP server has a
+  `link` tool, so your agent can hand you one when a direction is ready. A
+  direction you took off the list comes back when a link names it. (`leglas`,
+  `leglas-mcp`)
+
 ### Fixed
 
 - **The MCP tools refuse what the command line refuses.** `add` saved an empty
