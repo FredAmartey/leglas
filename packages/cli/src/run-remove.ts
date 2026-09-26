@@ -56,7 +56,11 @@ export async function runRemove(
   }
 
   const registered = new Set(local.previews.map((preview) => preview.title));
-  const shared = titles.find((title) => !registered.has(title));
+  const listed = new Set((loaded.config?.previews ?? []).map((preview) => preview.title));
+
+  // The config's entry wins on the rail, so dropping a local twin would leave
+  // the direction where it was.
+  const shared = titles.find((title) => listed.has(title) || !registered.has(title));
 
   if (shared !== undefined) {
     const where = loaded.path === null ? "the config" : relative(options.cwd, loaded.path);

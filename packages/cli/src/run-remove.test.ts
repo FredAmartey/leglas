@@ -79,6 +79,20 @@ describe("runRemove", () => {
     expect(await titles(cwd)).toEqual(["Table", "Aurora", "Ember"]);
   });
 
+  test("refuses a title the config lists even when this machine registered it too", async () => {
+    const cwd = await project();
+    const path = join(cwd, ".leglas", "previews.json");
+    const registry = JSON.parse(readFileSync(path, "utf8"));
+    registry.previews.push({ title: "Table", url: "/?v-hero=table" });
+    writeFileSync(path, JSON.stringify(registry));
+
+    const { outcome, envelope } = await remove(cwd, ["Table"]);
+
+    expect(outcome.exitCode).toBe(1);
+    expect(envelope.error).toContain("Table is in leglas.config.json");
+    expect(JSON.parse(readFileSync(path, "utf8")).previews).toHaveLength(3);
+  });
+
   test("says a registry it cannot read is why, and leaves it as it is", async () => {
     const cwd = await project();
     const path = join(cwd, ".leglas", "previews.json");
