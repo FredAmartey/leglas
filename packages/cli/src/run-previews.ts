@@ -11,10 +11,15 @@ import {
 } from "@leglas/server";
 
 import { ignoreEntry } from "./ignore.js";
+import { interfaceUrl, recordedPort } from "./running.js";
 
 import type { AddPreview } from "./args.js";
 
-export type PreviewDeps = { log(line: string): void; error(line: string): void };
+export type PreviewDeps = {
+  log(line: string): void;
+  error(line: string): void;
+  fetch?: typeof fetch;
+};
 
 export type PreviewResult = { exitCode: number };
 
@@ -27,6 +32,7 @@ type AddedPreview = {
   file?: string;
   note?: string;
   warning?: string;
+  interfaceUrl?: string;
 };
 
 type EnvelopeBody =
@@ -43,6 +49,7 @@ type EnvelopeBody =
         local: boolean;
         branch: string | null;
         file: string | null;
+        interfaceUrl: string | null;
       }[];
       errors: string[];
     }
@@ -128,6 +135,12 @@ export async function runAdd(
   const needsDevCommand =
     options.preview.branch !== undefined && loaded.config?.devCommand === undefined;
 
+  // A branch or file preview reaches the rail only after a restart, so a link
+  // to it now would open on nothing.
+  const joinsLive = options.preview.branch === undefined && options.preview.file === undefined;
+  const port = joinsLive ? await recordedPort(options.cwd, deps.fetch ?? fetch) : null;
+  const opens = port === null ? null : interfaceUrl(port, [options.preview.title]);
+
   if (options.json) {
     const added: AddedPreview = { added: options.preview.title };
 
@@ -147,11 +160,15 @@ export async function runAdd(
         "The config sets no devCommand, so Leglas cannot start this branch yet. Add devCommand (with {port}) to the config.";
     }
 
+    if (opens !== null) added.interfaceUrl = opens;
+
     envelope(deps, true, added);
   } else {
     deps.log(
       `  added  ${options.preview.title}  ${options.preview.url ?? options.preview.file ?? ""}`,
     );
+
+    if (opens !== null) deps.log(`  open   ${opens}`);
     deps.log("");
 
     if (needsDevCommand) {
@@ -186,6 +203,8 @@ export async function runList(
   ];
 
   if (options.json) {
+    const port = await recordedPort(options.cwd, deps.fetch ?? fetch);
+
     envelope(deps, errors.length === 0, {
       // The whole record: a preview's note, tags and base direction are what
       // tell an agent why these are being compared.
@@ -199,6 +218,7 @@ export async function runList(
         local: preview.local,
         branch: preview.branch ?? null,
         file: preview.file ?? null,
+        interfaceUrl: port === null ? null : interfaceUrl(port, [preview.title]),
       })),
       errors,
     });

@@ -116,6 +116,12 @@ export type ParseResult = {
     port: number | null;
     json: boolean;
 } | {
+    kind: "link";
+    /** None opens the rail; one opens that direction; two put them side by side. */
+    titles: string[];
+    port: number | null;
+    json: boolean;
+} | {
     kind: "requests";
     json: boolean;
     clear: boolean;
@@ -373,6 +379,14 @@ export declare function runKeep(options: {
     json: boolean;
     cwd: string;
 }, deps: KeepDeps): Promise<{
+    exitCode: number;
+}>;
+export declare function runLink(options: {
+    titles: string[];
+    port: number | null;
+    json: boolean;
+    cwd: string;
+}, deps: LinkDeps): Promise<{
     exitCode: number;
 }>;
 export declare function runList(options: {

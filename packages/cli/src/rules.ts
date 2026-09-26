@@ -80,6 +80,12 @@ export function shareRefusal(options: {
   return null;
 }
 
+export function linkRefusal(titles: readonly string[]): string | null {
+  return titles.length > 2
+    ? "leglas link takes one direction, or two to put side by side. Name none for the rail."
+    : null;
+}
+
 export function widthRefusal(width: number): string | null {
   return width < MIN_SHOW_WIDTH || width > MAX_SHOW_WIDTH
     ? `--width must be between ${MIN_SHOW_WIDTH} and ${MAX_SHOW_WIDTH}, received ${width}.`

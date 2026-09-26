@@ -568,6 +568,23 @@ describe("the share command", () => {
   });
 });
 
+describe("the link command", () => {
+  test("takes none, one or two directions and the port of a Leglas elsewhere", () => {
+    expect(parseArgs(["link"])).toEqual({ kind: "link", titles: [], port: null, json: false });
+    expect(parseArgs(["link", "Aurora", "Dusk", "--port=4200", "--json"])).toEqual({
+      kind: "link",
+      titles: ["Aurora", "Dusk"],
+      port: 4200,
+      json: true,
+    });
+    expect(parseArgs(["link", "A", "B", "C"])).toEqual({
+      kind: "error",
+      message:
+        "leglas link takes one direction, or two to put side by side. Name none for the rail.",
+    });
+  });
+});
+
 describe("watch", () => {
   test("takes the agent command as one argument", () => {
     const result = parseArgs(["watch", "--run", "claude -p {prompt}"]);

@@ -1,11 +1,14 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { writeServerInfo } from "@leglas/server";
+import { describe, expect, test, vi } from "vitest";
+
+import { readLink } from "../../shell/src/link.js";
 
 import type { AddPreview } from "./args.js";
 
-import { runAdd, runRequests } from "./run-previews.js";
+import { runAdd, runList, runRequests } from "./run-previews.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-add-"));
@@ -98,6 +101,86 @@ describe("runAdd with --json", () => {
 
     expect(JSON.parse(output.lines[0] ?? "{}").note).toMatch(/within seconds/);
   });
+});
+
+describe("the address of the running interface", () => {
+  /** A Leglas on 4321 that says which project it serves. */
+  const serving = (cwd: string) =>
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => new Response(JSON.stringify({ cwd }), { status: 200 }));
+
+  test("add and list give one that opens on the direction, for this project's Leglas", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+    const fetch = serving(cwd);
+
+    const added = collect();
+    await runAdd(
+      { preview: preview({ title: "Night sky" }), json: true, cwd },
+      { ...added.deps, fetch },
+    );
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+    const opens = new URL(JSON.parse(added.lines[0] ?? "{}").interfaceUrl);
+
+    expect(`${opens.origin}${opens.pathname}`).toBe("http://localhost:4321/leglas");
+    expect(readLink(opens.search)).toEqual({ direction: "Night sky", compare: null });
+
+    const previews: { title: string; interfaceUrl: string }[] = JSON.parse(
+      listed.lines[0] ?? "{}",
+    ).previews;
+
+    expect(previews.find((entry) => entry.title === "Night sky")?.interfaceUrl).toBe(opens.href);
+  });
+
+  test("is left out, and nothing is asked, with no Leglas recorded", async () => {
+    const cwd = scratch();
+    const fetch = vi.fn<typeof globalThis.fetch>();
+
+    const added = collect();
+    await runAdd({ preview: preview({}), json: true, cwd }, { ...added.deps, fetch });
+    const listed = collect();
+    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(JSON.parse(listed.lines[0] ?? "{}").previews[0].interfaceUrl).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("is left out when the recorded port serves another project", async () => {
+    const cwd = scratch();
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+
+    const added = collect();
+    await runAdd(
+      { preview: preview({}), json: true, cwd },
+      { ...added.deps, fetch: serving(scratch()) },
+    );
+
+    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+  });
+
+  test.each([
+    { kind: "branch", over: { title: "On a branch", branch: "aurora" } },
+    { kind: "file", over: { title: "A page", url: undefined, file: "page.html" } },
+  ])(
+    "is left out for a $kind preview, which a running rail shows after a restart",
+    async ({ over }) => {
+      const cwd = scratch();
+      await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+
+      const added = collect();
+      await runAdd(
+        { preview: preview(over), json: true, cwd },
+        { ...added.deps, fetch: serving(cwd) },
+      );
+
+      expect(JSON.parse(added.lines[0] ?? "{}")).toMatchObject({ ok: true, added: over.title });
+      expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    },
+  );
 });
 
 describe("runRequests", () => {

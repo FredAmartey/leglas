@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 
-import { DEFAULT_PORT, readServerInfo } from "@leglas/server";
+import { DEFAULT_PORT, LEGLAS_PREFIX, readServerInfo } from "@leglas/server";
 
 import { isJsonObject, isString, type JsonValue } from "./json.js";
 
@@ -61,4 +61,33 @@ export async function findLeglas(
   } catch {
     return { ok: false, error: NOT_RUNNING };
   }
+}
+
+/**
+ * The interface on one direction, or two side by side; none opens the rail.
+ * On localhost, like the address Leglas opens, because the rail keeps its
+ * layout per origin.
+ */
+export function interfaceUrl(port: number, titles: readonly string[]): string {
+  const url = new URL(`http://localhost:${port}${LEGLAS_PREFIX}`);
+  const [direction, compare] = titles;
+
+  if (direction !== undefined) url.searchParams.set("direction", direction);
+
+  if (compare !== undefined) url.searchParams.set("compare", compare);
+
+  return url.href;
+}
+
+/**
+ * The port of this project's running Leglas, known only from the record it
+ * writes: without one there is no link to give, and nothing is asked.
+ */
+export async function recordedPort(cwd: string, request: typeof fetch): Promise<number | null> {
+  const record = await readServerInfo(cwd);
+
+  if (record === null) return null;
+  const found = await findLeglas(cwd, record.port, request);
+
+  return found.ok ? found.port : null;
 }

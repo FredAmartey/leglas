@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 
-import { writeRenames } from "@leglas/server";
+import { writeRenames, writeServerInfo } from "@leglas/server";
+
+import { readLink } from "../../shell/src/link.js";
 
 import { runAdd } from "./run-previews.js";
 import { runShow } from "./run-show.js";
@@ -43,7 +45,7 @@ const add = (cwd: string, title: string, url: string) =>
   );
 
 type ShowEnvelope = {
-  direction?: { title: string };
+  direction?: { title: string; interfaceUrl: string | null };
   error?: string;
   screenshot?: { hydration: { framework: string; message: string } | null };
 };
@@ -65,6 +67,30 @@ describe("runShow", () => {
 
     expect(outcome.exitCode).toBe(0);
     expect(envelope(lines).direction).toMatchObject({ title: "Cool" });
+  });
+
+  test("gives the address that opens the interface on the direction, while Leglas runs", async () => {
+    const cwd = scratch();
+    await add(cwd, "Cool", "/?v-hero=cool");
+    await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
+    const { deps, lines } = collect();
+
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => new Response(JSON.stringify({ cwd }), { status: 200 }));
+
+    await runShow(
+      { title: "Cool", json: true, screenshot: false, width: null, port: null, cwd },
+      { ...deps, fetch },
+    );
+
+    const address = envelope(lines).direction?.interfaceUrl;
+
+    expect(address).toEqual(expect.any(String));
+    const opens = new URL(address ?? "");
+
+    expect(`${opens.origin}${opens.pathname}`).toBe("http://localhost:4321/leglas");
+    expect(readLink(opens.search)).toEqual({ direction: "Cool", compare: null });
   });
 
   test("a config title still wins over another direction's local nickname", async () => {

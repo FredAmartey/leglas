@@ -19,6 +19,7 @@ import { parseArgs } from "leglas";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { writeServerInfo } from "../../server/src/server-info.js";
+import { readLink } from "../../shell/src/link.js";
 
 import { UNRESOLVED_PROJECT, fixedProject, hostProject, type Project } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
@@ -104,6 +105,7 @@ describe("the MCP face", () => {
       "explore",
       "init",
       "keep",
+      "link",
       "list",
       "requests",
       "scaffold",
@@ -332,23 +334,40 @@ describe("the MCP face", () => {
     expect(envelope["requests"]).toEqual([]);
   });
 
-  // The one test that boots the bundle the package publishes, and a booting
-  // server asks each agent CLI whether it is logged in. Stand-ins that answer
-  // "no" come first on PATH, so no real CLI runs.
+  // A booting server asks each agent CLI whether it is logged in. Stand-ins
+  // that answer "no" come first on PATH, so no real CLI runs; PATH goes back
+  // once each has been asked.
+  const standIns = () => {
+    const bin = scratch();
+    const asked = join(bin, "asked.log");
+
+    for (const name of ["claude", "codex", "cursor-agent"]) {
+      const stub = join(bin, name);
+      writeFileSync(stub, `#!/bin/sh\necho ${name} >> "${asked}"\nexit 1\n`);
+      chmodSync(stub, 0o755);
+    }
+
+    vi.stubEnv("PATH", `${bin}${delimiter}${process.env.PATH ?? ""}`);
+
+    return () =>
+      vi.waitFor(
+        () => {
+          expect(readFileSync(asked, "utf8").split("\n").filter(Boolean).sort()).toEqual([
+            "claude",
+            "codex",
+            "cursor-agent",
+          ]);
+        },
+        { timeout: 15_000 },
+      );
+  };
+
+  // These boot the bundle the package publishes.
   test.skipIf(process.platform === "win32")(
     "start boots the viewer, is idempotent, and shutdown stops it",
     async () => {
       const dir = scratch();
-      const bin = scratch();
-      const asked = join(bin, "asked.log");
-
-      for (const name of ["claude", "codex", "cursor-agent"]) {
-        const stub = join(bin, name);
-        writeFileSync(stub, `#!/bin/sh\necho ${name} >> "${asked}"\nexit 1\n`);
-        chmodSync(stub, 0o755);
-      }
-
-      vi.stubEnv("PATH", `${bin}${delimiter}${process.env.PATH ?? ""}`);
+      const allAsked = standIns();
       const client = await connect(dir);
 
       const first = await call(client, "start", { port: 0 });
@@ -365,18 +384,35 @@ describe("the MCP face", () => {
 
       await cleanups[0]?.shutdown();
       await expect(fetch(`${url}/api/health`)).rejects.toThrow();
+      await allAsked();
+    },
+  );
 
-      // Every stand-in has been asked, so PATH can go back.
-      await vi.waitFor(
-        () => {
-          expect(readFileSync(asked, "utf8").split("\n").filter(Boolean).sort()).toEqual([
-            "claude",
-            "codex",
-            "cursor-agent",
-          ]);
-        },
-        { timeout: 15_000 },
-      );
+  test.skipIf(process.platform === "win32")(
+    "add and link hand out addresses of the running interface, on what they name",
+    async () => {
+      const allAsked = standIns();
+      const client = await connect(scratch());
+      const started = await call(client, "start", { port: 0 });
+
+      const added = await call(client, "add", { title: "Night sky", url: "/?v-hero=night" });
+      await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
+      const pair = await call(client, "link", { titles: ["Aurora", "Night sky"] });
+
+      const opens = new URL(String(added.envelope["interfaceUrl"]));
+
+      expect(`${opens.origin}${opens.pathname}`).toBe(String(started.envelope["url"]));
+      expect(readLink(opens.search)).toEqual({ direction: "Night sky", compare: null });
+      expect(readLink(new URL(String(pair.envelope["url"])).search)).toEqual({
+        direction: "Aurora",
+        compare: "Night sky",
+      });
+
+      const page = await fetch(opens);
+
+      expect(page.ok).toBe(true);
+      expect(await page.text()).toContain('<div id="root">');
+      await allAsked();
     },
   );
 });

@@ -20,6 +20,7 @@ import {
   runExplore,
   runInit,
   runKeep,
+  runLink,
   runList,
   runNew,
   runRequests,
@@ -181,7 +182,9 @@ export function registerLeglasTools(
         "The rail picks it up within seconds, so when building a set register " +
         "each direction as it lands rather than the whole set at the end. " +
         "Use branch for a direction that lives on its own git branch. " +
-        "Then call show with screenshot: true to look at what you registered.",
+        "Then call show with screenshot: true to look at what you registered. While Leglas " +
+        "runs, interfaceUrl in the result opens the interface on this direction: give it to " +
+        "the user once the direction looks right.",
       inputSchema: {
         title: z.string().min(1).describe("Unique title; identifies the preview."),
         url: z
@@ -226,7 +229,9 @@ export function registerLeglasTools(
     "list",
     {
       title: "List previews",
-      description: "Every preview, shared and local, with its URL and backing branch if any.",
+      description:
+        "Every preview, shared and local, with its URL and backing branch if any, and while " +
+        "Leglas runs an interfaceUrl that opens the interface on it.",
       inputSchema: {},
     },
     async () => inProject(project, (cwd, deps) => runList({ json: true, cwd }, deps)),
@@ -308,6 +313,29 @@ export function registerLeglasTools(
         return result;
       }
     },
+  );
+
+  server.registerTool(
+    "link",
+    {
+      title: "Link into the interface",
+      description:
+        "A URL that opens the Leglas interface on one direction, or on two side by side, the " +
+        "second on the right. Name none for the rail. Give it to the user when a direction is " +
+        "ready to look at, or when asking them to choose between two. Needs a running Leglas, " +
+        "so call start first.",
+      inputSchema: {
+        titles: z
+          .array(z.string().min(1))
+          .max(2)
+          .optional()
+          .describe("None opens the rail; one opens that direction; two put them side by side."),
+      },
+    },
+    async ({ titles }) =>
+      inProject(project, (cwd, deps) =>
+        runLink({ titles: titles ?? [], port: null, json: true, cwd }, deps),
+      ),
   );
 
   server.registerTool(
