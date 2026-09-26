@@ -10,9 +10,8 @@ import { hostProject } from "./project.js";
 import { registerLeglasTools } from "./tools.js";
 
 /**
- * The stdio face. A host that spawns this in the project directory gets the
- * CLI's contract, where the working directory names the project; a host that
- * spawns it somewhere else is asked where the project is. See project.ts.
+ * Stdio server. The working directory names the project unless the host started
+ * it elsewhere; see project.ts.
  */
 
 function version(): string {
@@ -25,8 +24,7 @@ function version(): string {
 
 const server = new McpServer(
   { name: "leglas", version: version() },
-  // The channel capability and instructions are inert on hosts that do not
-  // speak channels; on Claude Code they let change requests from the
+  // Inert on hosts without channels. On Claude Code, change requests from the
   // interface arrive in the open session as events.
   { capabilities: { experimental: CHANNEL_CAPABILITY }, instructions: CHANNEL_INSTRUCTIONS },
 );
@@ -41,11 +39,9 @@ const tools = registerLeglasTools(server, { project });
 
 let channel: { stop(): void } | null = null;
 
-// The host closing stdin is the ordinary way a stdio server ends; signals
-// cover a host that kills instead, and the terminal closing under the host
-// (SIGHUP, whose default is to end the process without any of this). Either
-// way the viewer stops with us, and so does any agent it started, which runs
-// in a process group of its own and does not hear the terminal go.
+// Stdin closing is the normal end. The signals cover a host that kills us and a
+// closed terminal (SIGHUP). Agents the viewer started run in their own process
+// group, so only this stops them.
 const shutdown = installShutdown(async () => {
   channel?.stop();
   await tools.shutdown();

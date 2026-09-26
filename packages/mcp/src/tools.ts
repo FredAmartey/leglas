@@ -25,10 +25,8 @@ import { createEngagement, type Engagement } from "./engagement.js";
 import type { Project } from "./project.js";
 
 /**
- * Every CLI command already prints a single JSON envelope under --json, with a
- * stable shape and exit code. The MCP face holds no logic of its own: each
- * tool calls the same run function the CLI calls and hands the envelope over.
- * One implementation of every operation, two faces on it.
+ * Each tool calls the same run function as the CLI and returns its --json
+ * envelope: one implementation, two faces.
  */
 
 /** A capture path is useful only when the CLI returned it as text. */
@@ -58,8 +56,8 @@ async function capture(
 
   const { exitCode } = await invoke(deps);
 
-  // The envelope is the last JSON line. Anything else captured (there should
-  // be nothing under --json) rides along so a surprise is visible, not lost.
+  // The envelope is the last JSON line. Anything else captured rides along so a
+  // surprise shows.
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
 
@@ -78,9 +76,8 @@ async function capture(
 }
 
 /**
- * Run a command in the project, or report that there is no project to run it
- * in. Resolution is asked for on the first call and held after that, so the
- * cost lands once and every tool acts on the same directory.
+ * Runs a command in the project, or reports there isn't one. The project is
+ * located on the first call and held.
  */
 async function inProject(
   project: Project,
@@ -110,12 +107,12 @@ export function registerLeglasTools(
 ): LeglasTools {
   const project = options.project;
 
-  // One viewer per MCP process. The handle is held so a host that dies or
-  // disconnects never leaves a dev server running on a port nobody remembers.
+  // One viewer per MCP process, held so a host that dies never leaves a dev
+  // server running.
   let viewer: RunResult | null = null;
 
-  // Working the queue over MCP counts as attachment, exactly like watch: the
-  // embedded runner must not race a host's agent for the same tree.
+  // Queue work over MCP counts as attachment, as with watch, so the embedded
+  // runner doesn't race the host's agent.
   const engagement = options.engagement ?? createEngagement();
 
   server.registerTool(
@@ -278,9 +275,8 @@ export function registerLeglasTools(
         if (!hasCaptureFile(envelope)) return result;
         const file = envelope.screenshot.file;
 
-        // The path comes back over a loopback socket, which a stale record
-        // can point at something that is not Leglas. Only a real file inside
-        // this project's captures is read and handed to the host.
+        // A stale record can point the loopback socket at something else, so
+        // only a real file in this project's captures is read.
         if (!(await isOwnCapture(located.directory, file))) {
           return result;
         }
@@ -448,10 +444,9 @@ export function registerLeglasTools(
       },
     },
     async ({ clear }) => {
-      // Touched on every call, empty queue included: an agent that just asked
-      // is an agent about to act, and the beat lapses on its own once the
-      // asking stops. Awaited before the queue is read so the runner has
-      // backed off by the time this session could collect anything.
+      // Touched on every call, empty queue included: an agent that asks is
+      // about to act. Awaited first so the runner has backed off before this
+      // session collects anything.
       await engagement.touch();
 
       return inProject(project, (cwd, deps) =>

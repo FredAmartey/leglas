@@ -91,15 +91,9 @@ async function connect(
 const EVENTUALLY_MS = 15_000;
 
 /**
- * The deadline bounds a hang. It is not an assertion about latency.
- *
- * Two different tests failed here on a loaded machine, both with "condition
- * never held", both waiting on something the operating system delivers when it
- * gets to it: a filesystem watch event, a reachability probe. A suite that
- * reports a slow machine as a defect teaches people to rerun until it passes,
- * which is how a real failure gets waved through.
- *
- * Fifteen seconds costs nothing on every run where the condition holds.
+ * Bounds a hang, not latency. Watch events and reachability probes arrive when
+ * the OS gets to them, and a suite that fails a slow machine teaches people to
+ * rerun until it passes.
  */
 const until = async (condition: () => boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
@@ -112,11 +106,11 @@ const until = async (condition: () => boolean): Promise<void> => {
 
 describe("channelEvent", () => {
   test("meta keys are identifier-safe, which the channel contract requires", () => {
-    // Keys with hyphens are silently dropped by the host, so a rename here
-    // would lose the attribute without any error saying so.
+    // The host silently drops keys with hyphens, so a renamed key would vanish
+    // without an error.
     const keys = Object.keys(channelEvent(request("x", "queued")).meta);
 
-    // The event always names its direction and request, so the loop has keys to check.
+    // So the loop below can't pass on an empty list.
     expect(keys).toEqual(expect.arrayContaining(["direction", "request_id"]));
 
     for (const key of keys) expect(key).toMatch(/^[A-Za-z0-9_]+$/);
@@ -149,10 +143,9 @@ describe("startChannel", () => {
   });
 
   test("overlapping polls never double-emit a request", async () => {
-    // The read is gated so several interval ticks pile up on it, then all
-    // resolve with the same two-request backlog. An unguarded loop lets a
-    // second poll emit from the live queue while the first is still walking
-    // its stale snapshot, and the second request goes out twice.
+    // The gated read lets several ticks pile up on one backlog. Without the
+    // guard a second poll emits from the live queue while the first walks its
+    // stale copy, and a request goes out twice.
     const cwd = scratch();
     const backlog = [request("a", "queued"), request("b", "queued")];
     writeQueue(cwd, backlog);

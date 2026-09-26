@@ -1,15 +1,10 @@
 import { DEFAULT_PORT, LEGLAS_PREFIX } from "leglas";
 
 /**
- * Tell the Leglas server an agent is working the queue over MCP.
- *
- * The embedded runner yields to an attached watcher, and an MCP host driving
- * the requests tool deserves the same right of way: without this, the runner
- * could grab a request that arrives while the host's agent is mid-change in
- * the same tree. Attachment is engagement, not connection: an MCP server sits
- * connected to its host for hours doing nothing, so merely being alive proves
- * nothing. Touch marks real queue activity, the beat keeps the server's
- * window fresh, and a quiet spell lets it lapse.
+ * Tells the server an agent is working the queue over MCP, so the embedded
+ * runner yields as it does to leglas watch and doesn't grab a request
+ * mid-change. Only queue activity counts, since a connected MCP server can sit
+ * idle for hours. Touch starts the beat and a quiet spell lets it lapse.
  */
 
 /** How often the server hears from an engaged session; matches watch. */
@@ -29,9 +24,8 @@ export type EngagementDeps = {
 };
 
 function defaultPost(watching: boolean): Promise<void> {
-  // Best effort at the default port: the queue is a file and every tool works
-  // without the server, so a beat that lands nowhere costs nothing. LEGLAS_PORT
-  // covers the server that had to bind elsewhere.
+  // Best effort: every tool works without the server. LEGLAS_PORT covers a
+  // server bound elsewhere.
   const port = Number(process.env.LEGLAS_PORT ?? "") || DEFAULT_PORT;
 
   return fetch(`http://localhost:${port}${LEGLAS_PREFIX}/api/watch`, {
@@ -47,11 +41,10 @@ function defaultPost(watching: boolean): Promise<void> {
 
 export type Engagement = {
   /**
-   * Note queue activity: starts the beat, or extends it. The returned
-   * promise settles once the server has had its chance to register the
-   * engagement; the caller awaits it before reading the queue, because the
-   * embedded runner backs off only after that registration lands. Watch
-   * closes the same handoff race the same way with its first heartbeat.
+   * Notes queue activity, starting or extending the beat. Settles once the
+   * server has registered the engagement; await it before reading the queue,
+   * since the runner backs off only after that. Watch does the same with its
+   * first heartbeat.
    */
   touch(): Promise<void>;
   /** End the engagement and say so, as far as one best-effort post goes. */

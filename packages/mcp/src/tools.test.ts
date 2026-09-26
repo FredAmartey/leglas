@@ -51,8 +51,8 @@ async function connect(
 ): Promise<Client> {
   const server = new McpServer({ name: "leglas-test", version: "0.0.0" });
 
-  // A silent engagement, so no test beats a real port; the recording variant
-  // proves the wiring where a test asks for it.
+  // A silent engagement so no test beats a real port; the recording one is for
+  // tests that check the wiring.
   const engagement = {
     touch: async () => {
       if (options.touches) options.touches.count += 1;
@@ -112,8 +112,8 @@ describe("the MCP face", () => {
 
   test("share reaches the running Leglas through the CLI, and says so when there is none", async () => {
     const dir = scratch();
-    // A port that was free a moment ago: nothing answers it, so the project's
-    // own record points at nothing and no other Leglas on this machine is asked.
+    // A port that was free a moment ago: the project's record points at nothing
+    // and no other Leglas is asked.
     const closed = http.createServer();
     await new Promise<void>((resolve) => closed.listen(0, "127.0.0.1", resolve));
     // SAFETY: `listen` completed on a TCP host, so `address` is an IP address and port.
@@ -363,8 +363,7 @@ describe("the MCP face", () => {
       await cleanups[0]?.shutdown();
       await expect(fetch(`${url}/api/health`)).rejects.toThrow();
 
-      // Every login question went to a stand-in, and all of them have been
-      // asked, so PATH can go back.
+      // Every stand-in has been asked, so PATH can go back.
       await vi.waitFor(
         () => {
           expect(readFileSync(asked, "utf8").split("\n").filter(Boolean).sort()).toEqual([
@@ -380,10 +379,8 @@ describe("the MCP face", () => {
 });
 
 /**
- * An Agent Plugins client starts a plugin's MCP server in the plugin's own
- * install directory, so the working directory names a copy of Leglas rather
- * than anyone's project. These go through a real client to prove the tools
- * follow the host to the project instead.
+ * An Agent Plugins client starts the server in the plugin's install directory.
+ * These use a real client to check the tools follow the host to the project.
  */
 describe("a host that works somewhere other than the project", () => {
   async function connectWithRoots(
