@@ -16,7 +16,7 @@ pnpm site        # the homepage, docs and changelog, into dist/site
 
 | Path              | What it is                                                                                          |
 | ----------------- | --------------------------------------------------------------------------------------------------- |
-| `packages/server` | The local server: config, the proxy, the API, the request queue and the agent runner                |
+| `packages/server` | The local server: config, the proxy, the API, the request queue, the agent runner, sharing, branch previews and building sets |
 | `packages/shell`  | The interface, a React application built with Vite                                                  |
 | `packages/cli`    | The `leglas` binary                                                                                 |
 | `packages/mcp`    | The `leglas-mcp` stdio server for agent hosts                                                       |
@@ -67,7 +67,7 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
   user would notice and what to do about it, in plain words, and end it the
   way the existing entries do, with the name of what it reaches in backticks
   and parentheses: the CLI, the MCP server or the plugin. The changelog page
-  and the GitHub release notes are made from that entry alone.
+  and the GitHub release notes are made from `CHANGELOG.md` alone.
 - A change to the interface comes with a screenshot of it, before and
   after where that helps.
 - A new page in the manual is linked from `docs/README.md` and named in

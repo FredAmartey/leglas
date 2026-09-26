@@ -127,6 +127,7 @@ branches and absolute URLs, which the browser will not let it read. Set
   hands it the request and shows the result.
 - The duplicate check compares what a page draws, so two previews that
   differ only in behaviour, such as what a click does, are reported as
-  identical.
+  identical. A page with almost no text, such as a blank or loading
+  screen, gets no verdict, so two of those are never flagged.
 - The interface is built for desktop widths.
 - Leglas is a development tool. Nothing in it ships to production.

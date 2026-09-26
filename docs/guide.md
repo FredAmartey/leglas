@@ -42,8 +42,8 @@ switches it to a change in place, for when a change really is a fix.
 
 Pick an agent once from the picker beside the send button and the card
 above the field shows it working: the file it is editing, how long it has
-run or been quiet, a stop if you change your mind and a retry when a run
-goes wrong.
+run, how long it has been quiet if it goes quiet, a stop if you change your
+mind and a retry when a run goes wrong.
 
 Every request carries a screenshot of the direction at the width you are
 looking at, a crop of anything you pointed at, the other pane when you are
