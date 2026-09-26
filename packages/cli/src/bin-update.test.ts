@@ -103,8 +103,8 @@ describe("CLI update wiring", () => {
     },
   );
 
-  // A restart hands the process to a new Leglas. A Ctrl-C after that belongs
-  // to the child, so the ordinary shutdown must not stop or exit a second time.
+  // After a restart hands off, a Ctrl-C belongs to the child, so the ordinary
+  // shutdown must not stop or exit again.
   test("after a restart hands off, a shutdown signal goes to the child alone", async () => {
     process.argv = [process.execPath, "/invoked/leglas", "--no-open"];
     vi.spyOn(process.stdout, "write").mockReturnValue(true);

@@ -3,12 +3,9 @@ import { planExplore } from "./explore.js";
 export type ExploreDeps = { log(line: string): void };
 
 /**
- * Brief an agent's exploration.
- *
- * Leglas runs no model, and it hands out no taste either: the agent has the
- * product, the surface and the design system in context, which is where taste
- * comes from. This prints the part the agent cannot know: how a set registers
- * and displays here, what the set is for, and how sets fail.
+ * Briefs an agent's exploration. Leglas runs no model and hands out no taste;
+ * this prints only what the agent can't know: how a set registers here, what
+ * it's for and how sets fail.
  */
 export function runExplore(
   options: { surface: string; count: number; basedOn: string | null; json: boolean },

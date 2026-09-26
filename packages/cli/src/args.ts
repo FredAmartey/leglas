@@ -102,9 +102,8 @@ function parsePort(flag: string, raw: string): { port: number } | { error: strin
 }
 
 /**
- * Hand-rolled rather than a dependency: the surface is five flags, and an
- * unknown flag must be an error rather than silently ignored, which is the
- * behaviour most argument libraries get wrong by default.
+ * Hand-rolled: five flags, and an unknown flag must be an error, which most
+ * argument libraries get wrong by default.
  */
 function parseNew(rest: string[]): ParseResult {
   let surface: string | undefined;
@@ -250,10 +249,9 @@ function parseAdd(rest: string[]): ParseResult {
 }
 
 /**
- * The declaration is per file, tagged with intent: --change for creating a
- * file or mounting a branch point in one, --rewrite for altering what an
- * existing file renders. The distinction is the input the routing rules need
- * and only the author knows it.
+ * Each file is tagged with intent: --change creates a file or mounts a branch
+ * point in one, --rewrite alters what an existing file renders. The routing
+ * rules need that and only the author knows it.
  */
 function parseClassify(rest: string[]): ParseResult {
   const changes: ClassifyChange[] = [];
@@ -296,10 +294,9 @@ function parseClassify(rest: string[]): ParseResult {
 }
 
 /**
- * The agent command arrives as one argument on purpose: the user quotes it, so
- * the shell hands it over whole and Leglas is the only thing that ever splits
- * it. Collecting loose trailing words instead would mean the prompt's own
- * quoting had already been eaten by a shell before watch saw it.
+ * The agent command is one quoted argument so Leglas is the only thing that
+ * splits it. Loose trailing words would reach watch with the prompt's quoting
+ * already eaten by the shell.
  */
 function parseWatch(rest: string[]): ParseResult {
   let run: string | undefined;
@@ -348,9 +345,8 @@ function parseWatch(rest: string[]): ParseResult {
 }
 
 /**
- * `leglas share`: no titles shares the rail, one shares a direction alone and
- * two compare them, the second on the right. `--stop` ends whatever is being
- * shared and takes nothing that would start a share.
+ * No titles shares the rail, one shares a direction and two compare them, the
+ * second on the right. `--stop` takes nothing that would start a share.
  */
 function parseShare(rest: string[]): ParseResult {
   const titles: string[] = [];
@@ -446,9 +442,8 @@ function parseShare(rest: string[]): ParseResult {
 export function parseArgs(argv: string[]): ParseResult {
   const [command] = argv;
 
-  // The command line docs send people to `leglas <command> --help` for a
-  // command's options. Answering it here, before any command reads its own
-  // arguments, means no command can forget to.
+  // Answered before any command reads its own arguments, so no command can
+  // forget --help.
   if (
     command !== undefined &&
     !command.startsWith("-") &&
@@ -685,9 +680,9 @@ export function parseArgs(argv: string[]): ParseResult {
     return { kind: "list", json: rest.includes("--json") };
   }
 
-  // Deliberately no "variant" alias: a variant is a version of a direction
-  // here, so `leglas variant "Aurora"` would read as "the variant of Aurora"
-  // while doing "show me Aurora", and teach the wrong shape of the vocabulary.
+  // No "variant" alias: a variant is a version of a direction here, so `leglas
+  // variant "Aurora"` would read as "the variant of Aurora" while meaning "show
+  // me Aurora".
   if (argv[0] === "show") {
     const rest = argv.slice(1);
     let title: string | undefined;

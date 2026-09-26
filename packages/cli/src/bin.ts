@@ -107,11 +107,9 @@ async function openBrowser(url: string): Promise<void> {
 }
 
 /**
- * Importing a .ts config from a project whose package.json has no
- * `"type": "module"` makes Node warn about reparsing. That is our config
- * choice leaking into the user's terminal, and asking them to change their
- * app's package.json to quiet our tool would be backwards. Drop that one
- * warning; pass everything else through.
+ * Importing a .ts config from a package without `"type": "module"` makes Node
+ * warn about reparsing. That warning is ours, not the user's to fix, so drop it
+ * and pass the rest through.
  */
 function quietModuleTypeWarning(): void {
   const listeners = process.listeners("warning");
@@ -221,9 +219,8 @@ if (parsed.kind === "requests") {
   process.exit(outcome.exitCode);
 }
 
-// Long-running like leglas itself, so it prints progress rather than a single
-// envelope (under --json, one JSON line per event), and returns only once a
-// signal has stopped it.
+// Long-running like leglas itself: prints progress (one JSON line per event
+// under --json) and returns only once a signal stops it.
 if (parsed.kind === "watch") {
   const outcome = await runWatch(
     { run: parsed.run, port: parsed.port, cwd: process.cwd(), json: parsed.json },

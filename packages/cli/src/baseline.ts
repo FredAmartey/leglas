@@ -8,14 +8,8 @@ const DEFAULT_EXPORT = /export\s+default\s+(?:async\s+)?(?:function|class)\s+([A
 const BARE_DEFAULT = /export\s+default\s/;
 
 /**
- * A baseline that re-exports the real component rather than copying it.
- *
- * Copying would freeze the comparison against a duplicate of the user's own
- * code: edit the real component afterwards and the baseline silently stops
- * being the baseline. Re-exporting keeps it live.
- *
- * This pattern was not designed; an agent used it in place of the scaffold's
- * placeholder, and it is plainly better than what the template suggested.
+ * A baseline that re-exports the real component, so it never goes stale against
+ * the user's own code the way a copy would.
  */
 export function baselineFrom(
   surface: string,

@@ -1,23 +1,14 @@
 import { targetFor, type PendingRequest, type Preview } from "@leglas/server";
 
 /**
- * Everything Leglas holds about one direction, assembled for whoever was
- * handed its reference block.
+ * Everything Leglas holds about one direction, for whoever was handed its
+ * reference block:
  *
- * The block is copied out of the rail and pasted somewhere else: a chat, an
- * issue, an agent's prompt. It carries enough to read, and points here for the
- * rest. What "the rest" means is deliberate:
- *
- * - the file behind the direction, which nothing else exposes. A URL like
- *   `/?v-hero=aurora` is the scaffold's convention for
- *   `.leglas/variants/hero/aurora.tsx`, and an agent that has to guess at that
- *   goes looking through the tree instead of opening the file.
- * - the set it is being judged against. A direction described alone invites an
- *   agent to improve it straight out of the comparison, which is the one thing
- *   the product exists to prevent.
- * - what is pending against it. Note the tense: requests are a queue that gets
- *   drained and cleared, so this is what has been asked and not yet done, not
- *   a history of everything ever asked.
+ * - the file behind it, which nothing else exposes (`/?v-hero=aurora` is
+ *   `.leglas/variants/hero/aurora.tsx` by the scaffold's convention).
+ * - the set it's judged against, since a direction described alone gets
+ *   improved straight out of the comparison.
+ * - what's pending against it: the queue as it stands, not a history.
  */
 export type ShowDirection = {
   title: string;
@@ -67,9 +58,9 @@ function describe(preview: Preview & { local?: boolean }): ShowDirection {
     branch: preview.branch ?? null,
     file: preview.file ?? null,
     local: preview.local === true,
-    // A file preview names its own source. Everything else is decoded from the
+    // A file preview names its own source; anything else is decoded from the
     // URL, and a URL outside the convention yields nothing rather than a path
-    // that looks authoritative and is not there.
+    // that isn't there.
     target: preview.file ?? targetFor(preview.url),
   };
 }
@@ -91,8 +82,7 @@ export function planShow({ title, previews, requests }: ShowInput): ShowPlan {
     ok: true,
     direction: describe(found),
     variants,
-    // Its own variants are already listed in full, so they are not repeated
-    // here; this is the rest of the comparison.
+    // Its variants are listed above, so this is the rest of the comparison.
     comparedWith: previews
       .map((preview) => preview.title)
       .filter((other) => other !== title && !variantTitles.has(other)),

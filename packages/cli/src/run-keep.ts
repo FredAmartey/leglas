@@ -19,13 +19,9 @@ import { resolveOrExplain } from "./resolve-title.js";
 export type KeepDeps = { log(line: string): void; error(line: string): void };
 
 /**
- * Rename the winner's export to suit its new home.
- *
- * A direction was written as `AuroraA` or similar because it was one of
- * several; as the surface's only implementation it should be named after the
- * surface. Only the leading export declaration is rewritten, which is what the
- * scaffold generates, and any other occurrence of the old name is left alone
- * rather than blind-replaced.
+ * Renames the winner's export after the surface. Only the leading export
+ * declaration, which the scaffold generates, is rewritten; other uses of the
+ * old name are left alone.
  */
 function renameExport(source: string, to: string): string {
   const match = /export function ([A-Za-z0-9_]+)\s*\(/.exec(source);
@@ -36,17 +32,10 @@ function renameExport(source: string, to: string): string {
 }
 
 /**
- * Write down what this exploration was, before the exploration is deleted.
- *
- * Everything in the entry already existed and was about to go: the directions,
- * the words typed at each of them, the captures the agent was sent. That is
- * correct for the working files and wrong for the record, and the record is
- * what makes coming back to a surface in three months cheaper than starting
- * over.
- *
- * Returns where it was written, or null if there was nothing to say. A failure
- * here is reported by the caller and never fatal: the winner is already in
- * source, and losing the note is not worth losing the move.
+ * Writes down the exploration before it's deleted, since the directions, their
+ * requests and the captures are the record. Returns where it was written, or
+ * null if there was nothing to say. Never fatal: the winner is already in
+ * source.
  */
 async function writeLogEntry(options: {
   cwd: string;
@@ -97,9 +86,8 @@ export async function runKeep(
     return { exitCode: 1 };
   };
 
-  // Keeping is the destructive one: it moves a file and deletes the rest of
-  // the exploration. So the name has to resolve to exactly one direction, and
-  // a local rename that matches two is refused rather than picked between.
+  // Keeping moves a file and deletes the rest, so the name must resolve to
+  // exactly one direction; a local rename matching two is refused.
   const resolved = resolveOrExplain(
     options.title,
     previews.map((preview) => preview.title),
@@ -130,8 +118,8 @@ export async function runKeep(
   await mkdir(dirname(to), { recursive: true });
   await writeFile(to, renameExport(source, plan.exportName), "utf8");
 
-  // Written before the exploration is cleared, because the record is made of
-  // the things being cleared.
+  // Written before the exploration is cleared, since the record is made of
+  // what's being cleared.
   const surface = plan.removeDir.slice(plan.removeDir.lastIndexOf("/") + 1);
   let logged: string | null = null;
   let logError: string | null = null;

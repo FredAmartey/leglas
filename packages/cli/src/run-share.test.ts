@@ -46,8 +46,8 @@ const add = (cwd: string, title: string, url: string, branch?: string) =>
 type Tunnel = { [key: string]: JsonValue };
 
 /**
- * A running Leglas, as far as the share command can see one: its health, and
- * the share endpoints answering from one piece of state.
+ * A running Leglas as the share command sees it: health, and share endpoints
+ * over one piece of state.
  */
 function fakeLeglas(
   cwd: string,

@@ -1,20 +1,12 @@
 import { surfaceSlug } from "./new.js";
 
 /**
- * What leglas explore hands an agent.
+ * What leglas explore hands an agent: how a set registers here, what it's for
+ * and the trap each kind of set falls into. No prewritten angles; taste is the
+ * agent's, since a shared deck makes every project converge.
  *
- * It used to hand out ten prewritten angles, each with an avoid line. Retired
- * deliberately: prewritten taste is generic where the agent's is contextual,
- * and every project drawing on one deck converges across projects, which is
- * the failure this command exists to fight, one level up. What survives is
- * what the agent cannot supply itself: the mechanics of registering a set
- * here, the purpose that makes the set worth building, and the one trap each
- * kind of set has been seen to fall into. Which designs to build, and what
- * counts as different, belong to the agent that knows the product.
- *
- * Two kinds of set, opposite goals. Directions exist to be chosen between, so
- * they only work if they genuinely disagree. Variants pick within a direction
- * already chosen, so they only work if they do not.
+ * Directions are chosen between, so they must disagree. Variants pick within a
+ * chosen direction, so they must not.
  */
 export type ExplorePlan = {
   surface: string;

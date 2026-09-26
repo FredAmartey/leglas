@@ -18,10 +18,7 @@ export type PreviewDeps = { log(line: string): void; error(line: string): void }
 
 export type PreviewResult = { exitCode: number };
 
-/**
- * Every command prints a single JSON envelope under --json, with a stable
- * shape and exit code, so an agent and a human drive the same surface.
- */
+/** Every command prints one JSON envelope under --json, with a stable shape and exit code. */
 type AddedPreview = {
   added: string;
   url?: string;
@@ -57,12 +54,9 @@ function envelope(deps: PreviewDeps, ok: boolean, body: EnvelopeBody): void {
 }
 
 /**
- * Register a preview locally.
- *
- * Adding is local by default: exploration is short-lived and its code lives in
- * a gitignored directory, so a teammate must never receive a config entry
- * pointing at something they do not have. Sharing is a separate, deliberate
- * step.
+ * Adding is local by default: exploration code lives in an ignored directory,
+ * so a teammate must never get a config entry for something they don't have.
+ * Sharing is a separate step.
  */
 async function ensureIgnored(cwd: string): Promise<void> {
   const path = join(cwd, ".gitignore");
@@ -86,9 +80,8 @@ export async function runAdd(
   const loaded = await loadConfig(options.cwd);
   const shared = loaded.config?.previews ?? [];
 
-  // A variant names the direction it is based on, and that direction has to
-  // exist: it was registered in the diverge round the variant came from, so an
-  // unknown title here is a typo, refused rather than guessed at.
+  // The base direction was registered in the round the variant came from, so an
+  // unknown title is a typo and is refused.
   if (options.preview.basedOn !== undefined) {
     const local = await readLocalPreviews(options.cwd);
     const titles = new Set([...shared, ...local.previews].map((preview) => preview.title));
@@ -125,13 +118,13 @@ export async function runAdd(
     return { exitCode: 1 };
   }
 
-  // The directory now exists, so it must be ignored before anything can
-  // sweep it into a commit.
+  // The directory exists now, so ignore it before anything sweeps it into a
+  // commit.
   await ensureIgnored(options.cwd);
 
-  // A branch preview is only as good as the config's devCommand: without one
-  // Leglas cannot start the checkout. Say so at add time, when it is one edit
-  // away, rather than at boot, when it reads as a broken preview.
+  // A branch preview needs the config's devCommand to start its checkout. Said
+  // at add time, when it's one edit away, not at boot, where it looks like a
+  // broken preview.
   const needsDevCommand =
     options.preview.branch !== undefined && loaded.config?.devCommand === undefined;
 
@@ -168,7 +161,7 @@ export async function runAdd(
     }
 
     // Plain url previews join a running interface live; a branch needs its
-    // checkout and a file its mount, both built when Leglas starts.
+    // checkout and a file its mount, both built at startup.
     if (options.preview.branch === undefined && options.preview.file === undefined) {
       deps.log("Local to this machine. A running interface picks it up within seconds.");
     } else {
@@ -194,11 +187,8 @@ export async function runList(
 
   if (options.json) {
     envelope(deps, errors.length === 0, {
-      // The whole record, not a summary of it. What the config holds about a
-      // preview — its note, its tags, the direction it is a variant of — is
-      // exactly what tells an agent why these are being compared, and leaving
-      // it out made the listing thinner than the reference block that points
-      // at it.
+      // The whole record: a preview's note, tags and base direction are what
+      // tell an agent why these are being compared.
       previews: previews.map((preview) => ({
         title: preview.title,
         url: preview.url,
@@ -222,9 +212,8 @@ export async function runList(
     const width = Math.max(...previews.map((preview) => preview.title.length));
 
     for (const preview of previews) {
-      // A branch-backed preview does not live in the tree the user's editor
-      // has open, so the listing says where it comes from. A file preview's
-      // url is assigned at boot, so its file is the honest thing to show.
+      // A branch preview isn't in the user's tree, so say where it comes from.
+      // A file preview's url is assigned at boot, so show its file.
       const source = preview.file ?? preview.url;
       const origin = preview.branch === undefined ? "" : `  (branch ${preview.branch})`;
       const scope = preview.local ? "  (local)" : "";
@@ -238,10 +227,9 @@ export async function runList(
 }
 
 /**
- * Hand pending requests to whoever asks. An agent polls this, acts on each
- * prompt, and clears the queue. Leglas runs no model of its own: the user's
- * agent already knows their conventions and design system, which is context
- * no external worker can have.
+ * Hands pending requests to whoever asks: an agent polls this, acts on each
+ * prompt and clears the queue. Leglas runs no model; the user's agent already
+ * knows their conventions.
  */
 export async function runRequests(
   options: { json: boolean; clear: boolean; cwd: string },
@@ -254,8 +242,8 @@ export async function runRequests(
     else {
       deps.log(cleared === 1 ? "Cleared 1 request." : `Cleared ${cleared} requests.`);
 
-      // Said plainly, because this is the case the agent would otherwise miss:
-      // it asked to finish, and there is already more waiting.
+      // The case an agent would miss: it asked to finish and more is already
+      // waiting.
       if (pending > 0) {
         deps.log(
           `${pending} arrived while you worked. Run npx leglas requests to collect ${pending === 1 ? "it" : "them"}.`,

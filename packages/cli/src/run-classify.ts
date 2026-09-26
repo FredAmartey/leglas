@@ -7,11 +7,9 @@ import type { ClassifyChange } from "./args.js";
 import type { PreviewDeps, PreviewResult } from "./run-previews.js";
 
 /**
- * Answer where a direction should live, before it is written.
- *
- * Both answers are successes: the point is to be asked, so an agent about to
- * change dependencies or rewrite a shared file learns the checkout route
- * instead of quietly costing the property that makes flipping instant.
+ * Where a direction should live, asked before it's written. Both answers
+ * succeed: the point is that an agent about to change dependencies or rewrite a
+ * shared file learns the checkout route.
  */
 export async function runClassify(
   options: { changes: ClassifyChange[]; json: boolean; cwd: string },

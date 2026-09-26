@@ -10,16 +10,9 @@ import type { JsonValue } from "./json.js";
 import { runWatch } from "./run-watch.js";
 
 /**
- * The port the watcher is told to beat at. Nothing ever reaches it.
- *
- * Leaving this undefined meant DEFAULT_PORT, and these tests then aimed
- * watcher heartbeats at whatever is genuinely running on 4100 on the machine
- * running them: a developer's own Leglas, told a watcher had attached and then
- * gone. Binding an ephemeral port and closing it fixed that, but left every
- * test in the file making a real network call to learn nothing, which is what
- * made this the first file to time out under a loaded suite. The beat is
- * stubbed for the whole file instead, so this number is never dialled and
- * every test here is about the loop's bookkeeping rather than about HTTP.
+ * The port the watcher beats at. Nothing reaches it: the beat is stubbed for
+ * the whole file, so these tests cover the loop's bookkeeping, not HTTP, and
+ * never ping a developer's own Leglas on 4100.
  */
 const DEAD_PORT = 4399;
 
@@ -52,15 +45,9 @@ function writeWatchConfig(root: string, config: { [key: string]: JsonValue }): v
 const EVENTUALLY_MS = 15_000;
 
 /**
- * The deadline bounds a hang. It is not an assertion about latency.
- *
- * Two different tests failed here on a loaded machine, both with "condition
- * never held", both waiting on something the operating system delivers when it
- * gets to it: a filesystem watch event, a reachability probe. A suite that
- * reports a slow machine as a defect teaches people to rerun until it passes,
- * which is how a real failure gets waved through.
- *
- * Fifteen seconds costs nothing on every run where the condition holds.
+ * Bounds a hang, not latency. Watch events and reachability probes arrive when
+ * the OS gets to them, and a suite that fails a slow machine teaches people to
+ * rerun until it passes.
  */
 const until = async (condition: () => Promise<boolean> | boolean): Promise<void> => {
   const deadline = Date.now() + EVENTUALLY_MS;
@@ -93,10 +80,8 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
 }
 
 describe("runWatch", () => {
-  // The case the loop is written for: nothing is listening. Refusing at once
-  // is what a closed port does, without the socket, the abort timer, or the
-  // chance that the port has quietly become another worker's server. Tests
-  // that care what the server said stub their own.
+  // Nothing listening, the case the loop is written for: refused at once, as a
+  // closed port does. Tests that care what the server said stub their own.
   beforeEach(() => {
     vi.stubGlobal("fetch", async () => {
       throw new Error("nothing is listening");
@@ -111,10 +96,8 @@ describe("runWatch", () => {
     const root = cwd();
     await appendRequest(root, input);
 
-    // The stub plays a slow server: while the first heartbeat is still in
-    // flight, the queue must not have been touched. The unawaited version of
-    // this beat let watch pick the request up inside exactly this window,
-    // while the embedded runner could still believe it was alone.
+    // A slow server: the queue must not be touched while the first heartbeat is
+    // in flight, or watch and the embedded runner can both take the request.
     let statusDuringFirstBeat: string | null = null;
     vi.stubGlobal("fetch", async () => {
       if (statusDuringFirstBeat === null) {
@@ -233,8 +216,8 @@ describe("runWatch", () => {
     const root = cwd();
     await appendRequest(root, input);
 
-    // An agent slow enough that the stop lands while it is still running, and
-    // successful, so the request must end up removed, not stranded.
+    // The stop lands while the agent is still running, and the agent succeeds,
+    // so the request must end up removed, not stranded.
     const controller = new AbortController();
 
     const running = runWatch(
@@ -251,8 +234,8 @@ describe("runWatch", () => {
     controller.abort();
     const outcome = await running;
 
-    // The watcher's promise settling is its claim that the books are closed:
-    // the agent exited 0, so the request must already be gone.
+    // Settling means the books are closed: the agent exited 0, so the request
+    // is gone.
     expect(outcome.exitCode).toBe(0);
     expect(await readRequests(root)).toEqual([]);
   });
@@ -350,9 +333,8 @@ describe("runWatch", () => {
 
     const remaining = await readRequests(root);
     expect(remaining).toHaveLength(1);
-    // Left in the queue, but as a request that ended rather than one still in
-    // somebody's hands: the interface reads this file, and "picked-up" there
-    // said an agent was working on it for as long as the file existed.
+    // Left in the queue as ended, not picked-up, which the interface would show
+    // as still being worked on.
     expect(remaining[0]?.status).toBe("failed");
     expect(remaining[0]?.failure?.code).toBe("missing-agent");
     expect(d.lines.join("\n")).toContain("not retried");
@@ -370,9 +352,8 @@ describe("runWatch", () => {
 });
 
 describe("leglas watch --json, as a process", () => {
-  // What only a real process shows: stdout carries the events and nothing
-  // else, because the agent's own output goes to stderr instead. Needs the
-  // build, which `pnpm test` runs first.
+  // Only a real process shows this: stdout is events only and the agent's
+  // output goes to stderr. Needs the build, which `pnpm test` runs first.
   test("stdout is JSON lines while the agent's output goes to stderr", async () => {
     const root = cwd();
     await appendRequest(root, input);

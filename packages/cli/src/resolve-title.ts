@@ -3,14 +3,10 @@ import { resolveTitle, type Renames } from "@leglas/server";
 export type Resolved = { ok: true; title: string } | { ok: false; error: string };
 
 /**
- * Resolve a name a command was given, and say something useful when it cannot.
- *
- * The message matters more than usual here. A direction renamed in the rail is
- * only renamed on this machine, so the name a user says is often not the name
- * the config spells; that gap is covered by resolving through the rename map.
- * What is left is a name nothing answers to, where the old message ("run
- * leglas list") sent an agent to a listing that would not contain the name
- * either, and the second miss reads as "the direction is gone".
+ * Resolves a name a command was given, or explains why not. Rail renames are
+ * local, so the name a user says is often not the config's; the rename map
+ * covers that. For a name nothing answers to, pointing at leglas list would
+ * just miss again and read as "the direction is gone".
  */
 export function resolveOrExplain(
   input: string,

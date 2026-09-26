@@ -57,7 +57,7 @@ describe("runShow", () => {
     await writeRenames(cwd, { Cool: "Sunrise" });
     const { deps, lines } = collect();
 
-    // The name a user says out loud is the one their own interface showed them.
+    // The name a user says is the one their own interface showed them.
     const outcome = await runShow(
       { title: "Sunrise", json: true, screenshot: false, width: null, port: null, cwd },
       deps,
@@ -110,8 +110,8 @@ describe("runShow", () => {
     );
 
     expect(outcome.exitCode).toBe(1);
-    // Sending an agent to leglas list without this reads as "it is gone",
-    // because a renamed direction is not listed under the name it was given.
+    // A renamed direction isn't listed under its given name, so pointing at
+    // leglas list reads as "it's gone".
     expect(String(envelope(lines)["error"])).toContain("Renaming one in the rail");
   });
 
@@ -159,8 +159,8 @@ describe("runShow", () => {
       title: "Aurora",
       width: 390,
     });
-    // Bounded, so a server that answers health and then stalls cannot hold
-    // the command for good.
+    // Bounded, so a server that answers health and then stalls can't hold the
+    // command.
     expect(fetch.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -193,8 +193,8 @@ describe("runShow", () => {
     );
 
     expect(lines).toContain("  screenshot  .leglas/captures/show/aurora-1440.png");
-    // A page taller than one capture says so, so the agent knows what it
-    // has not seen.
+    // A page taller than one capture says so, so the agent knows what it hasn't
+    // seen.
     expect(lines).toContain(
       "              the top of the page only; it is taller than one capture",
     );

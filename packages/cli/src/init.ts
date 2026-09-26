@@ -8,14 +8,9 @@ export const AGENTS_MARKER_END = "<!-- leglas:end -->";
 export type InitPlan = { writes: Write[]; gitignore: string | null };
 
 /**
- * What an agent entering this repository needs to know.
- *
- * The instruction that matters is additive authoring. Asked to make a hero
- * calmer, an agent's instinct is to edit the hero, and two directions that
- * both rewrite the same file cannot coexist in one running server. That would
- * quietly cost the property the whole tool is built on, and nothing in the
- * runtime can prevent it, because Leglas never sees the app's source. So it
- * has to be said here, plainly, before anything else.
+ * What an agent entering the repository needs to know. Additive authoring comes
+ * first: two directions that both edit the same file can't coexist in one
+ * running server, and Leglas never sees the source to stop it.
  */
 const AGENTS_SECTION = `${AGENTS_MARKER_START}
 
@@ -163,8 +158,8 @@ export function planInit(options: {
       contents: preamble === "" ? AGENTS_SECTION : `${preamble}\n\n${AGENTS_SECTION}`,
     });
   } else if (options.force === true) {
-    // Replace between the markers so a project's own instructions survive an
-    // update to ours.
+    // Replace between the markers so the project's own instructions survive our
+    // updates.
     const start = agents.indexOf(AGENTS_MARKER_START);
     const end = agents.indexOf(AGENTS_MARKER_END);
     const after = end === -1 ? "" : agents.slice(end + AGENTS_MARKER_END.length);
@@ -174,8 +169,8 @@ export function planInit(options: {
     });
   }
 
-  // A config is the user's description of their own project, so it is created
-  // when absent and never edited when present.
+  // The config is the user's description of their project: created when absent,
+  // never edited.
   if (options.config === null) {
     writes.push({ path: "leglas.config.ts", contents: STARTER_CONFIG });
   }

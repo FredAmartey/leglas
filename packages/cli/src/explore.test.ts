@@ -24,8 +24,8 @@ describe("planExplore", () => {
   });
 
   test("supplies no taste of its own", () => {
-    // The prewritten deck is retired. If a named style ever shows up in the
-    // instructions again, the tool has gone back to directing designs.
+    // The prewritten style deck is retired; a named style here means the tool
+    // is directing designs again.
     const text = planExplore("hero", 6).instructions.toLowerCase();
 
     for (const style of ["quiet", "editorial", "kinetic", "playful", "minimal", "brutalis"]) {

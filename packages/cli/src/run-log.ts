@@ -13,13 +13,9 @@ function headline(markdown: string): string {
 }
 
 /**
- * Read what past explorations decided.
- *
- * The entries are plain markdown in a committed directory and are meant to be
- * read that way, in a pull request or on GitHub. This exists because an agent
- * asked to work on a surface should be able to find what was already tried
- * there without being told where to look, and because a person coming back to
- * a project should not have to know the directory's name.
+ * Reads what past explorations decided. The entries are plain markdown meant to
+ * be read on GitHub; this lets an agent or a returning person find them without
+ * knowing the directory.
  */
 export async function runLog(
   options: { entry: string | null; json: boolean; cwd: string },

@@ -5,21 +5,19 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsup";
 
 /**
- * The published package is self-contained: nobody imports Leglas's internals,
- * so @leglas/server is bundled in and the built shell rides along in
- * dist/shell/. One package to install, one version to publish, no scope.
+ * Self-contained: @leglas/server is bundled in and the built shell ships in
+ * dist/shell/. One package, one version, no scope.
  */
-// Declarations come from tsc (see the build script): tsup's dts bundler
-// cannot drive TypeScript 7's native compiler.
+// Declarations come from tsc (see the build script); tsup's dts bundler can't
+// drive TypeScript 7.
 export default defineConfig({
   entry: { bin: "src/bin.ts", index: "src/index.ts" },
   format: ["esm"],
   target: "node24",
   clean: true,
   splitting: false,
-  // The SDK resolves its platform-native Claude binary at runtime. Keep that
-  // package boundary intact so its optional platform dependency remains
-  // discoverable after Leglas is packed and installed.
+  // The SDK resolves its platform-native Claude binary at runtime, so it stays
+  // external and its optional platform dependency survives packing.
   external: ["@anthropic-ai/claude-agent-sdk"],
   noExternal: [/@leglas\//],
   onSuccess: async () => {
