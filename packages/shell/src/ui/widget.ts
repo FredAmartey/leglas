@@ -1,18 +1,11 @@
 export const WIDGET_MARGIN = 24;
 
 /**
- * Pointer travel that separates a drag from a tap, in px.
- *
- * The widget is a button first and a draggable second. A hand never holds
- * still: a trackpad press routinely slides five to ten pixels, and treating
- * that as a drag settles the widget into a corner and closes the popover
- * instead of opening it, so the button appears to need pressing twice.
- * Measured against the real thing, taps carried up to 6px of travel.
- *
- * Deliberately looser than the rail's 4px. A rail row is a list item where
- * dragging is a first-class action and a stray reorder is cheap to undo; this
- * is the only way into the tools, so a swallowed press is the worse failure.
- * Ten matches the touch slop iOS and Android settled on for the same reason.
+ * Pointer travel that makes a tap a drag, in px. A trackpad press slides five
+ * to ten pixels (taps measured up to 6px), and treating that as a drag closes
+ * the popover instead of opening it. Looser than the rail's 4px: a stray
+ * reorder is cheap to undo, but this is the only way into the tools. Ten
+ * matches the touch slop iOS and Android use.
  */
 export const DRAG_THRESHOLD = 10;
 
@@ -26,14 +19,12 @@ export type Stage = { width: number; height: number };
 export type Corner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
 
 /**
- * Keep the widget reachable.
- *
- * It is the only way into the tools, so a drag that throws it past an edge, or
- * a window resized smaller afterwards, must not put it out of reach.
+ * Keeps the widget reachable: the only way into the tools must survive a drag
+ * past an edge or a smaller window.
  */
 export function clampWidget(point: Point, stage: Stage): Point {
   // On a stage narrower than twice the margin the bounds would invert, so
-  // collapse to the middle rather than returning a negative range.
+  // collapse to the middle.
   const clamp = (value: number, extent: number) => {
     const low = Math.min(WIDGET_MARGIN, extent / 2);
     const high = Math.max(low, extent - WIDGET_MARGIN);
@@ -45,13 +36,10 @@ export function clampWidget(point: Point, stage: Stage): Point {
 }
 
 /**
- * Where the widget's box is pinned so the button sits under the pointer.
- *
- * The popover shares that box and stays mounted while hidden, so pinning the
- * box itself at the pointer left the button a popover's height below it and
- * its width to the right: the thing being dragged was nowhere near the hand,
- * and it settled into a corner nobody aimed at. The popover is taken out of
- * the layout for the duration, which leaves just the button to centre.
+ * Where the widget's box goes so the button sits under the pointer. The popover
+ * shares the box and stays mounted while hidden, so pinning the box at the
+ * pointer left the button a popover away from the hand. The popover leaves the
+ * layout during the drag, leaving just the button to centre.
  */
 export function dragAnchor(point: Point): Point {
   return { x: point.x - WIDGET_SIZE / 2, y: point.y - WIDGET_SIZE / 2 };
@@ -63,12 +51,8 @@ export function isDrag(start: Point, current: Point, threshold = DRAG_THRESHOLD)
 }
 
 /**
- * The corner a released widget settles into.
- *
- * Free positioning would let it sit anywhere, including over the middle of a
- * design being judged. Corners keep it out of the way and make its position
- * predictable between sessions. Dead centre resolves to bottom right, which is
- * where it starts.
+ * The corner a released widget settles into, keeping it off the design and
+ * predictable between sessions. Dead centre goes bottom right, where it starts.
  */
 export type Settled = { corner: Corner };
 

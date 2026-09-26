@@ -1,24 +1,15 @@
 import type { Preview } from "./types.js";
 
 /**
- * What the clipboard carries when a direction is copied.
+ * What the clipboard carries when a direction is copied. A bare preview URL was
+ * useless: a localhost address for a teammate, an opaque string for an agent.
+ * The block says what the direction is, where its source lives and how to get
+ * the rest.
  *
- * It used to carry a bare preview URL, which is close to useless to both
- * readers it might reach. A teammate gets a localhost address that resolves on
- * nobody's machine but yours; an agent gets an opaque string it cannot see and
- * cannot act on. Neither learns which direction you meant.
- *
- * So the block says what the direction is, where its source lives, and how to
- * pull up the rest of the comparison. The title comes first because that is
- * the identity every command takes: `leglas add`, `leglas keep` and
- * `leglas explore --based-on` all address a direction by its config title, and
- * a name given in the rail is decoration on top of it. When the two differ,
- * both are printed rather than the one you happen to be looking at.
- *
- * The source line is the part an agent actually uses. A file-backed direction
- * names its file, a branch-backed one names its branch, and an ordinary one
- * names the route its own app resolves. All three are project-relative, so
- * nothing here leaks the shape of the machine it was copied on.
+ * The config title leads, since every command (`leglas add`, `leglas keep`,
+ * `leglas explore --based-on`) takes it; a rail name differing from it is
+ * printed too. The source line is what an agent uses: a file, a branch or the
+ * app route, all project-relative so nothing reveals the machine.
  */
 export type ReferenceInput = {
   displayName: string;
@@ -29,9 +20,8 @@ export type ReferenceInput = {
 };
 
 /**
- * A preview URL may be root-relative or already absolute — a branch preview
- * runs on its own port, and a config may point at a staging host — so the
- * origin is a base to resolve against, never a prefix to concatenate.
+ * A preview URL may already be absolute (a branch on its own port, a staging
+ * host), so the origin is a base to resolve against, never a prefix.
  */
 export function absoluteUrl(url: string, origin: string): string {
   try {
@@ -55,13 +45,10 @@ export function referenceText({ displayName, preview, previewUrl, title }: Refer
 
   if (preview?.basedOn) lines.push(`A variant of: ${preview.basedOn}`);
 
-  // What the block cannot carry: the source file behind the direction, and the
-  // set it is being judged against. The first is the thing an agent opens; the
-  // second is why it must not improve this one straight out of the comparison.
-  // Both come back from show, so one pointer covers them.
-  //
-  // Quoted with the config title rather than the display name, because that is
-  // what every command addresses and a renamed direction still answers to it.
+  // What the block can't carry: the source file, and the set it's judged
+  // against (so an agent doesn't improve it out of the comparison). Both come
+  // from show, so one pointer covers them, quoted with the config title every
+  // command addresses.
   lines.push(
     "",
     "Inspect this direction in full:",

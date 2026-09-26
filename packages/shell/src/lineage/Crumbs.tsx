@@ -7,24 +7,15 @@ import { collapseChain } from "./lineage.js";
 const ASK_MS = 200;
 
 /**
- * Where the selected direction came from, as a path under the composer.
+ * Where the selected direction came from, as a path under the composer. For a
+ * direction five passes deep the root says which family and the passes between
+ * say how it got here. Each crumb goes to that direction, and shift makes it
+ * the comparison.
  *
- * The one-line form said "Variant of Altar", which is the parent and nothing
- * more. For a direction five passes deep the parent is the least of it: the
- * root says which family this is and the passes between say how it got here.
- * Each crumb is the way to that direction, and holding shift makes it the
- * comparison instead, so "how far is this from three passes ago" is one click
- * rather than a search through the rail.
- *
- * A long chain keeps its two ends and folds the middle behind one gesture:
- * the rail is narrow, and the root and the parent are the two names the
- * question is usually about.
- *
- * On a rail that draws the lineage, the crumbs and the gutter are the same
- * fact twice, so they answer together: resting on a crumb lights that
- * direction's line in the gutter and its row in the rail. The ask stays one
- * line until it is wanted, then opens where it is; it is the words that
- * decide the next thing typed, and a native tooltip is a slow way to read them.
+ * A long chain keeps its ends (the root and the parent are usually what
+ * matters) and folds the middle behind one gesture. Resting on a crumb lights
+ * that direction's line in the gutter and its row in the rail. The ask stays
+ * one line until opened in place.
  */
 export function Crumbs({
   askedFor,
@@ -60,9 +51,8 @@ export function Crumbs({
   const [expanded, setExpanded] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   /**
-   * The clamp waits for the box. Clamping the moment the ask closes would
-   * show one line with an ellipsis above a box still shrinking around
-   * nothing, so the text stays whole until the collapse has landed.
+   * The clamp waits for the box, or one line with an ellipsis would show above
+   * a box still shrinking.
    */
   const [askSettled, setAskSettled] = useState(true);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,8 +68,8 @@ export function Crumbs({
     setAskSettled(still);
     setAskOpen((current) => !current);
 
-    // A timer rather than transitionend: the event never comes when there
-    // was nothing to transition, and the clamp has to come back regardless.
+    // A timer, not transitionend: the event never comes when nothing
+    // transitioned.
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = setTimeout(() => setAskSettled(true), still ? 0 : ASK_MS + 20);
   };
@@ -189,10 +179,8 @@ export function Crumbs({
         </span>
       </nav>
       {ask === null ? null : openAsk ? (
-        // The whole line is the control and it opens downward in place: a
-        // few more lines of the rail's own words, then back to one. The
-        // clamp swaps at the same moment the box grows, so the ellipsis is
-        // never seen on a line that has room.
+        // The whole line opens downward in place. The clamp swaps as the box
+        // grows, so the ellipsis never shows on a line with room.
         <button
           aria-expanded={askOpen}
           aria-label={askOpen ? "Show less of the request" : "Show the whole request"}

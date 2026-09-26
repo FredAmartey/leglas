@@ -18,7 +18,7 @@ describe("renderedSignature", () => {
 
   test("the same words in a different structure disagree", () => {
     // Two directions can say the same thing and look nothing alike, which is
-    // the whole point of comparing them.
+    // why they're compared.
     const a = renderedSignature("Ship design faster", ["SECTION", "H1"]);
     const b = renderedSignature("Ship design faster", ["ARTICLE", "FIGURE", "H1"]);
 
@@ -84,9 +84,9 @@ describe("paint in the signature", () => {
   const TAGS = ["MAIN", "DIV", "H1", "P", "BUTTON"];
 
   test("colour variants of one direction are different pages", () => {
-    // Four deliberate variants share every word and every element; only the
-    // painted field differs. Calling them duplicates told the user their
-    // variant set was a mistake.
+    // Four deliberate variants share every word and element and differ only in
+    // paint; calling them duplicates told the user their variant set was a
+    // mistake.
     const dawn = renderedSignature(TEXT, TAGS, [
       "rgba(0,0,0,0);linear-gradient(#0E1B3A,#F2A65A);#fff",
     ]);
@@ -243,10 +243,9 @@ describe("visualSample", () => {
     expect(quantiseCssPixel(10.01)).not.toBe(quantiseCssPixel(10.49));
   });
 
-  // visualSample's own comment: a running animation's name is kept and the
-  // frame it happens to be on is not, so one page loaded twice, milliseconds
-  // apart, still agrees. And quantiseCssPixel's: a box is read to the half
-  // pixel, so rasterisation noise is no difference either.
+  // Per visualSample, a running animation's name is kept and its frame isn't,
+  // so one page loaded twice still agrees. Per quantiseCssPixel, boxes are read
+  // to the half pixel, so rasterisation noise isn't a difference.
   test("one design read twice still agrees, mid-animation and through sub-pixel noise", () => {
     const signature = (body: FakeElement) =>
       renderedSignature(
@@ -290,10 +289,9 @@ describe("paintSample", () => {
   const styleOf = (element: Node) => element.paint;
 
   test("a script beside the root is not a branch", () => {
-    // Vite injects its module script into body, so body has two element
-    // children in every app it serves. Counting the script stopped the
-    // descent at the body, whose colour is the same for every direction,
-    // which put the variant collision right back.
+    // Vite injects its module script into body, so body has two children in
+    // every app it serves. Counting the script stopped the descent at body,
+    // whose colour is the same for every direction.
     const body = node("transparent", [
       node("", [], "SCRIPT"),
       node("transparent", [node("#0E1B3A")]),
@@ -335,8 +333,8 @@ describe("paintSample", () => {
 
 describe("signature size", () => {
   test("the signature is a digest, not the sample it was read from", () => {
-    // A visual sample runs to hundreds of elements at a couple of kilobytes
-    // each, and one used to be kept per direction for the life of the page.
+    // A visual sample is hundreds of elements at a couple of kilobytes each,
+    // and one used to be kept per direction for the page's life.
     const visual = Array.from(
       { length: 720 },
       (_, index) => `DIV{rect:${index},${index * 2},1280,64;${"display:block;".repeat(120)}}`,

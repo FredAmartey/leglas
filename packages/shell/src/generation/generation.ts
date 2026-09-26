@@ -1,7 +1,7 @@
 /**
- * A set of directions Leglas builds itself, as the server reports it. The
- * server is the same release as this shell, so these mirror its types in
- * `generation.ts` rather than importing them.
+ * A set of directions Leglas builds, as the server reports it. The server ships
+ * with this shell, so these mirror its `generation.ts` types instead of
+ * importing them.
  */
 export type SlotState = "building" | "checking" | "ready" | "failed" | "stopped";
 
@@ -52,8 +52,7 @@ export const MAX_DIRECTIONS = 6;
 
 /**
  * The surface a direction belongs to: the `v-<surface>` parameter in its
- * address, which is what the switch reads. Null for a direction that is not
- * on a switch, such as a branch.
+ * address, which the switch reads. Null off a switch, such as a branch.
  */
 export function surfaceOf(url: string): string | null {
   let search: URLSearchParams;
@@ -71,10 +70,7 @@ export function surfaceOf(url: string): string | null {
   return null;
 }
 
-/**
- * Each generated direction's slot, by title. A newer set's slot wins, the
- * way a second set or a replaced idea supersedes the one before it.
- */
+/** Each generated direction's slot, by title. A newer set's slot wins. */
 export function slotsByTitle(jobs: readonly GenerationJob[]): Map<string, SlotView> {
   const views = new Map<string, SlotView>();
 
@@ -87,8 +83,7 @@ export function slotsByTitle(jobs: readonly GenerationJob[]): Map<string, SlotVi
 
 /**
  * Whether a direction's address is this slot's, `v-<surface>=<key>`. A title
- * alone is not enough: once a failed direction is deleted, a hand-made one
- * may take its title, and the old slot must not speak for it.
+ * isn't enough: a hand-made direction may take a deleted failed one's title.
  */
 export function isSlotOf(url: string, view: SlotView): boolean {
   try {
@@ -102,9 +97,8 @@ export function isSlotOf(url: string, view: SlotView): boolean {
 }
 
 /**
- * How long after planning a slot may start and still belong to the set's
- * first run. Builds start together, within milliseconds of the plan; a later
- * start is a retry or a new idea.
+ * How long after planning a slot may start and still be part of the first run.
+ * Builds start within milliseconds of the plan; later is a retry or a new idea.
  */
 const RESTART_GAP_MS = 2000;
 

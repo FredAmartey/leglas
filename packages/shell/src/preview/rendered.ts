@@ -1,35 +1,23 @@
 /**
- * Below this, a page has not drawn anything worth comparing.
- *
- * A single-page app serves one near-empty shell for every URL and fills it in
- * the browser. Reading it too early, or reading one that never fills, would
+ * Below this a page hasn't drawn anything worth comparing. A single-page app
+ * serves one near-empty shell for every URL, and reading it too early would
  * make every direction look identical.
  */
 const MEANINGFUL_TEXT = 12;
 
 /**
- * What a preview actually drew.
+ * What a preview actually drew. Comparing what the server sent can't work for a
+ * client-rendered app, where every URL gets the same shell; that check had to
+ * be silenced for exactly the apps that needed it. Two previews are the same
+ * when they look the same.
  *
- * The earlier version of this compared what the server sent, which cannot work
- * for a client-rendered app: the server returns the same shell for every URL
- * and the direction is chosen in the browser. Every direction looked identical
- * and the check had to be silenced, which meant it never fired for the apps
- * most likely to need it.
+ * Text, structure and paint together: text alone misses different layouts of
+ * the same copy, structure alone misses different headlines, and without paint
+ * colour variants were flagged as duplicates. An accidental duplicate matches
+ * in all three.
  *
- * Comparing the rendered page fixes that and is the more honest rule anyway.
- * Two previews are the same when they look the same, which is the claim being
- * made on screen.
- *
- * Text, structure, and paint together. Text alone would call two very
- * different layouts of the same copy identical; structure alone would call
- * two different headlines in the same layout identical; and without paint,
- * deliberate colour variants of one direction were flagged as duplicates, which
- * they visibly are not. An accidental duplicate renders identical colours
- * along with identical words, so it stays caught.
- *
- * What comes back is a digest of all that, not the sample itself. Twins are
- * found by equality alone, and the sample behind a real page runs past a
- * megabyte; one of those was kept per direction for the life of the page.
+ * Returns a digest, not the sample, since twins are found by equality and a
+ * real page's sample runs past a megabyte.
  */
 export function renderedSignature(
   text: string,
@@ -50,10 +38,9 @@ export function renderedSignature(
 export type PaintStyle = { backgroundColor: string; backgroundImage: string; color: string };
 
 /**
- * Elements that render nothing and so cannot be the page surface. Vite puts
- * its module script inside body, so every app it serves has one of these
- * beside the root; counting them as branches would end the descent at the
- * body, whose colour says nothing.
+ * Elements that render nothing and can't be the page surface. Vite puts its
+ * module script inside body, and counting it would end the descent at body,
+ * whose colour says nothing.
  */
 const UNPAINTED = new Set(["LINK", "META", "NOSCRIPT", "SCRIPT", "STYLE", "TEMPLATE"]);
 
@@ -62,9 +49,9 @@ const MAX_VISUAL_ELEMENTS = 720;
 const EDGE_SAMPLE = 180;
 
 /**
- * Layout and paint properties that materially change what a direction draws.
- * Reading an explicit allow-list keeps the fingerprint bounded and prevents
- * browser-specific bookkeeping from turning equal pages into false negatives.
+ * Layout and paint properties that change what a direction draws. An explicit
+ * list keeps the fingerprint bounded and keeps browser bookkeeping from making
+ * equal pages differ.
  */
 const VISUAL_PROPERTIES = [
   "display",
@@ -224,9 +211,8 @@ type VisualStyle = Pick<CSSStyleDeclaration, "getPropertyValue">;
 type RectLike = Pick<DOMRect, "bottom" | "height" | "left" | "right" | "top" | "width">;
 
 /**
- * What the sampler reads of an element. A real `Element` is one; a test's
- * stand-in carrying just these members is another, which is how the sampler
- * is tested without a browser.
+ * What the sampler reads of an element: a real `Element`, or a test's stand-in
+ * with these members.
  */
 export type Sampled<E> = {
   tagName: string;
@@ -299,9 +285,9 @@ function sampleIndices<E extends Sampled<E>>(elements: readonly E[]): number[] {
   for (let index = Math.max(0, elements.length - EDGE_SAMPLE); index < elements.length; index += 1)
     add(index);
 
-  // Interactive, media and vector elements carry disproportionate design
-  // meaning. Include them and their immediate layout ancestors before filling
-  // the remaining budget evenly across a large document.
+  // Interactive, media and vector elements carry the most design meaning, so
+  // they and their immediate layout ancestors go in before the rest of the
+  // budget is spread evenly.
   for (let index = 0; index < elements.length && selected.size < MAX_VISUAL_ELEMENTS; index += 1) {
     const element = elements[index]!;
 
@@ -379,8 +365,8 @@ function attributeSample<E extends Sampled<E>>(element: E): string {
   }
 
   if (tag === "CANVAS") {
-    // SAFETY: the tag says canvas, so the bitmap size is there to read;
-    // instanceof would miss an element from the preview's own realm.
+    // SAFETY: the tag says canvas, so the bitmap size is there; instanceof
+    // would miss an element from the preview's realm.
     const canvas = element as E & Pick<HTMLCanvasElement, "width" | "height">;
     attributes.push(`bitmap:${canvas.width}x${canvas.height}`);
   }
@@ -409,12 +395,10 @@ function pseudoSample<E extends Sampled<E>>(
 }
 
 /**
- * A bounded fingerprint of the rendered design at the current viewport.
- *
- * It captures layout, computed visual styles, pseudo-elements, vector paths,
- * media sources and interaction structure. Animation identity is recorded,
- * while the volatile frame of a running animation is not, so two identical
- * previews loaded milliseconds apart still agree.
+ * A bounded fingerprint of the rendered design at this viewport: layout,
+ * computed visual styles, pseudo-elements, vector paths, media sources and
+ * interaction structure. Animation names are recorded but not their current
+ * frame, so identical previews loaded apart still agree.
  */
 export function visualSample<E extends Sampled<E>>(
   body: E | null,
@@ -454,14 +438,10 @@ export function visualSample<E extends Sampled<E>>(
 type PaintNode<Node> = { children: ArrayLike<Node>; tagName?: string };
 
 /**
- * The colours a page is painted with, sampled where apps actually put them.
- *
- * The page surface is rarely the body: a React app nests body > root div >
- * page element, and the gradient or background sits on that inner element.
- * Descending while there is exactly one rendered child unwraps those wrappers
- * without ever guessing at app structure, and sampling every level on the way
- * catches the surface wherever it is. Depth is capped so a pathological chain
- * cannot make this expensive.
+ * The colours a page is painted with, sampled where apps put them. A React app
+ * nests body > root > page, with the background on the inner element;
+ * descending while there's exactly one rendered child unwraps that without
+ * guessing, sampling each level. Depth is capped.
  */
 export function paintSample<Node extends PaintNode<Node>>(
   body: Node | null,

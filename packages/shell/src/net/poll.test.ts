@@ -4,9 +4,8 @@ import { startPoll, wasAborted, type PollTimers } from "./poll.js";
 import type { TimerHandle } from "./timers.js";
 
 /**
- * A clock the test drives by hand. The poll loop takes its timers as an
- * argument precisely so a test can run ten minutes of polling in a
- * millisecond, and so nothing here depends on real time.
+ * A clock the test drives, so ten minutes of polling take a millisecond and
+ * nothing depends on real time.
  */
 function clock() {
   type Interval = { callback: () => void; every: number; next: number };
@@ -35,14 +34,14 @@ function clock() {
     clearTimeout: (id) => void timeouts.delete(id),
   };
 
-  // Real timers are untouched by the fake ones, so a genuine zero-delay
-  // timeout is the way to let queued promise callbacks run before asserting.
+  // The fake timers don't touch real ones, so a zero-delay timeout lets queued
+  // promise callbacks run before asserting.
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   const advance = async (by: number) => {
     const target = now + by;
-    // A real timer never fires ahead of a promise callback that is already
-    // queued. Draining first keeps the fake honest about that ordering.
+    // A real timer never fires ahead of an already queued promise callback;
+    // draining first keeps the fake honest.
     await flush();
 
     for (;;) {
@@ -128,10 +127,10 @@ describe("startPoll", () => {
   });
 
   test("never starts a second read while the first is still in flight", async () => {
-    // The bug this loop exists to prevent. A bare setInterval enqueues a read
-    // every tick whether or not the last one came back, so a browser whose
-    // per-origin socket budget is already spent accumulates reads faster than
-    // it can drain them and anything the user clicks queues behind the pile.
+    // The bug this loop prevents: a bare setInterval enqueues a read every tick
+    // whether or not the last returned, so once the per-origin socket budget is
+    // spent reads pile up faster than they drain and user clicks queue behind
+    // them.
     const fake = clock();
     const recorded = reads(never);
 
@@ -208,8 +207,8 @@ describe("startPoll", () => {
   });
 
   test("resumes reading after abandoning one that hung", async () => {
-    // Abandoning has to free the slot as well as the socket. A task that
-    // ignores its signal would otherwise hold the loop shut for good.
+    // Abandoning must free the slot as well as the socket, or a task ignoring
+    // its signal holds the loop shut.
     const fake = clock();
     const recorded = reads(never);
 
@@ -241,7 +240,7 @@ describe("startPoll", () => {
 
     expect(recorded.signals[0]?.aborted).toBe(false);
     // Its deadline must be disarmed too, or every settled read leaves a timer
-    // behind waiting to abort a signal nobody is holding any more.
+    // behind.
     expect(fake.armed()).toBe(0);
     stop();
   });
@@ -318,8 +317,7 @@ describe("startPoll", () => {
 
 describe("wasAborted", () => {
   test("knows an abandoned read from anything the server said", () => {
-    // What a real abort looks like coming out of fetch, in both the browser's
-    // wording and Node's.
+    // A real abort out of fetch, in the browser's wording and Node's.
     expect(wasAborted(new DOMException("signal is aborted without reason", "AbortError"))).toBe(
       true,
     );
@@ -340,9 +338,8 @@ describe("wasAborted", () => {
 
 describe("a loop driven by something other than the clock", () => {
   /**
-   * Held on an object rather than in a variable so a call after the
-   * subscribe callback has run is not narrowed back to null by the compiler,
-   * which cannot see that the callback already ran.
+   * Held on an object so a call after the subscribe callback isn't narrowed
+   * back to null by the compiler.
    */
   type Held = { run: (() => void) | null };
 
@@ -378,8 +375,8 @@ describe("a loop driven by something other than the clock", () => {
     expect(recorded.signals).toHaveLength(3);
 
     stop();
-    // Stopping unsubscribes, so a socket outliving the loop cannot drive a
-    // read into a component that is gone.
+    // Stopping unsubscribes, so a socket outliving the loop can't drive a read
+    // into a gone component.
     expect(nudge.run).toBeNull();
   });
 
@@ -408,9 +405,8 @@ describe("a loop driven by something other than the clock", () => {
     nudge.run?.();
     await fake.flush();
 
-    // One read at a time, whatever does the asking. A nudge is subject to
-    // the same guard an interval tick is, so a burst of frames cannot pile
-    // reads up against the six-connection budget.
+    // One read at a time whoever asks: a nudge gets the same guard as a tick,
+    // so a burst of frames can't pile reads against the six-connection budget.
     expect(recorded.signals).toHaveLength(1);
     stop();
   });

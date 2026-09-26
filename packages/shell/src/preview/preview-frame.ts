@@ -9,11 +9,9 @@ export type PreviewFrameWatcher = {
 export type LoadedPreviews = Readonly<Record<string, string>>;
 
 /**
- * The document generation a loading verdict belongs to.
- *
- * A title alone is not an identity: an agent can replace its URL in place, and
- * a retry deliberately remounts the same URL. Keeping all three parts in the
- * key prevents either navigation from inheriting a completed older frame.
+ * The document generation a loading verdict belongs to. A title isn't an
+ * identity: an agent can replace a URL in place and a retry remounts the same
+ * URL, so all three parts key it.
  */
 export function previewIdentity(title: string, url: string, reload: number): string {
   return `${title}\u0000${url}\u0000${reload}`;
@@ -36,8 +34,8 @@ export function resetPreviewLoaded(loaded: LoadedPreviews, title: string) {
 }
 
 /**
- * A cached iframe may already be complete before a framework observes its
- * load event. Same-origin previews let us verify the real document directly.
+ * A cached iframe may be complete before a framework sees its load event;
+ * same-origin previews let us check the document directly.
  */
 export function previewFrameIsReady(frame: HTMLIFrameElement): boolean {
   try {
@@ -50,11 +48,9 @@ export function previewFrameIsReady(frame: HTMLIFrameElement): boolean {
 }
 
 /**
- * Own one iframe navigation from mount to ready, failure, timeout or cleanup.
- *
- * The native listener covers ordinary navigation, the immediate readiness
- * check covers a cached load that completed before the listener attached and
- * the timeout performs one last readiness check before declaring failure.
+ * Owns one iframe navigation from mount to ready, failure, timeout or cleanup.
+ * The listener covers normal loads, the immediate check a cached load that
+ * finished first, and the timeout checks once more before declaring failure.
  */
 export function watchPreviewFrame({
   frame,

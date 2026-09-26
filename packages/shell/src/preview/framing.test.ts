@@ -20,7 +20,7 @@ describe("frameRefusal", () => {
 
   test("anything short of a clear refusal leaves the pane alone", async () => {
     expect(await frameRefusal("Docs", answering({ framable: true }))).toBeNull();
-    // Unknown: the page did not answer, which is the frame's own story to tell.
+    // Unknown: the page didn't answer, which the frame shows itself.
     expect(await frameRefusal("Docs", answering({ framable: null }))).toBeNull();
     // A viewer is refused the route; an older server does not have it.
     expect(await frameRefusal("Docs", answering({ error: "no" }, 403))).toBeNull();
@@ -48,7 +48,7 @@ describe("refusalWords", () => {
     );
 
     expect(deny.headline).toBe("docs.example.com won’t open inside another page");
-    // The header's words are set apart, so they can be shown as the site sent them.
+    // The header's words are kept apart so they show as the site sent them.
     expect(deny.reason).toEqual({
       lead: "It sends ",
       quote: "X-Frame-Options: DENY",

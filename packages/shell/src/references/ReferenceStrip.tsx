@@ -2,17 +2,13 @@ import { Tip } from "../ui/kit.js";
 import { describeBytes, type ReferenceDraft } from "./references.js";
 
 /**
- * The images riding with the next change, drawn where the words go.
+ * The images riding with the next change, inside the composer's border since
+ * they're part of the same request. Each is drawn at its own aspect at a fixed
+ * height, so a phone screenshot and a wide hero look like what they are.
  *
- * Inside the composer's border rather than above it, because they are part
- * of the same request: the field says how, the strip shows what. Each one is
- * drawn at its own aspect at a fixed height, so a phone screenshot and a wide
- * hero read as what they are instead of two identical squares.
- *
- * Three states, each visible at rest rather than only in motion: landing (a
- * small spinner in the corner), landed (nothing extra), and refused (an amber
- * edge, and the whole tile becomes the retry). Remove appears on hover or
- * focus, since removing is rare and the strip is small.
+ * Three states visible at rest: landing (corner spinner), landed (nothing
+ * extra), refused (amber edge, and the whole tile retries). Remove shows on
+ * hover or focus.
  */
 export function ReferenceStrip({
   drafts,
@@ -57,10 +53,9 @@ export function ReferenceStrip({
                 <Thumb draft={draft} failed={false} />
               )}
             </Tip>
-            {/* One corner, one slot: a spinner while landing, an amber mark
-                when refused, nothing once landed. The amber edge alone read
-                as a selection ring at this size, so the state also gets a
-                glyph. */}
+            {/* One corner slot: a spinner while landing, an amber mark if
+                refused, nothing once landed. The amber edge alone looked
+                like a selection ring at this size. */}
             {draft.status === "uploading" ? (
               <span
                 aria-label="Uploading"
@@ -102,9 +97,8 @@ export function ReferenceStrip({
 }
 
 /**
- * A thumbnail is outlined in white at low opacity so it holds an edge on
- * the dark field, and a tall image gets a floor on its width so a phone
- * screenshot is a tile rather than a sliver.
+ * Outlined in faint white so it holds an edge on the dark field; a tall image
+ * gets a minimum width so a phone screenshot isn't a sliver.
  */
 function Thumb({ draft, failed }: { draft: ReferenceDraft; failed: boolean }) {
   return (

@@ -20,8 +20,8 @@ const PREVIEWS = [
 describe("scanQueue", () => {
   test("a branch preview that has not started has no url yet, and is skipped rather than thrown on", () => {
     const unstarted: Partial<Preview> = { title: "Warm red", tags: [], branch: "warm-red" };
-    // SAFETY: a branch preview that has not started arrives without a url,
-    // which the type does not admit; that gap is what this test is about.
+    // SAFETY: an unstarted branch preview arrives without a url, which the type
+    // doesn't admit; that gap is what this tests.
     const idle = unstarted as Preview;
 
     expect(scanQueue([idle, ...PREVIEWS], {}).map((preview) => preview.title)).not.toContain(
@@ -107,8 +107,8 @@ describe("replacedPanes", () => {
   const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
 
   test("a direction coming on stage keeps its verdict", () => {
-    // Flipping to a direction loads the same document the background read
-    // already measured. Rescanning it off stage doubled the cost of every flip.
+    // Flipping to a direction loads the document the background read already
+    // measured; rescanning it doubled the cost of every flip.
     const previous = new Map([["Wave", identity("Wave", 0)]]);
     const current = new Map([["Dot grid", identity("Dot grid", 0)]]);
 

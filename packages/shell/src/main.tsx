@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-// Interface faces, self-hosted through versioned packages rather than
-// hand-downloaded files. Satoshi ships with the tool (see index.css).
+// Interface faces, self-hosted from versioned packages. Satoshi ships with the
+// tool (see index.css).
 import "@fontsource-variable/outfit";
 import "@fontsource-variable/geist";
 import "@fontsource/spline-sans-mono";

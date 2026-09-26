@@ -62,8 +62,8 @@ describe("selectorFor", () => {
     expect(selectorFor(find(root, "p", 3))).toBe("section:nth-of-type(2) > p:nth-of-type(1)");
   });
 
-  // The edit this tool exists to make is "add something above this". Child
-  // numbering renumbers on that; type numbering does not.
+  // The edit this tool is for is "add something above this". Child numbering
+  // shifts on that; type numbering doesn't.
   test("survives a sibling of another type being inserted above", () => {
     const before = tree({ children: [{ children: [{ tag: "p" }], tag: "main" }], tag: "body" });
 
@@ -88,8 +88,8 @@ describe("selectorFor", () => {
     );
   });
 
-  // React's useId mints ids like `:r7:`, and a framework may mint a fresh one
-  // per render. Anchoring to one truncates the path that would have worked.
+  // React's useId mints ids like `:r7:`, and a framework may mint a new one per
+  // render. Anchoring to one truncates the path that would have worked.
   test("ignores an id that cannot survive a reload", () => {
     const root = tree({
       children: [{ children: [{ tag: "span" }], id: ":r7:", tag: "section" }],
@@ -148,9 +148,8 @@ describe("anchorFor", () => {
     });
   });
 
-  // The pin has to come back where it was meant when the element is a
-  // different size next time, which a fraction survives and a coordinate
-  // does not.
+  // The element may be a different size next time; a fraction survives that and
+  // a coordinate doesn't.
   test("keeps the pointed-at spot as a fraction of the element", () => {
     const anchor = anchorFor(
       find(element, "div"),

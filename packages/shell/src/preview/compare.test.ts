@@ -4,8 +4,8 @@ import { LABEL_ROOM, setLayout, nextCompare, paneGeometry, paneTitles } from "./
 
 describe("nextCompare", () => {
   test("opens against whatever you were just looking at", () => {
-    // The comparison you want is almost always against the direction you came
-    // from, so opening the split needs no second choice.
+    // The comparison you want is almost always against where you came from, so
+    // the split needs no second choice.
     expect(nextCompare({ active: "Quiet", previous: "Current", pinned: null })).toBe("Current");
   });
 
@@ -123,8 +123,8 @@ describe("how one side of a split is drawn", () => {
 
   test("a split keeps the width it had alone and scales to fit", () => {
     const geometry = paneGeometry({ ...stage, panes: 2 });
-    // The design is still drawn at the stage's full width: this is the whole
-    // point, since that is the width its breakpoints were written for.
+    // The design is still drawn at the stage's full width, the width its
+    // breakpoints were written for.
     expect(geometry.designWidth).toBe(1358);
     expect(geometry.scale).toBeCloseTo(0.5, 2);
     expect(geometry.scaling).toBe(true);
@@ -134,8 +134,8 @@ describe("how one side of a split is drawn", () => {
 
   test("the frame keeps the stage's proportions, so nothing stretches", () => {
     const geometry = paneGeometry({ ...stage, panes: 2 });
-    // Same window shape as looking at it alone, only smaller. Filling the pane
-    // instead would draw a viewport-height hero in a window twice as tall.
+    // Same window shape as alone, only smaller. Filling the pane would draw a
+    // viewport-height hero in a window twice as tall.
     expect(geometry.frameHeight).toBe(950);
     expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1358 / 950, 2);
   });
@@ -159,8 +159,8 @@ describe("how one side of a split is drawn", () => {
     expect(six.designWidth).toBe(1358);
     expect(six.scale).toBeCloseTo(452 / 1358, 3);
 
-    // Four sit two by two: a cell is 678.5 wide but only (950 - 1) / 2 tall,
-    // so its height, less the name above the frame, is what binds.
+    // Four sit two by two: a cell is 678.5 wide but only (950 - 1) / 2 tall, so
+    // its height less the name above binds.
     const four = paneGeometry({ ...stage, panes: 2, rows: 2 });
     expect(four.scale).toBeCloseTo((474.5 - LABEL_ROOM) / 950, 3);
     expect(four.boxHeight + LABEL_ROOM).toBeCloseTo(474.5, 1);
@@ -210,9 +210,9 @@ describe("a framed preset inside a split", () => {
 
   test("is scaled from the height it has unsplit, not the whole stage", () => {
     const geometry = paneGeometry({ ...stage, viewport: 1440 });
-    // Unsplit a preset sits inset by the gutter, so its own height is the
-    // stage less that gutter. Scaling from 950 would draw it 48px taller and
-    // move every vh in the design.
+    // Unsplit, a preset is inset by the gutter, so its height is the stage less
+    // the gutter. Scaling from 950 would draw it 48px taller and move every vh
+    // in the design.
     expect(geometry.frameHeight).toBe(902);
     expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1440 / 902, 3);
   });
@@ -227,9 +227,9 @@ describe("a framed preset inside a split", () => {
 
 describe("sub-pixel stage widths", () => {
   test("the design width is not rounded, so a breakpoint cannot land differently", () => {
-    // A stage measures fractionally and the unsplit view draws at that exact
-    // width. Rounding to 1359 here would put a 1358.5px breakpoint on the
-    // other side of a split than it is on its own.
+    // The stage measures fractionally and the unsplit view uses that exact
+    // width. Rounding to 1359 would put a 1358.5px breakpoint on the other side
+    // in a split.
     const geometry = paneGeometry({
       gutter: 48,
       panes: 2,

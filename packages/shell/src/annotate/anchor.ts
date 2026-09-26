@@ -1,22 +1,14 @@
 import { isString } from "../json.js";
 
 /**
- * How a note finds its way back to the thing it was left on.
+ * How a note finds its way back to what it was left on. A coordinate breaks as
+ * soon as anything moves, which is the tool's whole purpose, and a CSS path
+ * breaks when a wrapper is added. So an anchor records four independent facts
+ * and the resolver uses whichever survived. The agent resolves it with the
+ * source open, which it does well given a name, some text and a rough place.
  *
- * A pin dropped at a coordinate is worthless the moment anything moves, and
- * moving things is the entire purpose of the tool: the next change restyles
- * the element the note is about. A CSS path alone is not much better, because
- * a direction that gains a wrapper renumbers every sibling below it.
- *
- * So an anchor records four independent facts about one element, and whoever
- * resolves it uses whichever survived. Leglas never has to resolve it
- * correctly; the agent does, with the direction's own source open in front of
- * it, and it is very good at that given a name, some text and a rough place to
- * look. That is the same division of labour as everything else here.
- *
- * The DOM work stays at the edges. These take the smallest structural shape a
- * real Element already satisfies, so the selector walk can be tested against a
- * hand-built tree with no browser in the room.
+ * These take the smallest shape a real Element satisfies, so the selector walk
+ * tests against a hand-built tree with no browser.
  */
 
 export type ElementLike = {
@@ -40,22 +32,14 @@ export type Anchor = {
   /** Where it sat when the note was left, in the preview's own coordinates. */
   rect: Rect;
   /**
-   * The point that was clicked, as a fraction of the element's own box.
-   *
-   * Stored as a fraction rather than a coordinate so the pin can be put back
-   * where it was meant when the element is a different size next time: half
-   * way across a headline stays half way across it after the headline is
-   * rewritten. A pin parked at the element's top edge instead would sit on
-   * whatever is above it, and on a large section it would be nowhere near
-   * the thing that was pointed at.
+   * The clicked point as a fraction of the element's box, so the pin lands in
+   * the same place when the element changes size: halfway across a headline
+   * stays halfway after it's rewritten.
    */
   spot: { x: number; y: number };
   /**
-   * A swept area, as fractions of the element's own box.
-   *
-   * Present when the annotation was dragged across a region rather than aimed
-   * at one thing. The element is then the nearest one holding the whole
-   * region, because the region itself belongs to none.
+   * A swept area, as fractions of the element's box. The element is then the
+   * nearest one holding the whole region, since the region belongs to none.
    */
   region?: { x: number; y: number; width: number; height: number };
   /** The outermost elements the region covers, for the agent to recognise it. */
@@ -74,11 +58,9 @@ const CLASS_CAP = 6;
 const DEPTH_CAP = 8;
 
 /**
- * Ids worth anchoring to.
- *
- * React hands out ids like `:r7:` from useId, and a framework may mint one
- * per render. An id that cannot survive a reload is worse than no id, because
- * it truncates the path that would have worked.
+ * Ids worth anchoring to. React's useId mints ids like `:r7:` and a framework
+ * may mint one per render; an id that can't survive a reload truncates the path
+ * that would have worked.
  */
 function stableId(value: string | null | undefined): string | null {
   if (value == null) return null;
@@ -101,11 +83,8 @@ export function elementText(value: string | null | undefined): string {
 
 /**
  * A CSS path to one element, from the nearest stable id or the body.
- *
- * `nth-of-type` rather than `nth-child` on purpose: a direction that adds a
- * heading above a paragraph shifts every child index after it, while the
- * paragraph is still the first paragraph. It is the numbering most likely to
- * survive the kind of edit this tool exists to make.
+ * `nth-of-type`, not `nth-child`: adding a heading above a paragraph shifts
+ * child indexes, but it's still the first paragraph.
  */
 export function selectorFor(element: ElementLike): string {
   const parts: string[] = [];
@@ -156,11 +135,9 @@ function fraction(value: number, size: number): number {
 }
 
 /**
- * Everything worth recording about the element a note was left on.
- *
- * The point is where the pointer was, in the same coordinates as the rect.
- * Without one the note lands in the middle of the element, which is the best
- * guess available when a note arrives from somewhere other than a click.
+ * Everything worth recording about the element a note was left on. Without a
+ * pointer position the note lands in the element's middle, the best guess for a
+ * note that didn't come from a click.
  */
 export function anchorFor(
   element: ElementLike,

@@ -1,16 +1,9 @@
 /**
- * Keeping a tooltip on screen.
- *
- * A tooltip is placed from its anchor alone, which is fine until the anchor is
- * against an edge. The floating widget is the case that exposed it: parked in
- * either top corner its label was drawn above the viewport and cut off, and in
- * the bottom right it ran past the right edge. A label you cannot read is
- * worse than none, because the control it explains is the one you were unsure
- * about.
- *
- * Both corrections are measured after the tooltip renders rather than guessed
- * from a constant, because the width depends on the text and the height on the
- * type scale.
+ * Keeping a tooltip on screen. Placed from its anchor alone, the floating
+ * widget's label went above the viewport in a top corner and past the right
+ * edge bottom right, on the control people were unsure about. Corrections are
+ * measured after render, since width depends on the text and height on the type
+ * scale.
  */
 
 /** Breathing room kept between a tooltip and the edge it would cross, in px. */
@@ -24,11 +17,8 @@ export type Edges = { bottom: number; left: number; right: number; top: number }
 export type Placement = "bottom" | "right" | "top";
 
 /**
- * How far to slide a tooltip horizontally so it clears both side edges.
- *
- * Returns a delta to add to the current offset, so applying it and measuring
- * again yields zero. A tooltip wider than the viewport is pinned to the left
- * edge rather than chased off the right.
+ * How far to slide a tooltip to clear both sides: a delta to add, so measuring
+ * again gives zero. One wider than the viewport pins to the left edge.
  */
 export function fitShift(rect: Edges, viewportWidth: number, margin = TIP_MARGIN): number {
   if (rect.left < margin) return margin - rect.left;
@@ -42,10 +32,8 @@ export function fitShift(rect: Edges, viewportWidth: number, margin = TIP_MARGIN
 }
 
 /**
- * Whether a tooltip drawn above its anchor is cut off, and should go below.
- *
- * Only flips when there is somewhere better to go: against a short viewport
- * both placements are cut off, and moving gains nothing.
+ * Whether a tooltip above its anchor is cut off and should go below. Only when
+ * below is better; in a short viewport both are cut off.
  */
 export function shouldFlipBelow(
   rect: Edges,
@@ -60,14 +48,10 @@ export function shouldFlipBelow(
 }
 
 /**
- * One correction pass over a freshly measured tooltip: flip it below when it
- * is cut off at the top, otherwise slide it clear of the side edges. Returns
- * what changed, or null when the placement already stands.
- *
- * The shift is computed from the unshifted position every time rather than
- * accumulated, so a second pass settles at the same answer and a label that
- * changes width while it is open is refitted for what it says now, not for
- * what it said when the pointer arrived.
+ * One correction pass on a freshly measured tooltip: flip below if cut off at
+ * the top, else slide clear of the sides. Returns what changed, or null. The
+ * shift is computed from the unshifted position each time, so a second pass
+ * settles and a label that changes width is refitted for its current text.
  */
 export function placeTip(
   tip: { at: Placement; shift: number; x: number; y: number },

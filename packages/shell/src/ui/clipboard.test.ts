@@ -27,8 +27,8 @@ describe("copyText", () => {
     expect(legacy).toHaveBeenCalledWith("url");
   });
 
-  // The shell is reachable over a LAN address, where the async clipboard is
-  // absent entirely rather than present and failing.
+  // Over a LAN address the async clipboard is missing entirely, not present and
+  // failing.
   test("falls back when there is no async clipboard at all", async () => {
     await expect(copyText("url", { legacy: () => true })).resolves.toBe("copied");
   });

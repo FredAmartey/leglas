@@ -3,19 +3,12 @@ import type { Preview } from "../types.js";
 import { Tip } from "../ui/kit.js";
 
 /**
- * What the rail cannot fit, on hover: the note in full, and the origin under
- * a rule. Only there when there is something to say.
- *
- * The rail asks for a card on every row and gets one on the few rows that
- * record where they came from. Wrapping unconditionally and letting the label
- * be empty would open an empty bubble on every hover, which is how a surface
- * teaches people to ignore it.
- *
- * The note is repeated deliberately. It is clamped to two lines in the row,
- * and the moment someone hovers a row to ask what it is, the truncated half
- * is the half they wanted. `basedOn` holds the parent's title as it was at
- * registration, so it is resolved through the same rename map the rail uses
- * or a renamed parent is named twice, differently, on one screen.
+ * What the rail can't fit, on hover: the full note, and the origin under a
+ * rule. Only when there's something to say, since an empty bubble on every
+ * hover teaches people to ignore it. The note repeats because the row clamps it
+ * to two lines, and the truncated half is what someone hovering wants.
+ * `basedOn` holds the parent's registration title, so it's resolved through the
+ * rail's rename map.
  */
 export function RowCard({
   children,

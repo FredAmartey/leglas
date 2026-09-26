@@ -4,10 +4,9 @@ const STEP =
   "flex size-6 items-center justify-center rounded text-[#9CA3AF] transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-white active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none";
 
 /**
- * The composer's controls while it takes a brief: how many directions, and
- * the button that says what it will make and whose plan pays for it. The
- * count is a stepper rather than a menu, because the useful range is small
- * and the number should be visible, not behind a click.
+ * The composer's controls while taking a brief: how many directions, and a
+ * button saying what it'll make and whose plan pays. A stepper, not a menu,
+ * since the range is small and the number should show.
  */
 export function BriefToolbar({
   agent,

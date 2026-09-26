@@ -5,9 +5,8 @@ import { startPoll } from "../net/poll.js";
 import { readShare, type SharePayload } from "./share-api.js";
 
 /**
- * How long the read waits with nothing shared and nothing nudging it. A
- * share that starts elsewhere (another tab) nudges anyway; this is only the
- * backstop, and with nothing to watch it need not cost the idle tab a read
+ * How long the read waits with nothing shared and no nudge. A share started
+ * elsewhere nudges anyway; with nothing to watch, the idle tab needn't read
  * every fifteen seconds.
  */
 export const IDLE_SHARE_MS = 60_000;
@@ -15,14 +14,10 @@ export const IDLE_SHARE_MS = 60_000;
 const NOTHING: SharePayload = { share: null, tunnels: [] };
 
 /**
- * What is shared right now, kept current by the server's `share` nudge.
- *
- * The loop follows the same two rules as every other read in the shell: one
- * in flight at a time, a slow interval as the fallback. It ticks faster while
- * a share is live, because that is when the state moves (the tunnel coming
- * up, a viewer arriving) and when someone is looking at it. The panel never
- * asks for a read after a change it made: the server nudges `share` on
- * every one, and that is the read.
+ * What's shared right now, kept current by the server's `share` nudge. One read
+ * in flight, slow fallback interval, faster while a share is live, since that's
+ * when state moves and someone is watching. The panel never asks for a read
+ * after its own change; the server's nudge is the read.
  */
 export function useShare(enabled: boolean): SharePayload {
   const [payload, setPayload] = useState<SharePayload>(NOTHING);

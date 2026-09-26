@@ -12,12 +12,9 @@ import { must } from "./must.js";
 import { FALLBACK_MS } from "./net/live.js";
 
 /**
- * The shell, mounted whole against a server that answers from a table.
- *
- * Everything under the shell that can be reasoned about alone has tests of
- * its own. These are for what only shows once the pieces are together: that a
- * key reaches the panel it opens, that what is typed is what is sent, and
- * that a viewer is given nothing that changes somebody else's rail.
+ * The shell mounted whole against a server answering from a table. For what
+ * only shows with the pieces together: a key reaches its panel, what's typed is
+ * what's sent, and a viewer gets nothing that changes someone else's rail.
  */
 
 const PREVIEWS: Preview[] = [
@@ -210,8 +207,9 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers({ now: 1_790_000_000_000 });
 
-  // The previews are frames onto a dev server that is not running here.
-  // SAFETY: happy-dom hangs its settings off the window it makes, and nothing types that.
+  // The previews are frames onto a dev server that isn't running here.
+  // SAFETY: happy-dom hangs its settings off the window it makes, and nothing
+  // types that.
   const happy = (window as { happyDOM?: { settings: { disableIframePageLoading?: boolean } } })
     .happyDOM;
 
@@ -272,8 +270,8 @@ describe("the rail and the stage", () => {
     expect(open?.getAttribute("href")).toBe("https://docs.example.com/start");
     expect(open?.getAttribute("target")).toBe("_blank");
 
-    // Leglas asked without the browser's cookies, so a signed-in page may
-    // frame after all. The reader can say so, and is not asked again.
+    // Leglas asked without cookies, so a signed-in page may frame after all.
+    // The reader can say so, and isn't asked again.
     const anyway = [...alert.querySelectorAll("button")].find(
       (button) => button.textContent === "Show the frame anyway",
     );
@@ -298,12 +296,12 @@ describe("the rail and the stage", () => {
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
 
-  // Where the cards start is measured with every family open, so a fold
-  // never moves a card sideways. Measured on the folded rail, the roots
-  // would all pull back in (Gutter.test.ts).
+  // Card starts are measured with every family open, so a fold never moves a
+  // card sideways; measured folded, the roots would pull back in
+  // (Gutter.test.ts).
   test("folding a family moves no card sideways", async () => {
-    // Four variants fork Counter's line out to a third lane, which puts every
-    // root further in than a rail with that family folded would.
+    // Four variants fork Counter's line to a third lane, putting every root
+    // further in than a folded rail would.
     await mount({
       previews: [
         ...PREVIEWS,
@@ -327,7 +325,7 @@ describe("the rail and the stage", () => {
 
     expect([...folded.keys()]).toEqual(["Table", "Menu", "Counter"]);
 
-    // Each card is indented at all, so equal cannot mean both empty.
+    // Each card is indented at all, so equal can't mean both empty.
     for (const [title, indent] of folded) {
       expect(indent, title).toMatch(/^\d+px$/);
       expect(indent, title).toBe(open.get(title));
@@ -1105,14 +1103,14 @@ describe("building directions", () => {
 });
 
 describe("the duplicate check", () => {
-  // A recovery reloads every direction the dev server serves, mostly off
-  // stage. Unless those are read again, a restart that changed a page keeps
-  // its old duplicate verdict.
+  // A recovery reloads every direction the dev server serves, mostly off stage.
+  // Unless those are read again, a restart that changed a page keeps its old
+  // duplicate verdict.
   test("an off-stage direction reloaded by a recovery is read again", async () => {
     const health: Health = { devServer: "http://localhost:3000", reachable: true, cwd: "" };
 
-    // On stage, a page from another origin, which the check cannot read;
-    // behind it, two routes on the app, which it reads one at a time.
+    // On stage, another origin the check can't read; behind it, two app routes
+    // it reads one at a time.
     await mount({
       previews: [
         { title: "Docs", url: "https://docs.example.com/start", tags: [] },

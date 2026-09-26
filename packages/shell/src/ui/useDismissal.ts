@@ -1,12 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 /**
- * The dismissal contract every panel hung off a control shares: while open
- * it takes focus, and Escape, a pointer landing outside it or the window
- * losing focus close it, with focus handed back to the control on Escape.
- *
- * `onClose` is read through a ref by the listeners, so the wiring is
- * attached once per opening rather than once per render of the shell.
+ * The dismissal every panel on a control shares: open, it takes focus; Escape,
+ * a pointer outside or the window losing focus closes it; Escape returns focus
+ * to the control. `onClose` is read through a ref so wiring attaches once per
+ * opening.
  */
 export function useDismissal(
   open: boolean,

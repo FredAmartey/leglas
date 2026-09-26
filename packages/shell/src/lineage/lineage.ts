@@ -1,20 +1,14 @@
 /**
- * The rail with lineage applied: each variant after the direction it came
- * from, and the shape of that tree worked out row by row for a gutter to draw.
+ * The rail with lineage applied: each variant after its parent, and the tree's
+ * shape worked out per row for the gutter. Family order (families.ts) flattens
+ * a family under its root, right for diverge then converge; but an iterating
+ * exploration makes a chain, and flattened, six passes read as six siblings.
+ * Lineage order is depth-first with siblings in saved order, so a chain reads
+ * top to bottom and a fork follows the line it left.
  *
- * Family order (families.ts) flattens a family to one level under its root
- * in saved order, which is right for diverge then converge: four directions,
- * one of them varied. An exploration that iterates on the last pass instead
- * produces a chain, and flattened, six passes read as six siblings and the
- * one fact worth keeping, which pass each one came from, is gone. Lineage
- * order keeps it: a depth-first walk, siblings in saved order, so a chain
- * reads top to bottom and a fork follows the line it left.
- *
- * The gutter is drawn the way `git log --graph` draws a history: the first
- * sibling continues its parent's lane, later siblings fork into a lane of
- * their own and hold it until their row arrives. A linear chain is one line
- * and lanes are only spent where a branch actually coexists, which is what
- * lets the titles stay aligned however deep the tree is.
+ * Like `git log --graph`: the first sibling continues its parent's lane and
+ * later siblings fork into their own until their row. Lanes are spent only
+ * where branches coexist, which keeps the titles aligned at any depth.
  */
 
 export type LineageRow = {
@@ -45,9 +39,8 @@ export type RowMeta = {
 };
 
 /**
- * The nearest ancestor that is on the rail. A hidden direction never strands
- * its variants; they attach to whatever above them is still showing, or stand
- * as roots when nothing is.
+ * The nearest ancestor on the rail. A hidden direction never strands its
+ * variants: they attach to whatever above is showing, or stand as roots.
  */
 function nearestPresent(
   title: string,
@@ -88,8 +81,8 @@ function lineageTree(titles: readonly string[], basedOn: ReadonlyMap<string, str
     else children.set(parent, [title]);
   }
 
-  // Two directions based on each other have no root between them and would
-  // never be walked. Promote the first of each such ring rather than lose it.
+  // Two directions based on each other have no root and would never be walked,
+  // so the first of each ring is promoted.
   const reached = new Set<string>();
 
   const mark = (title: string) => {
@@ -131,13 +124,10 @@ export type Rail = {
 };
 
 /**
- * The rail's rows in lineage order, with the fold applied and the gutter
- * worked out.
- *
- * A folded row keeps its place and drops everything beneath it. The saved
- * preference folds family roots; a drag folds the rows around the one being
- * moved. Either way the count still names the whole subtree, so a control
- * can say how much it is hiding.
+ * The rail's rows in lineage order, folds applied, gutter worked out. A folded
+ * row keeps its place and drops everything beneath it; the saved preference
+ * folds family roots, a drag folds the rows around the one moving. The count
+ * still names the whole subtree.
  */
 export function lineageRail(
   titles: readonly string[],
@@ -150,8 +140,8 @@ export function lineageRail(
     (tree.children.get(title) ?? []).reduce((total, kid) => total + size(kid), 1);
 
   const rows: LineageRow[] = [];
-  // Which lanes are held, and by whom. A lane is held from the mark that
-  // opens it until the last row of the subtree drawn in it.
+  // Which lanes are held and by whom: from the mark that opens a lane to the
+  // last row of its subtree.
   const lanes: (string | null)[] = [];
 
   const firstFree = () => {
@@ -229,13 +219,10 @@ export function lineageRail(
 }
 
 /**
- * Move a direction among its siblings in the saved order.
- *
- * Only relative order between siblings shows on a lineage rail, so putting
- * the title just before the sibling it should precede is enough, wherever
- * their families' other rows sit in the flat list. With no sibling to go
- * before, it lands after the last of them. A hidden sibling keeps its place
- * in the list and stays hidden.
+ * Moves a direction among its siblings in the saved order. Only sibling order
+ * shows on a lineage rail, so placing it just before the sibling it should
+ * precede is enough; with none, it goes after the last. A hidden sibling keeps
+ * its place.
  */
 export function reorderAmongSiblings(
   order: readonly string[],
@@ -298,18 +285,13 @@ export function tracedChain(parents: ReadonlyMap<string, string>, target: string
 }
 
 /**
- * What lights when a direction is looked at: the line from its family root
- * down to it, and nothing past it. Where a direction came from is the
- * question; what was later made from it is everyone else's line.
+ * What lights when a direction is looked at: the line from its root down to it,
+ * nothing past it. The root is the exception and lights everything from it,
+ * since a root lighting only itself looks broken.
  *
- * The root is the one exception. Nothing came before it, and a root that
- * lit only itself would read as the light having failed, so the origin
- * shows everything that came from it, every branch included.
- *
- * Nodes come root first, each parent before its children, so a walk down the
- * list is a walk down the tree; edges are the parent-to-child steps that
- * draw it. A direction with neither ancestors nor descendants is one node and
- * no edges: it is not on a line, and nothing is drawn for it.
+ * Nodes are root first, parents before children; edges are the parent-to-child
+ * steps. A direction with no ancestors or descendants is one node, no edges,
+ * and nothing is drawn.
  */
 export type TracedTree = { nodes: string[]; edges: [string, string][] };
 
@@ -347,16 +329,10 @@ export function tracedTree(
 }
 
 /**
- * A lineage as the segments that draw it, row by row.
- *
- * Between a parent and its child the line runs in the child's lane: straight
- * down out of the parent's mark when the child continues its lane, or out
- * along the fork the parent opened for it, then through every row in
- * between, into the child's mark from above.
- *
- * The tree arrives worked out rather than being found again here, so the
- * light running along the lineage and the line under it can never disagree
- * about where it goes.
+ * A lineage as the segments that draw it, per row. Between parent and child the
+ * line runs in the child's lane: straight down if the child continues the lane,
+ * else along the parent's fork, then through the rows between into the child's
+ * mark. The tree arrives worked out, so the light and the line can't disagree.
  */
 export function tracedSegments(
   rows: readonly string[],
@@ -402,9 +378,9 @@ export function widestLane(meta: ReadonlyMap<string, RowMeta>): number {
 }
 
 /**
- * Where a direction came from, root first, the direction itself excluded.
- * Follows the recorded parents whether or not they are still on the rail: a
- * removed ancestor is still where the design came from.
+ * Where a direction came from, root first, itself excluded. Follows recorded
+ * parents even off the rail, since a removed ancestor is still the design's
+ * origin.
  */
 export function ancestry(title: string, basedOn: ReadonlyMap<string, string>): string[] {
   const chain: string[] = [];
@@ -423,15 +399,14 @@ export function ancestry(title: string, basedOn: ReadonlyMap<string, string>): s
 export type Crumbs = { head: string[]; hidden: string[]; tail: string[] };
 
 /**
- * A chain longer than the line can hold keeps its two ends. The root says
- * which family this is and the parent is the comparison that matters; what
- * lies between is one gesture away.
+ * A chain too long for the line keeps its ends: the root names the family and
+ * the parent is the comparison that matters.
  */
 export function collapseChain(chain: readonly string[], max = 3): Crumbs {
   if (chain.length <= max) return { head: [...chain], hidden: [], tail: [] };
 
   // SAFETY: the chain is longer than `max`, which is never below zero, so it
-  // has a first entry and a last one.
+  // has a first and a last entry.
   return {
     head: [chain[0] as string],
     hidden: chain.slice(1, -1),
@@ -440,19 +415,16 @@ export function collapseChain(chain: readonly string[], max = 3): Crumbs {
 }
 
 /**
- * Where a row's mark sits, in the rail's own coordinates, and how much room
- * a line should leave around it. A dot wants the line to stop at its edge; a
- * hair tick sits in the line and wants none.
+ * Where a row's mark sits in rail coordinates, and how much room a line leaves
+ * around it: a dot wants the line to stop at its edge, a hair tick wants none.
  */
 export type Mark = { x: number; y: number; clear?: number };
 
 /**
- * How a fork leaves a mark for the lane beside it: a short drop, then two
- * quarter circles of half the lane change, the way a transit map turns a
- * line. Down, round, across, round, down, and vertical in the new lane
- * fourteen pixels below the mark it left. Drawn from the mark's centre, and
- * shared with the light that runs along it, which cuts its first stretch to
- * stay clear of the dot.
+ * How a fork leaves a mark for the next lane: a short drop, then two quarter
+ * circles of half the lane change, like a transit map. Vertical in the new lane
+ * fourteen pixels below the mark. Drawn from the mark's centre and shared with
+ * the light, which cuts its first stretch to clear the dot.
  */
 type Point = readonly [number, number];
 
@@ -534,15 +506,11 @@ function cubicFrom([p0, p1, p2, p3]: Cubic, t: number): Cubic {
 }
 
 /**
- * A fork's curve from a mark to the lane beside it, as path commands
- * starting with a move, less its first `skip` pixels of arc.
- *
- * The gutter draws this curve from the mark's centre; the light draws the
- * same curve but must stop clear of the dot. Cutting by arc length keeps the
- * two on top of each other, where moving the light's start point down would
- * draw a second, lower curve beside the first. The cut splits the curve at
- * the parameter that arc length falls at, which keeps what remains exactly
- * the same shape. An empty string means the skip ate the whole curve.
+ * A fork's curve from a mark to the next lane as path commands, less its first
+ * `skip` pixels of arc. The gutter draws it from the mark's centre; the light
+ * draws the same curve but stops clear of the dot. Cutting by arc length keeps
+ * the two on top of each other; moving the start down would draw a second,
+ * lower curve. An empty string means the skip ate the whole curve.
  */
 export function forkCurve(fromX: number, fromY: number, toX: number, skip = 0): string {
   const { segments } = forkSegments(fromX, fromY, toX);
@@ -591,25 +559,17 @@ export function forkCurve(fromX: number, fromY: number, toX: number, skip = 0): 
 }
 
 /**
- * One path through the marks of a traced line, for the light that runs along
- * it.
- *
- * Drawn as a single path rather than per row, so the light travels by arc
- * length at one speed: rows differ in height, and a band handed from row to
- * row moves as many pixels per row as each row is tall, which is a light that
- * speeds up and slows down for no reason anyone can see.
- *
- * A step into another lane takes the same knee the gutter draws for a fork,
- * so the light follows the line that is already there rather than cutting its
- * own corner. The light stops short of each mark by the room the mark asks
- * for and sets off again past it, so a dot is met, never run through.
+ * One path through a traced line's marks, for the light. A single path so the
+ * light travels at one speed by arc length; handed row to row it would speed up
+ * and slow down with row heights. A lane change takes the gutter's fork knee,
+ * and the light stops short of each mark by the room it asks for.
  */
 export function trailPath(marks: readonly Mark[]): string {
   let path = "";
 
   for (let index = 1; index < marks.length; index += 1) {
     // SAFETY: `index` runs from 1 to the last position, so both neighbours
-    // are inside the array.
+    // exist.
     const [from, to] = [marks[index - 1], marks[index]] as [Mark, Mark];
     const skip = from.clear ?? 0;
     const start = from.y + skip;
@@ -622,8 +582,8 @@ export function trailPath(marks: readonly Mark[]): string {
       continue;
     }
 
-    // The same curve the gutter draws from the mark, less the stretch the
-    // mark asked to be left clear, then straight down to the child.
+    // The gutter's curve from the mark, less the stretch the mark keeps clear,
+    // then straight down to the child.
     const knee = forkKnee(from.x, from.y, to.x);
 
     if (knee > end) {

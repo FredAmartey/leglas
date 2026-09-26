@@ -11,10 +11,9 @@ import type { BranchPreviewState } from "../types.js";
 import { isString } from "../json.js";
 
 /**
- * The Leglas mark in its brand colours, the lockup's dark variant: the one
- * deliberate spot of hue in the chrome, sized by its height with the width
- * following the mark's own proportions. Stroked with its own paints so the
- * string and shafts hold up at icon sizes.
+ * The Leglas mark in brand colours (the lockup's dark variant): the chrome's
+ * one deliberate spot of hue, sized by height. Stroked with its own paints so
+ * the string and shafts hold up at icon sizes.
  */
 export function Mark({ size = 18 }: { size?: number }) {
   return (
@@ -105,10 +104,7 @@ export function Mark({ size = 18 }: { size?: number }) {
   );
 }
 
-/**
- * The wordmark from the logo, drawn rather than set: the chrome's own type
- * would be a different Leglas than the one on the readme and the tab.
- */
+/** The logo's wordmark, drawn rather than set, so it matches the readme and the tab. */
 export function Wordmark({ height = 16 }: { height?: number }) {
   return (
     <svg
@@ -144,8 +140,8 @@ export const P = {
   plus: "M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z",
   pencil:
     "M230.14,70.54,185.46,25.85a20,20,0,0,0-28.29,0L33.86,149.17A19.85,19.85,0,0,0,28,163.31V208a20,20,0,0,0,20,20H92.69a19.86,19.86,0,0,0,14.14-5.86L230.14,98.82a20,20,0,0,0,0-28.28ZM91,204H52V165l84-84,39,39ZM192,103,153,64l18.34-18.34,39,39Z",
-  // link-simple rather than link: the diagonal chain silts up at 13px, where
-  // this one still reads as two links meeting.
+  // link-simple, not link: the diagonal chain clogs at 13px, where this still
+  // reads as two links.
   link: "M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z",
   search:
     "M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z",
@@ -169,11 +165,9 @@ export const PRIMARY_BUTTON =
   "flex h-7 w-full items-center justify-center rounded-md bg-[#E8E8EA] text-xs font-medium text-[#1C1C20] transition-[background-color,transform] duration-150 hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
 /**
- * The track a settings row flips. Presentation only: the row button carries
- * the switch role and the checked state, this just draws it.
- *
- * The off track is darker than the row's hover surface, not the same #2E2E2E,
- * so it stays visible under the pointer.
+ * The track a settings row flips; the row button carries the switch role and
+ * state. The off track is darker than the row's #2E2E2E hover so it stays
+ * visible under the pointer.
  */
 export function Switch({ on }: { on: boolean }) {
   return (
@@ -263,9 +257,9 @@ export function PIcon({ d, size = 13 }: { d: string; size?: number }) {
 }
 
 /**
- * A dark bubble 8px off the control, with a 300ms first-hover delay and a
- * 300ms warm window so neighbouring controls answer instantly. Enters on a
- * slightly overshooting rise; closes on activation.
+ * A dark bubble 8px off the control, with a 300ms first-hover delay and a 300ms
+ * warm window so neighbouring controls answer instantly. Rises with a slight
+ * overshoot; closes on activation.
  */
 let tipWarmUntil = 0;
 
@@ -279,28 +273,19 @@ export function Tip({
   label: React.ReactNode;
   side?: "right" | "top";
   /**
-   * Let the label wrap inside a fixed width instead of running on one line.
-   * A tip names a control in a few words; a card explains where a direction
-   * came from, and that is a sentence someone typed.
+   * Wrap the label at a fixed width: a tip is a few words, but a card can be a
+   * sentence someone typed.
    */
   wide?: boolean;
 }) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const bubbleRef = useRef<HTMLSpanElement | null>(null);
   /**
-   * Where the label mounts, which is not beside its control.
-   *
-   * The label is `position: fixed`, and that is enough to escape an ancestor
-   * that scrolls or hides its overflow. It is not enough to escape one that
-   * masks, filters or transforms: those draw their whole subtree through
-   * themselves, fixed children included. The rail fades its edges with a mask
-   * on the scrolling list, so a row's card, which opens to the right over the
-   * stage, was in the page at full opacity and never painted.
-   *
-   * So the label goes to the shell's root, which is where the typeface and
-   * the smoothing it is drawn with are set and which clips nothing. A modal
-   * dialog is the one thing drawn above the shell, so a control inside one
-   * keeps its label inside it.
+   * Where the label mounts. `position: fixed` escapes scrolling and overflow
+   * but not a mask, filter or transform, which draw fixed children through
+   * themselves; the rail's edge mask hid a row's card that way. So the label
+   * mounts at the shell's root, which sets the typeface and clips nothing. A
+   * modal draws above the shell, so a control inside one keeps its label there.
    */
   const layerRef = useRef<Element | null>(null);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -315,17 +300,12 @@ export function Tip({
   } | null>(null);
 
   /**
-   * Nudge the label back on screen once it has been measured.
-   *
-   * Placing from the anchor alone puts it off the top in a top corner and past
-   * the right edge in the bottom right, which is where the floating widget
-   * lives. Corrections run before paint, so nothing is seen out of place, and
-   * they converge: a pass that changes nothing returns null.
-   *
-   * The label is a dependency because it can change while the tip is open:
-   * clicking the fold chevron swaps "Show 2 variants" for the wider "Fold the
-   * variants away" without closing it, and a fit measured for the short label
-   * left the long one clipped by the rail edge.
+   * Nudges the label back on screen once measured. From the anchor alone it
+   * lands off the top in a top corner and past the right edge bottom right,
+   * where the widget lives. Corrections run before paint and converge: a pass
+   * that changes nothing returns null. The label is a dependency because it can
+   * change while open ("Show 2 variants" becomes the wider "Fold the variants
+   * away").
    */
   useLayoutEffect(() => {
     const bubble = bubbleRef.current;
@@ -333,9 +313,8 @@ export function Tip({
 
     if (!tip || tip.out || !bubble || !control) return;
 
-    // Layout size, not the painted rect: the label enters at scale(0.8), so
-    // measuring the rect mid-animation reads it narrower than it lands and
-    // under-corrects. Transforms do not touch offsetWidth.
+    // Layout size, not the painted rect: the label enters at scale(0.8), so a
+    // mid-animation rect under-corrects. Transforms don't affect offsetWidth.
     const corrected = placeTip(
       tip,
       { height: bubble.offsetHeight, width: bubble.offsetWidth },
@@ -432,17 +411,11 @@ export function Tip({
 }
 
 /**
- * The name, made editable where it sits.
- *
- * It carries the title's own type and line height and draws its edge with a
- * ring rather than a border, because a ring takes no space: the row keeps its
- * exact height, and nothing below it moves while a name is being changed. The
- * caller owns the surrounding layout and shows the error in its own slot.
- *
- * Submitting and clicking away both commit, and they are told apart because
- * they deserve different treatment when the name is refused: a name typed and
- * entered should be correctable where it stands, while someone who has already
- * moved on should not be dragged back into a field they left.
+ * The name, editable in place. Same type and line height as the title, with a
+ * ring instead of a border so the row keeps its height. The caller owns layout
+ * and shows the error. Submit and blur both commit but differ on refusal: a
+ * submitted name stays correctable in place, while someone who clicked away
+ * isn't dragged back.
  */
 export function RenameForm({
   error,
@@ -458,8 +431,8 @@ export function RenameForm({
   onCommit: (value: string, via: "blur" | "submit") => void;
 }) {
   const cancelled = useRef(false);
-  // A refused submit leaves the form standing, so the guard the submit raised
-  // has to come back down or the corrected name would never commit on blur.
+  // A refused submit leaves the form up, so the guard it raised comes down
+  // again or the corrected name would never commit on blur.
   useEffect(() => {
     if (error) cancelled.current = false;
   });
@@ -523,8 +496,8 @@ function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }
     outTimer.current = setTimeout(onDismiss, TOAST_OUT_MS);
   };
 
-  // A toast holding an undo must not expire out from under the cursor reaching
-  // for it, so hovering or focusing it stops the clock where it stands.
+  // A toast with an undo mustn't expire under the cursor reaching for it, so
+  // hover or focus pauses its clock.
   const paused = hovered || focused;
   useEffect(() => {
     if (out || paused || remaining.current === null) return;
@@ -548,8 +521,7 @@ function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }
     [],
   );
 
-  // The surface is lighter than the rail it sits in, so a toast reads as
-  // something that arrived rather than another panel that was always there.
+  // Lighter than the rail, so a toast reads as something that arrived.
   return (
     <li
       className={`pointer-events-auto flex items-start gap-2.5 rounded-lg border border-white/10 bg-[#2E2E2E] px-3 py-2.5 shadow-xl shadow-black/40 ${
@@ -612,12 +584,9 @@ function ToastItem({ onDismiss, toast }: { onDismiss: () => void; toast: Toast }
 }
 
 /**
- * Outcomes, stacked at the foot of the rail rather than over the stage.
- *
- * Everything else in this chrome stays off the design being judged, and a
- * toast is no different: it belongs with the rows whose actions raised it.
- * Newest sits at the bottom, nearest where the eye already is. With the rail
- * collapsed there is no rail to sit in, so the stack steps just clear of it.
+ * Outcomes, stacked at the foot of the rail, off the design being judged and
+ * beside the rows whose actions raised them. Newest at the bottom. With the
+ * rail collapsed, the stack sits just clear of it.
  */
 export function Toasts({
   bottom,
@@ -687,13 +656,10 @@ export function SkeletonOverlay({ loaded }: { loaded: boolean }) {
 
 /** Shown when a preview never loads: a quiet title, the reason, one affordance. */
 /**
- * Where a branch's design will be, until its checkout is running.
- *
- * A branch preview is a whole other copy of the project: checked out,
- * installed and served. That used to happen before the interface appeared,
- * which cost every session the price of every branch whether or not anyone
- * opened one. Now it happens when you open it, and this is the seconds in
- * between, which is worth saying plainly rather than spinning at.
+ * Where a branch's design will be until its checkout runs. A branch preview is
+ * a full checkout, install and server; that used to happen before the interface
+ * appeared, for every branch, opened or not. Now it happens on open, and this
+ * covers the seconds between.
  */
 export function BranchOverlay({
   branch,
@@ -708,9 +674,8 @@ export function BranchOverlay({
     return <ErrorOverlay onReload={onStart} reason={state.reason} />;
   }
 
-  // `ready` never reaches here, because the pane renders the design instead.
-  // Saying so in the narrowing rather than assuming it keeps this honest if
-  // that ever stops being true.
+  // `ready` never gets here, since the pane renders the design instead;
+  // narrowing on it keeps this honest if that changes.
   const line =
     state.status === "starting"
       ? {
@@ -758,13 +723,11 @@ export function ErrorOverlay({ onReload, reason }: { onReload: () => void; reaso
 }
 
 /**
- * Words a site sent, shown as it sent them. A line may break between them but
- * never inside one: "frame-ancestors" split at its hyphen is the one token a
- * reader would copy, broken across two lines.
+ * Words a site sent, shown as sent. Lines may break between words, never inside
+ * one, so "frame-ancestors" isn't split at its hyphen.
  */
 function Quote({ text }: { text: string }) {
-  // Each word keyed by where it starts in the text: unique, and fixed for as
-  // long as the text is.
+  // Keyed by where each word starts: unique and stable while the text is.
   const words: { word: string; at: number }[] = [];
   let at = 0;
 
@@ -796,11 +759,10 @@ function QuotedLine({ className, words }: { className: string; words: Quoted }) 
 }
 
 /**
- * A page that answered and said no to being framed. Unlike a failure there is
- * nothing to reload, so the first action is the one that works: opening it in
- * a tab of its own. The second is for when the answer was wrong. Leglas asks
- * without the browser's cookies, and a page may frame for a signed-in visitor
- * that refused a stranger, so the reader can uncover the frame and see.
+ * A page that answered and refused framing. Nothing to reload, so the first
+ * action is opening it in its own tab. The second is for a wrong answer: Leglas
+ * asks without cookies, and a page may frame for a signed-in visitor, so the
+ * reader can uncover the frame and see.
  */
 export function RefusedOverlay({
   headline,
@@ -851,11 +813,10 @@ export function RefusedOverlay({
 }
 
 /**
- * The marks of the agents Leglas can run, so the selector reads before it is
- * read. Claude and Cursor are the official paths as distributed by
- * simple-icons; the Codex mark is the product's own, wearing the blue of its
- * app icon (sampled from the icon OpenAI ships) with the prompt kept white.
- * Custom commands get no mark on purpose.
+ * The marks of the agents Leglas can run. Claude and Cursor are the official
+ * paths from simple-icons; the Codex mark is the product's own, in its app
+ * icon's blue (sampled from OpenAI's icon) with a white prompt. Custom commands
+ * get no mark.
  */
 export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
   const gid = useId();
@@ -899,8 +860,8 @@ export function BrandMark({ id, size = 14 }: { id: string; size?: number }) {
   }
 
   if (id === "custom") {
-    // No vendor to borrow a mark from: a terminal prompt in the text's own
-    // colour says "your command" without pretending to be a brand.
+    // No vendor to borrow from: a terminal prompt in the text colour says "your
+    // command" without posing as a brand.
     return (
       <svg
         aria-hidden="true"

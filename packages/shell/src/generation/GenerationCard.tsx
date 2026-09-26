@@ -24,10 +24,9 @@ function Done() {
 }
 
 /**
- * The set being built, in the request card's place above the composer: how
- * it is going, the brief it came from, and the one control it needs at a
- * time (stop while it runs, dismiss once it is over). Each direction's own
- * state is on its row; this card is the set as a whole.
+ * The set being built, in the request card's place: progress, the brief and one
+ * control at a time (stop while running, dismiss once over). Each direction's
+ * state is on its row.
  */
 export function GenerationCard({
   compare,

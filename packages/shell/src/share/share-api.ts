@@ -4,10 +4,9 @@ import type { ShareStatus, TunnelProviderId } from "../types.js";
 import type { JsonRecord } from "../json.js";
 
 /**
- * The share endpoints, as the panel calls them. Every refusal comes back as
- * an Error carrying the server's own sentence, which is the one worth
- * putting on screen: "Branch directions can't be shared yet" says what to do,
- * a status code does not.
+ * The share endpoints as the panel calls them. A refusal becomes an Error
+ * carrying the server's sentence ("Branch directions can't be shared yet"),
+ * which says what to do.
  */
 export type SharePayload = {
   share: ShareStatus | null;
@@ -66,9 +65,9 @@ async function shareWrite(path: string, body: JsonRecord, fallback: string): Pro
 
 /** Let a path through that a listed share turned away. */
 /**
- * `subtree` is the folder button. It travels with the request rather than
- * riding on a trailing slash, because a refusal for a directory index ends
- * in one too, and Allow beside it must not quietly become the folder.
+ * `subtree` is the folder button. It travels with the request, not on a
+ * trailing slash, since a refused directory index ends in one and Allow on it
+ * must not become the folder.
  */
 export function allowRoute(path: string, subtree = false): Promise<ShareStatus> {
   return shareWrite("/allow", { path, subtree }, "Leglas could not allow that path.");

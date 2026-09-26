@@ -13,13 +13,10 @@ const LONE_BUTTON =
   "flex h-7 flex-1 items-center justify-center rounded-md border border-[#2E2E33] px-3 text-xs text-[#D1D5DB] transition-colors duration-150 hover:bg-white/[0.04] hover:text-white motion-reduce:transition-none";
 
 /**
- * The version chip's panel: which Leglas this is, whether a newer one
- * exists and the one button that brings it in.
- *
- * Everything it says is worked out in `updateView`, so this only lays the
- * words out. The shape follows the share panel beside it: a dialog hung
- * under the rail's header, dismissed by Escape, a click elsewhere or the
- * window losing focus, with focus handed back to the chip.
+ * The version chip's panel: which Leglas this is, whether a newer one exists,
+ * and the button to install it. `updateView` works out the words. Shaped like
+ * the share panel: hung under the rail header, dismissed by Escape, an outside
+ * click or window blur, with focus back on the chip.
  */
 export function UpdatePanel({
   onClose,
@@ -37,8 +34,8 @@ export function UpdatePanel({
   useDismissal(open, panelRef, triggerRef, onClose);
 
   /**
-   * A clock the panel reads, so "checked 2 minutes ago" moves while it is
-   * open. A minute is fine: nothing here is measured in seconds.
+   * A clock the panel reads, so "checked 2 minutes ago" moves while it's open.
+   * A minute is enough.
    */
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {

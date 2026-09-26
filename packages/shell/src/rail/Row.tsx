@@ -69,10 +69,9 @@ function SlotBadge({ agent, aside, slot }: { agent: string; aside: string; slot:
 }
 
 /**
- * What is happening to a direction, in the corner of its row. One thing at a
- * time, the most pressing first: being carried by a drag, being compared,
- * being built by Leglas, being worked on, rendering the same as another,
- * being checked, and at rest its first tag.
+ * What's happening to a direction, in its row's corner, most pressing first:
+ * carried by a drag, compared, built by Leglas, worked on, a duplicate, being
+ * checked, else its first tag.
  */
 function RowBadge({
   agent,
@@ -231,8 +230,8 @@ function SlotActions({
 }
 
 /**
- * The buttons that act on a direction, floating over the end of its row and
- * only there under the pointer or the keyboard's focus.
+ * The buttons that act on a direction, floating over the row's end, only under
+ * the pointer or keyboard focus.
  */
 function RowActions({
   comparing,
@@ -262,8 +261,8 @@ function RowActions({
       : "group-hover:pointer-events-auto group-hover:opacity-100 group-has-[button:focus-visible]:pointer-events-auto group-has-[button:focus-visible]:opacity-100"
   }`;
 
-  // A direction still being built, or one that failed or was stopped, has
-  // nothing to compare, link or rename yet: its buttons are about the build.
+  // A direction being built, failed or stopped has nothing to compare, link or
+  // rename yet; its buttons are about the build.
   if (slot !== null && slot.slot.state !== "ready" && !viewing) {
     return (
       <SlotActions
@@ -277,9 +276,8 @@ function RowActions({
 
   return (
     <div className={floating}>
-      {/* Choosing the second direction belongs where the directions are.
-        The active row is the left pane, so this only appears on the
-        others. */}
+      {/* Choosing the second direction happens where the directions are. The
+          active row is the left pane, so this shows on the others only. */}
       {title !== st.active && (
         <Tip label={comparing ? "Stop comparing" : `Compare with ${st.displayName(st.active)}`}>
           <button
@@ -300,12 +298,10 @@ function RowActions({
           </button>
         </Tip>
       )}
-      {/* The reflex copy: someone says "show me" and this goes into the
-        message. The reference is the deliberate one, and it lives here
-        too now: both copies are of this direction, so both belong on
-        its row rather than one of them squatting under the composer.
-        None of the four for a viewer: a link would only work in their
-        own browser, and the rest change a rail that is not theirs. */}
+      {/* The reflex copy for "show me", and the deliberate reference beside
+          it; both copy this direction, so both live on its row. None of the
+          four for a viewer: a link would only work in their browser, and the
+          rest change a rail that isn't theirs. */}
       {!viewing && (
         <>
           <Tip
@@ -380,12 +376,9 @@ function RowActions({
 }
 
 /**
- * One direction in the rail: its place in the lineage, its name and note, the
- * badge that says what is happening to it, and the buttons that act on it.
- *
- * It holds no state. What the rail knows about a row arrives as props, and
- * what a row does goes back through them, so the rail stays the one place
- * that decides order, selection and what is on the stage.
+ * One direction in the rail: its lineage place, name and note, its badge and
+ * its buttons. Stateless: everything arrives as props and goes back through
+ * them, so the rail alone decides order, selection and the stage.
  */
 export function RailRow({
   arriving,
@@ -460,38 +453,31 @@ export function RailRow({
   const depth = meta?.depth ?? 0;
   const isVariant = depth > 0;
 
-  // Rows folded for the drag carry their subtree as a count, so a family
-  // moving as one row still says how much is moving. A root already says
-  // it beside its fold control.
+  // Rows folded for the drag carry their subtree as a count, so a family moving
+  // as one row says how much is moving. A root already says it by its fold
+  // control.
   const carrying =
     dragging && st.dragFolded.has(title) && (meta?.variants ?? 0) === 0
       ? (meta?.descendants ?? 0)
       : 0;
 
-  // How the row shows its depth. With lineage on the rail the card itself
-  // starts where its text column begins, so the graph lives in the gutter
-  // outside every card: a root's card sits past its mark and the forks that
-  // leave it, a variant's past the lanes to its left. The two columns come
-  // from what the gutter draws, and are zero when it draws nothing.
+  // How the row shows depth. With lineage on, the card starts at its text
+  // column and the graph sits in the gutter outside every card; both columns
+  // come from what the gutter draws, zero when it draws nothing.
   const rowIndent = isVariant ? insets.variant : insets.root;
   const variantCount = meta?.variants ?? 0;
   const folded = meta?.folded ?? false;
-  // Renaming edits the name where it sits. Replacing the whole row with a
-  // form meant every neighbour moved, the note vanished, and the row you
-  // were aiming at stopped looking like itself. The field carries the
-  // title's own metrics instead, so nothing below it shifts by a pixel.
+  // Renaming edits the name in place. Swapping the row for a form moved every
+  // neighbour and hid the note; the field carries the title's own metrics so
+  // nothing shifts.
   const renamingThis = st.renaming === title;
 
-  // The end of the title line is contested: at rest it holds the badge, and
-  // under the pointer the buttons, which want more room than the badge
-  // takes. The badge leaves the flow rather than just fading, so the name
-  // gets every pixel the buttons don't use instead of the badge's width
-  // being stranded invisibly behind them. A dragged row keeps its badge:
-  // it is being moved, not acted on, and its buttons stay away. So does a
-  // row being renamed, where the badge is the field's right-hand wall —
-  // taking it out from under the pointer would resize the field mid-word.
-  // A row pushed past where it can go says why in the badge's corner, so
-  // the badge fades out under it and back when the row is let go.
+  // The end of the title line holds the badge at rest and the wider buttons
+  // under the pointer. The badge leaves the flow, not just fades, so the name
+  // gets every pixel the buttons don't use. A dragged row keeps its badge
+  // (moved, not acted on), and so does a row being renamed, where the badge is
+  // the field's right wall. A row pushed past where it can go shows why in the
+  // badge's corner.
   const badgeAside =
     isDragged && drag?.blocked
       ? "opacity-0 transition-opacity duration-150"
@@ -526,8 +512,8 @@ export function RailRow({
         viewTransitionName: `row-${rowIdent(title)}`,
       }}
     >
-      {/* Pushed past where it can go, the row says why, in the corner the
-          badges use, and only while it is being pushed. */}
+      {/* Pushed past where it can go, the row says why in the badge corner,
+          only while pushed. */}
       {isDragged && drag?.reason != null ? (
         <span
           aria-live="polite"
@@ -538,10 +524,9 @@ export function RailRow({
           {drag.reason}
         </span>
       ) : null}
-      {/* Everything the rail cannot fit: the note in full, the direction
-          this one was built from, and the change that was asked for. Only
-          for a direction that records one of them, so a card never opens
-          to say nothing, and never while the name is being edited. */}
+      {/* What the rail can't fit: the full note, the parent and the change
+          asked for. Only for directions that record one, never while
+          renaming. */}
       {gutter > 0 && meta?.graph ? (
         <Gutter
           active={isActive}
@@ -588,23 +573,19 @@ export function RailRow({
             st.setActive(title);
           }}
           onDoubleClick={(event) => {
-            // The whole card opens the design, and only two things carve out
-            // of it: the buttons, which have their own jobs, and the name,
-            // which stops the event itself. Everything else — the note, the
-            // badge, the empty space beside them — is one target.
+            // The whole card opens the design, except the buttons and the name,
+            // which stops the event itself.
             if (renamingThis) return;
 
             if (event.target instanceof Element && event.target.closest("button")) return;
-            // The second click of the pair has already selected a word.
+            // The second click already selected a word.
             window.getSelection()?.removeAllRanges();
             onOpenAlone();
           }}
           onKeyDown={(event) => {
-            // Only when the card itself holds the focus. The rename field sits
-            // inside it, and Enter and Space are the two keys it needs most:
-            // taking them from the whole subtree meant Enter never committed a
-            // rename, because the preventDefault here cancelled the form's own
-            // submission, and a space never reached the name being typed.
+            // Only when the card itself has focus. Taking Enter and Space from
+            // the whole subtree broke the rename field: Enter never committed
+            // and spaces never arrived.
             if (event.target !== event.currentTarget) return;
 
             if (event.key === "Enter" || event.key === " ") {
@@ -618,13 +599,11 @@ export function RailRow({
           tabIndex={0}
         >
           <span className="min-w-0 flex-1">
-            {/* The buttons float over the row rather than sitting in it, so
-                the title line has to give up the strip they land on or a long
-                name runs underneath them. Four 24px buttons and the gaps
-                between them, 8px in from the edge, less the 12px the row
-                already pads: 98px, or 72px on the active row, which has no
-                compare button. Only while they are up — at rest the name gets
-                the whole line back. */}
+            {/* The buttons float over the row, so the title gives up the
+                strip they land on or a long name runs under them: four 24px
+                buttons plus gaps, 8px in from the edge, less the row's 12px
+                padding, is 98px (72px on the active row, which has no
+                compare). Only while they're up. */}
             <span
               className={`flex items-center gap-2 ${
                 dragging || renamingThis
@@ -686,22 +665,16 @@ export function RailRow({
                     isActive ? "text-white" : "text-[#D1D5DB] group-hover:text-[#E8EAED]"
                   }`}
                 >
-                  {/* Two targets share this row and the split between them is
-                      the whole trick. The outer box is flex-1, so hanging the
-                      gesture there made most of the card rename instead of
-                      open. Hanging it on the glyphs alone was the other
-                      extreme: a four-character name is a sliver to hit.
-
-                      So the name gets a box of its own — at least 70% of the
-                      line the rename field will fill, growing to fit a longer
-                      name. Each padding is cancelled by an equal negative
-                      margin, which buys territory without moving a pixel of
-                      text or changing the row's height. It reaches to the
-                      card's edge, where there is nothing to take it from,
-                      except on a family root where the fold control is
-                      already sitting there. What is left for opening the
-                      design is the note beneath, the badge, and the last
-                      third of the title line. */}
+                  {/* Two targets share this row. Hanging rename on the
+                      flex-1 box made most of the card rename instead of
+                      open; hanging it on the glyphs made a short name a
+                      sliver to hit. So the name gets its own box, at least
+                      70% of the line, growing with the name, with padding
+                      cancelled by negative margin so text and row height
+                      don't move. It reaches the card's edge except on a
+                      family root, where the fold control sits. Opening the
+                      design gets the note, the badge and the rest of the
+                      title line. */}
                   <span
                     className={`block w-fit min-w-[70%] max-w-full truncate -my-1 py-1 pr-2 ${
                       viewing ? "" : "cursor-text"
@@ -732,9 +705,8 @@ export function RailRow({
                 working={isWorking}
               />
             </span>
-            {/* A refused name takes this line rather than adding one. The two
-                are never both worth reading, and swapping them keeps the row
-                the height it already was. */}
+            {/* A refused name replaces this line rather than adding one,
+                keeping the row's height. */}
             <span
               className={`mt-0.5 line-clamp-2 block cursor-text text-xs leading-snug transition-colors ${
                 renamingThis && st.renameError
@@ -747,10 +719,7 @@ export function RailRow({
             >
               {renamingThis && st.renameError
                 ? st.renameError
-                : // A branch's own URL is a loopback address on a port picked at
-                  // random, which tells a reader nothing and now appears only once
-                  // the checkout is up. The branch it came from is the useful line
-                  // and it is there from the start.
+                : // A branch's own URL is a random loopback port; its branch is the useful line.
                   (preview?.note ??
                   (preview?.branch === undefined ? preview?.url : preview.branch))}
             </span>

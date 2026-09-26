@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { previewFrameForSource, previewMessageSignal } from "./preview-message.js";
 
 function frameFor(source: WindowProxy) {
-  // SAFETY: the lookup under test reads nothing of a frame but `contentWindow`,
-  // defined just below.
+  // SAFETY: the lookup reads nothing of a frame but `contentWindow`, defined
+  // below.
   const frame = {} as HTMLIFrameElement;
   Object.defineProperty(frame, "contentWindow", { value: source });
 

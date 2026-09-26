@@ -25,15 +25,15 @@ describe("nextHealthState", () => {
   });
 
   test("hands back the same state when nothing changed, so a poll is not a render", () => {
-    // Every three seconds the health poll folds its answer in. A fresh object
-    // for an unchanged answer re-rendered the whole interface each time.
+    // The health poll folds its answer in every three seconds; a fresh object
+    // for the same answer re-rendered the whole interface.
     expect(nextHealthState(up, true)).toBe(up);
     expect(nextHealthState(down, false)).toBe(down);
   });
 
   test("treats the first successful check as ordinary, not a recovery", () => {
-    // Starting optimistic means a normal boot never flashes a reload. The
-    // state the shell boots with, so a pessimistic start breaks this.
+    // Starting optimistic means a normal boot never flashes a reload; a
+    // pessimistic start breaks this.
     expect(nextHealthState(INITIAL_HEALTH, true).wasDown).toBe(false);
   });
 });

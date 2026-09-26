@@ -2,8 +2,8 @@ import type { ViewerInfo } from "../types.js";
 import { LiveDot, Tip } from "../ui/kit.js";
 
 /**
- * Whose rail this is, said once at the top and left there: a viewer should
- * never wonder why the composer is missing.
+ * Whose rail this is, said once at the top, so a viewer never wonders why the
+ * composer is missing.
  */
 export function ViewerBanner({ scope }: { scope: ViewerInfo["scope"] }) {
   return (

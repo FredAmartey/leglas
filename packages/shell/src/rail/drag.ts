@@ -14,9 +14,9 @@ export type Drag = {
   /** Pushed past the slots it can take; the reason shows on the row. */
   blocked: boolean;
   /**
-   * Rows have been measured since the drag began. A lineage rail folds the
-   * families around the dragged row when the drag starts, so positions taken
-   * at the press are stale until that fold has laid out.
+   * Rows measured since the drag began. A lineage rail folds families around
+   * the dragged row at the start, so positions from the press are stale until
+   * that fold lays out.
    */
   measured: boolean;
   /** Why the row cannot go where it is being pushed; null when anywhere goes. */

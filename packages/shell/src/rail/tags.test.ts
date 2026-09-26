@@ -2,9 +2,8 @@ import { expect, test, vi } from "vitest";
 
 import { tagTone } from "./tags.js";
 
-// A session is a fresh load of the module. The second one meets other tags
-// first, so a colour handed out in the order tags arrive would come out
-// different.
+// A session is a fresh module load that meets other tags first, so colours
+// handed out in arrival order would differ.
 test("a tag keeps its colour from one session to the next", async () => {
   vi.resetModules();
   const first = (await import("./tags.js")).tagTone("Hero backdrops");

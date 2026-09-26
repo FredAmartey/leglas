@@ -2,13 +2,10 @@ import { loadPrefs, railOrder, type Prefs } from "../prefs.js";
 import type { Preview, ShareLayout, ShareReach, ShareScope } from "../types.js";
 
 /**
- * What a share carries, worked out from the rail as the sharer sees it.
- *
- * A share is a manifest: which directions, in what order, under what names,
- * with which families folded and the pair on stage when there is one. This
- * module turns the sharer's preferences into that manifest and back, and
- * says which directions cannot go. It knows nothing about the network; the
- * panel and the server do that part.
+ * What a share carries, from the rail as the sharer sees it: which directions,
+ * their order and names, folded families and the pair on stage. Turns
+ * preferences into that manifest and back, and says which directions can't go.
+ * No networking here.
  */
 export type ShareRequest = {
   scope: ShareScope;
@@ -20,11 +17,9 @@ export type ShareRequest = {
 };
 
 /**
- * Why a direction cannot be shared, or null when it can.
- *
- * A branch preview runs in its own checkout on its own port, which is a
- * second origin the tunnel does not reach. Saying so beats quietly dropping
- * it from the share and letting the viewer wonder where it went.
+ * Why a direction can't be shared, or null. A branch preview runs on its own
+ * port, a second origin the tunnel doesn't reach; saying so beats silently
+ * dropping it.
  */
 export function unshareableReason(preview: Preview | undefined): string | null {
   if (preview === undefined) return "is not on the rail";
@@ -46,8 +41,8 @@ function restrictedLayout(
     renames: Object.fromEntries(
       Object.entries(prefs.renames).filter(([title]) => included.has(title)),
     ),
-    // Hidden directions are simply not sent, so nothing needs hiding on the
-    // other side and the viewer never learns what was set aside.
+    // Hidden directions aren't sent, so nothing needs hiding on the other side
+    // and the viewer never learns what was left out.
     collapsedFamilies: prefs.collapsedFamilies.filter((title) => included.has(title)),
     compare,
     viewport: prefs.viewport,
@@ -55,8 +50,8 @@ function restrictedLayout(
 }
 
 /**
- * The whole rail: every direction showing, in rail order, minus the ones that
- * cannot go. `leftOut` names those so the panel can say so.
+ * The whole rail: every showing direction in rail order, minus those that can't
+ * go, which `leftOut` names.
  */
 export type RailShare = { request: ShareRequest; leftOut: string[] };
 
@@ -94,9 +89,8 @@ export function railShare(
 }
 
 /**
- * What is on stage: the active direction, or the pair when the stage is
- * split. Null with the reason when one of them cannot go, because a
- * comparison with one side missing is not the comparison that was meant.
+ * What's on stage: the active direction, or the pair when split. Null with a
+ * reason if either can't go, since half a comparison isn't the one meant.
  */
 export type StageShare = { request: ShareRequest | null; reason: string | null };
 
@@ -144,10 +138,9 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
   if (a.scope !== b.scope || !sameList(a.titles, b.titles)) return false;
 
-  // Reach changes what a viewer can reach, so it is part of what "the same
-  // share" means. The route list is not: it grows as the sharer allows
-  // things, and offering to push that back as an update would ask them to
-  // confirm work they have already done.
+  // Reach is part of what makes two shares the same. The route list isn't: it
+  // grows as the sharer allows things, and offering that back as an update
+  // would ask them to confirm work already done.
   if (a.reach !== b.reach) return false;
   const x = a.layout;
   const y = b.layout;
@@ -167,9 +160,8 @@ export function sameShare(a: ShareRequest, b: ShareRequest): boolean {
 }
 
 /**
- * The sharer's layout as the string `loadPrefs` reads, so a viewer's rail is
- * seeded through the same validation a saved one goes through: unknown
- * titles filtered, the viewport clamped to a preset.
+ * The sharer's layout as the string `loadPrefs` reads, so a viewer's rail goes
+ * through the same validation a saved one does.
  */
 export function viewerPrefsRaw(layout: ShareLayout): string {
   return JSON.stringify({
@@ -181,11 +173,9 @@ export function viewerPrefsRaw(layout: ShareLayout): string {
 }
 
 /**
- * A viewer's prefs after the sharer pushed a new layout: the layout's fields
- * as the sharer has them, everything else (the rail's width, the typeface,
- * the widget's corner) as the viewer left it. The same validation as the
- * first seeding, so an unknown title or an odd viewport is dropped the same
- * way.
+ * A viewer's prefs after the sharer pushed a layout: layout fields from the
+ * sharer, everything else (rail width, typeface, widget corner) as the viewer
+ * left it, with the same validation as the first seeding.
  */
 export function adoptLayout(
   current: Prefs,
@@ -218,12 +208,9 @@ export function scopeLine(
 }
 
 /**
- * How many are on a link, said the way a person would.
- *
- * Sessions rather than people, deliberately. One browser holds one link at a
- * time, because two entry links on the same origin write the same cookie, so
- * a count is a fact about tabs and not about who is at them. Saying "people"
- * would be a guess the interface has no way to make.
+ * How many are on a link. Sessions, not people: one browser holds one link at a
+ * time (two entry links on one origin write the same cookie), so the count is
+ * about tabs.
  */
 export function viewersLine(viewers: number): string {
   if (viewers === 0) return "nobody on it yet";
@@ -234,18 +221,11 @@ export function viewersLine(viewers: number): string {
 }
 
 /**
- * What the shared directions have already loaded in this browser.
- *
- * A list of routes cannot be written by hand: nobody can enumerate a
- * bundler's asset graph, and a wrong list breaks the app without saying so.
- * But the sharer has been looking at these directions, so their own browser
- * already knows. Previews are proxied through Leglas, so they are
- * same-origin and their timing entries are readable from here.
- *
- * Partial by nature: only the directions that have been on stage have
- * loaded anything, and a chunk that arrives on scroll has not. The share
- * turns the rest away and says what it turned away, which is where the list
- * grows from.
+ * What the shared directions already loaded in this browser. Nobody can list a
+ * bundler's asset graph by hand, but the sharer's browser has loaded these
+ * directions through Leglas, so their same-origin timing entries are readable.
+ * Partial: only directions that were on stage count, and scroll-loaded chunks
+ * are missing. The share reports what it refuses, which is how the list grows.
  */
 /** What `observedRoutes` reads of a frame, so a test can hand it one it made. */
 export type RouteFrame = {
@@ -258,7 +238,7 @@ export type RouteFrame = {
 export function observedRoutes(
   frames: Iterable<RouteFrame>,
   titles: readonly string[],
-  /** Taken rather than read, so this stays pure and can be tested. */
+  /** Passed in rather than read, so this stays pure. */
   origin: string,
 ): string[] {
   const wanted = new Set(titles);
@@ -273,8 +253,8 @@ export function observedRoutes(
     try {
       entries = frame.contentWindow?.performance.getEntriesByType("resource") ?? [];
     } catch {
-      // A cross-origin preview keeps its own timings, which is fine: a
-      // branch direction is not in a share anyway.
+      // A cross-origin preview keeps its timings to itself; branch directions
+      // aren't in shares anyway.
       continue;
     }
 
@@ -282,8 +262,8 @@ export function observedRoutes(
       try {
         const { origin: entryOrigin, pathname } = new URL(entry.name);
 
-        // Only what this server serves. A font from a CDN is the viewer's
-        // browser talking to the CDN, and no business of the list.
+        // Only what this server serves; a CDN font is between the viewer and
+        // the CDN.
         if (entryOrigin !== origin) continue;
         routes.add(pathname);
       } catch {
@@ -296,9 +276,8 @@ export function observedRoutes(
 }
 
 /**
- * The folder a refused path sits in, as a route that would take everything
- * beside it, or null when it sits at the root and there is no folder to
- * offer.
+ * The folder a refused path is in, as a route covering everything beside it, or
+ * null at the root.
  */
 export function directoryOf(path: string): string | null {
   const cut = path.lastIndexOf("/");
@@ -314,10 +293,8 @@ export function totalViewers(grants: readonly { viewers: number }[]): number {
 }
 
 /**
- * How long a link has, short enough to sit beside its name.
- *
- * Hours until it is close, then minutes, because "23h" is all anybody needs
- * during the day and "40m" is what they need at the end of it.
+ * How long a link has, short enough to sit beside its name: hours until it's
+ * close, then minutes.
  */
 export function expiryLine(expiresAt: number, now: number): string {
   const left = expiresAt - now;
@@ -337,8 +314,8 @@ export function grantLabel(name: string, index: number): string {
 }
 
 /**
- * A share link short enough to read: the host, and the token cut down to a
- * hint that it is there. The full thing goes to the clipboard.
+ * A share link short enough to read: the host and a hint of the token. The full
+ * link goes to the clipboard.
  */
 export function shortLink(url: string): string {
   try {

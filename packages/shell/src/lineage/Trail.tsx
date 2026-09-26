@@ -3,28 +3,16 @@ import { useEffect, useId, useRef } from "react";
 import type { Mark } from "./lineage.js";
 
 /**
- * The light in a traced lineage.
+ * The light in a traced lineage. A slow current of the mark's colours runs down
+ * the line all the time, faint enough to read as the line being alive. Every
+ * few seconds a surge follows: a soft brightening a couple of rows long,
+ * gathering at the root, splitting where the tree splits (it's a band of
+ * height, not a point) and fading past the last row. Marks bloom as it passes.
  *
- * Two things move, and neither ever stops. A slow current of colour runs down
- * the whole lineage all the time, the mark's own violet, indigo, cyan and
- * teal in a long repeating sweep, faint enough to read as the line being
- * alive rather than as a display. And every few seconds a surge travels the
- * same way: a soft brightening a couple of rows long, no head and no edge,
- * that gathers at the root, moves through the tree, splitting where the tree
- * splits because it is a band of height rather than a point on a path, and
- * fades out past the last row while the next one is already gathering. Each
- * mark it passes blooms and settles.
- *
- * Both run off one clock shared by every trail on the page, so when the
- * lineage under the pointer changes, the old light fades and the new one
- * fades in mid-flow, at the same colour and the same beat: the current
- * reroutes rather than restarting.
- *
- * All of it is a handful of gradient attributes set each frame. There is no
- * dash arithmetic and nothing to filter, so it costs almost nothing and
- * stops with the tab. For someone who asked for less motion the current
- * stands still along the line and nothing else is drawn: the lineage is
- * still told in colour, it just does not move.
+ * Both run off one clock shared by every trail, so a new lineage under the
+ * pointer crossfades in at the same colour and beat. It's a few gradient
+ * attributes per frame, so it costs almost nothing and stops with the tab. With
+ * reduced motion the current stands still and nothing else is drawn.
  */
 
 /** One full sweep of the current's colours, in pixels. */
@@ -52,10 +40,8 @@ const BLOOM_MS = 900;
 const FADE_MS = 420;
 
 /**
- * The current's colours, one full sweep, first and last the same so the cycle
- * repeats without a seam, and the tint a mark blooms in as the surge passes
- * it. Ember: rose through orange and pink to magenta, chosen over sixteen
- * others.
+ * The current's colours for one sweep (first and last match so it repeats
+ * seamlessly) and the bloom tint. Ember, chosen over sixteen others.
  */
 export const PALETTE = {
   current: ["#FB7185", "#FB923C", "#F9A8D4", "#E879F9", "#FB7185"],
@@ -122,9 +108,8 @@ export function Trail({
     const marks = latest.current;
     const top = Math.min(...marks.map((mark) => mark.y));
     const bottom = Math.max(...marks.map((mark) => mark.y));
-    // The surge gathers above the first mark and is gone below the last, so
-    // it emerges from the root and drains past the leaves rather than
-    // switching on and off on the line.
+    // The surge gathers above the first mark and drains below the last, so it
+    // never switches on or off mid-line.
     const from = top - SURGE;
     const to = bottom + SURGE;
     const run = Math.min(SURGE_MAX_MS, Math.max(SURGE_MIN_MS, ((to - from) / PACE) * 1000));
@@ -144,8 +129,8 @@ export function Trail({
       const centre = from + (to - from) * (inRun ? pace(at / run) : 1);
       band.setAttribute("y1", `${centre - SURGE / 2}`);
       band.setAttribute("y2", `${centre + SURGE / 2}`);
-      // Never a hard edge in time either: the surge fades up as it gathers
-      // and down as it drains, and is simply absent between runs.
+      // No hard edge in time either: it fades up as it gathers and down as it
+      // drains.
       const rise = Math.min(1, at / 500);
       const fall = Math.min(1, Math.max(0, (run - at) / 700));
       layer.setAttribute("opacity", `${inRun ? Math.min(rise, fall).toFixed(3) : "0"}`);

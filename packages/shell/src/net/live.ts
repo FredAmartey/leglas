@@ -1,45 +1,23 @@
 /**
- * The server telling the interface that something changed.
+ * The server telling the interface that something changed. Three timer loops
+ * used to ask: an idle tab made 100 requests a minute and moved 108KB, nearly
+ * all answered "no", and a newly registered direction waited up to three
+ * seconds to show.
  *
- * Three loops used to ask, on a timer, whether anything had happened: the
- * config every three seconds, the queue and its annotations every two, the
- * dev server's health every three. Measured on a real project, a tab sitting
- * idle with nobody touching it made 100 requests a minute and moved 108KB,
- * almost all of it answered "no". It also set the tail of the send loop,
- * because a direction an agent had just registered waited up to three
- * seconds for the next tick to notice it.
- *
- * So the server says when, and the shell keeps its reads. Every frame names
- * a kind and carries nothing else; the reader then does the read it already
- * knew how to do. Pushing the state instead would put a second copy of it on
- * the wire and leave two things to keep in agreement, which is the usual way
- * this goes wrong.
- *
- * The loops do not go away. Each keeps a slow interval as a fallback, so a
- * socket that dies quietly costs latency rather than correctness. That
- * direction matters: polling fails invisibly and heals on the next tick,
- * while a dead socket leaves a rail that looks entirely correct and silently
- * stops updating, which is the worse of the two failures by far.
- *
- * A websocket is also free of the budget the reads compete for. The browser
- * allows six HTTP/1.1 connections per origin, and the shell shares that one
- * origin with the API and with every preview iframe; websockets are counted
- * separately, so this relieves that pressure rather than adding to it.
+ * Now the server says when and the shell keeps its reads: each frame names a
+ * kind and nothing else. Pushing state instead would put a second copy on the
+ * wire to keep in agreement. Each loop keeps a slow fallback interval, because
+ * a dead socket would otherwise leave a rail that looks right and silently
+ * stops updating. Websockets don't count against the browser's six HTTP/1.1
+ * connections per origin, which the API and every preview iframe share.
  */
 
 /**
- * What a frame can name.
- *
- * Five kinds, and annotations are deliberately not one of them. The queue
- * and the annotations are read on one beat, in that order, so the pair costs
- * one socket instead of two. Giving annotations a kind of their own would
- * turn that single beat into two independent channels and undo the reason it
- * is a pair, against the same six-connection budget above. If another kind
- * is ever wanted, that is the argument to answer first.
- *
- * `update` earned its place on that argument: the server knows every step an
- * update takes, and without the nudge the interface read the status once a
- * second for the length of a package install.
+ * What a frame can name. Annotations aren't a kind: they're read with the queue
+ * on one beat, and their own kind would split that pair into two channels
+ * against the connection budget. `update` earned a kind because the server
+ * knows each step of an update, and without it the interface polled once a
+ * second through a package install.
  */
 import { isJsonRecord, isString, parseJson } from "../json.js";
 import type { TimerHandle } from "./timers.js";
@@ -47,31 +25,17 @@ import type { TimerHandle } from "./timers.js";
 export type LiveChange = (typeof CHANGES)[number];
 
 /**
- * How long a loop waits when nothing has nudged it.
- *
- * This is the fallback, not the pace. While the socket is up nothing waits
- * on it, because every change arrives as a frame; it exists so a socket that
- * died quietly costs the interface some latency instead of leaving it
- * silently wrong. Fifteen seconds is far slower than the two and three it
- * replaces and still fast enough that nobody sits looking at a stale rail,
- * and it takes an idle tab from 100 reads a minute to four.
+ * How long a loop waits with no nudge. The fallback, not the pace: while the
+ * socket is up every change arrives as a frame. Fifteen seconds takes an idle
+ * tab from 100 reads a minute to four.
  */
 export const FALLBACK_MS = 15_000;
 
 /**
- * `share` is the fourth kind, and it answers the argument above rather than
- * ignoring it: a share's state (the tunnel coming up, a viewer arriving) is
- * its own read on its own beat, listened for only while a share exists, and
- * shares nothing with the queue. Folding it into `config` would make every
- * viewer count re-read the rail.
- *
- * `generation` is a set of directions being built: the server nudges it on
- * every step of a job (planned, a direction ready, failed or stopped), and
- * the rail reads the jobs again. Like `share`, it is its own read, and only
- * while the feature is switched on.
- *
- * `LiveChange` is read off this list, so a kind cannot reach one and not the
- * other.
+ * `share` is its own read on its own beat (tunnel up, viewer arriving), only
+ * while a share exists; folding it into `config` would re-read the rail per
+ * viewer count. `generation` nudges on every step of a job, only while the
+ * feature is on. `LiveChange` is read off this list.
  */
 const CHANGES = ["config", "requests", "health", "share", "update", "generation"] as const;
 
@@ -89,24 +53,16 @@ export function changeFrom(frame: string): LiveChange | null {
 
     return isLiveChange(changed) ? changed : null;
   } catch {
-    // A frame we cannot read is a frame we ignore. The fallback covers it.
+    // An unreadable frame is ignored; the fallback covers it.
     return null;
   }
 }
 
 /**
- * How long to wait before dialling again, given how many attempts have
- * failed in a row.
- *
- * The first retry is quick, because much of what closes this socket is a dev
- * server restart or a Leglas that came straight back, and waiting seconds
- * for those would be the interface sulking. It doubles from there to a
- * ceiling, so a Leglas that is gone for the afternoon is dialled twice a
- * minute rather than continuously.
- *
- * Deliberately without jitter: this is one browser tab talking to a server
- * on the same machine, so there is no thundering herd to spread out, and a
- * predictable delay is easier to test and to reason about.
+ * How long to wait before redialling after this many failures. The first retry
+ * is quick, since a dev server restart or a quick Leglas restart is the usual
+ * cause; it doubles to a ceiling, so a Leglas gone for the afternoon is dialled
+ * twice a minute. No jitter: one tab and a local server have no herd to spread.
  */
 export const FIRST_RETRY_MS = 250;
 
@@ -118,17 +74,10 @@ export function retryDelay(attempt: number): number {
   return Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempt);
 }
 
-/**
- * Only what a message carries; every other event carries nothing we read.
- * A frame is text, and anything else on the wire is something this does
- * not speak and drops.
- */
+/** Only what a message carries. A frame is text; anything else on the wire is dropped. */
 export type LiveEvent = { data?: string };
 
-/**
- * The smallest shape a real WebSocket already satisfies, so a test can hand
- * over something it drives by hand without standing up a server.
- */
+/** The smallest shape a real WebSocket satisfies, so a test can drive one by hand. */
 export type LiveSocket = {
   addEventListener(
     type: "message" | "open" | "close" | "error",
@@ -161,9 +110,8 @@ function defaultUrl(): string {
 }
 
 /**
- * The browser's socket, seen through the shape above. A message's data is
- * passed on only when it is text; a binary frame arrives as an event that
- * carries nothing, and the reader ignores it.
+ * The browser's socket through the shape above. Only text data is passed on; a
+ * binary frame carries nothing.
  */
 function browserSocket(url: string): LiveSocket {
   const socket = new WebSocket(url);
@@ -178,16 +126,10 @@ function browserSocket(url: string): LiveSocket {
 }
 
 /**
- * The one connection this page has.
- *
- * A page-lifetime resource, like the document: every loop shares it, and it
- * is never stopped because there is nothing after the page to stop it for.
- * Held here rather than in a component so React's development double-mount
- * cannot open a second socket and leak the first, and so nothing has to be
- * threaded through a component tree to reach the loops that want it.
- *
- * Tests call `startLive` directly with an injected socket and never touch
- * this.
+ * The page's one connection, shared by every loop and never stopped, like the
+ * document. Held here, not in a component, so React's development double-mount
+ * can't open a second socket. Tests call `startLive` with an injected socket
+ * instead.
  */
 let shared: Live | null = null;
 
@@ -198,12 +140,9 @@ export function liveConnection(): Live {
 }
 
 /**
- * Hold one socket open, redialling when it goes, and hand each frame to
- * whoever asked for that kind.
- *
- * One socket for the whole interface rather than one per loop: the frames
- * are tiny and the kinds are few, so a second connection would buy nothing
- * and spend a connection.
+ * Holds one socket open, redialling when it drops, and hands each frame to
+ * whoever asked for its kind. One socket for the whole interface: frames are
+ * tiny and kinds few.
  */
 export function startLive(options: LiveOptions = {}): Live {
   const connect = options.connect ?? browserSocket;
@@ -224,9 +163,8 @@ export function startLive(options: LiveOptions = {}): Live {
     try {
       opened = connect(options.url ?? defaultUrl());
     } catch {
-      // A URL the browser will not take is not going to start working, but
-      // the loops keep reading on their own, so this stays quiet and tries
-      // again on the backoff like any other failure.
+      // A URL the browser won't take won't start working, but the loops keep
+      // reading, so this stays quiet and retries on the backoff.
       return schedule();
     }
 
@@ -235,9 +173,8 @@ export function startLive(options: LiveOptions = {}): Live {
     opened.addEventListener("open", () => {
       if (stopped) return;
       connected = true;
-      // Only a socket that actually opened resets the backoff. Counting a
-      // dial that failed during the handshake as success would turn a
-      // server refusing connections into a tight redial loop.
+      // Only a socket that opened resets the backoff; counting a failed
+      // handshake would turn a refusing server into a tight redial loop.
       attempt = 0;
     });
 

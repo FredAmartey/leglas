@@ -1,9 +1,8 @@
 export type Preview = {
   /**
-   * Unique within a config, and the stable key for saved layout. Renaming in
-   * the interface changes the label only; editing the title in the config
-   * starts that preview's layout afresh, which is the honest behaviour since
-   * nothing else identifies it.
+   * Unique within a config and the stable key for saved layout. An interface
+   * rename changes the label only; editing the title in the config starts its
+   * layout afresh, since nothing else identifies it.
    */
   title: string;
   url: string;
@@ -16,18 +15,15 @@ export type Preview = {
   /** Added through `leglas add`, so Leglas can remove its local registration. */
   local?: boolean | undefined;
   /**
-   * How the direction is backed, when it is not just a route on the running
-   * app. The server has always sent these; the interface reads them so a
-   * copied reference can name a direction's source rather than only its URL,
-   * which is the part an agent can act on.
+   * How the direction is backed when it isn't a plain route on the app, so a
+   * copied reference can name its source.
    */
   branch?: string | undefined;
   file?: string | undefined;
   /**
-   * Where a branch's checkout has got to. Only branch-backed previews carry
-   * this, and one that is not `ready` has no `url`: the checkout it would
-   * point at does not exist yet, and framing an address nothing serves is how
-   * a preview lies about being broken rather than about being unstarted.
+   * Where a branch's checkout has got to. Only branch previews carry this, and
+   * one that isn't `ready` has no `url`, since framing an address nothing
+   * serves would look broken rather than unstarted.
    */
   state?: BranchPreviewState | undefined;
 };
@@ -50,9 +46,9 @@ export type ConfigPayload = {
   errors: string[];
   warnings?: string[];
   /**
-   * Present when this interface was opened through a share link. The server
-   * has already cut the previews down to what was shared; this carries how
-   * the sharer had them arranged, and says the interface is somebody else's.
+   * Present when opened through a share link. The server already cut the
+   * previews to what was shared; this carries the sharer's arrangement and
+   * marks the interface as someone else's.
    */
   viewer?: ViewerInfo | undefined;
 };
@@ -61,10 +57,9 @@ export type ConfigPayload = {
 export type ShareScope = "direction" | "compare" | "rail";
 
 /**
- * The rail as the sharer sees it, at the moment they shared. Snapshot rather
- * than mirror: the sharer can keep reordering for themselves without the
- * viewer's rail moving underneath them, and pushes an update when they mean
- * to.
+ * The sharer's rail when they shared. A snapshot, not a mirror, so the sharer
+ * can keep reordering without moving the viewer's rail, and pushes an update
+ * when they mean to.
  */
 export type ShareLayout = {
   order: string[];
@@ -99,12 +94,10 @@ export type TunnelState =
   | { status: "failed"; provider: TunnelProviderId; reason: string; url?: string | undefined };
 
 /**
- * One link into a share. A share can hold several, so a sharer can send one
- * per person and cut one without disturbing the rest.
- *
- * A link is a capability, not a person: one browser holds one at a time,
- * because two entry links on the same origin write the same cookie. So the
- * count below is sessions on this link, and the interface says so.
+ * One link into a share; a share can hold several, one per person, each cut
+ * independently. A link is a capability, not a person: one browser holds one at
+ * a time (two entry links on one origin write the same cookie), so `viewers`
+ * counts sessions.
  */
 export type ShareGrant = {
   id: string;
@@ -160,8 +153,8 @@ export type Release = {
 
 /**
  * Where an update has got to. The server owns this; the interface reads it
- * once a second while anything is happening and reloads itself once the
- * restarted Leglas answers.
+ * every second while anything is happening and reloads once the restarted
+ * Leglas answers.
  */
 export type UpdatePhase =
   | { status: "idle" }

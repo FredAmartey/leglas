@@ -46,9 +46,9 @@ describe("railInsets", () => {
     expect(insets).toEqual({ root: 36, variant: 42 });
   });
 
-  // A folded root keeps its mark, so its card still clears it, while the
-  // lanes its family drew are gone. That is why the shell measures its
-  // columns with every family open, which Shell.test.tsx holds it to.
+  // A folded root keeps its mark, so its card still clears it, while its
+  // family's lanes are gone. That's why the shell measures columns with every
+  // family open, which Shell.test.tsx checks.
   test("a folded family takes its lanes off the rail, and its root still clears its mark", () => {
     const titles = ["Meridian", "Ledger", "Dusk", "Sea", "Harbour", "Quay"];
 

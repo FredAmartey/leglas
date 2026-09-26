@@ -1,10 +1,9 @@
 import { isJsonRecord, isString, type JsonValue } from "../json.js";
 
 /**
- * How the shell talks to its own server's write endpoints. A refusal comes
- * back as an Error carrying the server's own sentence ("A change is running.
- * Wait for it to finish."), which is the one worth putting on screen: it
- * says what to do, where a status code does not.
+ * How the shell calls its server's write endpoints. A refusal becomes an Error
+ * carrying the server's own sentence, which says what to do where a status code
+ * doesn't.
  */
 export async function refusal(response: Response, fallback: string): Promise<Error> {
   const payload: JsonValue = await response.json().catch(() => null);
@@ -14,16 +13,13 @@ export async function refusal(response: Response, fallback: string): Promise<Err
 }
 
 /**
- * The body of an answer from this shell's own server.
- *
- * The one place the interface takes the server's word for a shape. Every
- * `/leglas/api` path is answered by the `@leglas/server` this shell shipped
- * with, in the same release, and `T` is the type that handler writes; nothing
- * else answers on this origin's path.
+ * The body of an answer from this shell's own server: the one place the
+ * interface takes the server's word for a shape, since every `/leglas/api` path
+ * is answered by the `@leglas/server` released with this shell.
  */
 export function readJson<T>(response: Response): Promise<T> {
-  // SAFETY: the server that answers `/leglas/api` is the one this shell
-  // was released with, and `T` names what its handler serialises.
+  // SAFETY: the server answering `/leglas/api` shipped with this shell, and `T`
+  // names what its handler serialises.
   return response.json() as Promise<T>;
 }
 

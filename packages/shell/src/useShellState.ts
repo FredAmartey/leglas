@@ -23,19 +23,15 @@ import type { BranchPreviewState, Preview, ShareLayout } from "./types.js";
 import { refusal } from "./net/api.js";
 
 /**
- * The engine every shell body sits on: prefs, selection, search, rename and
- * remove, copy, keyboard, resize, and pane mounting. Bodies own how it looks;
- * this owns how it behaves. That split is what lets the interface be explored
- * as a design surface without reimplementing its mechanics.
+ * The engine under every shell body: prefs, selection, search, rename and
+ * remove, copy, keyboard, resize and pane mounting. Bodies own the look, this
+ * owns the behaviour, so the interface can be explored as a design surface
+ * without reimplementing its mechanics.
  *
- * Anything that changes the list also reports what it did. Copy, rename and
- * remove each end in a toast naming the direction they touched, and the two
- * that can be taken back carry their own undo, so nothing here is a change you
- * have to squint at the rail to confirm.
- *
- * Pane history is recorded lazily on activation. A shell body decides whether
- * to retain that history or mount only what is visible; nested shells expose
- * only the active pane so self-hosting never multiplies iframes.
+ * Anything that changes the list reports it: copy, rename and remove end in a
+ * toast naming the direction, and the two reversible ones carry an undo. Pane
+ * history is recorded on activation; nested shells expose only the active pane
+ * so self-hosting never multiplies iframes.
  */
 /** The link on its own, or the block that says what the direction is. */
 export type CopyKind = "link" | "reference";
@@ -55,10 +51,8 @@ export type ShellStateProps = {
    */
   suspended?: boolean | undefined;
   /**
-   * Set when this interface was opened through a share link. The rail is
-   * then seeded from how the sharer had it and nothing is saved or sent: a
-   * viewer's choices last their tab, and the machine on the other end never
-   * hears about them.
+   * Set when opened through a share link. The rail is seeded from the sharer's
+   * layout and nothing is saved or sent: a viewer's choices last their tab.
    */
   viewer?: { layout: ShareLayout } | undefined;
 };
@@ -99,11 +93,9 @@ export function useShellState({
   const [mounted, setMounted] = useState<readonly string[]>(() => [firstVisible()]);
   const [query, setQueryRaw] = useState("");
   /**
-   * Folds made while a search is active, scoped to that search. Starting
-   * empty is what lets a fresh query reveal variants their family had folded
-   * away, and folding here leaves the saved preference alone: putting rows
-   * away while looking for something is a viewing gesture, not a decision
-   * about the rail.
+   * Folds made during a search, scoped to it. Starting empty lets a fresh query
+   * reveal folded variants, and folding here leaves the saved preference alone:
+   * tidying while searching is a viewing gesture.
    */
   const [searchFolded, setSearchFolded] = useState<readonly string[]>([]);
 
@@ -115,9 +107,9 @@ export function useShellState({
 
   const [showHidden, setShowHidden] = useState(false);
   /**
-   * Rows folded for the length of a drag. A lineage rail folds the families
-   * around the row being moved, so the slots it can take are exactly the
-   * rows on screen; the fold lifts when the drag ends.
+   * Rows folded for a drag. A lineage rail folds the families around the moving
+   * row, so its possible slots are exactly the rows on screen; the fold lifts
+   * when the drag ends.
    */
   const [dragFolded, setDragFolded] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -130,9 +122,8 @@ export function useShellState({
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
 
   /**
-   * A field the keyboard has asked for, which the shell focuses once the rail
-   * it lives in has rendered. The nonce is what makes pressing the same key
-   * twice in a row a second request rather than a no-op.
+   * A field the keyboard asked for, focused by the shell once its rail renders.
+   * The nonce makes the same key twice a second request.
    */
   const [focusing, setFocusing] = useState<{ target: "request" | "search"; nonce: number } | null>(
     null,
@@ -160,10 +151,9 @@ export function useShellState({
   }, [prefs, key, viewer]);
 
   /**
-   * The sharer pushed what they see now. The layout's fields are taken as
-   * they are; the viewer's own settings stay. Keyed on the layout's own
-   * bytes rather than the object, which is fresh on every read, and settled
-   * while rendering so no frame shows the old rail first.
+   * The sharer pushed their current view: layout fields are taken, the viewer's
+   * own settings stay. Keyed on the layout's bytes (the object is fresh every
+   * read) and settled during render so the old rail never shows.
    */
   const viewerLayout = viewer === undefined ? null : viewerPrefsRaw(viewer.layout);
   const [seededFrom, setSeededFrom] = useState(viewerLayout);
@@ -184,10 +174,7 @@ export function useShellState({
   const displayName = (title: string) => prefs.renames[title] ?? title;
   const urlFor = (title: string) => byTitle.get(title)?.url ?? "/";
 
-  /**
-   * A branch preview's checkout state, or null when the preview is a route on
-   * the running app and so has nothing to start.
-   */
+  /** A branch preview's checkout state, or null for a plain route with nothing to start. */
   const branchState = (title: string): BranchPreviewState | null => {
     const preview = byTitle.get(title);
 
@@ -195,10 +182,9 @@ export function useShellState({
   };
 
   /**
-   * Ask the server to bring a branch up. Safe to call again: the server joins
-   * a start already in flight rather than checking out twice, so opening a
-   * preview twice while it boots is one checkout, and a failed one retries.
-   * The interface hears the result through the live socket's config nudge.
+   * Asks the server to bring a branch up. Safe to repeat: the server joins a
+   * start in flight, so opening twice during boot is one checkout and a failed
+   * one retries. The result arrives through the live config nudge.
    */
   const startBranch = (title: string) => {
     // A branch never reaches a viewer, and a viewer cannot start one anyway.
@@ -227,16 +213,15 @@ export function useShellState({
     .map((preview) => preview.title)
     .filter((title) => !prefs.deleted.includes(title));
 
-  // Derived every render rather than reconciled once at load, so previews an
-  // agent registers mid-session get rows the moment they arrive.
+  // Recomputed every render, so previews an agent registers mid-session get
+  // rows at once.
   const ordered = railOrder(prefs.order, titles);
 
-  // Family structure: variants sit under the direction they are based on, and a
-  // collapsed family folds its variants away. While a search is active the
-  // saved folds step aside for the per-search set, so a query that matches a
-  // folded variant reveals it and the fold control keeps working against what
-  // is on screen. Computed from the visible titles, so hiding a direction
-  // promotes its variants to roots instead of stranding them.
+  // Variants sit under their base direction and a collapsed family folds them
+  // away. During a search the saved folds give way to the per-search set, so a
+  // match reveals a folded variant and the fold control works on what's shown.
+  // Computed from visible titles, so hiding a direction promotes its variants
+  // to roots.
   const searching = query.trim() !== "";
   const foldedNow = searching ? searchFolded : prefs.collapsedFamilies;
 
@@ -256,9 +241,8 @@ export function useShellState({
     roots: railRoots,
   } = lineageRail(showing, basedOnMap, new Set([...foldedNow, ...dragFolded]));
 
-  // Where the cards start is measured on the rail with every family open, so
-  // a fold, or the folding a drag does on its way, never moves a card
-  // sideways: the columns are what the whole tree needs, not what shows.
+  // Card starts are measured with every family open, so neither a fold nor a
+  // drag's folding moves a card sideways.
   const insets = railInsets(lineageRail(showing, basedOnMap, new Set()).meta);
 
   /** Move a direction among its siblings; see reorderAmongSiblings. */
@@ -297,10 +281,9 @@ export function useShellState({
   const visibleCount = ordered.filter((title) => !prefs.hidden.includes(title)).length;
 
   /**
-   * Put a removed direction back. Order is untouched by removal, so it returns
-   * to its own slot rather than the end, and undoing the removal of whatever
-   * was on stage puts it back on stage: a restore that leaves you looking at
-   * something else has only half undone the thing.
+   * Puts a removed direction back in its own slot (removal leaves order alone),
+   * and back on stage if it was there: a restore that leaves you looking
+   * elsewhere is half an undo.
    */
   const restore = (title: string, select = false) => {
     setPrefs((current) => ({
@@ -332,9 +315,9 @@ export function useShellState({
   };
 
   /**
-   * Clear removed directions for good. Machine-local directions also leave
-   * Leglas's registry on disk. Shared directions keep their source config
-   * untouched and use the saved tombstone to stay out of this project's rail.
+   * Clears removed directions for good. Machine-local ones also leave the
+   * registry on disk; shared ones keep their config and stay off this rail by
+   * tombstone.
    */
   const deleteRemoved = async (removeTitles: readonly string[]) => {
     const unique = [...new Set(removeTitles)].filter((title) => prefs.hidden.includes(title));
@@ -365,11 +348,9 @@ export function useShellState({
   };
 
   /**
-   * The rail's names also go to the server, because the name that comes out of
-   * a rename is the one the user then says to their agent. Without this the
-   * CLI answers that name with "no direction called that", which reads as the
-   * direction being gone. Local state is not gated on the write: a rename is
-   * theirs whether or not the disk agrees.
+   * Rail names also go to the server, since the renamed name is what the user
+   * says to their agent; otherwise the CLI answers "no direction called that".
+   * Local state doesn't wait on the write.
    */
   const setRenameValue = (title: string, value: string | undefined) =>
     setPrefs((current) => {
@@ -384,8 +365,8 @@ export function useShellState({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ renames }),
       }).catch(() => {
-        // Nothing to tell the user: the rail is renamed, and every command
-        // still answers to the config title.
+        // Nothing to report: the rail is renamed and commands still take the
+        // config title.
       });
 
       return { ...current, renames };
@@ -398,9 +379,9 @@ export function useShellState({
   };
 
   /**
-   * Submitting keeps the form open on a refused name so it can be corrected in
-   * place; clicking away accepts that the rename is abandoned and says so
-   * rather than trapping the cursor in a field the user has already left.
+   * A submit keeps the form open on a refused name for correction in place;
+   * clicking away abandons the rename and says so rather than pulling the
+   * cursor back.
    */
   const rename = (title: string, raw: string, via: "blur" | "submit" = "submit") => {
     const names = new Map(titles.map((entry) => [entry, displayName(entry)]));
@@ -445,10 +426,10 @@ export function useShellState({
     const cycle = rows;
 
     const onKey = (event: KeyboardEvent) => {
-      // SAFETY: read for its tag rather than checked with instanceof, because
-      // a target inside a preview comes from that frame's realm, where the
-      // parent's HTMLInputElement never matches, and every keystroke typed
-      // into the app would look like a shortcut.
+      // SAFETY: read by tag rather than instanceof, because a target inside a
+      // preview comes from that frame's realm, where the parent's
+      // HTMLInputElement never matches, and every keystroke typed into the app
+      // would look like a shortcut.
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
 
@@ -469,19 +450,17 @@ export function useShellState({
 
       if (suspended && action.kind !== "help") return;
 
-      // A viewer has no composer and nothing to annotate; the keys that ask
-      // for work do nothing rather than open a rail for a field that is
-      // not there.
+      // A viewer has no composer and nothing to annotate, so those keys do
+      // nothing.
       if (viewer !== undefined && (action.kind === "request" || action.kind === "note")) return;
 
       if (action.kind === "search" || action.kind === "request") {
         event.preventDefault();
         setPrefs((current) => (current.collapsed ? { ...current, collapsed: false } : current));
-        // Both fields live in the rail, and a collapsed rail is inert, where
-        // nothing can take focus. So the field is not focused here: the shell
-        // does it in an effect, which React runs after the rail has committed
-        // wide again. A timer would race that, and in a backgrounded window it
-        // may not run at all.
+        // Both fields live in the rail, and a collapsed rail is inert and
+        // refuses focus, so the shell focuses in an effect after the rail
+        // commits wide again. A timer would race that and may not run in a
+        // background window.
         setFocusing({ target: action.kind, nonce: focusNonce.current++ });
       } else if (action.kind === "split") {
         event.preventDefault();
@@ -498,8 +477,8 @@ export function useShellState({
       } else if (action.kind === "rail") {
         setPrefs((current) => ({ ...current, collapsed: !current.collapsed }));
       } else if (action.kind === "jump") {
-        // Past the end is a miss rather than the last direction: the digit
-        // names a slot, and a slot that is not there has no sensible stand-in.
+        // Past the end is a miss, not the last direction: the digit names a
+        // slot.
         const next = cycle[action.index];
 
         if (next) {
@@ -520,11 +499,9 @@ export function useShellState({
     };
 
     /**
-     * Clicking a design moves focus into its frame, and a keydown there never
-     * reaches this window, so the shortcuts went dead until something pulled
-     * focus back out. Listening on each same-origin preview as well keeps them
-     * alive while a design has focus, which is most of the time. A cross-origin
-     * preview cannot be reached and keeps its own keyboard.
+     * Clicking a design moves focus into its frame, where keydown never reaches
+     * this window, so shortcuts went dead. Listening on each same-origin
+     * preview keeps them working; a cross-origin one keeps its own keyboard.
      */
     const targets: (Document | Window)[] = [window];
 
@@ -538,9 +515,8 @@ export function useShellState({
       }
     }
 
-    // SAFETY: registered for keydown alone, so every event it is handed is a
-    // KeyboardEvent; the union of windows and documents hides the typed
-    // overload that would say so.
+    // SAFETY: registered for keydown only, so every event is a KeyboardEvent;
+    // the union of windows and documents hides the typed overload.
     const listener = onKey as EventListener;
 
     for (const target of targets) target.addEventListener("keydown", listener);
@@ -557,8 +533,8 @@ export function useShellState({
     onToggleTools,
     onToggleNote,
     suspended,
-    // Re-attach as previews mount and as each one finishes loading, since a
-    // fresh document does not inherit the old one's listener.
+    // Re-attach as previews mount and finish loading, since a fresh document
+    // doesn't inherit the listener.
     mounted.join("|"),
     Object.entries(loaded)
       .filter(([, done]) => done)
@@ -567,18 +543,14 @@ export function useShellState({
   ]);
 
   /**
-   * Two things are worth copying about a direction, and they are wanted at
-   * different moments. The link is the reflex: someone says "show me" and it
-   * goes straight into a message. The reference is the considered one, for
-   * handing a direction to a teammate or an agent with what it is and the file
-   * behind it. Each gets its own control rather than one control with a
-   * choice hung off it, so neither costs a second click.
+   * Two copies, wanted at different moments: the link, the reflex for "show
+   * me", and the reference, which says what the direction is and its file, for
+   * a teammate or agent. Each has its own control, so neither costs a second
+   * click.
    *
-   * The tick on the button is the fast answer and the toast is the durable
-   * one, because the button that was clicked is often gone from under the
-   * cursor by the time the eye gets back to it. A clipboard that refused shows
-   * neither: it shows the link instead, which is the one part small enough to
-   * retype.
+   * The tick on the button is the quick answer and the toast the durable one,
+   * since the button is often gone by the time the eye returns. A refused
+   * clipboard shows the link instead, the part small enough to retype.
    */
   const copy = (title: string, kind: CopyKind) => {
     const url = absoluteUrl(urlFor(title), window.location.origin);
@@ -626,8 +598,8 @@ export function useShellState({
   const copyLink = (title: string) => copy(title, "link");
   const copyReference = (title: string) => copy(title, "reference");
 
-  // Pointer capture keeps every move routed to the handle, even over the
-  // preview iframe, which is a separate document that swallows pointer events.
+  // Pointer capture keeps moves routed to the handle even over the preview
+  // iframe, a separate document that swallows pointer events.
   const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const handle = event.currentTarget;

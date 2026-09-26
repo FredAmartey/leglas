@@ -1,39 +1,21 @@
 import { forkCurve, forkKnee, type LineageRow, type RowMeta, type Segment } from "./lineage.js";
 
 /**
- * The lineage drawn beside the titles, the way `git log --graph` draws a
- * history. The titles stay aligned whatever the depth; a chain is one line
- * with a mark per pass, and a fork leaves it as a curve into a lane of its
- * own that runs until its row arrives.
+ * The lineage beside the titles, drawn like `git log --graph`. Titles stay
+ * aligned at any depth; a chain is one line, and a fork curves into its own
+ * lane until its row. Each row draws its slice and reaches into the gaps, so
+ * strokes meet across rows and follow a dragged row. A slice can light per
+ * segment (one line back to its root) and draw in when new; the running light
+ * is drawn over the whole rail, see Trail.
  *
- * Each row draws its own slice and reaches into the gaps above and below, so
- * the strokes meet across rows and follow a row when it is dragged. A
- * direction with no lineage still gets its mark: every row is a node, and a
- * column that skipped some would read as a margin rather than a graph.
+ * Marks only where the history changes shape: a line's start or end, a fork,
+ * and the row on stage. Elsewhere the line passes a hair tick. A direction on
+ * no line gets nothing, except a folded root, which keeps its mark with three
+ * fading dots below.
  *
- * A slice can be lit, segment by segment, so one direction's line back to
- * its root stands out from the rest, and a segment can draw itself in when it
- * is new, top to bottom, the way the lineage actually grew. The light that
- * runs down a lit line is drawn over the whole rail at once; see Trail.
- *
- * Marks are not stations. A dot on every row repeats what the row's own
- * position already says and turns a moving light into something stepping
- * between stops, so only the rows where the shape of the history changes
- * carry one: where a line starts or ends, where it forks, and the row on
- * stage. Everywhere else the line passes a tick barely wider than itself,
- * which keeps the row attached to its lane without punctuating it.
- *
- * A direction on no line at all gets nothing. It has no lineage to draw, and
- * a lone dot beside a name is a bullet, which says only that the row is a
- * row. A folded family root is the exception: its line is put away, not
- * gone, so the mark stays and three fading dots beneath it say where the
- * line went.
- *
- * The marks are a vocabulary. A filled dot is where a line starts, ends or
- * forks; a hair tick is a row the line passes; a ring around a dot is the
- * row on stage, "here" rather than "brighter"; a mark that breathes is a
- * direction an agent is working on right now. The trunk of a family is drawn
- * a shade heavier than its branches, so the eye finds the main line first.
+ * The vocabulary: filled dot for start, end or fork; hair tick for a row
+ * passed; ring for the row on stage; breathing mark for an agent working now. A
+ * family's trunk is a shade heavier than its branches.
  */
 
 /** Lanes sit this far apart. */
@@ -87,10 +69,9 @@ const LINE_CLEAR = 2;
 const RING_CLEAR = 8;
 
 /**
- * Where the cards start, so that everything the gutter draws stays outside
- * them: roots as one column, variants as another. Both grow together when a
- * family opens more lanes than usual, and both are zero on a rail that draws
- * nothing, where a card fills its row as it always did.
+ * Where cards start, so everything the gutter draws stays outside them: one
+ * column for roots, one for variants. Both grow when a family opens more lanes,
+ * and both are zero on a rail that draws nothing.
  */
 export type RailInsets = { root: number; variant: number };
 
@@ -174,15 +155,14 @@ export function Gutter({
   const markLit = on("mark");
   /** Whether any line of this row's own runs through it. */
   const onALine = row.fromAbove || row.toBelow || row.forks.length > 0 || family;
-  // Where the history changes shape, and so where a dot says something the
-  // row's own position does not: the start and the end of a line, a fork,
-  // and the row being looked at.
+  // Where the history changes shape, so a dot says something the row's position
+  // doesn't: a line's start and end, a fork, and the row being looked at.
   const junction = active || row.forks.length > 0 || !row.fromAbove || !row.toBelow;
   // A working mark is never a hair tick: a breath needs something to breathe.
   const markRadius = junction ? (row.depth === 0 ? 3.5 : 3) : working ? 3 : 1.5;
 
-  // The ring on the row on stage is hollow, so the line stops at its edge
-  // rather than showing through it; a filled dot hides the line by itself.
+  // The ring on the row on stage is hollow, so the line stops at its edge; a
+  // filled dot hides the line anyway.
   const clear = active ? markRadius + 5 : 0;
   const pieces: Piece[] = [];
 
@@ -221,8 +201,8 @@ export function Gutter({
     });
 
   for (const lane of row.forks) {
-    // The curve always leaves the mark's centre; on the row on stage its
-    // first stretch is cut so it starts outside the ring.
+    // The curve leaves the mark's centre; on the row on stage its first stretch
+    // is cut to start outside the ring.
     const knee = forkKnee(cx, cy, x(lane));
     const curve = forkCurve(cx, cy, x(lane), clear);
 
@@ -268,9 +248,8 @@ export function Gutter({
 
   const landed = arriving;
 
-  // Laid over the row's left padding, which railInsets sizes so that the card
-  // starts past everything drawn here: the gutter is a column beside the
-  // card, and a variant's title still sits where the rail always put it.
+  // Laid over the row's left padding, which railInsets sizes so the card starts
+  // past everything drawn here.
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0" style={{ width }}>
       <svg

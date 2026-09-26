@@ -8,8 +8,8 @@ const CHIP =
   "rounded-full bg-[#1C1C20]/85 px-2.5 py-1 text-[11px] font-medium text-[#E8E8EA] shadow-lg backdrop-blur";
 
 /**
- * What is said over a pane's frame: why it failed, why the page refused it,
- * or the skeleton until it has drawn.
+ * What's said over a pane's frame: why it failed, why the page refused it, or
+ * the skeleton until it draws.
  */
 function PaneOverlay({
   errored,
@@ -57,11 +57,8 @@ function PaneOverlay({
 }
 
 /**
- * One direction on the stage: its frame, and whatever has to be said over it
- * while it starts, fails, or goes stale.
- *
- * A pane stays mounted while it is off the stage, hidden rather than removed,
- * so coming back to a direction does not load it again.
+ * One direction on the stage: its frame and whatever needs saying over it. Off
+ * stage it stays mounted and hidden, so coming back doesn't reload it.
  */
 export function Pane({
   annotate,
@@ -143,8 +140,8 @@ export function Pane({
   title: string;
   viewport: number | null;
 }) {
-  // Say the scale rather than let it be guessed from the type looking small.
-  // The width is the useful half: it is what the design is actually drawn at.
+  // Say the scale rather than let it be guessed from small type. The width is
+  // the useful half: what the design is drawn at.
   const label = (
     <>
       {name}
@@ -176,11 +173,9 @@ export function Pane({
       style={splitting ? { order } : undefined}
     >
       {splitting && (
-        // Two panes need naming; one does not, because the rail already
-        // shows which is active.
-        // Scaled, the name belongs to its artboard and sits on top of
-        // it; floating at the top of the pane leaves it stranded above
-        // the space the letterboxing opens up.
+        // Two panes need names; one doesn't, since the rail shows the active
+        // one. Scaled, the name sits on its artboard rather than stranded at
+        // the pane's top.
         <div
           className={
             scaling
@@ -220,13 +215,9 @@ export function Pane({
               : undefined
         }
       >
-        {/*
-          The frame keeps its own dimensions and is scaled as a whole, so
-          the app inside measures the width it was designed for. Media
-          queries answer against that width, not against the pane, which
-          is the entire point. Overlays stay outside this box: an error
-          worth reading is not worth reading at half size.
-        */}
+        {/* The frame keeps its own size and is scaled whole, so media
+            queries answer to the design width, not the pane. Overlays stay
+            outside, since an error is no use at half size. */}
         <div
           className={scaling ? "relative origin-top-left" : "relative size-full"}
           style={
@@ -249,9 +240,9 @@ export function Pane({
               onLoad={(event) => {
                 const stamped = event.currentTarget.dataset.previewIdentity;
 
-                // Cross-origin previews expose only the event. Same-origin
-                // previews must have left about:blank and produced a real
-                // readable document before they are considered loaded.
+                // Cross-origin previews expose only the event. Same-origin ones
+                // must have left about:blank with a readable document to count
+                // as loaded.
                 if (
                   stamped !== undefined &&
                   (!src.startsWith("/") || previewFrameIsReady(event.currentTarget))
@@ -280,10 +271,9 @@ export function Pane({
           />
         )}
         {cover}
-        {/* A pane that loaded before the server died keeps showing that
-            render. Saying so is the difference between a stale preview
-            and a lie — but only for panes the server rendered. A file
-            preview is served by Leglas and is as current as ever. */}
+        {/* A pane loaded before the server died keeps its render, so it says
+            it's stale, but only for server-rendered panes; a file preview is
+            as current as ever. */}
         {!serverUp && loaded && fromApp && (
           <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
             <span className="rounded-full bg-[#1C1C20]/90 px-2.5 py-1 text-[11px] font-medium text-amber-300/90 shadow-lg">

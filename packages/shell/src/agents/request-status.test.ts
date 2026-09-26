@@ -59,10 +59,9 @@ describe("request direction activity", () => {
   });
 
   test("a fork leaves its parent's document alone", () => {
-    // A variant is built beside the direction it was asked of, and the agent
-    // is told to leave that direction exactly as it is. Counting the parent as
-    // changing forgot its duplicate verdict and read it again after every
-    // fork, which is the default kind of request.
+    // A variant is built beside its parent, which the agent is told to leave
+    // alone. Counting the parent as changing dropped its duplicate verdict and
+    // re-read it after every fork, the default request.
     const requests = [
       { ...request("fork", "picked-up", "Parent"), mode: "variant" as const },
       { ...request("edit", "picked-up", "Edited"), mode: "replace" as const },
@@ -231,8 +230,8 @@ describe("requestCard", () => {
   });
 
   test("a stop is its own card, so nothing offers to redo what was stopped", () => {
-    // The scenario this came from: a run cancelled, then the same words typed
-    // again. Both requests ended, and the card has to tell them apart.
+    // From a run cancelled and the same words typed again: both requests ended,
+    // and the card must tell them apart.
     expect(
       requestCard(
         [
@@ -249,8 +248,8 @@ describe("requestCard", () => {
   });
 
   test("a stop in progress drops the backoff line and says so", () => {
-    // Between the click and the agent actually going, the card must not keep
-    // describing a live run, and must not still be blaming the provider.
+    // Between the click and the agent going, the card must not describe a live
+    // run or blame the provider.
     expect(
       requestCard(
         [request("running", "running", "Poster")],
@@ -348,8 +347,8 @@ describe("notesAwaitingChange", () => {
     expect([...found].toSorted()).toEqual(["a", "b", "c", "d"]);
   });
 
-  // A change that failed or was stopped never answered its notes. They are
-  // waiting to be sent again, which is exactly what an unmarked pin means.
+  // A failed or stopped change never answered its notes, so they're waiting to
+  // be sent again, which is what an unmarked pin means.
   test("leaves out the notes of a change nobody is working on", () => {
     const found = notesAwaitingChange([
       request({ id: "r1", notes: ["a"], status: "failed" }),
@@ -401,12 +400,12 @@ describe("what the status card says", () => {
     const quiet = { ...running, quietSince: 1_000_000 };
 
     expect(cardDetail(quiet, 1_000_000 + 4 * 60_000 + 12_000)).toBe("no output for 4m 12s");
-    // A provider backing off is the better explanation of the same silence.
+    // A provider backing off explains the same silence better.
     expect(
       cardDetail({ ...quiet, waiting: { attempt: 2, max: 5, status: 529, reason: null } }, 0),
     ).toBe("provider is overloaded · retry 2 of 5");
     expect(cardDetail({ ...quiet, stopping: true }, 0)).toBe("waiting for it to exit");
-    // Without a clock to read it against, the card falls back to what it had.
+    // Without a clock, the card falls back to what it had.
     expect(cardDetail(quiet)).toBe("Editing hero.tsx");
   });
 

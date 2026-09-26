@@ -1,16 +1,11 @@
 /**
- * What a submitted rename actually means, before anything is written.
- *
- * The form has four outcomes and only one of them is "renamed": clearing the
- * field puts the config's own title back, retyping the current name changes
- * nothing, and a name another direction already answers to would leave two
- * identical rows in the rail with no way to tell which is which. Deciding that
- * here keeps the shell free to say which one happened, and keeps the rule
- * testable without a DOM.
- *
- * Only display names are compared, never underlying titles. A title that has
- * been renamed away is not on screen anywhere, and refusing a name for
- * clashing with something invisible is worse than the clash.
+ * What a submitted rename means, before anything is written. Four outcomes:
+ * clearing the field restores the config title, retyping the current name
+ * changes nothing, a name another direction shows is refused (two identical
+ * rows), and anything else renames. Deciding here lets the shell say which
+ * happened and keeps it testable. Only display names are compared: a
+ * renamed-away title isn't on screen, and refusing a clash with it is worse
+ * than the clash.
  */
 export type NameCheck =
   | { kind: "reset"; value: string }

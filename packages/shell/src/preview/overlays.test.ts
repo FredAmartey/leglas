@@ -3,9 +3,8 @@ import { describe, expect, test } from "vitest";
 import { BADGE_CSS, NEXT_BADGE_CSS } from "./overlays.js";
 
 /**
- * A framework's error overlay is the opposite of decoration: it is the app
- * telling you it is broken. Hiding one would let a stale or blank preview pass
- * as healthy, which is the failure this tool exists to prevent.
+ * An error overlay is the app saying it's broken; hiding one would let a stale
+ * or blank preview pass as healthy.
  */
 const ERROR_SURFACES = [
   "vite-error-overlay",
@@ -35,8 +34,8 @@ describe("BADGE_CSS", () => {
 
 describe("NEXT_BADGE_CSS", () => {
   test("targets only the dev tools indicator inside the portal", () => {
-    // The portal hosts both the badge and the error modal, so the whole host
-    // must never be hidden; only this one child.
+    // The portal hosts both the badge and the error modal, so only this child
+    // is hidden, never the host.
     expect(NEXT_BADGE_CSS).toContain("#devtools-indicator");
   });
 

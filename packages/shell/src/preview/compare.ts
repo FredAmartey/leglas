@@ -1,13 +1,8 @@
 /**
- * Which direction the second pane should show.
- *
- * Opening a comparison should not require a second choice. An explicit pin
- * always wins. For a variant, the direction it is based on beats history,
- * because the question a variant set asks is "how far is this from the
- * original", and that comparison should be one keypress. Otherwise the
- * direction you were just looking at, which is almost always the one you
- * meant. A title that no longer exists is ignored rather than blanking the
- * pane.
+ * Which direction the second pane shows, with no second choice needed. A pin
+ * wins; for a variant, its parent (the question a variant set asks); otherwise
+ * the direction just viewed. A title that no longer exists is ignored rather
+ * than blanking the pane.
  */
 export function nextCompare(state: {
   active: string;
@@ -66,9 +61,8 @@ const FLOOR = 0.05;
 export const LABEL_ROOM = 40;
 
 /**
- * How a set shown whole is arranged: one row for up to three, so each stays
- * as large as a split's, then two rows. Four sit two by two rather than three
- * and one, which would leave a lone design and a hole.
+ * How a set shown whole is arranged: one row for up to three, so each stays as
+ * large as a split's, then two rows. Four sit two by two, not three and one.
  */
 export type SetLayout = { columns: number; rows: number };
 
@@ -81,24 +75,15 @@ export function setLayout(count: number): SetLayout {
 }
 
 /**
- * How one side of a split is drawn.
+ * How one side of a split is drawn. An app given half the room crosses its
+ * breakpoints and draws a different design, so two wide-window directions would
+ * be judged as narrow ones. The design keeps its solo width and the frame is
+ * scaled instead: media queries answer to the frame, nothing reflows, and a
+ * split costs only size.
  *
- * A split halves the room, and an app given half the room does not draw a
- * smaller version of the same design: it crosses its own breakpoints and draws
- * a different one. Two directions meant for a wide window then get judged as
- * two narrow ones, and the winner is picked from a layout nobody ships.
- *
- * So the design keeps the width it would have had alone and the whole frame is
- * scaled to fit instead. Media queries answer against the frame, not the pane,
- * which is the entire point: nothing reflows, flipping and splitting agree
- * about what the design is, and a split costs only size.
- *
- * The frame keeps the stage's proportions too, not just its width. Stretching
- * it to fill the pane instead was tried, and it trades one distortion for
- * another: a hero sized to the viewport gets drawn in a window twice as tall,
- * so it comes back airier than it ships. The space left over is the honest
- * price of two full designs at once, and it reads as a canvas rather than as
- * waste once each frame is drawn as its own artboard.
+ * The frame keeps the stage's proportions too. Stretching it to fill the pane
+ * drew viewport-sized heroes in a window twice as tall; the leftover space
+ * reads as canvas once each frame is its own artboard.
  */
 export function paneGeometry(state: {
   /** How much breathing room a framed preset sits in, both sides together. */
@@ -121,27 +106,23 @@ export function paneGeometry(state: {
 
   // One pixel of divider sits between each pair of panes.
   const paneWidth = panes > 1 ? (stageWidth - (panes - 1)) / panes : stageWidth;
-  // Not rounded. The unsplit view draws at whatever fractional width the stage
-  // measures, so rounding here could put a breakpoint on the other side of the
-  // split than it is on its own: a hair's difference, and a hair is still the
-  // disagreement this function exists to remove.
+  // Not rounded: the unsplit view uses the stage's fractional width, and
+  // rounding could put a breakpoint on the other side in a split.
   const designWidth = viewport ?? stageWidth;
   const room = paneWidth - (viewport !== null ? gutter : 0) - inset;
 
-  // A framed preset is inset by the same gutter top and bottom, so its height
-  // alone is the stage less that gutter, not the whole stage. Scaling it from
-  // the full height would draw it 48px taller than the unsplit view and put a
-  // `vh` layout somewhere it never sits, which is the exact class of lie this
-  // function exists to remove.
+  // A framed preset is inset by the gutter top and bottom, so its height is the
+  // stage less the gutter; scaling from the full height would draw it 48px
+  // taller and misplace `vh` layouts.
   const designHeight = stageHeight - (viewport !== null ? gutter : 0);
 
   const fits = scaleSplit && (panes > 1 || rows > 1) && stageWidth > 0 && designWidth > 0;
-  // In a grid the frame has to fit the cell's height as well, below its name;
-  // in one row the proportions already guarantee that.
+  // In a grid the frame must fit the cell's height below its name; in one row
+  // the proportions already guarantee it.
   const cellHeight = (stageHeight - (rows - 1)) / rows;
   const byHeight = rows > 1 ? (cellHeight - LABEL_ROOM - inset) / designHeight : 1;
-  // Never scale up. A design asked for 1440 does not get better at 1600, and a
-  // single pane is already showing the design at its own size.
+  // Never scale up: a 1440 design isn't better at 1600, and one pane already
+  // shows it at its own size.
   const scale = fits ? Math.max(FLOOR, Math.min(1, room / designWidth, byHeight)) : 1;
   const scaling = scale < UNSCALED;
 

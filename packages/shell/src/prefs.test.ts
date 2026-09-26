@@ -79,8 +79,8 @@ describe("loadPrefs", () => {
   });
 
   test("shows the app's own dev overlays until asked otherwise", () => {
-    // The badge belongs to the user's app. Hiding it unasked makes the
-    // preview quietly differ from what their dev server renders.
+    // The badge belongs to the user's app; hiding it unasked makes the preview
+    // differ from their dev server.
     expect(loadPrefs(null, previews).showDevOverlays).toBe(true);
     expect(loadPrefs(stored({ showDevOverlays: false }), previews).showDevOverlays).toBe(false);
   });
@@ -137,8 +137,8 @@ describe("railOrder", () => {
   });
 
   test("appends previews that arrived after the order was saved", () => {
-    // An agent registers directions while the interface is open; a saved
-    // order that predates them must not leave their rows invisible.
+    // An agent registers directions while the interface is open; a saved order
+    // from before must not hide their rows.
     expect(railOrder(["B", "A"], ["A", "B", "New"])).toEqual(["B", "A", "New"]);
   });
 

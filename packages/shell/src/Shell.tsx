@@ -145,9 +145,8 @@ import { readJson } from "./net/api.js";
 const LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * How often the composer taking focus is allowed to ask for a warm agent. The
- * server keeps one warm for minutes after an ask, so a click-happy hand does
- * not need to send more than one in a while.
+ * How often composer focus may ask for a warm agent. The server keeps one warm
+ * for minutes after an ask.
  */
 const WARM_THROTTLE_MS = 30_000;
 
@@ -155,9 +154,8 @@ const WARM_THROTTLE_MS = 30_000;
 const DUPLICATE_VIEWPORT = { height: 800, width: 1280 } as const;
 
 /**
- * The rail's foot before it is first measured. The real height moves with the
- * status card above the composer, so toasts read it from a ResizeObserver and
- * this only covers the frame before that observer reports.
+ * The rail's foot before it's measured. Its real height moves with the status
+ * card, so toasts read it from a ResizeObserver; this covers the first frame.
  */
 const RAIL_FOOTER_FALLBACK_H = 96;
 
@@ -199,13 +197,7 @@ type DeletePrompt = {
   titles: readonly string[];
 };
 
-/**
- * The Leglas chrome. Warm dark surfaces (#1C1C20 main, #1E1E22 strips,
- * #232328 borders, #2E2E2E inputs), a 368px rail, two type tiers, flat rows
- * with a sliding highlight and a hover-revealed action cluster, drag to
- * reorder, hidden scrollbars, no top bar, and a floating widget whose popover
- * holds the typeface picker, viewport presets, copy, and open-in-tab.
- */
+/** The Leglas chrome: the rail, its rows and composer, the stage and the floating tools widget. */
 export function Shell({
   previews,
   project,
@@ -227,8 +219,7 @@ export function Shell({
   const [deletePrompt, setDeletePrompt] = useState<DeletePrompt | null>(null);
   const [mcpConnectOpen, setMcpConnectOpen] = useState(false);
   const [deletingRemoved, setDeletingRemoved] = useState(false);
-  // Stable, so the window key listener attaches once rather than on every
-  // render of the shell.
+  // Stable, so the window key listener attaches once.
   const onToggleSplit = useCallback(() => splitRef.current?.(), []);
   const onToggleHelp = useCallback(() => setHelpOpen((open) => !open), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
@@ -244,17 +235,17 @@ export function Shell({
     onToggleHelp,
     onToggleTools,
     // A viewer has nothing to annotate with, so the key does nothing rather
-    // than opening a mode whose every write would be refused.
+    // than open a mode whose writes would be refused.
     onToggleNote: viewer === undefined ? onToggleNote : undefined,
-    // While the keymap is on screen it is the subject, not a way to drive what
-    // is behind it. ? still closes it.
+    // While the keymap is showing it's the subject, not a way to drive what's
+    // behind it. ? still closes it.
     suspended: helpOpen || deletePrompt !== null || mcpConnectOpen,
     viewer: viewer === undefined ? undefined : { layout: viewer.layout },
   });
 
   /**
-   * Somebody else's rail, opened through a share link. Everything that looks
-   * stays; everything that changes what runs, or what the sharer sees, goes.
+   * Someone else's rail, via a share link. Everything that looks stays;
+   * everything that changes what runs, or what the sharer sees, goes.
    */
   const viewing = st.viewing;
   /** The lineage gutter's width, shared by every row so the titles align. */
@@ -263,9 +254,8 @@ export function Shell({
   /** The light's own colour, for a working mark's breath and for blooms. */
   const tint = PALETTE.current[0];
   /**
-   * Titles the rail has shown before. A row not among them just arrived, an
-   * agent's new direction landing, and the rail marks the moment; a row
-   * returning from a fold is not an arrival.
+   * Titles the rail has shown. A row not among them just arrived (an agent's
+   * new direction) and is marked; a row returning from a fold isn't an arrival.
    */
   const known = useRef<Set<string> | null>(null);
   const arrivedAt = useRef(new Map<string, number>());
@@ -301,16 +291,15 @@ export function Shell({
     return () => clearTimeout(timer);
   }, [crumbBloom]);
   /**
-   * The direction whose line back to its root is lit in the gutter: the one
-   * under the pointer, in the rail or in the crumbs, and otherwise the one on
-   * stage, so the graph always says where what you are looking at came from.
+   * The direction whose line back to its root is lit: the one under the pointer
+   * in the rail or crumbs, else the one on stage, so the graph always says
+   * where what you're looking at came from.
    */
   const [traced, setTracedNow] = useState<string | null>(null);
   /**
-   * A hover re-aims the light only once the pointer has rested. A hand
-   * sweeping down the rail crosses every row on the way, and re-aiming at
-   * each of them, each with its own fade, turns the light into a flicker
-   * that follows the pointer instead of answering it. Leaving is immediate.
+   * A hover re-aims the light only once the pointer rests; re-aiming at every
+   * row a sweeping hand crosses turns the light into a flicker. Leaving is
+   * immediate.
    */
   const tracePending = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -338,14 +327,9 @@ export function Shell({
   );
 
   /**
-   * The line the light runs along, and the segments under it. One answer,
-   * used twice.
-   *
-   * A hover only takes the light when the row under the pointer has a line of
-   * its own. Sweeping across the rail passes over directions with no lineage,
-   * and re-aiming at those would put the light out and light it again for
-   * every one of them, which reads as the rail flickering rather than as an
-   * answer to where the pointer is.
+   * The light's line and the segments under it, one answer used twice. A hover
+   * takes the light only when the row has a line of its own; re-aiming at rows
+   * with no lineage while sweeping would make the rail flicker.
    */
   const treeOf = (title: string) =>
     title === "" ? { nodes: [], edges: [] } : tracedTree(st.railParents, st.railChildren, title);
@@ -354,20 +338,18 @@ export function Shell({
   const litTree = hovered.edges.length > 0 ? hovered : treeOf(st.active);
   const litSegments = tracedSegments(st.rows, st.rowMeta, litTree);
   /**
-   * Which segments each row has already drawn, so only what is new draws
-   * itself in: the whole rail on first sight, then just the line an agent's
-   * next direction adds, and a family's lines again when it is unfolded,
-   * since only rows on screen are remembered. Rows are remembered a beat
-   * after they render, so a re-render mid-animation keeps the class and the
-   * stroke keeps going.
+   * Which segments each row has drawn, so only what's new draws in: the whole
+   * rail at first, then the line an agent's next direction adds, and a family's
+   * lines again on unfold (only rows on screen are remembered). Rows are
+   * remembered a beat after render, so a re-render mid-animation keeps the
+   * stroke going.
    */
   const drawnSegments = useRef(new Map<string, Set<string>>());
   /** Whether this render handed any segment the drawing class. */
   const drawing = useRef(false);
   drawing.current = false;
-  // A render after the drawing settles, so the classes come off once the
-  // strokes are in. Only asked for when something was drawing: a render that
-  // drew nothing settles nothing, which is what keeps this from looping.
+  // A render after drawing settles, to take the classes off. Only requested
+  // when something drew, which keeps it from looping.
   const [, settle] = useReducer((count: number) => count + 1, 0);
 
   const freshFor = (title: string): Set<Segment> | undefined => {
@@ -382,9 +364,8 @@ export function Shell({
     return fresh;
   };
 
-  // Keyed on what the gutter draws, not on renders: the shell re-renders
-  // for polls and frames far more often than every 700ms, and a timer reset
-  // on each of those would never fire.
+  // Keyed on what the gutter draws, not renders: the shell re-renders far more
+  // often than every 700ms, and a timer reset each time would never fire.
   const gutterSignature = st.rows
     .map((title) => {
       const graph = st.rowMeta.get(title)?.graph;
@@ -412,9 +393,8 @@ export function Shell({
   }, [gutterSignature]);
 
   /**
-   * Folding on a graph rail is a change of layout the browser can animate:
-   * the rows that stay slide to their new places and the rows that go fade,
-   * instead of the list snapping to its new shape.
+   * Folding on a graph rail is animated by the browser: staying rows slide and
+   * leaving rows fade, instead of the list snapping.
    */
   const foldFamily = (title: string) => {
     if (!stillMotion && "startViewTransition" in document) {
@@ -477,36 +457,29 @@ export function Shell({
     }
   };
 
-  // The widget is the only way into the tools, so it must never end up under
-  // the pointer-blocked overlay of a busy drag, nor off-stage after a resize.
+  // The widget is the only way into the tools, so it must never end up under a
+  // busy drag's pointer-blocking overlay, or off stage after a resize.
   const [widgetDrag, setWidgetDrag] = useState<{ x: number; y: number } | null>(null);
   const widgetDragging = widgetDrag !== null;
   // Pointer capture keeps the click alive through a drag, so the press that
-  // parked the widget in a corner would also spring the tools open. The rail
-  // suppresses its post-drag click the same way.
+  // parked the widget would also open the tools. The rail suppresses its
+  // post-drag click the same way.
   const widgetClickSuppressed = useRef(false);
-  // Expressing an intent used to mean leaving for a terminal. This keeps it
-  // where the direction is being looked at; the user's own agent still does
-  // the work, because it knows the codebase and Leglas does not.
-  //
-  // It sits under the rail rather than inside the tools popover, where it was
-  // the one thing among the preferences that acted on the work, two clicks
-  // deep, addressing a direction the panel never named. Under the list, the
-  // direction it means is the highlighted row directly above it.
+  // The composer, where the direction is being looked at; the user's own agent
+  // still does the work, since it knows the codebase. It sits under the rail,
+  // where the highlighted row above it is the direction it means, not in the
+  // tools popover among preferences.
   const [intent, setIntent] = useState("");
   /**
-   * Whether the next change forks the direction or rewrites it.
-   *
-   * Variant every session, deliberately not remembered: the two do different
-   * work and only one of them can be undone, so the safe half is what a fresh
-   * window starts on. The chip beside the send button carries the state, so
-   * which one is armed is never a guess.
+   * Whether the next change forks or rewrites. Variant every session, not
+   * remembered: only one of the two can be undone, so a fresh window starts
+   * safe. The chip by send shows which is armed.
    */
   const [mode, setMode] = useState<"variant" | "replace">("variant");
   const [sending, setSending] = useState(false);
 
-  // Building a set of directions: the composer's second use, taking a brief
-  // instead of a change. Its own draft, so switching never loses either text.
+  // The composer's second use: taking a brief to build a set. Its own draft, so
+  // switching never loses either text.
   const buildEnabled = st.prefs.buildDirections && !viewing;
   const [briefOpen, setBriefOpen] = useState(false);
   const briefing = briefOpen && buildEnabled;
@@ -516,10 +489,10 @@ export function Shell({
   const [briefLike, setBriefLike] = useState(false);
   const [starting, setStarting] = useState(false);
   /**
-   * Buttons waiting on the server, by `job:slot` (or `job:set`), each with
-   * the mark it was pressed at. A button stays busy until a read shows the
-   * mark has moved on, not only until the request answers, so a second press
-   * cannot land between the two.
+   * Buttons waiting on the server, by `job:slot` (or `job:set`), with the mark
+   * each was pressed at. A button stays busy until a read shows the mark moved
+   * on, not just until the request answers, so a second press can't land
+   * between.
    */
   const [pending, setPending] = useState<ReadonlyMap<string, string>>(() => new Map());
   /** Presses whose request has not answered yet; busy whatever the set does meanwhile. */
@@ -530,13 +503,13 @@ export function Shell({
   const [grid, setGrid] = useState<{ job: string; from: string } | null>(null);
   const { jobs, noteJob } = useGeneration(buildEnabled);
   const slotViews = useMemo(() => slotsByTitle(jobs), [jobs]);
-  // A retry or a new idea can set an older set running again; that one leads,
-  // and once nothing runs the card shows whichever set ended last.
+  // A retry or new idea can restart an older set; the running one leads, and
+  // with nothing running the card shows whichever ended last.
   const runningJob = jobs.find(isRunning) ?? null;
   const cardJob = runningJob ?? lastEnded(jobs);
   const activeSurface = st.active === null ? null : surfaceOf(st.urlFor(st.active));
-  // Every surface the project's directions sit on. The brief builds for the
-  // one on the stage unless another is picked in its header.
+  // Every surface the directions sit on. The brief targets the one on stage
+  // unless another is picked in its header.
   const surfaces = useMemo(() => surfacesOf(previews.map((preview) => preview.url)), [previews]);
   const [pickedSurface, setPickedSurface] = useState<string | null>(null);
 
@@ -545,9 +518,8 @@ export function Shell({
       ? pickedSurface
       : (activeSurface ?? (surfaces.length === 1 ? (surfaces[0] ?? null) : null));
 
-  // The field is a textarea that wears one row until the words need more,
-  // then grows line by line to a cap. Measured from scrollHeight because
-  // wrapping depends on the rail width and the face the user picked.
+  // The field grows from one row, line by line, to a cap. Measured from
+  // scrollHeight, since wrapping depends on the rail width and chosen typeface.
   useEffect(() => {
     const field = requestRef.current;
 
@@ -562,8 +534,8 @@ export function Shell({
   /** The same for the whole set: its state and when its current run began. */
   const setMark = (job: GenerationJob) => `${job.state}@${runStartedAt(job)}`;
 
-  // A wait whose mark no longer matches has been answered; it stays in the
-  // map, harmless, until the next press on that button replaces it.
+  // A wait whose mark no longer matches has been answered; it stays in the map
+  // until the next press replaces it.
   const actOnGeneration = (key: string, mark: string, work: () => Promise<void>) => {
     if (inFlight.has(key) || pending.get(key) === mark) return;
     setPending((current) => new Map(current).set(key, mark));
@@ -594,10 +566,9 @@ export function Shell({
     return view !== undefined && isSlotOf(st.urlFor(title), view) ? view : undefined;
   };
 
-  // A set shown whole, one cell per ready direction. It holds only while the
-  // direction that was on the stage when it opened stays there: picking any
-  // row ends it, so coming back to that direction shows it alone. Cleared
-  // while rendering, since every way of moving the stage passes through here.
+  // A set shown whole, one cell per ready direction. It lasts while the
+  // direction on stage when it opened stays there: picking any row ends it.
+  // Cleared during render, since every stage change passes through here.
   if (grid !== null && grid.from !== st.active) setGrid(null);
 
   /** A set's finished directions that are still on the rail: what showing it whole shows. */
@@ -616,9 +587,9 @@ export function Shell({
 
   const gridding = gridTitles.length >= 2;
 
-  // Variations need a direction on a surface with a file to start from, so a
-  // direction still being built, or one that failed, has nothing to offer yet.
-  // With a set shown whole, the direction it was opened from is off the stage.
+  // Variations need a direction on a surface with a file to start from, so one
+  // being built or failed has nothing to offer. With a set shown whole, its
+  // origin direction is off stage.
   const activeSlot = st.active === null ? undefined : slotFor(st.active);
 
   const likeTitle =
@@ -664,12 +635,12 @@ export function Shell({
     return () => window.clearTimeout(timer);
   }, [cardJob]);
 
-  // A set's rows arrive at the end of the rail, often below the fold. The
-  // first is brought into view once, when it exists, so the build is seen
-  // starting; the config read that adds the rows can land after the job's.
+  // A set's rows arrive at the end of the rail, often below the fold. The first
+  // is scrolled into view once it exists, so the build is seen starting; the
+  // config read adding the rows can land after the job's.
   const revealedJob = useRef<string | null>(null);
-  // Only a new set is revealed, one seen planning; a retry on an older set
-  // must not scroll the row just pressed out from under the pointer.
+  // Only a set seen planning is revealed; a retry on an older set mustn't
+  // scroll the pressed row out from under the pointer.
   const plannedHere = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -690,9 +661,9 @@ export function Shell({
     row.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "nearest" });
   }, [runningJob, st.rows]);
 
-  // "Try a new idea" brings the replacement under a new title and the old
-  // one leaves the rail. The stage follows the slot to its new title instead
-  // of falling back to the app's own page; picking another row lets it go.
+  // "Try a new idea" brings a replacement under a new title and the old one
+  // leaves. The stage follows the slot to its new title instead of falling back
+  // to the app's page; picking another row lets go.
   const followedSlot = useRef<{ job: string; key: string; title: string } | null>(null);
 
   useEffect(() => {
@@ -758,20 +729,15 @@ export function Shell({
   };
 
   /**
-   * Reference images riding with the next change.
-   *
-   * Uploaded as they arrive rather than when the request is sent, so the
-   * send only names ids and the strip can be honest about which ones landed.
-   * The drafts carry everything the strip draws; the File objects wait in a
-   * ref for a retry, since a draft that failed still has the bytes to try
-   * again with.
+   * Reference images for the next change, uploaded as they arrive so sending
+   * only names ids and the strip shows which landed. File objects wait in a
+   * ref, so a failed draft can retry with its bytes.
    */
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
   const referenceFiles = useRef(new Map<string, File>());
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
-  // A drag is counted in and out rather than flagged, because entering a
-  // child fires leave on the parent, and a single boolean flickers every time
-  // the pointer crosses the field.
+  // A drag is counted in and out, not flagged: entering a child fires leave on
+  // the parent, and a boolean flickers as the pointer crosses the field.
   const [dropping, setDropping] = useState(false);
   const dropDepth = useRef(0);
 
@@ -857,8 +823,8 @@ export function Shell({
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
   const mcpConnectTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Toasts stack on top of the rail's foot, whose height now moves with the
-  // status card, so they follow a measurement instead of a constant.
+  // Toasts stack on the rail's foot, whose height moves with the status card,
+  // so they follow a measurement.
   const railFooterRef = useRef<HTMLDivElement | null>(null);
   const [railFooterH, setRailFooterH] = useState(RAIL_FOOTER_FALLBACK_H);
   useEffect(() => {
@@ -874,12 +840,12 @@ export function Shell({
   }, []);
 
   // One white/6% panel behind the hovered row that eases between rows. The
-  // active row carries its own persistent surface, so this is hover-only.
+  // active row has its own surface, so this is hover only.
   const listRef = useRef<HTMLUListElement | null>(null);
   const [glow, setGlow] = useState({ height: 0, left: 0, on: false, top: 0 });
 
-  // The glow covers the card, not the row: a card starts past the gutter its
-  // lineage lives in, so the glow starts where the card does.
+  // The glow covers the card, which starts past the lineage gutter, not the
+  // whole row.
   const glowFor = (row: HTMLElement) => ({
     height: row.offsetHeight,
     left: row.querySelector<HTMLElement>('[role="button"]')?.offsetLeft ?? 0,
@@ -887,17 +853,16 @@ export function Shell({
     top: row.offsetTop,
   });
 
-  // The panel is measured from the row the pointer entered, and rows move as
-  // a search narrows the list or a family folds. Left on, it hangs over
-  // whatever now occupies that spot, so any change to the rows puts it away
-  // until the pointer says where it is again.
+  // The panel is measured from the row the pointer entered, and rows move as a
+  // search narrows or a family folds; any change to the rows puts it away until
+  // the pointer moves again.
   useEffect(() => {
     setGlow((current) => (current.on ? { ...current, on: false } : current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st.rows.join("|")]);
 
-  // Window-level listeners rather than pointer capture, so a drag survives
-  // leaving the rail; a 4px threshold separates it from a click.
+  // Window listeners, not pointer capture, so a drag survives leaving the rail;
+  // 4px separates it from a click.
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const dragMeta = useRef<DragMeta | null>(null);
@@ -907,10 +872,9 @@ export function Shell({
   }, [drag]);
 
   /**
-   * Cmd K and R name a field in the rail; this puts the cursor in it. It runs
-   * as an effect rather than from the key handler because both keys open a
-   * collapsed rail on the way, and until React has committed that, the field
-   * is still inside an inert subtree, where focus is refused.
+   * Cmd K and R name a rail field; this focuses it. An effect, not the key
+   * handler, because both keys open a collapsed rail first, and until that
+   * commits the field is inert and refuses focus.
    */
   useEffect(() => {
     if (!st.focusing) return;
@@ -935,18 +899,17 @@ export function Shell({
           // Nothing is decided inside the threshold.
           if (Math.abs(dy) <= 4 && Math.abs(dx) <= 4) return { ...current, dy };
 
-          // The first real movement chooses which gesture this press was:
-          // down the list reorders, across a line selects the text under the
-          // pointer. Both live on the same surface because a row is a handle
-          // and a row is words, and asking the user to find the sliver that
-          // is only one of them is what made reordering feel broken.
+          // The first real movement decides the gesture: down reorders, across
+          // selects text. A row is both a handle and words, and making people
+          // find the sliver that's only one of them made reordering feel
+          // broken.
           if (Math.abs(dx) > Math.abs(dy)) return null;
-          // Whatever the browser painted on the way to the threshold goes;
-          // from here the rail is `select-none` and nothing can extend it.
+          // Clear what the browser selected on the way to the threshold; from
+          // here the rail is `select-none`.
           window.getSelection()?.removeAllRanges();
-          // The rows around this one fold away for the drag, so what can be
-          // ordered is exactly what is on screen and a family travels as one
-          // row. Positions are measured again once the fold has laid out.
+          // The rows around this one fold for the drag, so what can be ordered
+          // is what's on screen and a family moves as one row. Positions are
+          // re-measured once the fold lays out.
           st.setDragFolded(
             new Set(
               meta.siblings.filter((sibling) => (st.rowMeta.get(sibling)?.descendants ?? 0) > 0),
@@ -960,14 +923,12 @@ export function Shell({
         const row = meta.rows[current.from];
 
         if (!row) return current;
-        // Where the row would sit if it took each slot its siblings offer.
-        // Rows differ in height, so the slot is chosen by which of these the
-        // row is nearest rather than by crossing midpoints: that keeps the
-        // travel and the target in step, and the two ends exactly reachable.
-        // The span is set by the remeasure once the fold has laid out, and
-        // the siblings it comes from always include the dragged row itself,
-        // so the whole-rail fallback here only covers the frames before that
-        // remeasure has run; it never widens a family's slots to the rail.
+        // Where the row would sit in each slot its siblings offer. Rows differ
+        // in height, so the nearest slot wins rather than midpoint crossing,
+        // which keeps travel and target in step with both ends reachable. The
+        // span comes from the re-measure after the fold; the whole-rail
+        // fallback only covers the frames before it and never widens a family's
+        // slots.
         const [first, last] = current.span ?? [0, meta.rows.length - 1];
 
         const slotTop = (index: number): number => {
@@ -980,8 +941,8 @@ export function Shell({
 
         const low = slotTop(first) - row.top;
         const high = slotTop(last) - row.top;
-        // The pointer gets a row of give; the row itself shows a third of
-        // that, so it peeks past the edge without covering the neighbour.
+        // The pointer gets a row of give; the row shows a third of it, peeking
+        // past the edge without covering its neighbour.
         const give = row.height;
         const peek = give / 3;
         let bounded = dy;
@@ -1023,12 +984,12 @@ export function Shell({
       }
 
       meta.suppressed = true;
-      // Let go past the edge and the row goes back where it was, with the
-      // reason said once in words; the chip on the row was the short form.
+      // Let go past the edge and the row goes back, with the reason said once
+      // in words; the chip was the short form.
       const refused = current.blocked && current.reason !== null;
       const to = refused ? current.from : current.to;
-      // Ease the dragged row the rest of the way into its slot (the others are
-      // already shifted to receive it), then commit so the swap has no snap.
+      // Ease the dragged row into its slot (the others already made room), then
+      // commit, so the swap doesn't snap.
       const start = meta.rows[current.from];
       const slot = meta.rows[to];
       let settle = 0;
@@ -1077,10 +1038,9 @@ export function Shell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag !== null]);
 
-  // A lineage rail folds the rows around the dragged one as the drag starts,
-  // so every position taken at the press is stale. Measure again once the
-  // fold has laid out, and move the origin by however far the row itself
-  // travelled in the fold, so it stays under the pointer.
+  // A lineage rail folds the rows around the dragged one when the drag starts,
+  // so press-time positions are stale. Re-measure after the fold and shift the
+  // origin by how far the row moved, so it stays under the pointer.
   useLayoutEffect(() => {
     if (!drag?.started || drag.measured) return;
     const meta = dragMeta.current;
@@ -1125,8 +1085,8 @@ export function Shell({
   }, [drag?.started, drag?.measured, drag?.title]);
 
   /**
-   * Why a drop went back, in words. The chip on the row said it while the
-   * row was being pushed; this is the version with the way forward in it.
+   * Why a drop went back, in words; the row's chip said it during the push,
+   * this adds the way forward.
    */
   const refusedDrop = (
     title: string,
@@ -1157,8 +1117,8 @@ export function Shell({
   };
 
   // Escape and outside clicks close the popover; focus moves in on open and
-  // returns to the button on close. Clicking into a preview blurs the window,
-  // which also closes it.
+  // back to the button on close. Clicking into a preview blurs the window,
+  // which closes it too.
   useEffect(() => {
     if (!widgetOpen) return;
     popoverRef.current?.focus();
@@ -1190,10 +1150,9 @@ export function Shell({
     };
   }, [widgetOpen]);
 
-  // Kept on one line. A label that wraps inside a fixed-height row centres its
-  // two lines and overflows, which looks like damage rather than a long label,
-  // and how close any of them sit to wrapping depends on the interface face
-  // the user picked.
+  // Kept on one line: a label wrapping in a fixed-height row overflows and
+  // looks broken, and how close each label is to wrapping depends on the chosen
+  // typeface.
   const activeFont = FONTS.find((font) => font.key === st.prefs.font) ?? FONTS[0];
   const framed = st.prefs.viewport !== null;
   /** The `p-6` breathing room a framed preset sits in, both sides. */
@@ -1207,21 +1166,17 @@ export function Shell({
   );
 
   /**
-   * The light running down the traced line, measured from the marks the rail
-   * actually drew rather than worked out again from the layout constants: the
-   * two cannot then disagree, and a rail that reflows for a rename or a new
-   * width is measured again rather than left drawing where the marks were.
-   *
-   * Not while dragging. The rail folds under the hand and rows move away from
-   * where they were measured, and a light chasing them is noise on top of a
-   * gesture that has the user's whole attention.
+   * The light down the traced line, measured from the marks the rail drew
+   * rather than layout constants, so the two can't disagree and a reflow is
+   * measured again. Not while dragging: the rows move away from where they were
+   * measured, and a chasing light is noise during a gesture.
    */
   type TrailDrawing = { d: string; height: number; marks: TrailMark[] };
 
   /**
-   * The light on stage and, for a moment, the one it replaced: a change of
-   * lineage fades the old light out while the new one fades in, both on the
-   * same clock, so the current reroutes instead of restarting.
+   * The light on stage and, briefly, the one it replaced: a lineage change
+   * crossfades on the same clock, so the current reroutes instead of
+   * restarting.
    */
   const [trail, setTrail] = useState<TrailDrawing | null>(null);
   /** Every light still fading out, each dropped once its fade is done. */
@@ -1254,11 +1209,9 @@ export function Shell({
     const measure = () => {
       const box = list.getBoundingClientRect();
       const at = new Map<string, TrailMark>();
-      // Found by reading each row's own title rather than by selector: a
-      // title is a name someone typed, and CSS.escape prepares an identifier,
-      // not the inside of a quoted attribute match, so a direction whose name
-      // begins with a digit would never be found and the light would just not
-      // appear.
+      // Found by reading each row's title, not by selector: CSS.escape makes
+      // identifiers, not attribute values, so a name starting with a digit
+      // would never match and the light would silently not show.
       const rows = [...list.querySelectorAll<HTMLElement>("li[data-title]")];
 
       for (const title of litTree.nodes) {
@@ -1267,9 +1220,8 @@ export function Shell({
 
         if (!row || !mark) return replaceTrail(null);
         const dot = mark.getBoundingClientRect();
-        // The room the light leaves around the mark: a dot's radius and a
-        // little air, more for the ring on the row on stage, none for a hair
-        // tick, which sits in the line.
+        // The room the light leaves around a mark: a dot's radius plus some
+        // air, more for the ring on stage, none for a hair tick.
         const radius = Number(mark.getAttribute("r") ?? 0);
         const ring = title === st.active ? 3.75 : 0;
         at.set(title, {
@@ -1279,8 +1231,8 @@ export function Shell({
         });
       }
 
-      // Every edge is its own subpath, so a tree with forks is one path the
-      // light can run down and split along.
+      // Each edge is its own subpath, so a forked tree is one path the light
+      // runs down and splits along.
       const d = traceEdges
         .flatMap(([parent, child]) => {
           const from = at.get(parent);
@@ -1294,39 +1246,36 @@ export function Shell({
     };
 
     measure();
-    // Row heights answer to the rail's width, to a rename, and to a note
-    // wrapping onto another line, none of which this effect would otherwise
-    // hear about.
+    // Row heights change with the rail's width, a rename or a note wrapping,
+    // none of which this effect would otherwise hear.
     const observer = new ResizeObserver(measure);
     observer.observe(list);
 
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging, trailKey]);
-  // Dragging the widget counts as busy too: a preview that keeps taking the
-  // pointer lights up its own hover states under a drag that is not for it.
+  // Dragging the widget counts as busy too, or a preview under it lights its
+  // own hover states.
   const busy = st.resizing || dragging || widgetDragging;
 
   const [errored, setErrored] = useState<Record<string, boolean>>({});
   /** Absolute-URL pages that refused to be framed, by title. */
   const [refused, setRefused] = useState<Record<string, FrameRefusal>>({});
   /**
-   * Pages the reader has seen frame after all, by address. Leglas asks without
-   * the browser's cookies, so this is the reader overruling it; it holds for the
-   * session and is never written anywhere.
+   * Pages the reader saw frame after all, by address. Leglas asks without
+   * cookies, so this overrules it, for the session only.
    */
   const framesAnyway = useRef(new Set<string>());
   const [reloadTick, setReloadTick] = useState<Record<string, number>>({});
 
-  // Flipping shows a difference over time; a split shows it at once, which is
-  // what you want for the last two directions still in contention.
-  // A comparison share opens as the comparison: the pair the sharer had on
-  // stage, side by side, before the viewer touches anything.
+  // Flipping shows a difference over time; a split shows it at once, for the
+  // last two contenders. A comparison share opens as the comparison: the
+  // sharer's pair side by side.
   const [split, setSplit] = useState(viewer?.scope === "compare");
   const [comparePin, setComparePin] = useState<string | null>(viewer?.layout.compare ?? null);
 
-  // A pushed share moves the stage with it, settled while rendering so the
-  // frame never shows the old pair first.
+  // A pushed share moves the stage with it, settled during render so the old
+  // pair never shows.
   const viewerStage =
     viewer === undefined ? null : `${viewer.scope}\u0001${viewer.layout.compare ?? ""}`;
 
@@ -1343,8 +1292,8 @@ export function Shell({
 
   const previousRef = useRef<string | null>(null);
   useEffect(() => {
-    // Cleanup runs just before the next change, so this holds the direction
-    // looked at before the current one.
+    // Cleanup runs just before the next change, so this holds the previously
+    // viewed direction.
     return () => {
       previousRef.current = st.active;
     };
@@ -1371,8 +1320,8 @@ export function Shell({
     if (!gridding) return;
 
     const leave = (event: KeyboardEvent) => {
-      // A popover, a modal or a field with the focus takes Escape first, whichever
-      // listener runs first: a native dialog only cancels after this has run.
+      // A popover, modal or focused field takes Escape first, whichever
+      // listener runs first: a native dialog only cancels after this runs.
       const nearer =
         document.activeElement instanceof Element &&
         document.activeElement.closest(
@@ -1390,9 +1339,9 @@ export function Shell({
   /** Where each direction on the stage sits, left to right. */
   const stagePlace = new Map(visible.map((title, index) => [title, index]));
   const splitting = visible.length > 1;
-  // Keep only the visible stage alive. An exported app can carry a full client
-  // runtime, so retaining every previously opened direction multiplies both
-  // memory and network work while offering no visible benefit.
+  // Only the visible stage stays alive. An exported app can carry a full client
+  // runtime, so keeping every opened direction multiplies memory and network
+  // for nothing visible.
   const mounted = visible;
   const previousMounted = useRef(new Map<string, string>());
 
@@ -1406,12 +1355,9 @@ export function Shell({
   };
 
   /**
-   * A branch pane on stage is a request to bring that branch up.
-   *
-   * Opening it is the whole trigger: nothing checks out until somebody looks,
-   * which is the point of the change. Asking again while one is in flight is
-   * free, because the server joins the start rather than checking out twice,
-   * so this can stay a plain effect over whatever is mounted.
+   * A branch pane on stage asks for its branch to start. Opening it is the
+   * trigger, so nothing checks out until someone looks. Asking again mid-start
+   * is free, since the server joins the start in flight.
    */
   const branchesOnStage = mounted
     .filter((title) => st.branchState(title)?.status === "idle")
@@ -1428,8 +1374,8 @@ export function Shell({
   const currentPaneIdentities = useRef(mountedIdentities);
   currentPaneIdentities.current = mountedIdentities;
 
-  // Reset before paint. An ordinary effect lets a reused title draw one frame
-  // with its previous loaded state before the skeleton catches up.
+  // Reset before paint, or a reused title draws one frame with its old loaded
+  // state before the skeleton.
   useLayoutEffect(() => {
     const previous = previousMounted.current;
 
@@ -1466,20 +1412,18 @@ export function Shell({
   const [stage, setStage] = useState({ height: 0, width: 0 });
 
   /**
-   * Attached as a callback ref rather than measured from an effect. An effect
-   * that observes `stageRef.current` once runs before the stage exists on any
-   * render that gates it, and an observer that never attached reports a stage
-   * of zero forever, which reads downstream as "nothing to scale".
+   * A callback ref, not an effect: an effect observing `stageRef.current` once
+   * runs before a gated stage exists, and an observer that never attached
+   * reports zero forever, which reads as "nothing to scale".
    */
   const attachStage = useCallback((node: HTMLDivElement | null) => {
     stageRef.current = node;
     stageWatch.current?.disconnect();
 
     if (node === null) return;
-    // Measured once here as well as observed. A ResizeObserver does not report
-    // until the compositor produces a frame, so waiting for it alone leaves the
-    // first render believing the stage is nothing and drawing the split
-    // unscaled until something else moves.
+    // Measured once as well as observed: a ResizeObserver waits for a
+    // compositor frame, so the first render would think the stage is nothing
+    // and draw the split unscaled.
     const first = node.getBoundingClientRect();
     setStage({ height: first.height, width: first.width });
 
@@ -1493,8 +1437,8 @@ export function Shell({
     stageWatch.current = observer;
   }, []);
 
-  // Identical for every pane, so it is worked out once. The reasoning lives
-  // with the function.
+  // The same for every pane, so worked out once; the reasoning is on the
+  // function.
   const {
     boxHeight,
     boxWidth,
@@ -1507,7 +1451,7 @@ export function Shell({
     panes: gridLayout.columns,
     rows: gridLayout.rows,
     inset: gridding ? GRID_INSET : 0,
-    // A set shown whole is always scaled: reflowed into small cells, every
+    // A set shown whole is always scaled; reflowed into small cells, every
     // design would be judged at a width nobody ships.
     scaleSplit: gridding || st.prefs.scaleSplit,
     stageHeight: stage.height,
@@ -1516,12 +1460,10 @@ export function Shell({
   });
 
   /**
-   * What the active design is actually drawn at, for the capture that rides
-   * with a request. A preset is that preset. Otherwise the stage's own width
-   * is what a lone pane gets, and a split gives each pane half of it, unless
-   * the split is scaled, in which case the design keeps its own width and
-   * only the frame shrinks. Null until the stage has been measured; the
-   * server picks a sensible default then.
+   * The width the active design is drawn at, for the capture sent with a
+   * request: a preset's own width; else the stage's width alone, or half of it
+   * in an unscaled split (a scaled split keeps the design width). Null until
+   * measured, when the server picks a default.
    */
   const drawnWidth =
     st.prefs.viewport !== null
@@ -1543,16 +1485,14 @@ export function Shell({
     const stage = stageRef.current?.getBoundingClientRect();
 
     if (!stage) return;
-    // Pointer capture routes every move back here even while the pointer is
-    // over a preview. Without it the iframe, being its own document, takes the
-    // events and the widget freezes the moment it crosses a design. The rail's
-    // resize handle solves the same problem the same way.
+    // Pointer capture routes every move here even over a preview; otherwise the
+    // iframe takes the events and the widget freezes over a design. The rail's
+    // resize handle does the same.
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     widgetClickSuppressed.current = false;
-    // A tap is never perfectly still, so the widget only starts following the
-    // pointer once it has travelled far enough to mean it. Below that it stays
-    // put and the click through to the button survives.
+    // A tap is never still, so the widget follows only after enough travel, and
+    // a click through to the button survives.
     const origin = { x: event.clientX, y: event.clientY };
     let moved = false;
 
@@ -1577,8 +1517,7 @@ export function Shell({
       if (!moved) return;
       widgetClickSuppressed.current = true;
 
-      // A drag settles into a corner rather than staying wherever it was let
-      // go, so it never sits over the middle of a design being judged.
+      // A drag settles into a corner, never over the middle of a design.
       const { corner } = nearestCorner(
         { x: up.clientX - stage.left, y: up.clientY - stage.top },
         { width: stage.width, height: stage.height },
@@ -1594,24 +1533,18 @@ export function Shell({
   };
 
   /**
-   * Restarting a dev server is routine, so the interface watches for it.
-   *
-   * Without this, an outage is discovered one pane at a time after a fifteen
-   * second timeout, nothing retries when the server returns, and panes that
-   * loaded before it died keep presenting a stale render as if it were
-   * current. That last one is the worst: the tool quietly showing something
-   * untrue.
+   * Watches for dev server restarts, which are routine. Without this an outage
+   * is found one pane at a time after 15s, nothing retries on return, and panes
+   * loaded before it died keep showing a stale render as current.
    */
   const [health, setHealth] = useState<HealthState>(INITIAL_HEALTH);
-  // Which panes actually render through that server, and whether any do. In a
-  // workspace of file and branch previews nothing on screen depends on it, so
-  // "localhost:3000 is down" is not news about anything the user is looking
-  // at, and the outage UI has no business appearing.
+  // Which panes render through that server, and whether any do. With only file
+  // and branch previews on screen, "localhost:3000 is down" isn't news and the
+  // outage UI stays away.
   //
-  // A fresh Set every render, and deliberately absent from the deps of the
-  // effects that read it: listed, it would fire them on every render. Each
-  // effect runs with the closure of the render that triggered it, so the set
-  // is current whenever it is actually read.
+  // A fresh Set every render, left out of the reading effects' deps on purpose
+  // (it would fire them every render); each effect runs with its own render's
+  // closure, so it's current when read.
   const appPanes = new Set(previews.filter(needsDevServer).map((preview) => preview.title));
   const needsApp = appPanes.size > 0;
 
@@ -1621,14 +1554,10 @@ export function Shell({
   }>({ requests: [], agent: IDLE_AGENT });
 
   /**
-   * The notes left on every direction, and whether the preview is currently
-   * taking new ones.
-   *
-   * Annotating is a mode rather than an always-live click target because the
-   * thing under the pointer is a running application: reaching the state worth
-   * annotating usually means clicking through the app first. A mode that has
-   * to be asked for is also a mode that cannot be entered by accident, which
-   * matters when the alternative is swallowing a click meant for a button.
+   * The notes on every direction, and whether the preview is taking new ones. A
+   * mode, not a live click target, because the preview is a running app and
+   * reaching the state worth annotating means clicking through it first. A mode
+   * that must be asked for also can't be entered by accident.
    */
   const [notes, setNotes] = useState<Annotation[]>([]);
   const [annotating, setAnnotating] = useState(false);
@@ -1650,14 +1579,13 @@ export function Shell({
       cancelled = true;
     };
   }, [agentsTick, viewing]);
-  // Bumped after a submit so the hint updates without waiting out the
-  // interval; the effect restarting is the immediate poll.
+  // Bumped after a submit so the hint updates at once; the effect restarting is
+  // the immediate poll.
   const [requestsTick, bumpRequests] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
-    // Guard per effect run, like the health poll below: a shared flag would be
-    // reset by a remount while the torn-down run's fetch is still in flight,
-    // and that response must not land.
-    // None of this is served to a viewer, and none of it is theirs to see.
+    // A guard per effect run, like the health poll: a shared flag would be
+    // reset by a remount while the old run's fetch is in flight. None of this
+    // is served to a viewer.
     if (viewing) return;
     let cancelled = false;
 
@@ -1677,15 +1605,13 @@ export function Shell({
             JSON.stringify(current) === JSON.stringify(next) ? current : next,
           );
         })
-        // Caught per read rather than around the pair: these are two reads on
-        // one beat, and one of them failing is no reason to skip the other.
+        // Caught per read: one of the pair failing is no reason to skip the
+        // other.
         .catch(() => {});
-      // Read on the same beat as the queue, because the two move together: a
-      // change made in place forgets the notes it answered, and a poll that
-      // only watched the queue would leave pins on a design that no longer
-      // has the problem they describe. After it rather than beside it, so the
-      // beat costs one socket instead of two and the previews keep the rest;
-      // both are local JSON, so the extra round trip is not a visible one.
+      // Read on the queue's beat because the two move together: a change in
+      // place forgets the notes it answered, and watching only the queue would
+      // leave pins on a fixed design. After it rather than beside it, so the
+      // beat costs one socket; both are local JSON.
       await readNotes(signalled)
         .then((fresh) => {
           if (cancelled) return;
@@ -1696,10 +1622,8 @@ export function Shell({
         .catch(() => {});
     };
 
-    // One nudge drives both reads, which is what keeps them a pair. The
-    // wire has three kinds and annotations is deliberately not one of them,
-    // so there is no way to ask for the notes without the queue and no way
-    // for a later change to quietly split this beat into two channels.
+    // One nudge drives both reads, which keeps them a pair; annotations have no
+    // kind of their own, so this beat can't be split later.
     const stop = startPoll(poll, {
       everyMs: FALLBACK_MS,
       subscribe: (run) => liveConnection().on("requests", run),
@@ -1710,9 +1634,9 @@ export function Shell({
       stop();
     };
   }, [requestsTick, viewing]);
-  // Two independent readings of one snapshot: the chip says who Enter sends
-  // to, the card says what is happening right now. They used to fight over a
-  // single footer slot, which is how a running request could hide the chooser.
+  // Two readings of one snapshot: the chip says who Enter sends to, the card
+  // what's happening now. They used to share one footer slot, so a running
+  // request hid the chooser.
   const chip = composerAgent(agentState.choice, agentState.agents, agentState.customRun);
 
   // Who builds a set: the chosen agent, when it is one Leglas can build with.
@@ -1721,7 +1645,8 @@ export function Shell({
 
   const briefAgentName = briefAgent === null ? "Claude or Codex" : agentName(briefAgent);
 
-  // Why the brief cannot build right now, said in the button's place; Enter obeys it too.
+  // Why the brief can't build now, shown in the button's place; Enter obeys it
+  // too.
   const briefReason =
     briefAgent === null
       ? "Building directions runs on Claude or Codex."
@@ -1731,9 +1656,9 @@ export function Shell({
           ? "Pick a direction on the surface first."
           : null;
 
-  // Focus on the composer is the first honest sign a request is coming, and
-  // the seconds spent typing it are where the agent's start-up cost hides.
-  // Nothing is warmed before this: a saved choice is not a request.
+  // Composer focus is the first honest sign a request is coming, and typing
+  // hides the agent's startup. Nothing warms earlier: a saved choice isn't a
+  // request.
   const lastWarmAsk = useRef(0);
 
   const warmChosenAgent = () => {
@@ -1743,7 +1668,7 @@ export function Shell({
     if (now - lastWarmAsk.current < WARM_THROTTLE_MS) return;
     lastWarmAsk.current = now;
     void warmAgent().catch(() => {
-      // Only latency is lost; the request itself warms the agent on the way.
+      // Only latency is lost; the request warms the agent anyway.
     });
   };
 
@@ -1758,12 +1683,9 @@ export function Shell({
       : null;
 
   /**
-   * Where the direction being changed came from, said without being asked.
-   *
-   * The rail keeps this on hover, which is right for the rows being browsed.
-   * The one in the composer's sights is different: what it was built from and
-   * what was last asked of it are what decide the next thing typed, so it
-   * carries the line whether or not anyone thinks to hover.
+   * Where the direction being changed came from, said unasked. The rail shows
+   * this on hover for browsing, but for the direction in the composer's sights
+   * its origin and last ask decide what's typed next.
    */
   /** The notes waiting on the direction the composer is aimed at. */
   const activeNotes = st.active === null ? [] : notes.filter((note) => note.title === st.active);
@@ -1795,8 +1717,8 @@ export function Shell({
   useEffect(() => {
     if (chip.kind === "none") setAgentMenuOpen(false);
   }, [chip.kind]);
-  // Same dismissal contract as the tools popover: Escape, clicking away, or
-  // the window losing focus all put the menu back without ceremony.
+  // Same dismissal as the tools popover: Escape, clicking away or window blur
+  // closes the menu.
   useEffect(() => {
     if (!agentMenuOpen) return;
     agentMenuRef.current?.focus();
@@ -1938,13 +1860,13 @@ export function Shell({
           if (!cancelled) setHealth((current) => nextHealthState(current, reachable));
         })
         .catch(() => {
-          // Leglas itself is unreachable; that is not the dev server's fault
-          // and the page will fail visibly enough on its own.
+          // Leglas itself is unreachable, which isn't the dev server's fault,
+          // and the page will fail visibly anyway.
         });
 
-    // The server probes the dev server once for every interface rather than
-    // each of them probing separately, and says so only when the answer
-    // changes. A restart is still noticed in the same beat it always was.
+    // The server probes the dev server once for every interface and says so
+    // only when the answer changes. A restart is still noticed on the same
+    // beat.
     const stop = startPoll(poll, {
       everyMs: FALLBACK_MS,
       subscribe: (run) => liveConnection().on("health", run),
@@ -1956,10 +1878,9 @@ export function Shell({
     };
   }, []);
 
-  // Once it answers again, reload what broke rather than making the user click
-  // through every pane. Only the panes that went down with it: a file preview
-  // kept rendering through the outage, and flashing it back to a skeleton
-  // would claim it broke when it did not.
+  // Once it answers again, reload what broke instead of making the user click
+  // through every pane. Only panes that went down with it: a file preview kept
+  // rendering, and flashing its skeleton would claim it broke.
   useEffect(() => {
     if (!health.reachable || !health.wasDown) return;
     setErrored((current) => {
@@ -1974,11 +1895,9 @@ export function Shell({
     setReloadTick((current) => {
       const next = { ...current };
 
-      // Every app-backed pane, not only the ones that ever reported loaded.
-      // A pane whose first navigation failed never reported anything, so
-      // keying off that skipped exactly the pane most in need of a remount:
-      // the line above clears its error, and without this it sits there
-      // showing the dead page with nothing left to say it is broken.
+      // Every app-backed pane, not just those that ever loaded: a pane whose
+      // first navigation failed never reported, and skipping it left it showing
+      // a dead page with nothing saying so.
       for (const title of appPanes) {
         next[title] = (next[title] ?? 0) + 1;
       }
@@ -1988,15 +1907,13 @@ export function Shell({
     setHealth((current) => ({ ...current, wasDown: false }));
   }, [health.reachable, health.wasDown]);
 
-  // A declared URL can silently lie: a typo the app ignores serves the default
-  // page, so two directions draw the same thing and the comparison is empty.
-  // Read from what each pane actually rendered, which is the claim being made
-  // on screen and the only thing that works for a client-rendered app.
+  // A declared URL can lie: a typo the app ignores serves the default page and
+  // two directions draw the same thing. Read from what each pane rendered, the
+  // claim made on screen and the only way for client-rendered apps.
   const [scans, setScans] = useState<Record<string, PreviewScan>>({});
 
-  // A background read costs a full boot of the app, so it does not happen in
-  // a tab nobody is looking at. Hiding the tab mid-read drops the frame; the
-  // direction is read again on return.
+  // A background read costs a full app boot, so not in a hidden tab. Hiding
+  // mid-read drops the frame; the direction is read again on return.
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   useEffect(() => {
     const onChange = () => setPageVisible(!document.hidden);
@@ -2005,17 +1922,13 @@ export function Shell({
     return () => document.removeEventListener("visibilitychange", onChange);
   }, []);
 
-  // A pane replaced in place invalidates its background verdict before the
-  // new document paints. URL changes are also rejected by scanSignatures, but
-  // an explicit retry of the same URL needs this generation-aware reset. A
-  // direction merely coming on stage keeps its verdict: it is the document
-  // the background read already measured.
+  // A pane replaced in place loses its verdict before the new document paints;
+  // scanSignatures rejects URL changes, but a retry of the same URL needs this
+  // reset. Coming on stage keeps the verdict.
   //
-  // Every direction is tracked, not only the ones on stage. A dev server
-  // coming back reloads every app-backed direction, most of which are off
-  // stage; with only mounted titles remembered, those had no previous
-  // identity to differ from, so the change was missed and a restart that
-  // altered the page could still be called a duplicate of what it used to be.
+  // Every direction is tracked, not just mounted ones: a dev server recovery
+  // reloads every app-backed direction, mostly off stage, and without earlier
+  // identities a changed page kept its old duplicate verdict.
   const scanIdentities = new Map(
     previews.map((preview) => [preview.title, paneIdentityFor(preview.title)]),
   );
@@ -2033,21 +1946,11 @@ export function Shell({
   }, [scanIdentityKey]);
 
   /**
-   * Hide the framework's own dev badge inside a preview.
-   *
-   * Next and others paint a floating indicator over the running app. It is
-   * tooling rather than design, it lands on top of the corner being judged,
-   * and with two panes open it is two badges.
-   *
-   * Error overlays are deliberately left alone. Next renders its badge and its
-   * error modals into one `nextjs-portal` element, so hiding the host would
-   * suppress every compilation and runtime error it reports, leaving a stale
-   * or blank preview looking healthy. Its shadow root is open and the badge is
-   * one identifiable child, so this reaches in for that child alone.
-   *
-   * Injected into the frame rather than rewritten into the proxied response,
-   * deliberately: the bytes Leglas forwards stay exactly what the dev server
-   * sent, so this is a viewing preference and never a change to the app.
+   * Hides the framework's dev badge inside a preview: tooling over the corner
+   * being judged, doubled in a split. Error overlays stay; Next renders badge
+   * and error modals into one `nextjs-portal`, so this reaches into its open
+   * shadow root for the badge alone. Injected into the frame, not the proxied
+   * response, so the bytes Leglas forwards are the dev server's own.
    */
   const applyOverlayPref = (frame: HTMLIFrameElement, hide: boolean) => {
     let doc: Document | null = null;
@@ -2063,8 +1966,8 @@ export function Shell({
 
     const ID = "leglas-hide-dev-overlays";
 
-    // `find` and `into` differ: a style is looked up on the document but has to
-    // be appended to its head, because a Document may hold only one element.
+    // Looked up on the document but appended to its head, since a Document
+    // holds only one element.
     const put = (find: Document | ShadowRoot, into: Node, css: string) => {
       const existing = find.getElementById(ID);
 
@@ -2091,16 +1994,10 @@ export function Shell({
   };
 
   /**
-   * Re-apply to every frame after each render.
-   *
-   * Doing this only on load is not enough: a fresh iframe fires load for its
-   * initial about:blank document before navigating to its real src, so the
-   * style lands in a document that is then thrown away. That is why a real
-   * Next badge stayed visible while the preference said otherwise.
-   *
-   * The work is idempotent and skips a frame that already has the style, so
-   * running it on every render costs a lookup per pane and removes the
-   * dependence on catching one particular event.
+   * Re-applied to every frame after each render. On load alone isn't enough: a
+   * fresh iframe fires load for about:blank before navigating, so the style
+   * landed in a discarded document and a real Next badge stayed visible.
+   * Idempotent, so each render costs a lookup per pane.
    */
   useEffect(() => {
     for (const frame of document.querySelectorAll("iframe")) {
@@ -2109,8 +2006,8 @@ export function Shell({
   });
 
   const readRendered = (frame: HTMLIFrameElement): string | null | undefined => {
-    // Cross-origin panes are unreadable by design; a branch preview or a
-    // deployed URL simply goes uncompared.
+    // Cross-origin panes are unreadable by design; a branch or deployed URL
+    // goes uncompared.
     let doc: Document | null = null;
 
     try {
@@ -2147,10 +2044,9 @@ export function Shell({
   };
 
   /**
-   * Fingerprinting hundreds of computed styles is intentionally deferred until
-   * the preview has painted and the browser has idle time. Waiting briefly for
-   * fonts avoids recording a transient fallback-font layout, while a deadline
-   * keeps one slow font request from stalling the duplicate scan.
+   * Fingerprinting hundreds of computed styles waits until the preview has
+   * painted and the browser is idle. A short wait for fonts avoids recording a
+   * fallback-font layout; a deadline keeps a slow font from stalling the scan.
    */
   const scheduleRenderedRead = (
     frame: HTMLIFrameElement,
@@ -2191,10 +2087,9 @@ export function Shell({
   const markPreviewReady = (title: string, identity: string, frame: HTMLIFrameElement) => {
     if (currentPaneIdentities.current.get(title) !== identity) return;
 
-    // A page loaded straight from its own address fires its load event even
-    // when it refused the frame and the browser drew its own broken page. Ask
-    // before the skeleton lifts, so the refusal is what shows rather than a
-    // flash of that page.
+    // A page loaded from its own address fires load even when it refused the
+    // frame and the browser drew its broken page. Ask before the skeleton
+    // lifts, so the refusal shows instead of a flash of that page.
     const src = st.urlFor(title);
 
     if (!src.startsWith("/") && !framesAnyway.current.has(src)) {
@@ -2262,20 +2157,15 @@ export function Shell({
   }, []);
 
   /**
-   * The duplicate check without waiting for clicks.
+   * The duplicate check without waiting for clicks. Signatures used to come
+   * only from opened panes, so "Same as" showed up one click at a time, after
+   * the judgment it protects. One hidden off-stage frame walks every
+   * same-origin preview in turn at a fixed size, records its signature and
+   * unmounts: one extra app instance at a time, independent of the stage size.
    *
-   * Signatures used to come only from panes the user had opened, so "Same as"
-   * appeared one click at a time, after the judgment it exists to protect.
-   * Every same-origin preview is read here: one hidden off-stage frame walks
-   * them sequentially at a fixed size, records each signature, and unmounts.
-   * One at a time keeps the cost to a single extra app instance, briefly, per
-   * direction while ensuring stage dimensions never affect the verdict.
-   *
-   * The frame is parked off-viewport rather than display:none, because a
-   * hidden document lays out nothing and reads as empty. Proxied previews
-   * queue only while the dev server answers — scanning a down server would
-   * record N failures — but a preview Leglas serves itself never went down,
-   * so those scan regardless.
+   * Parked off-viewport, not display:none, since a hidden document lays out
+   * nothing. Proxied previews queue only while the dev server answers; previews
+   * Leglas serves itself scan regardless.
    */
   const scannable =
     scanPreviews && !viewing
@@ -2290,12 +2180,11 @@ export function Shell({
   const workingTitles = workingRequestTitles(requestSnapshot.requests);
   const notesSent = notesAwaitingChange(requestSnapshot.requests);
 
-  // A result recorded before an edit began must not reappear when the queue
-  // settles. Clear the directions being edited once per live-work transition,
-  // while also hiding them synchronously in the render that first reports the
-  // work. Only those: a run with no direction named against it, which the
-  // queue poll can show for a beat between one request ending and the next,
-  // used to clear every verdict and read the whole rail again.
+  // A result recorded before an edit must not reappear when the queue settles,
+  // so the directions being edited are cleared once per live-work transition
+  // and hidden in the render that first reports the work. Only those: a run
+  // naming no direction, which can show for a beat between requests, used to
+  // clear every verdict.
   useEffect(() => {
     if (changingTitles.length === 0) return;
     setScans((current) => forgetScans(current, changingTitles));
@@ -2337,7 +2226,7 @@ export function Shell({
     setScans((current) => recordScan(current, preview, outcome));
   };
 
-  // A hung navigation is a failed check, not an empty but valid signature.
+  // A hung navigation is a failed check, not an empty valid signature.
   useEffect(() => {
     if (scanningPreview === null) return;
     const frame = activeScanFrame.current;
@@ -2352,11 +2241,11 @@ export function Shell({
   }, [scanKey]);
 
   const onScanLoad = (preview: Preview, frame: HTMLIFrameElement) => {
-    // A fresh iframe fires load for about:blank before the real navigation.
-    // The visible watcher rejects it, and the background scanner must too.
+    // A fresh iframe fires load for about:blank first; the visible watcher
+    // rejects it, and the scanner must too.
     if (!previewFrameIsReady(frame)) return;
-    // A hidden badge leaves the text, so every canonical read applies the same
-    // overlay preference before measuring.
+    // A hidden badge leaves its text, so every read applies the same overlay
+    // preference before measuring.
     applyOverlayPref(frame, !st.prefs.showDevOverlays);
     window.setTimeout(() => {
       const expected = `${preview.title}\u0000${preview.url}`;
@@ -2386,8 +2275,8 @@ export function Shell({
 
       if (frame === null) continue;
 
-      // A known-down dev server needs no waiting, but a file preview is served
-      // by Leglas itself and still gets the ordinary navigation window.
+      // A known-down dev server needs no waiting, but a file preview is
+      // Leglas's own and gets the normal window.
       const timeoutMs = health.reachable || !appPanes.has(title) ? LOAD_TIMEOUT_MS : 0;
       stopWatching.push(
         watchPreviewFrame({
@@ -2417,13 +2306,10 @@ export function Shell({
 
       if (viewing || st.renaming || st.query.trim() || st.rows.length < 2) return;
 
-      // Buttons keep their clicks, and anything marked selectable keeps its
-      // selection outright. The note used to be marked that way, which took
-      // the bottom half of every row out of the gesture: a press there could
-      // only ever paint a highlight, and on a rail of two-line notes that is
-      // most of the surface a hand lands on. It is a drag candidate now, and
-      // which gesture the press turns out to be is settled by the direction
-      // it moves in rather than by where it started.
+      // Buttons keep their clicks and selectable elements their selection. The
+      // note used to be selectable, which took the bottom half of every row out
+      // of the drag gesture; now the press's direction decides the gesture, not
+      // where it started.
       if (event.target instanceof Element && event.target.closest("button, [data-selectable]"))
         return;
       const list = listRef.current;
@@ -2441,10 +2327,9 @@ export function Shell({
 
       const view = scroller.getBoundingClientRect();
       const rowRect = items[index]?.getBoundingClientRect();
-      // On a lineage rail a row is ordered among its siblings and nowhere
-      // else: its place under its parent is a fact about the design, not a
-      // preference. What it can be pushed against is decided here, so the
-      // row can say so the moment it is.
+      // On a lineage rail a row orders only among its siblings, since its
+      // parent is a fact about the design. The limits are set here so the row
+      // can say so as soon as it's pushed.
       const parent = st.railParents.get(title) ?? null;
       const siblings = parent === null ? st.railRoots : (st.railChildren.get(parent) ?? [title]);
 
@@ -2486,8 +2371,8 @@ export function Shell({
       });
     };
 
-  // Rows other than the dragged one make room: down by the dragged row's
-  // height when the insertion point passes above them, up when below.
+  // The other rows make room: down by the dragged row's height as the insertion
+  // point passes above them, up when below.
   const shiftFor = (index: number): number => {
     if (!drag?.started) return 0;
     const pitch = drag.height + drag.gap;
@@ -2502,14 +2387,12 @@ export function Shell({
   /** Leaving the mode is all the shell has to know about it. */
   const stopAnnotating = useCallback(() => setAnnotating(false), []);
 
-  // Both of these answer whether the words landed, because the card holding
-  // them stays open until they have. A note typed into a field and lost to a
-  // failed write is the one thing an annotation must not do.
+  // Both answer whether the words landed, since the card stays open until they
+  // have; losing typed words to a failed write is what an annotation must never
+  // do.
   const keepNote = (title: string, anchor: Anchor, text: string): Promise<boolean> => {
-    // Annotations are a request on their own: the field can stay empty and
-    // Send still has something to send. So dropping the first pin is as
-    // honest a sign that a request is coming as typing into the composer,
-    // and without this that whole path started its agent cold.
+    // Annotations alone make a request, so the first pin is as good a sign as
+    // typing that one is coming; otherwise that path started its agent cold.
     warmChosenAgent();
 
     return addNote(title, text, anchor)
@@ -2555,9 +2438,8 @@ export function Shell({
   };
 
   /**
-   * The design by itself in a new tab. A preview URL is the app's own URL, so
-   * what opens is the direction filling the window with none of this chrome
-   * around it, the closest thing to seeing it shipped.
+   * The design alone in a new tab. A preview URL is the app's own, so it fills
+   * the window without this chrome, the closest thing to seeing it shipped.
    */
   const openAlone = (title: string) => {
     window.open(st.urlFor(title), "_blank", "noopener,noreferrer");
@@ -2662,9 +2544,8 @@ export function Shell({
           <div
             className="flex-1 overflow-y-auto px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             style={{
-              // Lines that run past the viewport fade out rather than being
-              // cut, so the lineage reads as running through the rail instead
-              // of drawn in a box.
+              // Lines past the viewport fade out rather than being cut, so the
+              // lineage reads as running through the rail.
               WebkitMaskImage: RAIL_FADE,
               maskImage: RAIL_FADE,
             }}
@@ -2845,9 +2726,8 @@ export function Shell({
             )}
           </div>
 
-          {/* The rail's foot as one measured block, because the card above the
-              composer gives it a height that moves and the toasts stack on
-              whatever that height turns out to be. */}
+          {/* The rail's foot as one measured block, since the card above the
+              composer moves its height and the toasts stack on it. */}
           <div ref={railFooterRef}>
             {buildEnabled &&
               cardJob !== null &&
@@ -2889,11 +2769,9 @@ export function Shell({
                 onRetry={retryRequest}
               />
             )}
-            {/* Enter both queues the request and copies the prompt, so it works
-              whether the agent drains the queue or the prompt gets pasted into
-              a chat by hand. The confirmation is a toast rather than the
-              placeholder it used to swap in, which vanished with the panel
-              that carried it. */}
+            {/* Enter queues the request and copies the prompt, so it works
+                whether the agent drains the queue or the prompt is pasted by
+                hand. Confirmed by a toast. */}
             {!viewing && (
               <form
                 className="relative px-3 pb-2.5 pt-2"
@@ -2909,14 +2787,14 @@ export function Shell({
                   const value = intent.trim();
                   const title = st.active;
 
-                  // A note carries its own words and its own address, so pins
-                  // alone are a request. Nothing at all still is not.
-                  // A set shown whole has no one direction to change; its names open one.
+                  // Notes carry their own words and address, so pins alone are
+                  // a request; nothing at all isn't. A set shown whole has no
+                  // one direction to change; its names open one.
                   if ((!value && activeNotes.length === 0) || !title || sending || gridding) return;
                   const name = st.displayName(title);
-                  // An image still uploading lands in a moment; one that failed
-                  // needs a decision, because sending without it would quietly
-                  // drop the thing that was attached on purpose.
+                  // An uploading image lands in a moment; a failed one needs a
+                  // decision, or sending would drop an attachment made on
+                  // purpose.
                   const blocker = sendBlocker(references);
 
                   if (blocker !== null) {
@@ -2946,12 +2824,11 @@ export function Shell({
 
                   const body: RequestBody = { title, intent: value, mode };
 
-                  // The width the design is drawn at, so the agent sees the
-                  // layout being judged rather than a default one.
+                  // The drawn width, so the agent sees the layout being judged.
                   if (drawnWidth !== null) body.width = drawnWidth;
 
-                  // The other pane, when there is one: "the other one" in the
-                  // words typed means it, and the agent should see it too.
+                  // The other pane, if any: "the other one" means it, and the
+                  // agent should see it too.
                   if (splitting && compare !== null && compare !== title) body.compare = compare;
 
                   if (attached.length > 0) body.references = attached;
@@ -2970,10 +2847,9 @@ export function Shell({
                       }>(response),
                     )
                     .then((result) => {
-                      // The same words at the same direction, already waiting.
-                      // The field keeps them: this is the moment to change the
-                      // wording or wait, not to lose what was typed. Anything
-                      // else still queues, so the queue keeps being a queue.
+                      // The same words at the same direction are already
+                      // waiting. The field keeps them so they can be reworded;
+                      // anything else still queues.
                       if (result.duplicate === true) {
                         setSending(false);
                         st.notify({
@@ -2987,8 +2863,8 @@ export function Shell({
                       }
 
                       // A refusal with a reason (an image pruned while the
-                      // composer sat open) keeps the words and the thumbnails:
-                      // the reason says what to do with them.
+                      // composer was open) keeps the words and thumbnails; the
+                      // reason says what to do.
                       if (!result.ok && isString(result.error)) {
                         setSending(false);
                         st.notify({
@@ -3004,11 +2880,10 @@ export function Shell({
                       if (!result.ok || !result.prompt) throw new Error("refused");
                       setIntent("");
                       clearReferences();
-                      // The send is over once the queue has the request; the
-                      // clipboard is a bonus that must not hold the field. A
-                      // browser sitting on a permission prompt never settles its
-                      // write either way, and waiting on it here once left the
-                      // composer disabled for good.
+                      // The send is done once the queue has it; the clipboard
+                      // mustn't hold the field. A browser stuck on a permission
+                      // prompt never settles its write, and waiting on it once
+                      // disabled the composer for good.
                       setSending(false);
                       bumpRequests();
                       st.notify({
@@ -3017,14 +2892,14 @@ export function Shell({
                         tone: "success",
                         ttl: TOAST_TTL.plain,
                       });
-                      // The copy then supersedes that line whenever it settles,
-                      // since toasts of one kind replace rather than stack.
+                      // The copy result replaces that line whenever it settles,
+                      // since toasts of one kind replace each other.
                       void copyText(result.prompt).then((outcome) => {
                         st.notify({
                           kind: "request",
-                          // A blocked clipboard costs nothing here: the request is
-                          // already queued, and the command that drains it is the
-                          // path the prompt was written for anyway.
+                          // A blocked clipboard costs nothing: the request is
+                          // queued, and draining the queue is what the prompt
+                          // was written for.
                           message:
                             outcome === "copied"
                               ? `Asked for a change to ${name}. Prompt copied.`
@@ -3045,9 +2920,9 @@ export function Shell({
                     });
                 }}
               >
-                {/* One surface, like every composer people already know: what to
-                change on top, who runs it and the send below, inside the same
-                border. The field takes the focus ring for the whole object. */}
+                {/* One surface, like every familiar composer: what to change
+                    on top, who runs it and send below, in one border. The
+                    field's focus ring stands for the whole. */}
                 <div
                   className={`rounded-md border bg-[#2E2E2E]/40 transition-colors ${
                     dropping
@@ -3076,8 +2951,8 @@ export function Shell({
                     event.preventDefault();
                     dropDepth.current = 0;
                     setDropping(false);
-                    // Every dropped file goes through admission, so a PDF or an
-                    // SVG is refused with a reason rather than ignored.
+                    // Every dropped file goes through admission, so a PDF or
+                    // SVG is refused with a reason, not ignored.
                     attachReferences(Array.from(event.dataTransfer.files));
                   }}
                 >
@@ -3153,8 +3028,8 @@ export function Shell({
                       onRetry={retryReference}
                     />
                   )}
-                  {/* Enter sends and Shift+Enter breaks the line, the contract
-                  every chat composer has already taught. */}
+                  {/* Enter sends, Shift+Enter breaks the line, as every chat
+                      composer has taught. */}
                   <textarea
                     aria-label={
                       briefing
@@ -3179,7 +3054,7 @@ export function Shell({
                       }
 
                       // The first character is a second signal, for a composer
-                      // that kept focus across the idle window and never refocused.
+                      // that kept focus through the idle window.
                       if (intent === "" && event.target.value !== "") warmChosenAgent();
                       setIntent(event.target.value);
                     }}
@@ -3203,8 +3078,8 @@ export function Shell({
                       const files = Array.from(event.clipboardData.files);
 
                       if (files.length === 0) return;
-                      // A pasted image is the request. The text a browser puts
-                      // beside it is a filename nobody typed.
+                      // A pasted image is the request; the text beside it is a
+                      // filename nobody typed.
                       event.preventDefault();
                       attachReferences(files);
                     }}
@@ -3288,11 +3163,12 @@ export function Shell({
             )}
 
             {sending ? (
-              /* The send takes a second or two now: Leglas loads the direction
-               in a headless browser so the agent sees what the user sees. Said
-               in words, because a field that goes quiet for two seconds reads
-               as a hang. It takes the provenance line's slot rather than
-               stacking under it. */
+              /*
+               * Sending takes a second or two while Leglas loads the direction
+               * headlessly so the agent sees what the user sees. Said in words,
+               * since a quiet field reads as a hang. Takes the provenance
+               * line's slot.
+               */
               <div className="px-3 pb-2">
                 <p
                   aria-live="polite"
@@ -3328,9 +3204,9 @@ export function Shell({
                 </p>
               </div>
             )}
-            {/* One quiet line under the composer, and only when it has a job:
-              the way back to the hidden tools, or word that a terminal
-              watcher is holding the queue. */}
+            {/* One quiet line under the composer, only when needed: the way
+                back to hidden tools, or that a terminal watcher holds the
+                queue. */}
             {!st.prefs.showWidget ? (
               <div className="px-3 pb-2">
                 <button
@@ -3527,9 +3403,9 @@ export function Shell({
             viewports={st.viewports}
           />
 
-          {/* Switched off, the button leaves the stage but comes back for as
-              long as the popover is open, since the popover is anchored to it
-              and the switch that undoes the choice lives inside. */}
+          {/* Switched off, the button leaves the stage but returns while the
+              popover is open, since the popover anchors to it and holds the
+              switch to undo it. */}
           {(st.prefs.showWidget || widgetOpen) && (
             <Tip label="Leglas tools">
               <button
@@ -3560,8 +3436,8 @@ export function Shell({
         </div>
       </div>
 
-      {/* Above the rail's own footer when there is a rail, and just clear of
-          the collapsed strip when there is not. */}
+      {/* Above the rail's footer when there's a rail, else just clear of the
+          collapsed strip. */}
       <Toasts
         bottom={st.prefs.collapsed ? 12 : railFooterH + 8}
         left={st.prefs.collapsed ? 60 : 12}

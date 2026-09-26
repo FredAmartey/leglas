@@ -3,14 +3,11 @@ import { defineConfig, mergeConfig } from "vite";
 import base from "./vite.config.ts";
 
 /**
- * The shell as a Leglas preview of itself. The API still goes to a leglas
- * server, now with its live socket, and everything that is not the shell
- * goes there too, so the previews the inner rail frames resolve through the
- * same server instead of dying on vite's 404.
- *
- * LEGLAS_PORT is where this vite listens (5180) and LEGLAS_API the leglas
- * server it fronts (http://localhost:4100), so a second copy can run against
- * a scratch project without another config.
+ * The shell as a Leglas preview of itself. The API and its live socket go to a
+ * leglas server, and so does everything that isn't the shell, so the previews
+ * the inner rail frames resolve instead of hitting vite's 404. LEGLAS_PORT is
+ * this vite's port (5180) and LEGLAS_API the server it fronts
+ * (http://localhost:4100), so a second copy can run against a scratch project.
  */
 const port = Number(process.env["LEGLAS_PORT"] ?? 5180);
 

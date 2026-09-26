@@ -1,16 +1,8 @@
 /**
- * Images attached to a change request: what the user means, shown rather
- * than described.
- *
- * "Make it feel like this" is the most common design instruction there is,
- * and the composer could not take it. A reference is uploaded the moment it
- * is attached rather than when the request is sent, so sending is only a
- * matter of naming ids, and the strip can be honest about which ones landed
- * before the words are typed.
- *
- * None of this needs a browser to be right: what counts as an image, how
- * many fit, and whether a set is ready to send are all arithmetic over a
- * small shape a real File already satisfies.
+ * Images attached to a change request, for "make it feel like this". Uploaded
+ * when attached rather than when sent, so sending only names ids and the strip
+ * shows which landed before the words are typed. Pure arithmetic over a small
+ * shape a real File satisfies.
  */
 
 export const REFERENCE_TYPES: readonly string[] = [
@@ -48,11 +40,8 @@ export function isReferenceImage(file: FileLike): boolean {
 }
 
 /**
- * The image files among whatever a clipboard or a drop handed over.
- *
- * Both arrive as a FileList that may hold anything: a pasted screenshot sits
- * beside the text it came with, and a dropped folder brings its neighbours.
- * Only the images are ours.
+ * The image files among what a paste or drop handed over; a pasted screenshot
+ * comes with its text, a dropped folder with its neighbours.
  */
 export function imageFilesFrom<T extends FileLike>(
   files: Iterable<T | null | undefined> | ArrayLike<T | null | undefined>,
@@ -67,12 +56,10 @@ export type Refusal = "too-many" | "too-big" | "not-an-image";
 export type Admission<T> = { accepted: T[]; refused: { file: T; why: Refusal }[] };
 
 /**
- * Which of the offered files may join the drafts, and why the rest may not.
- *
- * Refusals are reasons rather than a boolean so the toast can say the one
- * thing that would have made the attachment work. The cap counts what is
- * already attached: dropping five onto an empty composer keeps four, and
- * dropping one more onto those four keeps none.
+ * Which offered files may join the drafts, and why the rest can't. Reasons, not
+ * a boolean, so the toast can say what would have worked. The cap counts what's
+ * attached: five dropped on an empty composer keep four; one more on those four
+ * keeps none.
  */
 export function admit<T extends FileLike>(
   current: readonly ReferenceDraft[],
@@ -106,11 +93,8 @@ export function admit<T extends FileLike>(
 }
 
 /**
- * One sentence for the toast, or nothing when everything was taken.
- *
- * The first reason wins when there are several: the user attached a batch
- * and one message is what they can act on. Counts are said in words the
- * strip already implies, not as numbers of bytes.
+ * One sentence for the toast, or nothing if everything was taken. The first
+ * reason wins, since one message is what a batch can act on.
  */
 export function refusalMessage(
   refused: readonly { file: FileLike; why: Refusal }[],
@@ -142,11 +126,8 @@ export function displayName(name: string): string {
 }
 
 /**
- * The header value that names the file to the server.
- *
- * Header values have to be printable ASCII, and a filename can be anything.
- * The server treats it as decoration and sanitises again on its side; this
- * only has to be something the request can carry.
+ * The header value naming the file to the server. Headers must be printable
+ * ASCII; the server treats the name as decoration and sanitises it again.
  */
 export function headerName(name: string): string {
   const ascii = displayName(name)
@@ -175,11 +156,9 @@ export function referenceIds(drafts: readonly ReferenceDraft[]): string[] {
 }
 
 /**
- * Why a set cannot be sent yet, or null when it can.
- *
- * An upload in flight resolves itself in a moment; a failed one needs a
- * decision, because sending without it would quietly drop the thing the user
- * attached on purpose.
+ * Why a set can't be sent yet, or null. An upload in flight resolves itself; a
+ * failed one needs a decision, or sending would drop an attachment made on
+ * purpose.
  */
 export function sendBlocker(drafts: readonly ReferenceDraft[]): "uploading" | "failed" | null {
   if (drafts.some((draft) => draft.status === "failed")) return "failed";

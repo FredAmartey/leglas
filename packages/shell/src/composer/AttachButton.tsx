@@ -2,9 +2,8 @@ import { REFERENCE_TYPES } from "../references/references.js";
 import { Tip } from "../ui/kit.js";
 
 /**
- * Showing beats describing: a screenshot of the thing the words are about, or
- * of the thing they should become. Paste and drop do the same job; this is
- * the way in for anyone who does neither.
+ * A screenshot of what the words are about, or what they should become. Paste
+ * and drop work too; this is for anyone who does neither.
  */
 export function AttachButton({
   count,
@@ -20,8 +19,7 @@ export function AttachButton({
 }) {
   return (
     <>
-      {/* Hidden from assistive technology as well as from sight: the button
-          below is the control, and a second, unnamed one beside it is noise. */}
+      {/* Hidden from assistive tech too: the button below is the control. */}
       <input
         accept={REFERENCE_TYPES.join(",")}
         aria-hidden="true"
@@ -29,8 +27,8 @@ export function AttachButton({
         multiple
         onChange={(event) => {
           onFiles(Array.from(event.currentTarget.files ?? []));
-          // Cleared so the same file can be chosen again after a
-          // remove; a file input only fires when its value changes.
+          // Cleared so the same file can be chosen again after a remove; a file
+          // input fires only on change.
           event.currentTarget.value = "";
         }}
         ref={inputRef}

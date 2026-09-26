@@ -16,8 +16,8 @@ import {
 
 const basedOn = (pairs: [string, string][]) => new Map(pairs);
 
-// The exploration that motivated this: one direction iterated five times,
-// with a single fork off the third pass, registered in the order it was built.
+// The exploration that motivated this: one direction iterated five times, with
+// one fork off the third pass, registered in build order.
 const CHAIN = basedOn([
   ["Dusk", "Meridian"],
   ["Sea", "Dusk"],
@@ -119,8 +119,8 @@ describe("lineageRail", () => {
       new Set(),
     );
 
-    // Lantern now sits among Harbour's children, after Ferry, which the
-    // saved order puts first: Ferry carries the line and Lantern forks.
+    // Lantern now sits among Harbour's children after Ferry, which the saved
+    // order puts first: Ferry carries the line and Lantern forks.
     expect(rows.slice(rows.indexOf("Harbour"))).toEqual(["Harbour", "Ferry", "Lantern"]);
     expect(meta.get("Lantern")).toMatchObject({ depth: 4, graph: { lane: 1, fromAbove: true } });
     expect(meta.get("Harbour")?.graph?.forks).toEqual([1]);
@@ -292,8 +292,7 @@ describe("tracedSegments", () => {
 });
 
 describe("segmentsOf", () => {
-  // The shell reads these as a set, of what is drawn and of what is new, so
-  // the order they come in is not part of the answer.
+  // The shell reads these as sets, so order isn't part of the answer.
   test("names every part a row draws", () => {
     const segments = segmentsOf({
       title: "Quay",
@@ -346,7 +345,7 @@ describe("reorderAmongSiblings", () => {
 
   test("a hidden sibling keeps its place in the list", () => {
     // Tide is hidden, so the rail offers only the siblings it draws. Moving
-    // Wave ahead of Ferry leaves Tide second, where it was, not at either end.
+    // Wave ahead of Ferry leaves Tide second, not at either end.
     const saved = ["Quay", "Tide", "Ferry", "Wave"];
 
     expect(reorderAmongSiblings(saved, saved, "Wave", "Ferry", ["Quay", "Ferry", "Wave"])).toEqual([
@@ -357,7 +356,7 @@ describe("reorderAmongSiblings", () => {
     ]);
 
     // Dropped past the last sibling, it lands after that sibling, not past a
-    // hidden one that follows.
+    // hidden one after it.
     const trailing = ["Quay", "Ferry", "Wave", "Tide"];
 
     expect(
@@ -395,10 +394,9 @@ describe("trailPath", () => {
     ).toBe("M 6 10 L 6 60");
   });
 
-  // trailPath's contract: the light takes the knee the gutter draws for a
-  // fork, so it follows the line already there instead of cutting its own
-  // corner. Where that knee lands, in the new lane fourteen pixels below the
-  // mark it left, is from forkCurve's own comment.
+  // trailPath's contract: the light takes the gutter's fork knee rather than
+  // cutting its own corner. The knee lands in the new lane fourteen pixels
+  // below the mark, per forkCurve's comment.
   test("a step into another lane rides the gutter's fork and arrives vertical", () => {
     const path = trailPath([
       { x: 4, y: 10 },
@@ -411,9 +409,9 @@ describe("trailPath", () => {
     // Between the two, the very curve the gutter draws.
     expect(path).toBe(`${forkCurve(4, 10, 14)} L 14 80`);
 
-    // And that curve leaves the mark heading straight down and arrives in the
-    // new lane heading straight down: the first control point stays on x 4,
-    // the last one before the knee is already on x 14.
+    // The curve leaves the mark heading straight down and arrives heading
+    // straight down: the first control point stays on x 4, the last before the
+    // knee is on x 14.
     const cubics = path
       .slice(0, path.lastIndexOf(" L "))
       .split(" C ")

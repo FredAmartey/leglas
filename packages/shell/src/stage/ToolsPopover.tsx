@@ -4,9 +4,9 @@ import { P, PIcon, ROW_BUTTON, Switch, Tip } from "../ui/kit.js";
 import { TOAST_TTL, type Toast } from "../ui/toasts.js";
 
 /**
- * What the floating widget opens: the typeface, the viewport, the overlays,
- * and the ways out to a new tab and to the keyboard list. Preferences, not
- * actions on the work, which is why the composer does not live here.
+ * What the floating widget opens: typeface, viewport, overlays, a new tab and
+ * the keyboard list. Preferences, not actions on the work, which is why the
+ * composer isn't here.
  */
 export function ToolsPopover({
   applyOverlayPref,
@@ -51,9 +51,8 @@ export function ToolsPopover({
       aria-hidden={!open}
       aria-label="Leglas tools"
       className={`w-56 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] focus:outline-none motion-reduce:transition-none ${
-        // Out of the layout entirely while dragging: hidden it still
-        // occupies its full box, which is what pushed the button off the
-        // pointer.
+        // Out of the layout while dragging; hidden, it still took its box and
+        // pushed the button off the pointer.
         parked ? "hidden " : ""
       }${
         open
@@ -115,8 +114,8 @@ export function ToolsPopover({
         ))}
       </div>
 
-      {/* Only meaningful while two things are on the stage, so it appears
-        when it applies rather than sitting there greyed out. */}
+      {/* Only meaningful with two things on stage, so it appears then
+          instead of sitting greyed out. */}
       {splitting && (
         <button
           aria-checked={prefs.scaleSplit}
@@ -140,8 +139,7 @@ export function ToolsPopover({
           const show = !prefs.showDevOverlays;
           setPrefs((current) => ({ ...current, showDevOverlays: show }));
 
-          // Applied to every open pane at once, so the change is visible
-          // without reloading anything.
+          // Applied to every open pane at once, visible without a reload.
           for (const frame of document.querySelectorAll("iframe")) {
             applyOverlayPref(frame, !show);
           }
@@ -159,10 +157,9 @@ export function ToolsPopover({
           const show = !prefs.showWidget;
           setPrefs((current) => ({ ...current, showWidget: show }));
 
-          // This switch lives inside the thing it hides, so the way back
-          // is named the moment the door is closed, and for longer than
-          // a plain confirmation: this one is teaching a key. The rail's
-          // foot keeps a line saying the same for as long as it matters.
+          // This switch lives inside what it hides, so the way back is named as
+          // soon as it closes, for longer than a plain confirmation since it's
+          // teaching a key. The rail's foot repeats it while it matters.
           if (!show) {
             notify({
               kind: "widget",
@@ -178,8 +175,8 @@ export function ToolsPopover({
         <span>Show Leglas overlay</span>
         <Switch on={prefs.showWidget} />
       </button>
-      {/* New, so it starts off and switching it off takes all of it away:
-        the "+" in the rail's header, the brief and the progress on rows. */}
+      {/* New, so it starts off, and switching it off removes all of it: the
+          "+" in the rail header, the brief and the progress on rows. */}
       {!viewing && (
         <>
           <span className="block px-1 pb-1 pt-2 text-[10px] uppercase tracking-[0.08em] text-[#84848C]">

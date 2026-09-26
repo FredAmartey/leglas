@@ -18,17 +18,11 @@ import {
 import type { Annotation } from "./annotations-api.js";
 
 /**
- * The surface that takes annotations, laid over one preview.
- *
- * It lives inside the pane's scaled box, so every position here is in the
- * preview's own coordinates and the outline it draws traces an element at
- * whatever size the pane happens to be showing it. Its own chrome is scaled
- * back the other way, because a card at 40% is a card nobody can read.
- *
- * The preview underneath is a running application, which is why this is a
- * mode: it swallows the pointer so a click lands on the layer instead of the
- * app's own buttons. What it deliberately does not swallow is the wheel,
- * since the thing worth annotating is very often below the fold.
+ * The surface that takes annotations, over one preview. It sits inside the
+ * pane's scaled box, so positions are in the preview's own coordinates; its own
+ * chrome is scaled back up so a card stays readable at 40%. It's a mode because
+ * it swallows the pointer so clicks don't reach the app's buttons, but not the
+ * wheel, since what's worth annotating is often below the fold.
  */
 
 type Geometry = { doc: Document; rect: DOMRect; scale: number; view: Window };
@@ -50,21 +44,16 @@ type Pin = {
 type Anchored = { about: Box; box: Box; stale: boolean };
 
 /**
- * The card over the preview, holding the words of one note.
- *
- * One state rather than two, because there is only ever one card and it only
- * does one thing. A note being left now and a note left ten minutes ago
- * differ in where the words end up, not in how they are typed, and giving the
- * second its own card is how you end up with two of everything: two
- * placements, two Escape rules, two ways to lose what was typed.
+ * The card over the preview, holding one note's words. One state, since there's
+ * only one card: a new note and a kept one differ in where the words go, not
+ * how they're typed, and two cards would mean two of every placement and Escape
+ * rule.
  */
 type Open =
   /**
-   * Words about a place, kept nowhere yet.
-   *
-   * `answered` marks the one way a card gets here without being opened that
-   * way: the note it held was swept by the change that answered it while it
-   * was being reworded.
+   * Words about a place, kept nowhere yet. `answered` marks a card that got
+   * here another way: its note was swept by the change that answered it
+   * mid-rewording.
    */
   | { kind: "new"; anchor: Anchor; answered?: boolean; field: string; note: string }
   /** A note already on the file, opened to be reworded or dropped. */
@@ -80,12 +69,8 @@ const SCAN_CAP = 4000;
 const PICK_SCAN_CAP = 600;
 
 /**
- * How much of a note a pin's own name carries.
- *
- * A note runs to 500 characters and the label is read aloud one word at a
- * time, so the whole thing is a sentence nobody can get to the end of. Enough
- * to tell one pin from another is the job; the words themselves are in the
- * card the pin opens.
+ * How much of a note a pin's own name carries. A note runs to 500 characters
+ * and the label is read aloud; enough to tell pins apart is the job.
  */
 const LABEL_CAP = 80;
 
@@ -149,9 +134,8 @@ export function AnnotateLayer({
   onRevise: (id: string, note: string) => Promise<boolean>;
   paneScale: number;
   /**
-   * Notes a change has already been sent for, and that change has not
-   * settled. Their words are in a prompt an agent is holding, so the pin says
-   * so and rewording one is understood to be about the next change.
+   * Notes whose change was sent and hasn't settled. An agent holds their words,
+   * so the pin says so and rewording one is about the next change.
    */
   sent: ReadonlySet<string>;
   scaling: boolean;
@@ -168,22 +152,16 @@ export function AnnotateLayer({
   const [marquee, setMarquee] = useState<Box | null>(null);
   const [open, setOpen] = useState<Open | null>(null);
   /**
-   * A counter behind every card's `field`, so no two openings share one.
-   *
-   * A write outlives the card that started it, and what tells its answer
-   * which card to apply to is that name. Naming cards after the note they
-   * hold looked right and was not: two goes at the same pin, or two drafts in
-   * a row, are both "the same card" by that measure, and the first write back
-   * would close the second card and take what was being typed into it.
+   * A counter behind every card's `field`, so no two openings share one. A
+   * write outlives its card and uses this name to find it; naming cards after
+   * their note let the first write close a second card on the same pin and lose
+   * what was typed.
    */
   const opened = useRef(0);
   /**
-   * A save in flight and a save refused, each named by the card it belongs to.
-   *
-   * Not a pair of flags, because a write outlives the card that started it:
-   * press Enter, click another pin, and a bare flag would have the first
-   * card's answer close the second one and take the sentence being typed into
-   * it. Everything here is checked against the card on screen now.
+   * A save in flight and a save refused, each named by its card, since a write
+   * outlives the card that started it. Everything is checked against the card
+   * on screen now.
    */
   const [saving, setSaving] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -201,7 +179,7 @@ export function AnnotateLayer({
     try {
       doc = frame.contentDocument;
     } catch {
-      // Another origin. Unreadable by design, so annotations are unavailable.
+      // Another origin, unreadable by design, so no annotations.
       return null;
     }
 
@@ -226,14 +204,10 @@ export function AnnotateLayer({
   );
 
   /**
-   * The smallest meaningful element under the pointer.
-   *
-   * A visual detail is often intentionally `pointer-events: none`, especially
-   * in motion-heavy designs. Browser hit testing then skips it and returns a
-   * large wrapper instead. Start from the actual hit, inspect only its nearby
-   * subtree, and rank every visible box that contains the point. That keeps
-   * the picker quiet while making text spans, image layers and other fine
-   * details directly annotatable.
+   * The smallest meaningful element under the pointer. Visual details are often
+   * `pointer-events: none`, so hit testing returns a big wrapper; start from
+   * the real hit, scan its nearby subtree and rank every visible box containing
+   * the point, so text spans and image layers are annotatable.
    */
   const elementAt = useCallback(
     (at: Geometry, point: Point): { box: Box; element: Element } | null => {
@@ -245,9 +219,8 @@ export function AnnotateLayer({
       let scope: Element | null = hit;
       let scanned = 0;
 
-      // Looking through the hit element and its two closest containers catches
-      // layered siblings without turning every pointer move into a page-wide
-      // layout scan.
+      // The hit element and its two closest containers catch layered siblings
+      // without a page-wide scan per pointer move.
       for (let depth = 0; scope !== null && depth < 3 && scanned < PICK_SCAN_CAP; depth += 1) {
         candidates.add(scope);
         const walk = at.doc.createTreeWalker(scope, NodeFilter.SHOW_ELEMENT);
@@ -323,19 +296,10 @@ export function AnnotateLayer({
   );
 
   /**
-   * Where one anchor points now.
-   *
-   * Resolved from the selector every time rather than trusted from the file,
-   * because the design moves: that is what the annotations are for. A selector
-   * that no longer resolves falls back to the rectangle recorded when it was
-   * left and says so, which is more honest than hiding it or pointing
-   * confidently at the wrong element.
-   *
-   * Read by the pins and by whatever card is open, so the outline under an
-   * open card tracks the page it is drawn on. It used to be a snapshot taken
-   * when the card opened, and the wheel still belongs to the preview while a
-   * card is up: three lines of scroll left the outline behind on the pixels
-   * the element had vacated.
+   * Where one anchor points now, resolved from the selector every time since
+   * the design moves. A selector that no longer resolves falls back to the
+   * recorded rectangle and says so. Read by the pins and by any open card, so
+   * the outline under a card follows the page as it scrolls.
    */
   const anchored = useCallback((at: Geometry, anchor: Anchor): Anchored => {
     let found: Element | null = null;
@@ -416,13 +380,9 @@ export function AnnotateLayer({
   }, [geometry, remeasure, repick]);
 
   /**
-   * The wheel belongs to the page, not to the layer over it.
-   *
-   * The layer covers the frame to catch clicks, which also means it catches
-   * every scroll aimed at the preview, and a mode that pins you to the top of
-   * the page is a mode you leave to scroll and re-enter. Forwarded by hand,
-   * with a non-passive listener because the browser has to be told not to
-   * scroll the shell instead.
+   * The wheel belongs to the page. The layer catches every scroll aimed at the
+   * preview, so it's forwarded by hand through a non-passive listener that
+   * stops the shell scrolling instead.
    */
   useEffect(() => {
     const node = layerRef.current;
@@ -443,16 +403,10 @@ export function AnnotateLayer({
   }, [geometry]);
 
   /**
-   * Escape backs out one step: the card being typed into, then the mode.
-   *
-   * Owned here and only here, on the preview's own document as well as the
-   * shell's, since the pointer is usually over the preview and that document
-   * owns the keystroke. The card's field used to answer Escape too, and two
-   * answers to one keystroke skipped a rung: the field closed the card,
-   * React flushed that synchronously because a keystroke is a discrete
-   * event, this listener was replaced mid-dispatch, and the replacement,
-   * reading a state with nothing open, backed out of the mode as well. One
-   * Escape, one step.
+   * Escape backs out one step: the card, then the mode. Handled only here, on
+   * the preview's document and the shell's. When the card's field also answered
+   * Escape, React flushed its close synchronously, this listener was replaced
+   * mid-dispatch, and the replacement exited the mode too.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -472,9 +426,8 @@ export function AnnotateLayer({
 
     if (at !== null) targets.push(at.doc);
 
-    // SAFETY: registered for keydown alone, so every event it is handed is a
-    // KeyboardEvent; the union of windows and documents hides the typed
-    // overload that would say so.
+    // SAFETY: registered for keydown only, so every event is a KeyboardEvent;
+    // the union of windows and documents hides the typed overload.
     const listener = onKey as EventListener;
 
     for (const target of targets) target.addEventListener("keydown", listener);
@@ -485,16 +438,11 @@ export function AnnotateLayer({
   }, [geometry, onExit, open]);
 
   /**
-   * A note that goes while its card is up leaves the words behind.
-   *
-   * The runner forgets the notes a rewrite answered the moment it lands, and
-   * that is the same window this card exists to be used in: the pin said the
-   * change was in flight and invited a second thought about it. Closing the
-   * card there would throw away a sentence someone was halfway through, and
-   * leaving it open would leave a field whose Enter can only fail. So the
-   * card stays and becomes what it now is, words about a place with no note
-   * on it yet, and says so. The field keeps its identity across the change,
-   * which is what keeps the half-typed sentence in it.
+   * A note that goes while its card is up leaves the words behind. The runner
+   * forgets a rewrite's notes when it lands, exactly while the pin invites a
+   * second thought. The card stays, becomes a note-to-be about the same place
+   * and says so; the field keeps its identity so the half-typed sentence
+   * survives.
    */
   useEffect(() => {
     if (open === null || open.kind !== "kept") return;
@@ -522,48 +470,41 @@ export function AnnotateLayer({
   }, [open]);
 
   /**
-   * Everything the region covers, outermost first.
-   *
-   * Only elements wholly inside the sweep: something the drag merely clipped
-   * was not what was being pointed at. Anything already inside something else
-   * on the list is dropped, because a card, its heading and the heading's span
-   * are one thing said three times.
+   * Everything the region covers, outermost first. Only elements wholly inside
+   * the sweep, and anything inside another listed element is dropped: a card,
+   * its heading and the heading's span are one thing.
    */
   const sweep = (at: Geometry, region: Box) => {
     const all = [...at.doc.body.querySelectorAll("*")].slice(0, SCAN_CAP);
 
-    // Touched, not enclosed. A band swept through a row of cards encloses
-    // none of them, and requiring containment described that as an area
-    // covering nothing at all. Sweeping through things is the gesture people
-    // actually make, so intersecting the sweep is what counts.
+    // Touched, not enclosed: a band swept through a row of cards encloses none
+    // of them, and sweeping through things is the gesture people make.
     const touched = all.filter((element) => {
       const box = boxOf(element.getBoundingClientRect());
 
       return box.width > 0 && box.height > 0 && overlaps(region, box);
     });
 
-    // The innermost of those, not the outermost. A box drawn around a row is
-    // held by the row, and naming the row says only "the row"; naming the
-    // heading and the sentence inside each card says what was being looked
-    // at. Anything with a touched descendant is that descendant's container.
+    // The innermost touched elements: naming the row a box sits in says only
+    // "the row", while naming the heading and sentence in each card says what
+    // was looked at.
     const covered = touched.filter(
       (element) =>
         !touched.some((other) => other !== element && element.contains(other)) &&
-        // Something that swallows the whole sweep is what the region sits in,
-        // not what it points at. A band drawn across empty space would
-        // otherwise name the page container and hand over every word on it as
-        // one run-on string.
+        // Whatever swallows the whole sweep is what the region sits in, or a
+        // band across empty space would name the page container and all its
+        // words.
         !contains(boxOf(element.getBoundingClientRect()), region) &&
-        // Scaffolding with no words and no picture of its own tells an agent
-        // nothing it can act on.
+        // Scaffolding with no words or picture of its own tells an agent
+        // nothing.
         (elementText(element.textContent) !== "" ||
           ["a", "button", "canvas", "img", "input", "svg", "video"].includes(
             element.tagName.toLowerCase(),
           )),
     );
 
-    // The nearest thing that holds the whole region, which is what makes the
-    // annotation resolvable: the region itself belongs to no element.
+    // The nearest element holding the whole region, since the region itself
+    // belongs to none.
     let holder: Element = at.doc.body;
 
     for (const element of all) {
@@ -631,9 +572,8 @@ export function AnnotateLayer({
   const at = geometry();
   const bounds = { height: at?.view.innerHeight ?? 0, width: at?.view.innerWidth ?? 0 };
   const width = cardWidth(bounds.width);
-  // The card and its outline both hang off wherever the anchor points now,
-  // re-read on every render so a preview scrolled under an open card takes
-  // the card with it.
+  // The card and its outline hang off where the anchor points now, re-read
+  // every render so a scrolled preview takes the card with it.
   const openAt = open === null || at === null ? null : anchored(at, open.anchor);
 
   const placed =
@@ -658,8 +598,8 @@ export function AnnotateLayer({
         try {
           event.currentTarget.setPointerCapture(event.pointerId);
         } catch {
-          // A pointer that has already gone cannot be captured, and a drag
-          // that never starts is not worth throwing over.
+          // A pointer already gone can't be captured, and a drag that never
+          // starts isn't worth throwing over.
         }
 
         dragging.current = {
@@ -683,9 +623,8 @@ export function AnnotateLayer({
         const held = dragging.current;
 
         if (held !== null) {
-          // The start was recorded against the scroll position it was taken
-          // at, so a page scrolled mid-drag keeps the region over the content
-          // it was drawn on rather than the pixels it started at.
+          // The start was recorded with its scroll position, so a page scrolled
+          // mid-drag keeps the region over its content.
           const from = {
             x: held.from.x + held.scroll.x - frame.view.scrollX,
             y: held.from.y + held.scroll.y - frame.view.scrollY,
@@ -755,10 +694,9 @@ export function AnnotateLayer({
             />
           )}
           <button
-            // The badge alone sizes this box. The card beside it is hidden
-            // until hover but still laid out, and while it was a flex sibling
-            // its width dragged the centring transform with it, parking every
-            // badge half a card to the left of the thing it marks.
+            // The badge alone sizes this box. The hover card beside it is still
+            // laid out, and as a flex sibling its width pulled the centring
+            // transform, parking every badge half a card left of its target.
             aria-label={label(pin)}
             className="group/pin absolute size-5 cursor-pointer"
             onClick={(event) => {
@@ -783,14 +721,12 @@ export function AnnotateLayer({
             }}
             type="button"
           >
-            {/* A pin reads best small and is aimed at by someone holding a
-                trackpad and looking at a design. What it is hit by is larger
-                than what it is read as, so a pointer that lands near enough
-                still lands. */}
+            {/* Pins read best small, so the hit area is larger than what's
+                drawn and a near miss still lands. */}
             <span aria-hidden className="absolute -inset-1.5" />
             <span
-              // A sent pin keeps its colour and takes a ring. It is still the
-              // same note about the same place; what it is not is unread.
+              // A sent pin keeps its colour and takes a ring: same note, same
+              // place, just not unread.
               className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow-lg outline-offset-2 group-focus-visible/pin:outline group-focus-visible/pin:outline-2 group-focus-visible/pin:outline-white ${
                 pin.stale ? "bg-amber-500" : "bg-[#7C9CFF]"
               } ${pin.sent ? "ring-2 ring-white/80" : ""}`}
@@ -798,11 +734,10 @@ export function AnnotateLayer({
             >
               {pin.number}
             </span>
-            {/* The words, on hover only: at rest the pane is showing a design,
-                and a row of open cards over it is the thing in the way. It
-                stays untouchable on purpose. Chasing a control across the gap
-                between a badge and its label is a fight with a hover state,
-                and every action worth taking is one click away in the card. */}
+            {/* The words, on hover only: at rest the pane shows a design and
+                open cards would be in the way. Untouchable on purpose, since
+                chasing a control across the gap from the badge fights the
+                hover state; every action is one click away in the card. */}
             <span className="pointer-events-none absolute left-full top-1/2 ml-1 w-max max-w-56 -translate-y-1/2 truncate rounded-md border border-white/10 bg-[#171717] px-1.5 py-1 text-left text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-focus-visible/pin:opacity-100 group-hover/pin:opacity-100">
               {pin.note || "No words"}
             </span>
@@ -812,10 +747,9 @@ export function AnnotateLayer({
 
       {open !== null && openAt !== null && placed !== null ? (
         <>
-          {/* What the words are about, held visible while they are read or
-              typed. Taken from the box the card was placed against, so a note
-              opened again outlines whatever it points at now rather than the
-              rectangle it was left on. */}
+          {/* What the words are about, outlined while they're read or typed,
+              from where the anchor points now rather than where the note was
+              left. */}
           <div
             className="pointer-events-none absolute bg-[#7C9CFF]/10 outline outline-2 outline-[#7C9CFF]"
             style={{
@@ -829,10 +763,9 @@ export function AnnotateLayer({
             className="absolute z-30 rounded-lg border border-[#232328] bg-[#1E1E22] p-1.5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
-            // The card closes when the words are somewhere other than this
-            // field, and not before. Closing on submit read as saved and was
-            // not: a refused write left a toast on screen and a sentence
-            // nowhere, with no way back to it.
+            // The card closes only once the words are saved. Closing on submit
+            // looked saved when it wasn't: a refused write left a toast and a
+            // lost sentence.
             onSubmit={(event) => {
               event.preventDefault();
               const card = open.field;
@@ -867,16 +800,13 @@ export function AnnotateLayer({
               autoFocus
               className="w-full rounded border border-[#232328] bg-[#2E2E2E]/40 px-2 py-1 text-xs text-white placeholder:text-[#84848C] focus:border-[#D1D5DB]/40 focus:outline-none"
               defaultValue={open.note}
-              // A refusal is about the last Enter, not the next one. Bound
-              // only while one is showing, because otherwise this is a
-              // re-render of every pin per keystroke to clear nothing.
+              // A refusal is about the last Enter. Bound only while one shows,
+              // or every keystroke re-renders every pin to clear nothing.
               onInput={refused === open.field ? () => setRefused(null) : undefined}
-              // Keyed by this opening of the card, so a second pin arrives
-              // showing that pin's words rather than the last one's: a
-              // defaultValue on a node React is reusing is read once. Which is
-              // also why a note answered mid-edit keeps this key: it is still
-              // the same opening, and the same node carries the half-typed
-              // sentence into the card the note's departure turned this into.
+              // Keyed by this opening, so a second pin shows its own words (a
+              // defaultValue on a reused node is read once). A note answered
+              // mid-edit keeps the key, so the same node carries the half-typed
+              // sentence.
               key={open.field}
               name="note"
               placeholder={
@@ -889,11 +819,10 @@ export function AnnotateLayer({
             />
             {open.kind === "kept" ? (
               <>
-                {/* Two things the words alone cannot say: that an agent is
-                    already holding a copy of them, and that the thing they
-                    were left on is not there any more. Both change what a
-                    second thought is worth, so both are said before the
-                    keys are. */}
+                {/* Two things the words can't say: an agent already holds a
+                    copy, and what they were left on is gone. Both change
+                    what a second thought is worth, so both come before the
+                    keys. */}
                 {sent.has(open.id) ? (
                   <p className="px-1 pt-1 text-[10px] leading-snug text-[#B7A57A]">
                     Already sent. New words go with the next change.
@@ -909,9 +838,8 @@ export function AnnotateLayer({
                     Those words were not saved. Enter tries again.
                   </p>
                 ) : null}
-                {/* Dropping a note lives here rather than on the badge's own
-                    label. A control that only exists while the pointer is
-                    over something else is a control you lose by moving. */}
+                {/* Dropping a note lives here, not on the badge's hover
+                    label, which disappears as the pointer moves to it. */}
                 <div className="flex items-center justify-between gap-3 px-1 pt-1 text-[10px] leading-snug text-[#84848C]">
                   <button
                     className="rounded transition-colors hover:text-[#F87171]"
@@ -928,10 +856,8 @@ export function AnnotateLayer({
               </>
             ) : (
               <>
-                {/* The note under this card was answered and swept while it
-                    was being reworded. The words in the field are still
-                    someone's, so they stay; what changed is where Enter puts
-                    them, and that is worth a sentence. */}
+                {/* The note was answered and swept mid-rewording. The words
+                    in the field stay; what changed is where Enter puts them. */}
                 {open.answered ? (
                   <p className="px-1 pt-1 text-[10px] leading-snug text-[#B7A57A]">
                     That change has landed. Enter leaves these words as a new note.
