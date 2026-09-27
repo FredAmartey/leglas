@@ -1,5 +1,6 @@
 import type { Browser, CdpPage } from "./browser.js";
 import { hydrationEvidence, type HydrationEvidence } from "./hydration.js";
+import { LAYOUT_PROBE, layoutFindings, type LayoutFinding } from "./layout.js";
 
 import { isNumber, isString, isJsonRecord, type JsonValue } from "../json.js";
 
@@ -28,6 +29,8 @@ export type CaptureInput = {
   width: number;
   focuses?: readonly Focus[];
   timeoutMs?: number;
+  /** Measure the settled page for text that collides or is cut off. */
+  inspect?: boolean;
 };
 
 export type CaptureOutput = {
@@ -37,6 +40,8 @@ export type CaptureOutput = {
   errors: string[];
   hydration: HydrationEvidence | null;
   cut: boolean;
+  /** Empty unless the capture was asked to inspect. */
+  layout: LayoutFinding[];
 };
 
 export const FRAME_MAX_HEIGHT = 4000;
@@ -195,6 +200,20 @@ function resourced(text: JsonValue | undefined, url: JsonValue | undefined): str
 
 function locatorExpression(focus: Focus): string {
   return `${LOCATOR}(${JSON.stringify(focus.selector)}, ${JSON.stringify(focus.text)}, ${JSON.stringify(focus.tag)})`;
+}
+
+/** A probe that fails or never answers finds nothing rather than failing the capture. */
+async function inspectLayout(page: CdpPage): Promise<LayoutFinding[]> {
+  const response = await bounded(
+    page.send<{ result?: { value?: JsonValue } } | null>("Runtime.evaluate", {
+      expression: LAYOUT_PROBE,
+      returnByValue: true,
+    }),
+    2_000,
+    null,
+  ).catch(() => null);
+
+  return layoutFindings(resultValue(response));
 }
 
 async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput> {
@@ -422,6 +441,9 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       undefined,
     ).catch(() => {});
 
+    // Measured on the design at rest, the same one the shutter takes.
+    const layout = input.inspect === true ? await inspectLayout(page) : [];
+
     const metrics = await page.send<{
       cssContentSize?: { width: number; height: number };
       contentSize?: { width: number; height: number };
@@ -496,7 +518,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       });
     }
 
-    return { frame, crops, errors, hydration, cut };
+    return { frame, crops, errors, hydration, cut, layout };
   } finally {
     for (const stop of unlisten) stop();
   }

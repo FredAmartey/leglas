@@ -41,6 +41,15 @@ Each entry ends with which of the three it reaches.
   starts a new one through a new tunnel. The MCP `share` tool takes both.
   (`leglas`, `leglas-mcp`)
 
+- **Leglas checks a direction it builds for text that overlaps or is cut off.**
+  Before calling a direction ready, Leglas opens it in a browser, and a page
+  with errors gets one fix run. That fix run now also gets any text running
+  into other text and any text cut off at the edge of the page or of its box.
+  Problems already on your page without the direction don't count, and what
+  the fix leaves stays: the direction is still ready. The fix moves or re-sets
+  the text and keeps the design's size. A direction that needs it takes about
+  a minute longer, and never more than three. (`leglas`)
+
 ### Fixed
 
 - **Leglas sees when Cursor is signed out.** When you're signed out of Cursor,
