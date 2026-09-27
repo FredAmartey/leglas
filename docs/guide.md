@@ -95,8 +95,8 @@ and from the ones already there, and all of them appear on the rail at
 once. They build side by side. Each row says whether its direction is
 building, being checked, failed or stopped, and the stage shows what a
 direction still being built is meant to be. Leglas opens every one before
-calling it ready and gives one that does not render one attempt to fix
-itself. A build that edits any other file is stopped, and Leglas puts back
+calling it ready and gives one that does not render, or whose text runs into
+other text or off the page, one attempt to fix itself. A build that edits any other file is stopped, and Leglas puts back
 the switch, existing directions and the files they import. Stop it, retry it
 or ask for a new idea from its row or the stage. Once two are ready,
 **Compare all** on the card puts the ready ones on the stage side by side,
@@ -113,6 +113,14 @@ minute and a half and three variations in under a minute; Codex took a
 little over two minutes for three directions. Codex also reads the global
 `AGENTS.md` in its home, which nothing lets Leglas leave out.
 `npx leglas explore hero --build --brief "…"` does the same from a terminal.
+
+Leglas keeps a record of each set in `.leglas/generations/`, one folder per
+set: the brief, the plan, every build and fix run with its prompt, what each
+check found, a picture of each direction as last checked, and what was done
+with them after (a stop, a retry, a new idea, **More like**, a keep or a
+remove). The prompts carry what Leglas read from your project, and the folder
+stays on your machine. A set of three takes about 0.3 MB and the newest 100
+sets are kept. Set `recordSets: false` in the config to keep none.
 
 ## Sharing
 

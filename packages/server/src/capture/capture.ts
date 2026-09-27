@@ -31,6 +31,8 @@ export type CaptureInput = {
   timeoutMs?: number;
   /** Measure the settled page for text that collides or is cut off. */
   inspect?: boolean;
+  /** Also take the frame as a JPEG, a third of a PNG's size, for keeping. */
+  jpeg?: boolean;
 };
 
 export type CaptureOutput = {
@@ -42,6 +44,8 @@ export type CaptureOutput = {
   cut: boolean;
   /** Empty unless the capture was asked to inspect. */
   layout: LayoutFinding[];
+  /** The frame as a JPEG, when asked for. */
+  jpeg: Buffer | null;
 };
 
 export const FRAME_MAX_HEIGHT = 4000;
@@ -457,10 +461,12 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
     const pageHeight = Math.min(FRAME_MAX_HEIGHT, contentHeight);
     const cut = size.height > FRAME_MAX_HEIGHT;
 
+    const clip = { x: 0, y: 0, width, height: pageHeight, scale: 1 };
+
     const frameResponse = await page.send<{ data: string }>("Page.captureScreenshot", {
       format: "png",
       captureBeyondViewport: true,
-      clip: { x: 0, y: 0, width, height: pageHeight, scale: 1 },
+      clip,
     });
 
     const frame: Shot = {
@@ -468,6 +474,22 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       width,
       height: pageHeight,
     };
+
+    // A picture only for keeping: without it the capture is still whole.
+    const jpeg =
+      input.jpeg === true
+        ? await page
+            .send<{ data: string }>("Page.captureScreenshot", {
+              format: "jpeg",
+              quality: 80,
+              captureBeyondViewport: true,
+              clip,
+            })
+            .then(
+              (shot) => Buffer.from(shot.data, "base64"),
+              () => null,
+            )
+        : null;
 
     const crops: CaptureOutput["crops"] = [];
 
@@ -518,7 +540,7 @@ async function render(page: CdpPage, input: CaptureInput): Promise<CaptureOutput
       });
     }
 
-    return { frame, crops, errors, hydration, cut, layout };
+    return { frame, crops, errors, hydration, cut, layout, jpeg };
   } finally {
     for (const stop of unlisten) stop();
   }

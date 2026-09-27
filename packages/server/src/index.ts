@@ -50,6 +50,8 @@ export {
 
 export { DEFAULT_LOG_DIR, composeEntry } from "./log.js";
 
+export { RECORDS_DIR, noteDirections } from "./generation/record.js";
+
 export type { LogEntry, LogInput } from "./log.js";
 
 export { createProxyHandler } from "./proxy.js";

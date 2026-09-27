@@ -7,6 +7,7 @@ import {
   composeEntry,
   dropLocalPreviews,
   loadConfig,
+  noteDirections,
   readAnnotations,
   readLocalPreviews,
   readRenames,
@@ -139,6 +140,7 @@ export async function runKeep(
   // The exploration goes only after the winner is safely written.
   await rm(join(options.cwd, plan.removeDir), { recursive: true, force: true });
   const dropped = await dropLocalPreviews(options.cwd, plan.dropTitles);
+  await noteDirections(options.cwd, [resolved.title], "keep", plan.move.to);
 
   if (options.json) {
     deps.log(

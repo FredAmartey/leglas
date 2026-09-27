@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeRenames } from "@leglas/server";
@@ -61,6 +61,24 @@ describe("runRemove", () => {
     expect(outcome.exitCode).toBe(0);
     expect(envelope).toEqual({ ok: true, removed: ["Aurora"] });
     expect(await titles(cwd)).toEqual(["Table", "Ember"]);
+  });
+
+  test("notes the removal in the record of the set that built it", async () => {
+    const cwd = await project();
+    mkdirSync(join(cwd, ".leglas/generations/gen-1"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".leglas/generations/gen-1/set.json"),
+      JSON.stringify({ directions: [{ key: "hero-aurora", attempts: [{ title: "Aurora" }] }] }),
+    );
+
+    await remove(cwd, ["Aurora", "Ember"]);
+
+    expect(
+      readFileSync(join(cwd, ".leglas/generations/gen-1/events.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toMatchObject([{ kind: "remove", direction: "hero-aurora" }]);
   });
 
   test("takes the name the rail shows", async () => {

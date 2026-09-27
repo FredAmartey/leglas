@@ -93,6 +93,7 @@ import {
   type GenerationDeps,
   type Generations,
 } from "./generation/generation.js";
+import { noteDirections } from "./generation/record.js";
 import { removeServerInfo, writeServerInfo } from "./server-info.js";
 import { createShareManager, type ShareResult } from "./share/share.js";
 import {
@@ -1550,6 +1551,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           }
 
           const deleted = await dropLocalPreviews(cwd, unique);
+          await noteDirections(cwd, unique, "remove");
 
           return sendJson(res, 200, { ok: true, deleted });
         } catch {
@@ -2673,7 +2675,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    */
   const renderDirection = async (
     title: string,
-  ): Promise<{ errors: readonly string[]; layout: readonly string[] } | null> => {
+    { picture = false }: { picture?: boolean } = {},
+  ): Promise<{
+    errors: readonly string[];
+    layout: readonly string[];
+    frame?: Buffer | null;
+  } | null> => {
     const preview = (await livePreviews()).find((entry) => entry.title === title);
 
     if (preview === undefined) return null;
@@ -2689,10 +2696,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const settings = { width: 1440, timeoutMs: CAPTURE_LOAD_MS, inspect: true };
 
     try {
-      const captured = await capturePage(browser, { ...settings, url });
-      const layout = captured.layout.map(describeFinding);
+      const captured = await capturePage(browser, {
+        ...settings,
+        url,
+        jpeg: picture,
+      });
 
-      if (layout.length === 0) return { errors: captured.errors, layout };
+      const layout = captured.layout.map(describeFinding);
+      const frame = captured.jpeg;
+
+      if (layout.length === 0) return { errors: captured.errors, layout, frame };
 
       // The page without any direction selected: what is wrong there already is
       // the app's, not this direction's to fix.
@@ -2707,7 +2720,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const before = await capturePage(browser, { ...settings, url: plain.href }).catch(() => null);
       const known = new Set(before?.layout.map(describeFinding) ?? []);
 
-      return { errors: captured.errors, layout: layout.filter((line) => !known.has(line)) };
+      return {
+        errors: captured.errors,
+        layout: layout.filter((line) => !known.has(line)),
+        frame,
+      };
     } catch (error) {
       return { errors: [error instanceof Error ? error.message : String(error)], layout: [] };
     }
@@ -2733,6 +2750,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       );
     },
     onChange: () => live.nudge("generation"),
+    record: () => config?.recordSets !== false,
   };
 
   if (options.generationSpawn !== undefined) generationDeps.spawn = options.generationSpawn;

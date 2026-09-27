@@ -1,14 +1,24 @@
 import { boundPort, required } from "../test-helpers.js";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vitest";
 
 import { codexResultText, codexServers } from "./codex.js";
 import { factsBlock, readProjectFacts } from "./facts.js";
@@ -206,6 +216,7 @@ async function leglas(
   cwd: string,
   withBrowser: boolean,
   previews: Preview[] = [],
+  recordSets?: boolean,
 ): Promise<{ server: RunningServer; log: string }> {
   const fake = join(cwd, "..", `${cwd.split("/").pop() ?? "x"}-fake-claude.mjs`);
   const log = `${fake}.log`;
@@ -220,8 +231,15 @@ async function leglas(
       env: { ...process.env, FAKE_LOG: log },
     });
 
+  const config: NonNullable<Parameters<typeof startServer>[0]["config"]> = {
+    devServer: `http://127.0.0.1:${await devServer(cwd)}`,
+    previews,
+  };
+
+  if (recordSets !== undefined) config.recordSets = recordSets;
+
   const serverOptions: Parameters<typeof startServer>[0] = {
-    config: { devServer: `http://127.0.0.1:${await devServer(cwd)}`, previews },
+    config,
     cwd,
     port: 0,
     codexAppServer: null,
@@ -586,6 +604,101 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
       expect(prompt).toContain("/photos/plate.jpg");
       expect(prompt).toContain(".leglas/variants/hero/current.tsx");
 
+      // The set's record: what was asked, planned, built and checked, the last
+      // render of each attempt beside it, and what was done to the set after.
+      const folder = join(cwd, ".leglas", "generations", replaced.id);
+
+      const titled = (title: string) =>
+        required(replaced.slots.find((slot) => slot.title === title));
+
+      const record = await vi.waitFor(
+        async () => {
+          const current = parseJson(await readFile(join(folder, "set.json"), "utf8"));
+
+          expect(current).toMatchObject({
+            id: replaced.id,
+            surface: "hero",
+            brief: "A cooking app",
+            agent: "claude",
+            args: expect.arrayContaining(["--restricted", "<prompt>"]),
+            state: "done",
+            plan: { exitCode: 0, concepts: [{ key: "plain" }, { key: "broken" }, { key: "slow" }] },
+            directions: [
+              {
+                key: titled("Plain Idea").key,
+                attempts: [
+                  {
+                    cause: "plan",
+                    state: "ready",
+                    fixed: false,
+                    build: { prompt: expect.stringContaining("Plain Idea, Big type"), exitCode: 0 },
+                    renders: [{ errors: [], layout: [] }],
+                    fix: null,
+                  },
+                ],
+              },
+              {
+                key: titled("Broken Idea").key,
+                attempts: [
+                  {
+                    cause: "plan",
+                    state: "ready",
+                    fixed: true,
+                    renders: [
+                      { errors: expect.arrayContaining([expect.any(String)]) },
+                      { errors: [] },
+                    ],
+                    fix: { prompt: expect.stringMatching(/^Leglas rendered /), exitCode: 0 },
+                  },
+                ],
+              },
+              {
+                key: slow.key,
+                attempts: [
+                  { cause: "plan", title: "Slow Idea", state: "stopped", renders: [] },
+                  {
+                    cause: "replace",
+                    title: "Fresh Idea",
+                    state: "ready",
+                    ideaRun: { exitCode: 0 },
+                  },
+                ],
+              },
+            ],
+          });
+
+          return current;
+        },
+        { timeout: 5000, interval: 50 },
+      );
+
+      const pictures = (
+        isJsonRecord(record) && Array.isArray(record.directions) ? record.directions : []
+      )
+        .flatMap((direction) =>
+          isJsonRecord(direction) && Array.isArray(direction.attempts) ? direction.attempts : [],
+        )
+        .flatMap((attempt) =>
+          isJsonRecord(attempt) && isString(attempt.picture) ? [attempt.picture] : [],
+        );
+
+      expect(pictures).toHaveLength(3);
+
+      for (const picture of pictures)
+        expect([...(await readFile(join(folder, picture))).subarray(0, 3)]).toEqual([
+          0xff, 0xd8, 0xff,
+        ]);
+
+      const events = (await readFile(join(folder, "events.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => parseJson(line));
+
+      expect(events).toMatchObject([
+        { kind: "stop", direction: slow.key },
+        { kind: "replace", direction: slow.key },
+      ]);
+
       // The repeatable artifact: the job as the interface sees it and a screenshot of each ready direction.
       await mkdir(ARTIFACTS, { recursive: true });
       await writeFile(
@@ -649,6 +762,8 @@ function orchestrator(
   render: GenerationDeps["render"],
   register: GenerationDeps["register"] = async () => ({ ok: true }),
   fixes: "answer" | "hang" | "fail" | "break" | "crowd" = "answer",
+  plans: "answer" | "hang" | "hang-replace" = "answer",
+  records = false,
 ) {
   const builds: FakeChild[] = [];
   const spawned: FakeChild[] = [];
@@ -663,10 +778,15 @@ function orchestrator(
     prompts.push(prompt);
 
     if (args[args.indexOf("--tools") + 1] === "") {
-      setTimeout(() => {
-        child.say(JSON.stringify(concepts));
-        child.finish(0);
-      }, 5);
+      if (
+        plans === "answer" ||
+        (plans === "hang-replace" && !prompt.includes("must not look like"))
+      ) {
+        setTimeout(() => {
+          child.say(JSON.stringify(concepts));
+          child.finish(0);
+        }, 5);
+      }
     } else if (prompt.startsWith("Leglas rendered ")) {
       // A fix run answers and leaves the file as it was; the render decides.
       // One that fails scribbles on the file and exits 1, one that breaks
@@ -722,6 +842,9 @@ function orchestrator(
     register,
     unregister: async () => {},
     titles: async () => new Set<string>(),
+    // Off unless a test is about records: a set still writing one after its
+    // test ends races the temp folder's removal.
+    record: () => records,
     // What every nudge would carry to the interface, in order.
     onChange: () => void announced.push(generations.snapshot()),
   });
@@ -2417,6 +2540,252 @@ describe("a generation's lifecycle", () => {
     });
     expect(spawned).toHaveLength(0);
     expect(generations.snapshot()).toEqual([]);
+  });
+});
+
+describe("the record of a set", () => {
+  const agent = { agent: "claude" as const, effort: null, run: null };
+
+  test("is kept unless the project turns records off", async () => {
+    for (const recordSets of [undefined, false]) {
+      const cwd = await project("claude");
+      const { server } = await leglas(cwd, false, [], recordSets);
+
+      const started = await call(server, "generate", {
+        surface: "hero",
+        brief: "Dinner",
+        count: 3,
+      });
+
+      const id = String(
+        started.json.job && isJsonRecord(started.json.job) ? started.json.job.id : "",
+      );
+
+      await until(server, (current) => current.slots.length === 3, "the plan");
+      await call(server, "generate/stop", { id });
+
+      const kept = await vi.waitFor(async () =>
+        recordSets === false
+          ? stat(join(cwd, ".leglas", "generations")).then(
+              () => "a folder",
+              () => "nothing",
+            )
+          : readFile(join(cwd, ".leglas", "generations", id, "set.json"), "utf8").then(
+              () => "a record",
+            ),
+      );
+
+      expect(kept).toBe(recordSets === false ? "nothing" : "a record");
+    }
+  });
+
+  test("says how each run a stop ended: the plan's, a build's, a fix's and a new idea's", async () => {
+    const cases = [
+      { stopping: "planning", runs: 1, ended: { plan: { endedAt: expect.any(Number) } } },
+      {
+        stopping: "building",
+        runs: 2,
+        ended: { directions: [{ attempts: [{ build: { endedAt: expect.any(Number) } }] }] },
+      },
+      {
+        stopping: "fixing",
+        runs: 3,
+        ended: { directions: [{ attempts: [{ fix: { endedAt: expect.any(Number) } }] }] },
+      },
+      {
+        stopping: "replacing",
+        runs: 3,
+        ended: {
+          directions: [
+            { attempts: [{}, { cause: "replace", ideaRun: { endedAt: expect.any(Number) } }] },
+          ],
+        },
+      },
+    ] as const;
+
+    for (const { stopping, runs, ended } of cases) {
+      const cwd = await project("claude");
+
+      const { generations, spawned } = orchestrator(
+        cwd,
+        [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+        [stopping === "fixing" || stopping === "replacing" ? "write" : "hang"],
+        async () => ({ errors: stopping === "fixing" ? ["Uncaught Error: broken"] : [] }),
+        undefined,
+        "hang",
+        stopping === "planning" ? "hang" : stopping === "replacing" ? "hang-replace" : "answer",
+        true,
+      );
+
+      const started = await generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent,
+      });
+
+      if (!started.ok) throw new Error(started.error);
+
+      if (stopping === "replacing") {
+        const ready = await settled(
+          () => generations.snapshot()[0]?.slots[0],
+          (slot) => slot.state === "ready",
+        );
+
+        generations.replace(started.job.id, ready.key);
+      }
+
+      await settled(
+        () => spawned.at(-1),
+        () => spawned.length === runs,
+      );
+      await generations.stop(started.job.id);
+
+      await vi.waitFor(async () => {
+        expect(
+          parseJson(
+            await readFile(join(cwd, ".leglas", "generations", started.job.id, "set.json"), "utf8"),
+          ),
+        ).toMatchObject({ state: "stopped", ...ended });
+      });
+
+      await generations.close();
+    }
+  });
+
+  test("keeps the newest hundred sets, and a new set makes room", async () => {
+    const cwd = await project("claude");
+    const folder = join(cwd, ".leglas", "generations");
+    const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
+
+    for (let index = 0; index < 100; index += 1) {
+      const id = `gen-${(1_700_000_000_000 + index).toString(36)}`;
+      await mkdir(join(folder, id), { recursive: true });
+      await writeFile(join(folder, id, "set.json"), "{}\n");
+    }
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      undefined,
+      "answer",
+      "answer",
+      true,
+    );
+
+    const started = await generations.start({ surface: "hero", brief: "Dinner", count: 1, agent });
+
+    if (!started.ok) throw new Error(started.error);
+
+    await vi.waitFor(async () => {
+      const kept = await readdir(folder);
+
+      expect(kept).toHaveLength(100);
+      expect(kept).toContain(started.job.id);
+      expect(kept).not.toContain(oldest);
+    });
+
+    await generations.close();
+  });
+
+  test("of variations whose direction's set was just let go brings none of it back", async () => {
+    const cwd = await project("claude");
+    const folder = join(cwd, ".leglas", "generations");
+    const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
+
+    for (let index = 0; index < 100; index += 1) {
+      const id = `gen-${(1_700_000_000_000 + index).toString(36)}`;
+      await mkdir(join(folder, id), { recursive: true });
+      await writeFile(
+        join(folder, id, "set.json"),
+        index === 0
+          ? JSON.stringify({ directions: [{ key: "hero-a", attempts: [{ title: "Hero A" }] }] })
+          : "{}\n",
+      );
+    }
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "warm", title: "Warm", idea: "The same page in warm light." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      undefined,
+      "answer",
+      "answer",
+      true,
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "",
+      count: 1,
+      agent,
+      basedOn: { title: "Hero A", key: "hero-a", idea: "Ink and a single accent." },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    await vi.waitFor(async () => {
+      expect(
+        parseJson(await readFile(join(folder, started.job.id, "set.json"), "utf8")),
+      ).toMatchObject({ basedOn: { key: "hero-a", set: null } });
+    });
+
+    await generations.close();
+    expect(await readdir(folder)).not.toContain(oldest);
+  });
+
+  test("of variations names the set that built their direction, which notes them", async () => {
+    const cwd = await project("claude");
+
+    const { generations } = orchestrator(
+      cwd,
+      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      ["write"],
+      async () => ({ errors: [] }),
+      undefined,
+      "answer",
+      "answer",
+      true,
+    );
+
+    const first = await generations.start({ surface: "hero", brief: "Dinner", count: 1, agent });
+
+    if (!first.ok) throw new Error(first.error);
+
+    const built = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (slot) => slot.state === "ready",
+    );
+
+    const second = await generations.start({
+      surface: "hero",
+      brief: "",
+      count: 1,
+      agent,
+      basedOn: { title: built.title, key: built.key, idea: built.idea },
+    });
+
+    if (!second.ok) throw new Error(second.error);
+    const folder = join(cwd, ".leglas", "generations");
+
+    await vi.waitFor(async () => {
+      expect(
+        parseJson(await readFile(join(folder, second.job.id, "set.json"), "utf8")),
+      ).toMatchObject({
+        basedOn: { title: built.title, key: built.key, set: first.job.id },
+      });
+      expect(
+        (await readFile(join(folder, first.job.id, "events.jsonl"), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => parseJson(line)),
+      ).toMatchObject([{ kind: "more-like", direction: built.key, detail: second.job.id }]);
+    });
+
+    await generations.close();
   });
 });
 
