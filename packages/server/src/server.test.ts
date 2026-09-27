@@ -2537,12 +2537,16 @@ describe("startServer", () => {
     expect(await readRequests(cwd)).toMatchObject([{ title: "Aurora", intent: "warmer" }]);
   });
 
-  test("permanently deletes local previews through the interface API", async () => {
+  test("permanently deletes local previews through the interface API, noted in the set that built them", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-delete-preview-"));
-    mkdirSync(join(cwd, ".leglas"));
+    mkdirSync(join(cwd, ".leglas/generations/gen-1"), { recursive: true });
     writeFileSync(
       join(cwd, ".leglas/previews.json"),
       JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }),
+    );
+    writeFileSync(
+      join(cwd, ".leglas/generations/gen-1/set.json"),
+      JSON.stringify({ directions: [{ key: "hero-aurora", attempts: [{ title: "Aurora" }] }] }),
     );
 
     // Local previews are part of the boot config in a real process; the
@@ -2570,6 +2574,12 @@ describe("startServer", () => {
     } = await (await fetch(`${server.url}/leglas/api/config`)).json();
 
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current"]);
+    expect(
+      readFileSync(join(cwd, ".leglas/generations/gen-1/events.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toMatchObject([{ kind: "remove", direction: "hero-aurora" }]);
   });
 
   test("refuses to rewrite shared config previews through permanent delete", async () => {

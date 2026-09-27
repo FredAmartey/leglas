@@ -50,6 +50,14 @@ Each entry ends with which of the three it reaches.
   the text and keeps the design's size. A direction that needs it takes about
   a minute longer, and never more than three. (`leglas`)
 
+- **Leglas keeps a record of each set of directions it builds.** One folder
+  per set in `.leglas/generations/` holds the brief, the plan, every build and
+  fix run with its prompt, what each check found, a picture of each direction
+  as last checked, and what was done with them after: a stop, a retry, a new
+  idea, More like, a keep or a remove. A set of three takes about 0.3 MB and
+  the newest 100 sets are kept. Set `recordSets: false` in the config to keep
+  none. (`leglas`)
+
 ### Fixed
 
 - **Leglas sees an app it started on IPv6.** When Leglas started your app and

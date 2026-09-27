@@ -3,6 +3,15 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 
 import { buildArgs, planArgs, resultText } from "./claude.js";
+import {
+  createRecords,
+  setOfKey,
+  type AttemptRecord,
+  type RecordEvent,
+  type Records,
+  type RunRecord,
+  type SetRecord,
+} from "./record.js";
 import { codexBuildArgs, codexPlanArgs, codexResultText, codexServers } from "./codex.js";
 import { componentFile, factsBlock, readProjectFacts } from "./facts.js";
 import {
@@ -139,16 +148,26 @@ export type GenerationDeps = {
   /** Where Codex keeps its config; the default is `$CODEX_HOME`, or `~/.codex`. */
   codexHome?: string;
   /**
-   * Renders a registered direction by title: what its page reported, and text
-   * on it that collides or is cut off. Null when nothing could render it.
+   * Renders a registered direction by title: what its page reported, text on
+   * it that collides or is cut off, and the page as a JPEG. Null when nothing
+   * could render it.
    */
-  render(title: string): Promise<{ errors: readonly string[]; layout?: readonly string[] } | null>;
+  render(
+    title: string,
+    options?: { picture?: boolean },
+  ): Promise<{
+    errors: readonly string[];
+    layout?: readonly string[];
+    frame?: Buffer | null;
+  } | null>;
   register(input: AddInput): Promise<{ ok: boolean; error?: string }>;
   unregister(titles: readonly string[]): Promise<void>;
   /** Every preview title already in use, shared and local. */
   titles(): Promise<ReadonlySet<string>>;
   onChange(): void;
   now?: () => number;
+  /** Whether to keep a record of a set in `.leglas/generations`, asked as it starts. On unless false. */
+  record?: () => boolean;
 };
 
 export type Generations = {
@@ -224,6 +243,13 @@ function codex(servers: readonly string[]): Profile {
   };
 }
 
+/** A build's CLI arguments with the prompt left out: the model and effort show there. */
+function argsOf(agent: Profile): string[] {
+  const mark = "\u0000prompt";
+
+  return agent.build(mark).map((arg) => (arg === mark ? "<prompt>" : arg));
+}
+
 /** A run of the agent CLI. `stop` resolves once the process is gone, escalating to SIGKILL if it lingers. */
 type Run = { done: Promise<Outcome>; stop(): Promise<void> };
 
@@ -249,6 +275,8 @@ type Live = {
   guards: Map<string, Guard>;
   /** Work still running after the call that started it answered; see `detach`. */
   pending: Set<Promise<void>>;
+  /** What this set's record holds so far, or null when records are off. */
+  record: SetRecord | null;
 };
 
 export function surfaceSlug(surface: string): string {
@@ -350,6 +378,109 @@ export function createGenerations(deps: GenerationDeps): Generations {
     lives.some((live) => live.job.state === "planning" || live.job.state === "building");
 
   const changed = (): void => deps.onChange();
+
+  const records: Records = createRecords(deps.cwd);
+
+  const runRecord = (prompt: string): RunRecord => ({
+    prompt,
+    startedAt: now(),
+    endedAt: null,
+    exitCode: null,
+    timedOut: false,
+    error: null,
+    result: null,
+    tail: [],
+  });
+
+  const ended = (agent: Profile, record: RunRecord, outcome: Outcome): void => {
+    const failed = outcome.timedOut || outcome.error !== null || outcome.code !== 0;
+
+    record.endedAt = now();
+    record.exitCode = outcome.code;
+    record.timedOut = outcome.timedOut;
+    record.error = outcome.error;
+    record.result = agent.result(outcome.lines);
+    record.tail = failed ? outcome.lines.slice(-40) : [];
+  };
+
+  const attemptRecord = (live: Live, key: string, attempt: number): AttemptRecord | undefined =>
+    live.record?.directions
+      .find((direction) => direction.key === key)
+      ?.attempts.find((each) => each.attempt === attempt);
+
+  const opened = (
+    live: Live,
+    slot: GenerationSlot,
+    attempt: number,
+    cause: AttemptRecord["cause"],
+  ): void => {
+    live.record?.directions
+      .find((direction) => direction.key === slot.key)
+      ?.attempts.push({
+        attempt,
+        cause,
+        title: slot.title,
+        idea: slot.idea,
+        ideaRun: null,
+        build: null,
+        renders: [],
+        fix: null,
+        state: slot.state,
+        failure: null,
+        fixed: false,
+        layout: [],
+        picture: null,
+      });
+  };
+
+  /** Brings the record up to date with the job and writes it. A slot's state belongs to its latest attempt. */
+  const saveRecord = (live: Live): void => {
+    const { job, record } = live;
+
+    if (record === null) return;
+    record.state = job.state;
+    record.error = job.error;
+    record.plannedAt = job.plannedAt;
+    record.endedAt = job.endedAt;
+
+    for (const slot of job.slots) {
+      const latest = record.directions.find((each) => each.key === slot.key)?.attempts.at(-1);
+
+      if (latest === undefined) continue;
+      latest.title = slot.title;
+      latest.idea = slot.idea;
+      latest.state = slot.state;
+      latest.failure = slot.failure === null ? null : { ...slot.failure };
+      latest.fixed = slot.fixed;
+      latest.layout = [...slot.layout];
+    }
+
+    records.save(record);
+  };
+
+  /** Something the person did to a set, logged beside its record, with the record brought up to date. */
+  const noted = (live: Live, kind: RecordEvent["kind"], direction: string | null): void => {
+    if (live.record === null) return;
+    records.event(live.record.id, { at: now(), kind, direction });
+    saveRecord(live);
+  };
+
+  /** A render check's report on the attempt that asked for it, and its picture beside the record. */
+  const rendered = (
+    live: Live,
+    slot: GenerationSlot,
+    attempt: number,
+    report: { errors: string[]; layout: string[]; frame: Buffer | null },
+  ): void => {
+    const record = attemptRecord(live, slot.key, attempt);
+
+    if (live.record === null || record === undefined) return;
+    record.renders.push({ at: now(), errors: [...report.errors], layout: [...report.layout] });
+
+    if (report.frame === null) return;
+    record.picture = `${slot.key}-${attempt}.jpg`;
+    records.picture(live.record.id, record.picture, report.frame);
+  };
 
   // Registration rewrites one file; queued, two writers can never lose each other's entries.
   let registry: Promise<unknown> = Promise.resolve();
@@ -578,6 +709,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     fail(live, slot, { code: "unexpected", message });
     settle(live);
     changed();
+    saveRecord(live);
   };
 
   /**
@@ -768,6 +900,11 @@ export function createGenerations(deps: GenerationDeps): Generations {
       base: live.base,
     });
 
+    const buildRun = runRecord(prompt);
+    const own = attemptRecord(live, slot.key, attempt);
+
+    if (own !== undefined) own.build = buildRun;
+
     const building = run(
       live.agent,
       live.agent.build(prompt),
@@ -777,6 +914,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     live.runs.set(slot.key, building);
     const outcome = await building.done;
+    ended(live.agent, buildRun, outcome);
+    saveRecord(live);
     const outside = await strayed(live, slot, attempt);
 
     // A stop or a newer attempt took the slot over while this run was ending.
@@ -811,6 +950,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     settle(live);
     changed();
+    saveRecord(live);
   };
 
   /**
@@ -824,12 +964,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
     live: Live,
     slot: GenerationSlot,
     attempt: number,
-  ): Promise<{ errors: string[]; layout: string[] } | null> => {
+  ): Promise<{ errors: string[]; layout: string[]; frame: Buffer | null } | null> => {
     const others = live.job.slots.filter((other) => other !== slot);
     const until = now() + BUILD_DEADLINE_MS + FIX_DEADLINE_MS;
 
     for (;;) {
-      const report = await deps.render(slot.title);
+      const report = await deps.render(slot.title, { picture: live.record !== null });
 
       if (!owns(live, slot, attempt)) return null;
       const errors = report?.errors ?? [];
@@ -850,6 +990,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         return {
           errors: errors.filter((error) => !others.some((other) => error.includes(other.file))),
           layout: [...(report?.layout ?? [])],
+          frame: report?.frame ?? null,
         };
       }
 
@@ -870,6 +1011,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     let report = await ownReport(live, slot, attempt);
 
     if (report === null) return;
+    rendered(live, slot, attempt, report);
 
     if (report.errors.length > 0 || report.layout.length > 0) {
       const repairs = report.errors.length > 0;
@@ -883,17 +1025,22 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       if (!owns(live, slot, attempt)) return;
 
+      const prompt = fixPrompt({ file: slot.file, errors: report.errors, layout: report.layout });
+      const fixRun = runRecord(prompt);
+      const own = attemptRecord(live, slot.key, attempt);
+
+      if (own !== undefined) own.fix = fixRun;
+
       const fixing = run(
         live.agent,
-        live.agent.build(
-          fixPrompt({ file: slot.file, errors: report.errors, layout: report.layout }),
-        ),
+        live.agent.build(prompt),
         FIX_DEADLINE_MS,
         follow(live, slot, attempt),
       );
 
       live.runs.set(slot.key, fixing);
       const outcome = await fixing.done;
+      ended(live.agent, fixRun, outcome);
       const outside = await strayed(live, slot, attempt);
 
       if (!owns(live, slot, attempt)) return;
@@ -915,6 +1062,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         report = await ownReport(live, slot, attempt);
 
         if (report === null) return;
+        rendered(live, slot, attempt, report);
 
         if (report.errors.length > 0) {
           failure = {
@@ -972,23 +1120,24 @@ export function createGenerations(deps: GenerationDeps): Generations {
   const plan = async (live: Live, existing: readonly string[]): Promise<void> => {
     const { job } = live;
 
-    const planning = run(
-      live.agent,
-      live.agent.plan(
-        planPrompt({
-          surface: job.surface,
-          brief: job.brief,
-          count: job.count,
-          existing,
-          base: live.base,
-        }),
-      ),
-      PLAN_DEADLINE_MS,
-    );
+    const prompt = planPrompt({
+      surface: job.surface,
+      brief: job.brief,
+      count: job.count,
+      existing,
+      base: live.base,
+    });
+
+    const planRun: RunRecord & { concepts: Concept[] } = { ...runRecord(prompt), concepts: [] };
+
+    if (live.record !== null) live.record.plan = planRun;
+    const planning = run(live.agent, live.agent.plan(prompt), PLAN_DEADLINE_MS);
 
     live.plan = planning;
     const outcome = await planning.done;
     live.plan = null;
+    ended(live.agent, planRun, outcome);
+    saveRecord(live);
 
     if (job.state !== "planning") return;
 
@@ -999,6 +1148,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         : failureOf(live.agent, outcome).message;
       job.endedAt = now();
       changed();
+      saveRecord(live);
 
       return;
     }
@@ -1012,9 +1162,12 @@ export function createGenerations(deps: GenerationDeps): Generations {
       job.error = error instanceof Error ? error.message : String(error);
       job.endedAt = now();
       changed();
+      saveRecord(live);
 
       return;
     }
+
+    planRun.concepts = concepts;
 
     live.facts = factsBlock(
       await readProjectFacts(deps.cwd, live.switchPath, live.base?.key ?? null),
@@ -1094,6 +1247,14 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     job.slots = slots;
 
+    if (live.record !== null) {
+      live.record.directions = slots.map((slot) => ({
+        key: slot.key,
+        file: slot.file,
+        attempts: [],
+      }));
+    }
+
     // Stopped while the slots were going on the rail: they are there as placeholders, so the job lists them, stopped.
     if (job.state !== "planning") {
       for (const slot of slots) {
@@ -1102,6 +1263,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       }
 
       changed();
+      saveRecord(live);
 
       return;
     }
@@ -1109,15 +1271,18 @@ export function createGenerations(deps: GenerationDeps): Generations {
     job.state = "building";
     job.plannedAt = now();
     changed();
-    // Each slot's first attempt starts as it joins the job, with no wait between, so any later stop outranks it.
-    await Promise.all(
-      job.slots.map((slot) => {
-        const attempt = begin(live, slot);
-        live.guards.set(guardKey(slot, attempt), { kept, strays: new Set() });
 
-        return guarded(build(live, slot, attempt), (message) => lost(live, slot, attempt, message));
-      }),
-    );
+    // Each slot's first attempt starts as it joins the job, with no wait between, so any later stop outranks it.
+    const builds = job.slots.map((slot) => {
+      const attempt = begin(live, slot);
+      live.guards.set(guardKey(slot, attempt), { kept, strays: new Set() });
+      opened(live, slot, attempt, "plan");
+
+      return guarded(build(live, slot, attempt), (message) => lost(live, slot, attempt, message));
+    });
+
+    saveRecord(live);
+    await Promise.all(builds);
   };
 
   const find = (id: string): Live | undefined => lives.find((live) => live.job.id === id);
@@ -1132,6 +1297,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       job.state = "stopped";
       job.endedAt = now();
       changed();
+      noted(live, "stop", null);
       await live.plan?.stop();
       // Past its run, planning may still be writing the slots: stopped means those writes are done.
       await drain(live);
@@ -1153,6 +1319,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
     settle(live);
     changed();
+
+    if (targets.length > 0) noted(live, "stop", key ?? null);
     // A half-written file never stays on the rail.
     await Promise.all(targets.map((slot) => release(live, slot)));
 
@@ -1253,7 +1421,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
         agent: agent === "codex" ? codex(await codexServers(deps.codexHome)) : CLAUDE,
         guards: new Map(),
         pending: new Set(),
+        record: null,
       };
+
+      const recording = deps.record?.() !== false;
+
+      if (recording) await records.prune();
+
+      // The kept set that built the direction this set varies, looked up after
+      // the prune so a set let go isn't brought back by its event.
+      const baseSet =
+        base === null || !recording ? null : await setOfKey(deps.cwd, base.key).catch(() => null);
 
       // Checked again: another request may have started a set during the awaits above.
       if (busy()) return { ok: false, error: BUSY };
@@ -1264,11 +1442,42 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       changed();
 
+      if (recording) {
+        live.record = {
+          version: 1,
+          id: job.id,
+          surface: slug,
+          brief,
+          count,
+          agent,
+          args: argsOf(live.agent),
+          basedOn: base === null ? null : { title: base.title, key: base.key, set: baseSet },
+          state: job.state,
+          error: null,
+          startedAt: job.startedAt,
+          plannedAt: null,
+          endedAt: null,
+          plan: null,
+          directions: [],
+        };
+        saveRecord(live);
+
+        if (base !== null && baseSet !== null) {
+          records.event(baseSet, {
+            at: now(),
+            kind: "more-like",
+            direction: base.key,
+            detail: job.id,
+          });
+        }
+      }
+
       detach(live, plan(live, existing), (message) => {
         job.state = "failed";
         job.error = message;
         job.endedAt = now();
         changed();
+        saveRecord(live);
       });
 
       return { ok: true, job: copy(job) };
@@ -1297,6 +1506,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       slot.state = "building";
       slot.startedAt = now();
       slot.failure = null;
+      opened(live, slot, attempt, "retry");
       detach(
         live,
         restore(slot).then(() => build(live, slot, attempt)),
@@ -1305,6 +1515,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
       live.job.state = "building";
       live.job.endedAt = null;
       changed();
+      noted(live, "retry", slot.key);
 
       return true;
     },
@@ -1327,26 +1538,30 @@ export function createGenerations(deps: GenerationDeps): Generations {
       slot.state = "building";
       slot.startedAt = now();
       slot.failure = null;
+      opened(live, slot, attempt, "replace");
       live.job.state = "building";
       live.job.endedAt = null;
       changed();
+      noted(live, "replace", slot.key);
 
       const replacing = async (): Promise<void> => {
-        const asking = run(
-          live.agent,
-          live.agent.plan(
-            replacePrompt({
-              surface: live.job.surface,
-              brief: live.job.brief,
-              avoid: [...live.concepts.values()],
-              base: live.base,
-            }),
-          ),
-          PLAN_DEADLINE_MS,
-        );
+        const prompt = replacePrompt({
+          surface: live.job.surface,
+          brief: live.job.brief,
+          avoid: [...live.concepts.values()],
+          base: live.base,
+        });
+
+        const ideaRun = runRecord(prompt);
+        const own = attemptRecord(live, slot.key, attempt);
+
+        if (own !== undefined) own.ideaRun = ideaRun;
+        const asking = run(live.agent, live.agent.plan(prompt), PLAN_DEADLINE_MS);
 
         live.runs.set(slot.key, asking);
         const outcome = await asking.done;
+        ended(live.agent, ideaRun, outcome);
+        saveRecord(live);
 
         if (!owns(live, slot, attempt)) return;
 
@@ -1363,6 +1578,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
           });
           settle(live);
           changed();
+          saveRecord(live);
 
           return;
         }
@@ -1386,6 +1602,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         live.concepts.set(slot.key, { ...concept, title });
         slot.title = title;
         slot.idea = concept.idea;
+        saveRecord(live);
 
         if (!owns(live, slot, attempt)) return;
         await restore(slot);
@@ -1410,6 +1627,8 @@ export function createGenerations(deps: GenerationDeps): Generations {
         ),
         wait(KILL_GRACE_MS * 2 + 1000),
       ]);
+      // The last state of each record, before the process goes.
+      await Promise.race([records.flush(), wait(KILL_GRACE_MS)]);
     },
   };
 }
