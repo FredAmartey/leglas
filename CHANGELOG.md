@@ -8,7 +8,7 @@ Leglas ships as three things, released together under one version number:
 
 Each entry ends with which of the three it reaches.
 
-## Unreleased
+## 1.4.0 (2026-09-26): Links to a direction, and remove and revoke from a terminal
 
 ### Added
 
