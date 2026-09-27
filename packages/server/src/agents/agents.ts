@@ -242,14 +242,15 @@ export const KNOWN_AGENTS = {
     // the earlier turn.
     activityVerified: true,
     authArgs: ["status"],
-    // The signed-in form was read from the CLI: "✓ Logged in as <email>",
-    // exit 0. The signed-out form has not been, so that side of the reading
-    // stays loose, and anything ambiguous stays unknown.
+    // Both answers read from cursor-agent 2026.09.02, and both exit 0: "✓ Logged
+    // in as <email>" and "Not logged in". The second contains the first's
+    // words, so a "not logged in" or "not signed in" is read first.
     authVerdict: (result: ProbeResult): AgentAuth => {
+      if (/not (logged|signed) in/i.test(result.stdout)) return "signed-out";
+
       if (/logged in|signed in/i.test(result.stdout)) return "ok";
 
-      if (result.code !== 0 || /not logged in|log in|sign in/i.test(result.stdout))
-        return "signed-out";
+      if (result.code !== 0 || /log in|sign in/i.test(result.stdout)) return "signed-out";
 
       return "unknown";
     },

@@ -222,6 +222,22 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
 });
 
+test("reads both of Cursor's real status answers", async () => {
+  // Read from cursor-agent 2026.09.02. Both exit 0, and the signed-out one
+  // contains "logged in".
+  for (const [stdout, auth] of [
+    ["✓ Logged in as someone@example.com\n", "ok"],
+    ["Not logged in\n", "signed-out"],
+  ] as const) {
+    const agents = await detectAgents(
+      async () => true,
+      async (binary) => (binary === "cursor-agent" ? { code: 0, stdout } : null),
+    );
+
+    expect(agents.find((agent) => agent.id === "cursor")?.auth).toBe(auth);
+  }
+});
+
 test("resume argv continues the session without trying to replace its sandbox", () => {
   expect(KNOWN_AGENTS.claude.resumeArgs("sid-1", "make it warmer")).toEqual([
     "-p",
