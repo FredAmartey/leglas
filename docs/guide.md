@@ -102,6 +102,11 @@ or ask for a new idea from its row or the stage. Once two are ready,
 **Compare all** on the card puts the ready ones on the stage side by side,
 each drawn at its own width; a name opens that direction.
 
+Builds show real things with your project's own images and carry the rest
+with type, colour and layout, not pictures drawn from shapes. Leglas tells
+them what each image shows from the alt text your code already gives it; an
+image with none is passed by name only.
+
 To take one further, open the brief while it is on the stage and press
 **More like Menu** in its header. The agent builds variations that keep the
 direction and each change one thing, and they sit under it on the rail.

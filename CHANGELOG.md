@@ -8,6 +8,18 @@ Leglas ships as three things, released together under one version number:
 
 Each entry ends with which of the three it reaches.
 
+## Unreleased
+
+### Changed
+
+- **Directions Leglas builds use your images and type instead of drawn
+  pictures.** A pan, a window or a person drawn from simple shapes looked
+  unfinished beside the rest of a direction. Builds now show real things with
+  your project's own images and carry the rest with type, colour, layout or a
+  diagram. Each build is told what your images show, from the alt text your
+  code already gives them, so it picks one that fits and writes alt text that's
+  right. An image with no alt text anywhere is passed by name only. (`leglas`)
+
 ## 1.4.0 (2026-09-26): Links to a direction, and remove and revoke from a terminal
 
 ### Added
