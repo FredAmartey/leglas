@@ -623,6 +623,171 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
   );
 });
 
+describe.skipIf(executable === null)("a page measured for its layout", () => {
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
+    "reports text that collides or is cut off, and nothing a person can't see",
+    async () => {
+      // The clash, the edge, the box, the stretch, the pinned label, the
+      // sliver and the box flush with the page are real problems; the rest
+      // must not be reported.
+      const font = await readFile(
+        new URL("../../../shell/src/fonts/Satoshi-Regular.woff2", import.meta.url),
+      );
+
+      const page = `<style>
+        @font-face { font-family: Probe; src: url(/probe.woff2) format("woff2"); }
+        body { margin: 0 8px; overflow-x: hidden; font: 20px/1.2 Probe, sans-serif; }
+        p, h1, div { margin: 0; }
+        .bleed { margin: 0 -8px; }
+        .a, .b { position: absolute; top: 40px; }
+        .a { left: 40px; }
+        .b { left: 110px; }
+        .edge { position: absolute; top: 120px; left: 720px; white-space: nowrap; }
+        .box { position: absolute; top: 200px; left: 40px; width: 140px; height: 40px; overflow: hidden; white-space: nowrap; }
+        .reader { position: absolute; top: 40px; left: 40px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        .tight { position: absolute; top: 280px; left: 40px; font-size: 80px; line-height: 0.8; text-transform: uppercase; }
+        .tight span { display: block; }
+        .roller { position: absolute; top: 500px; left: 40px; height: 24px; overflow: hidden; }
+        .roller div { transform: translateY(-24px); }
+        .roller span { display: block; height: 24px; }
+        .clamped { position: absolute; top: 560px; left: 40px; width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ticker { position: absolute; top: 620px; left: 0; width: 200px; overflow: hidden; white-space: nowrap; }
+        .ticker span { display: inline-block; animation: slide 6s linear infinite; }
+        @keyframes slide { to { transform: translateX(-50%); } }
+        .scaled { position: absolute; top: 680px; left: 40px; width: 200px; height: 30px; overflow: hidden; transform: scale(1.5); transform-origin: left top; white-space: nowrap; }
+        .holder { position: absolute; top: 740px; left: 40px; }
+        .card { width: 120px; height: 30px; overflow: hidden; will-change: transform; }
+        .pinned { position: absolute; left: 0; top: 0; white-space: nowrap; }
+        .stretch, .beside { position: absolute; top: 800px; white-space: nowrap; }
+        .stretch { left: 40px; transform: scaleX(2); transform-origin: left; }
+        .beside { left: 180px; }
+        .sliver { position: absolute; top: 860px; left: 40px; width: 12px; height: 30px; overflow: hidden; white-space: nowrap; }
+        .pane { position: absolute; top: 40px; left: 480px; width: 100px; height: 30px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
+        .aside { position: absolute; top: 40px; left: 620px; }
+        .strip { position: absolute; top: 920px; left: 0; width: 800px; overflow-x: auto; white-space: nowrap; }
+        .strip span { display: inline-block; width: 350px; }
+        .turned { position: absolute; top: 1000px; left: 200px; transform: rotate(40deg); }
+        .ghost, .solid { position: absolute; top: 1200px; }
+        .ghost { left: 40px; color: oklab(0.5 0 0 / 0); }
+        .solid { left: 90px; }
+        .flush { position: absolute; top: 1300px; left: 0; width: 800px; overflow: hidden; white-space: nowrap; }
+        .flush span { margin-left: 720px; }
+      </style>
+      <p class="bleed">Bleeds</p>
+      <p class="a">Tonight's dinner</p>
+      <p class="b">Twenty minutes</p>
+      <p class="edge">Garlic and oil</p>
+      <div class="box">Clipped by its box, and longer than it</div>
+      <span class="reader">Read aloud and never drawn</span>
+      <h1 class="tight"><span>First to spoil</span><span>First to cook</span></h1>
+      <div class="roller"><div><span>6</span><span>7</span></div></div>
+      <div class="clamped">Shortened on purpose with an ellipsis</div>
+      <div class="ticker"><span>Words that scroll past forever and ever</span></div>
+      <div class="scaled">Scaled up and fits</div>
+      <div class="holder"><div class="card"><span class="pinned">Pinned label that runs long</span></div></div>
+      <p class="stretch">Stretched</p>
+      <p class="beside">Neighbour</p>
+      <div class="sliver">Only a sliver of this shows</div>
+      <div class="pane">Scrolls sideways past its edge</div>
+      <p class="aside">Aside</p>
+      <div class="strip"><span>First card</span><span>Second card</span><span>Third card peeks past</span></div>
+      <svg class="turned" width="220" height="60"><text x="0" y="20">Turned first line</text><text x="0" y="44">Turned second line</text></svg>
+      <p class="ghost">Not yet faded in</p>
+      <p class="solid">Showing now</p>
+      <div class="flush"><span>Runs past both</span></div>`;
+
+      const server = http.createServer((req, res) => {
+        if (req.url === "/probe.woff2") {
+          res.writeHead(200, { "content-type": "font/woff2" });
+          res.end(font);
+
+          return;
+        }
+
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page);
+      });
+
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = boundPort(server);
+      const browser = await launchBrowser(required(executable));
+      liveBrowsers.push(browser);
+
+      const captured = await capturePage(browser, {
+        url: `http://127.0.0.1:${port}/`,
+        width: 800,
+        inspect: true,
+      });
+
+      expect(
+        captured.layout.map((finding) =>
+          finding.kind === "overlap"
+            ? [finding.kind, finding.text, finding.other]
+            : [finding.kind, finding.text, finding.edge, finding.within],
+        ),
+      ).toEqual([
+        ["overlap", "Tonight's dinner", "Twenty minutes"],
+        ["overlap", "Stretched", "Neighbour"],
+        ["cut-off", "Garlic and oil", "right", "page"],
+        ["cut-off", "Clipped by its box, and longer than it", "right", "container"],
+        ["cut-off", "Pinned label that runs long", "right", "container"],
+        ["cut-off", "Only a sliver of this shows", "right", "container"],
+        ["cut-off", "Runs past both", "right", "page"],
+      ]);
+    },
+    LIVE_TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
+    "reports every finding on a crowded page",
+    async () => {
+      // The app's own findings are subtracted later, so none of a direction's
+      // may be dropped for a cap.
+      const pairs = Array.from(
+        { length: 14 },
+        (_, index) =>
+          `<p style="top: ${40 + index * 40}px; left: 40px">Left words ${index}</p>` +
+          `<p style="top: ${40 + index * 40}px; left: 90px">Right words ${index}</p>`,
+      ).join("");
+
+      const page = `<style>
+        body { margin: 0; font: 20px/1.2 sans-serif; }
+        p { position: absolute; margin: 0; white-space: nowrap; }
+      </style>
+      ${pairs}<p style="top: 700px; left: 740px">Past the edge</p>`;
+
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page);
+      });
+
+      liveServers.push(server);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const browser = await launchBrowser(required(executable));
+      liveBrowsers.push(browser);
+
+      const captured = await capturePage(browser, {
+        url: `http://127.0.0.1:${boundPort(server)}/`,
+        width: 800,
+        inspect: true,
+      });
+
+      expect(captured.layout.filter((finding) => finding.kind === "overlap")).toHaveLength(14);
+      expect(captured.layout.filter((finding) => finding.kind === "cut-off")).toEqual([
+        {
+          kind: "cut-off",
+          text: "Past the edge",
+          edge: "right",
+          by: expect.any(Number),
+          within: "page",
+        },
+      ]);
+    },
+    LIVE_TEST_TIMEOUT_MS,
+  );
+});
+
 describe.skipIf(executable === null)("two captures of one design", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "agree, even when the page fades itself in after load",

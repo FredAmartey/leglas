@@ -34,6 +34,7 @@ import {
   type BrowserPool,
 } from "./capture/browser.js";
 import { MAX_WIDTH, MIN_WIDTH, capturePage } from "./capture/capture.js";
+import { describeFinding } from "./capture/layout.js";
 import {
   createBranchRegistry,
   publicBranchState,
@@ -2666,10 +2667,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   /**
    * Renders one direction as `show --screenshot` does and reports what the page
-   * said. A generation calls a direction ready only when this is clean; with no
-   * browser it can't tell and returns null.
+   * said and the text on it that collides or is cut off. A generation calls a
+   * direction ready only when this is clean; with no browser it can't tell and
+   * returns null.
    */
-  const renderDirection = async (title: string): Promise<{ errors: readonly string[] } | null> => {
+  const renderDirection = async (
+    title: string,
+  ): Promise<{ errors: readonly string[]; layout: readonly string[] } | null> => {
     const preview = (await livePreviews()).find((entry) => entry.title === title);
 
     if (preview === undefined) return null;
@@ -2681,16 +2685,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const renderPort =
       address !== null && !isString(address) ? address.port : (options.port ?? DEFAULT_PORT);
 
-    try {
-      const captured = await capturePage(browser, {
-        url: previewUrl(`http://127.0.0.1:${renderPort}`, preview),
-        width: 1440,
-        timeoutMs: CAPTURE_LOAD_MS,
-      });
+    const url = previewUrl(`http://127.0.0.1:${renderPort}`, preview);
+    const settings = { width: 1440, timeoutMs: CAPTURE_LOAD_MS, inspect: true };
 
-      return { errors: captured.errors };
+    try {
+      const captured = await capturePage(browser, { ...settings, url });
+      const layout = captured.layout.map(describeFinding);
+
+      if (layout.length === 0) return { errors: captured.errors, layout };
+
+      // The page without any direction selected: what is wrong there already is
+      // the app's, not this direction's to fix.
+      const plain = new URL(url);
+
+      plain.search = new URLSearchParams(
+        [...plain.searchParams].filter(([key]) => !key.startsWith("v-")),
+      ).toString();
+
+      // Without that page to compare, every finding stays: one fix run too many
+      // beats a problem missed.
+      const before = await capturePage(browser, { ...settings, url: plain.href }).catch(() => null);
+      const known = new Set(before?.layout.map(describeFinding) ?? []);
+
+      return { errors: captured.errors, layout: layout.filter((line) => !known.has(line)) };
     } catch (error) {
-      return { errors: [error instanceof Error ? error.message : String(error)] };
+      return { errors: [error instanceof Error ? error.message : String(error)], layout: [] };
     }
   };
 

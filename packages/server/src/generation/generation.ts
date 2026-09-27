@@ -95,6 +95,8 @@ export type GenerationSlot = {
   failure: GenerationFailure | null;
   /** Whether the page failed to render once and a fix run repaired it. */
   fixed: boolean;
+  /** Text still colliding or cut off on its page when it was called ready. */
+  layout: string[];
   /** What the build is doing right now, from its own stream; null when nothing is running. */
   activity: string | null;
 };
@@ -136,8 +138,11 @@ export type GenerationDeps = {
   spawn?: RunnerSpawn;
   /** Where Codex keeps its config; the default is `$CODEX_HOME`, or `~/.codex`. */
   codexHome?: string;
-  /** Renders a registered direction by title; null when nothing could render it. */
-  render(title: string): Promise<{ errors: readonly string[] } | null>;
+  /**
+   * Renders a registered direction by title: what its page reported, and text
+   * on it that collides or is cut off. Null when nothing could render it.
+   */
+  render(title: string): Promise<{ errors: readonly string[]; layout?: readonly string[] } | null>;
   register(input: AddInput): Promise<{ ok: boolean; error?: string }>;
   unregister(titles: readonly string[]): Promise<void>;
   /** Every preview title already in use, shared and local. */
@@ -575,12 +580,15 @@ export function createGenerations(deps: GenerationDeps): Generations {
     changed();
   };
 
-  /** Restores the kept files an attempt strayed into and returns its failure, or null. Runs even if the attempt lost its slot. */
+  /**
+   * Restores the kept files an attempt strayed into and returns its failure,
+   * and whether every one went back, or null. Runs even if the attempt lost its slot.
+   */
   const strayed = async (
     live: Live,
     slot: GenerationSlot,
     attempt: number,
-  ): Promise<GenerationFailure | null> => {
+  ): Promise<{ failure: GenerationFailure; putBack: boolean } | null> => {
     const guard = live.guards.get(guardKey(slot, attempt));
 
     if (guard === undefined || guard.strays.size === 0) return null;
@@ -605,14 +613,21 @@ export function createGenerations(deps: GenerationDeps): Generations {
         continue;
       }
 
-      await writeFile(join(deps.cwd, path), kept, "utf8").catch(() => {});
-      restored.push(path);
+      const back = await writeFile(join(deps.cwd, path), kept, "utf8").then(
+        () => true,
+        () => false,
+      );
+
+      (back ? restored : named).push(path);
     }
 
     // Unblocks sibling page checks.
     guard.strays.clear();
 
-    return { code: "outside-file", message: strayMessage(paths, restored, named) };
+    return {
+      failure: { code: "outside-file", message: strayMessage(paths, restored, named) },
+      putBack: named.length === 0,
+    };
   };
 
   /** Kept files strayed into but not yet restored, in every set, with their restore content. */
@@ -715,6 +730,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     slot.endedAt = null;
     slot.failure = null;
     slot.fixed = false;
+    slot.layout = [];
     slot.activity = null;
     changed();
 
@@ -772,7 +788,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
     if (!owns(live, slot, attempt)) return;
 
     if (outside !== null) {
-      fail(live, slot, outside);
+      fail(live, slot, outside.failure);
     } else if (outcome.timedOut) {
       fail(live, slot, {
         code: "too-slow",
@@ -798,16 +814,17 @@ export function createGenerations(deps: GenerationDeps): Generations {
   };
 
   /**
-   * The direction's own errors on its page, or null once the slot is no
-   * longer this attempt's. The switch imports every direction, so a file
-   * another build is still writing breaks every page; while the errors name
-   * only such a file, the check waits for it instead of blaming this one.
+   * The direction's own errors and layout findings on its page, or null once
+   * the slot is no longer this attempt's. The switch imports every direction,
+   * so a file another build is still writing breaks every page; while the
+   * errors name only such a file, the check waits for it instead of blaming
+   * this one.
    */
-  const ownErrors = async (
+  const ownReport = async (
     live: Live,
     slot: GenerationSlot,
     attempt: number,
-  ): Promise<string[] | null> => {
+  ): Promise<{ errors: string[]; layout: string[] } | null> => {
     const others = live.job.slots.filter((other) => other !== slot);
     const until = now() + BUILD_DEADLINE_MS + FIX_DEADLINE_MS;
 
@@ -830,7 +847,10 @@ export function createGenerations(deps: GenerationDeps): Generations {
           ));
 
       if (!waiting || now() >= until) {
-        return errors.filter((error) => !others.some((other) => error.includes(other.file)));
+        return {
+          errors: errors.filter((error) => !others.some((other) => error.includes(other.file))),
+          layout: [...(report?.layout ?? [])],
+        };
       }
 
       await wait(RECHECK_MS);
@@ -841,19 +861,33 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   /**
    * Render the direction before calling it ready. One measured build in six
-   * wrote broken JSX first; a page that reports errors gets one fix run
-   * carrying the error, and still broken means failed, never a broken
-   * direction presented as done.
+   * wrote broken JSX first; a page that reports errors or shows text that
+   * collides or is cut off gets one fix run carrying what was found. Still
+   * broken means failed, never a broken direction presented as done; text
+   * the fix left colliding is kept on the slot, since the design still works.
    */
   const check = async (live: Live, slot: GenerationSlot, attempt: number): Promise<void> => {
-    let errors = await ownErrors(live, slot, attempt);
+    let report = await ownReport(live, slot, attempt);
 
-    if (errors === null) return;
+    if (report === null) return;
 
-    if (errors.length > 0) {
+    if (report.errors.length > 0 || report.layout.length > 0) {
+      const repairs = report.errors.length > 0;
+      const found = report.layout;
+
+      // A fix for layout alone starts from a page that works: if it goes
+      // wrong, that page is put back rather than the placeholder.
+      const working = repairs
+        ? null
+        : await readFile(join(deps.cwd, slot.file), "utf8").catch(() => null);
+
+      if (!owns(live, slot, attempt)) return;
+
       const fixing = run(
         live.agent,
-        live.agent.build(fixPrompt({ file: slot.file, errors })),
+        live.agent.build(
+          fixPrompt({ file: slot.file, errors: report.errors, layout: report.layout }),
+        ),
         FIX_DEADLINE_MS,
         follow(live, slot, attempt),
       );
@@ -868,39 +902,60 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
       if (live.runs.get(slot.key) === fixing) live.runs.delete(slot.key);
 
-      if (outside !== null) {
-        fail(live, slot, outside);
+      let failure: GenerationFailure | null =
+        outside?.failure ??
+        (outcome.timedOut
+          ? { code: "too-slow", message: "The fix took too long, so Leglas stopped it." }
+          : outcome.error !== null || outcome.code !== 0
+            ? failureOf(live.agent, outcome)
+            : null);
 
-        return;
+      if (failure === null) {
+        slot.fixed = repairs;
+        report = await ownReport(live, slot, attempt);
+
+        if (report === null) return;
+
+        if (report.errors.length > 0) {
+          failure = {
+            code: "broken",
+            message: `The page still reports: ${report.errors[0] ?? ""}`,
+          };
+        }
       }
 
-      if (outcome.timedOut || outcome.error !== null || outcome.code !== 0) {
-        fail(
-          live,
-          slot,
-          outcome.timedOut
-            ? { code: "too-slow", message: "The fix took too long, so Leglas stopped it." }
-            : failureOf(live.agent, outcome),
-        );
+      // A fix for layout alone that leaves more text in trouble than it found made it worse.
+      const worse = failure === null && !repairs && report.layout.length > found.length;
 
-        return;
-      }
+      if (failure !== null || worse) {
+        // An edit elsewhere that could not be put back is the person's to see.
+        if (working !== null && outside?.putBack !== false) {
+          const restored = await writeFile(join(deps.cwd, slot.file), working, "utf8").then(
+            () => true,
+            () => false,
+          );
 
-      slot.fixed = true;
-      errors = await ownErrors(live, slot, attempt);
+          if (!owns(live, slot, attempt)) return;
 
-      if (errors === null) return;
+          if (restored) {
+            slot.fixed = false;
+            slot.layout = found;
+            slot.state = "ready";
+            slot.endedAt = now();
 
-      if (errors.length > 0) {
-        fail(live, slot, {
-          code: "broken",
-          message: `The page still reports: ${errors[0] ?? ""}`,
-        });
+            return;
+          }
+        }
 
-        return;
+        if (failure !== null) {
+          fail(live, slot, failure);
+
+          return;
+        }
       }
     }
 
+    slot.layout = report.layout;
     slot.state = "ready";
     slot.endedAt = now();
   };
@@ -999,6 +1054,7 @@ export function createGenerations(deps: GenerationDeps): Generations {
         endedAt: null,
         failure: null,
         fixed: false,
+        layout: [],
         activity: null,
       });
     }

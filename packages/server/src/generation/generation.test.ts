@@ -1,7 +1,7 @@
 import { boundPort, required } from "../test-helpers.js";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
@@ -646,9 +646,9 @@ function orchestrator(
   cwd: string,
   concepts: object[],
   behaviours: Behaviour[],
-  render: (title: string) => Promise<{ errors: readonly string[] } | null>,
+  render: GenerationDeps["render"],
   register: GenerationDeps["register"] = async () => ({ ok: true }),
-  fixes: "answer" | "hang" = "answer",
+  fixes: "answer" | "hang" | "fail" | "break" | "crowd" = "answer",
 ) {
   const builds: FakeChild[] = [];
   const spawned: FakeChild[] = [];
@@ -669,9 +669,23 @@ function orchestrator(
       }, 5);
     } else if (prompt.startsWith("Leglas rendered ")) {
       // A fix run answers and leaves the file as it was; the render decides.
+      // One that fails scribbles on the file and exits 1, one that breaks
+      // leaves the page reporting an error, one that crowds leaves more text
+      // in trouble than it found.
       builds.push(child);
+      const file = /^Leglas rendered (\S+\.tsx)/.exec(prompt)?.[1] ?? "";
 
       if (fixes === "answer") setTimeout(() => child.finish(0), 5);
+
+      if (fixes === "fail" || fixes === "break" || fixes === "crowd") {
+        setTimeout(() => {
+          const scribble = { fail: "scribbled", break: "broken", crowd: "crowded" }[fixes];
+
+          void writeFile(join(cwd, file), `// ${scribble}\n`).then(() =>
+            child.finish(fixes === "fail" ? 1 : 0),
+          );
+        }, 5);
+      }
     } else {
       builds.push(child);
       const behaviour = behaviours[Math.min(buildIndex, behaviours.length - 1)];
@@ -1253,6 +1267,162 @@ describe("a generation's lifecycle", () => {
 
     expect(ready.fixed).toBe(false);
     expect(builds).toHaveLength(2);
+  });
+
+  test("text still cut off after its fix run is kept on a direction that is ready", async () => {
+    const cwd = await project("claude");
+    const cut = '"Garlic & oil" is cut off 93px past the right edge of the page';
+
+    const { generations, prompts } = orchestrator(
+      cwd,
+      [{ key: "timer", title: "Timer", idea: "Thirty minutes." }],
+      ["write"],
+      async () => ({ errors: [], layout: [cut] }),
+    );
+
+    const started = await generations.start({
+      surface: "hero",
+      brief: "Dinner",
+      count: 1,
+      agent: { agent: "claude", effort: null, run: null },
+    });
+
+    if (!started.ok) throw new Error(started.error);
+
+    const ready = await settled(
+      () => generations.snapshot()[0]?.slots[0],
+      (value) => value.state === "ready",
+    );
+
+    expect(ready).toMatchObject({ fixed: false, layout: [cut] });
+    const fixes = prompts.filter((prompt) => prompt.startsWith("Leglas rendered "));
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]).toContain(cut);
+    expect(fixes[0]).not.toContain("the page reported");
+  });
+
+  test("a layout fix that goes wrong puts back the direction it started from", async () => {
+    for (const fixes of ["fail", "break", "crowd"] as const) {
+      const cwd = await project("claude");
+      const cut = '"Garlic & oil" is cut off 93px past the right edge of the page';
+      const clash = '"Plate it" runs into "Water on"';
+
+      const { generations } = orchestrator(
+        cwd,
+        [{ key: "timer", title: "Timer", idea: "Thirty minutes." }],
+        ["write"],
+        async () => {
+          const source = await readFile(join(cwd, ".leglas/variants/hero/hero-timer.tsx"), "utf8");
+
+          return {
+            errors: source.includes("broken") ? ["Uncaught Error: broken"] : [],
+            layout: source.includes("crowd") ? [cut, clash] : [cut],
+          };
+        },
+        undefined,
+        fixes,
+      );
+
+      const started = await generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+      if (!started.ok) throw new Error(started.error);
+
+      const ended = await settled(
+        () => generations.snapshot()[0]?.slots[0],
+        (value) => value.state === "ready" || value.state === "failed",
+      );
+
+      expect(ended).toMatchObject({ state: "ready", fixed: false, layout: [cut] });
+      expect(await readFile(join(cwd, ended.file), "utf8")).toBe(
+        "export function HeroTimer() {\n  return <h1>HeroTimer</h1>;\n}\n",
+      );
+    }
+  });
+
+  test("a layout fix that strays is undone only when every file it touched can be put back", async () => {
+    const cases = [
+      { stray: "src/copy.ts", locked: false, state: "ready", message: null },
+      {
+        stray: "src/new.ts",
+        locked: false,
+        state: "failed",
+        message:
+          "The build edited src/new.ts, which is not its own file, so Leglas stopped it. Check src/new.ts before trying again.",
+      },
+      {
+        stray: "src/copy.ts",
+        locked: true,
+        state: "failed",
+        message:
+          "The build edited src/copy.ts, which is not its own file, so Leglas stopped it. Check src/copy.ts before trying again.",
+      },
+    ];
+
+    for (const { stray, locked, state, message } of cases) {
+      const cwd = await project("claude");
+      const original = 'export const COPY = { headline: "Dinner tonight" };\n';
+      await writeFile(join(cwd, "src", "copy.ts"), original);
+
+      const cut = '"Garlic & oil" is cut off 93px past the right edge of the page';
+
+      const reports: ((report: {
+        errors: readonly string[];
+        layout: readonly string[];
+      }) => void)[] = [];
+
+      const { generations, builds } = orchestrator(
+        cwd,
+        [{ key: "timer", title: "Timer", idea: "Thirty minutes." }],
+        ["write"],
+        () => new Promise((resolve) => reports.push(resolve)),
+        undefined,
+        "hang",
+      );
+
+      const started = await generations.start({
+        surface: "hero",
+        brief: "Dinner",
+        count: 1,
+        agent: { agent: "claude", effort: null, run: null },
+      });
+
+      if (!started.ok) throw new Error(started.error);
+      await settled(
+        () => reports[0],
+        () => true,
+      );
+      reports[0]!({ errors: [], layout: [cut] });
+
+      const fix = await settled(
+        () => builds[1],
+        () => true,
+      );
+
+      await writeFile(join(cwd, stray), "export const COPY = {};\n");
+
+      // A file Leglas cannot write back stays edited.
+      if (locked) await chmod(join(cwd, stray), 0o444);
+      fix.stdout.write(
+        `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: join(cwd, stray) } }] } })}\n`,
+      );
+
+      const ended = await settled(
+        () => generations.snapshot()[0]?.slots[0],
+        (value) => value.state === "ready" || value.state === "failed",
+      );
+
+      expect(ended.state).toBe(state);
+      expect(ended.failure?.message ?? null).toBe(message);
+      expect(await readFile(join(cwd, "src", "copy.ts"), "utf8")).toBe(
+        locked ? "export const COPY = {};\n" : original,
+      );
+      await generations.close();
+    }
   });
 
   test("a failed draft goes back to the placeholder, so it cannot break the others' pages", async () => {
