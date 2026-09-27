@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -19,10 +20,13 @@ import {
   agentSearchPath,
   detectAgents,
   execProbe,
+  pathLookup,
   readAgentChoice,
   retryFrom,
   saveAgentChoice,
   sessionFrom,
+  type AgentAuth,
+  type AuthProbe,
 } from "./agents.js";
 
 describe("KNOWN_AGENTS", () => {
@@ -220,6 +224,102 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   );
 
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
+});
+
+test("reads both of Cursor's real status answers", async () => {
+  // Read from cursor-agent 2026.09.02. Both exit 0, and the signed-out one
+  // contains "logged in".
+  for (const [stdout, auth] of [
+    ["✓ Logged in as someone@example.com\n", "ok"],
+    ["Not logged in\n", "signed-out"],
+  ] as const) {
+    const agents = await detectAgents(
+      async () => true,
+      async (binary) => (binary === "cursor-agent" ? { code: 0, stdout } : null),
+    );
+
+    expect(agents.find((agent) => agent.id === "cursor")?.auth).toBe(auth);
+  }
+});
+
+/**
+ * Opt-in: `LEGLAS_LIVE_AGENTS` names the CLIs you are signed in to, such as
+ * `claude,codex,cursor`. The tests above feed the detector canned answers;
+ * these ask the real CLIs, so a vendor that changes what its status command
+ * prints fails here instead of quietly changing what the picker shows.
+ */
+const liveAgents = (process.env.LEGLAS_LIVE_AGENTS ?? "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter((id) => id !== "");
+
+describe.skipIf(liveAgents.length === 0)("the real agent CLIs named in LEGLAS_LIVE_AGENTS", () => {
+  /** Each named CLI the real detector reads as anything but `expected`, with what it printed. */
+  async function misread(expected: AgentAuth): Promise<string[]> {
+    const answers = new Map<string, Awaited<ReturnType<AuthProbe>>>();
+
+    const agents = await detectAgents(pathLookup, async (binary, args) => {
+      // The detector gives up after 3 s. What matters here is what the CLIs
+      // print, and on a busy machine Cursor can take longer than that to say.
+      const answer = await execProbe(binary, args, 15_000);
+      answers.set(binary, answer);
+
+      return answer;
+    });
+
+    return liveAgents.flatMap((id) => {
+      const agent = agents.find((candidate) => candidate.id === id);
+
+      if (agent === undefined) {
+        return [`${id} is not one of ${Object.keys(KNOWN_AGENTS).join(", ")}`];
+      }
+
+      const { binary, authArgs } = KNOWN_AGENTS[agent.id];
+
+      if (!agent.available) return [`${agent.name}: ${binary} is not on the agent search path`];
+
+      if (agent.auth === expected) return [];
+
+      const answer = answers.get(binary) ?? null;
+
+      const printed =
+        answer === null
+          ? "gave no answer: it failed to start, was killed or ran past the deadline"
+          : `exited ${answer.code} and printed ${JSON.stringify(answer.stdout.trim())}`;
+
+      return [
+        `${agent.name}: \`${[binary, ...authArgs].join(" ")}\` ${printed}, read as ${agent.auth}, expected ${expected}`,
+      ];
+    });
+  }
+
+  test("read as signed in", async () => {
+    expect(await misread("ok")).toEqual([]);
+  });
+
+  test("read as signed out with no saved login", async () => {
+    // Empty homes in an otherwise empty environment sign all three out
+    // without touching the real logins. They must exist: Codex exits 1 for a
+    // missing CODEX_HOME. Codex and Cursor read any failed command as signed
+    // out, so this case needs the signed-in one to show the CLIs run.
+    const home = mkdtempSync(join(tmpdir(), "leglas-signed-out-"));
+    mkdirSync(join(home, ".claude"));
+    mkdirSync(join(home, ".codex"));
+    const real = process.env;
+    process.env = {
+      PATH: agentSearchPath(real),
+      HOME: home,
+      CLAUDE_CONFIG_DIR: join(home, ".claude"),
+      CODEX_HOME: join(home, ".codex"),
+    };
+
+    try {
+      expect(await misread("signed-out")).toEqual([]);
+    } finally {
+      process.env = real;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 test("resume argv continues the session without trying to replace its sandbox", () => {

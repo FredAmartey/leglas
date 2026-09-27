@@ -60,6 +60,12 @@ Each entry ends with which of the three it reaches.
 
 ### Fixed
 
+- **Leglas sees when Cursor is signed out.** When you're signed out of Cursor,
+  `cursor-agent status` says "Not logged in", and Leglas took the "logged in"
+  in it for a login, so the agent picker showed Cursor as ready until a run
+  failed. The picker now says "signed out" beside it, as it does for Claude
+  and Codex. (`leglas`)
+
 - **Leglas sees an app it started on IPv6.** When Leglas started your app and
   the app listened on `::1` alone, as Vite does on macOS, Leglas said "Dev
   server not responding" and showed the app's directions as stale, over pages

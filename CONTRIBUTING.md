@@ -63,6 +63,9 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 - If your change touches what the packages export, run `pnpm api:update`
   and commit `api-surface.txt`. It is the record of the public surface, and
   a patch release is refused when it has moved since the previous one.
+- If your change touches how Leglas reads an agent CLI's login, run the live
+  check as well, since CI has no agent CLIs. List only the ones you're signed
+  in to: `LEGLAS_LIVE_AGENTS=claude,codex pnpm vitest run agents/agents.test`.
 - Add an entry to the Unreleased section of `CHANGELOG.md`. Say what a
   user would notice and what to do about it, in plain words, and end it the
   way the existing entries do, with the name of what it reaches in backticks
