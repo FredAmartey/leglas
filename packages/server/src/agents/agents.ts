@@ -16,11 +16,10 @@ import {
 } from "../json.js";
 
 /**
- * Whether a CLI's saved login will actually carry a run. "ok" and
- * "signed-out" are the CLI's own answer; "unknown" is everything else: no
- * status command reached, output we don't understand, a probe that timed
- * out. Unknown never blocks anything, because a wrong "signed out" would
- * box a user out of an agent that works.
+ * Whether a CLI's saved login will carry a run. "ok" and "signed-out" are the
+ * CLI's own answer; "unknown" is anything else (no status command, output we
+ * don't understand, a timeout). Unknown never blocks anything, since a wrong
+ * "signed out" would box a user out of an agent that works.
  */
 export type AgentAuth = "ok" | "signed-out" | "unknown";
 
@@ -37,21 +36,18 @@ const codexEffortConfig = (effort: AgentEffort | null): string[] =>
   effort === null ? [] : ["-c", `model_reasoning_effort=${effort}`];
 
 /**
- * The embedded runner edits a live application. Workspace-write remains the
- * filesystem boundary, while loopback/network access lets Codex inspect the
- * dev server that is already running instead of trying and failing to boot a
- * second one. Model stays with the user's agent; reasoning effort is only
- * overridden when they explicitly choose one in Leglas.
+ * Network access lets Codex reach the dev server already running instead of
+ * failing to boot a second one; workspace-write stays the filesystem boundary.
+ * The model stays the user's, and effort is set only when they pick one in
+ * Leglas.
  */
 const CODEX_WORKSPACE_CONFIG = ["-c", "sandbox_workspace_write.network_access=true"] as const;
 
-// `args` feeds the embedded runner's JSONL parser, while `terminalArgs` feeds
-// a human-watched terminal. Keep the pair in step when an agent's CLI changes.
-// `authArgs` asks the CLI whether its login is live, and `authVerdict` reads
-// the answer; both are per-vendor because no two CLIs agree on the surface.
-// `resumeArgs` and `sessionFrom` exist where the vendor can continue a saved
-// session: a resumed turn skips the repo survey the first turn already paid
-// for, measured at 25-40% of a run's wall-clock.
+// `args` feeds the runner's JSONL parser and `terminalArgs` a terminal someone
+// watches; keep the pair in step when a CLI changes. `authArgs` and
+// `authVerdict` are per vendor because no two CLIs report a login the same way.
+// `resumeArgs` and `sessionFrom` exist where a vendor can resume a session: a
+// resumed turn skips the repo survey, measured at 25-40% of a run's wall-clock.
 export const KNOWN_AGENTS = {
   claude: {
     name: "Claude",
@@ -93,11 +89,10 @@ export const KNOWN_AGENTS = {
       "acceptEdits",
       ...effortFlag(effort),
     ],
-    // Non-interactive Claude cannot approve a Bash call: acceptEdits covers
-    // files, so a command the prompt requires is refused every time with
-    // nobody there to say yes. This allows exactly that command and nothing
-    // wider. Codex needs no equivalent, because workspace-write already lets
-    // it run commands.
+    // acceptEdits covers files only, and non-interactive Claude has nobody to
+    // approve a Bash call, so a command the prompt requires is refused every
+    // time. This allows that command and nothing wider. Codex needs none:
+    // workspace-write already lets it run commands.
     allowArgs: (commands: readonly string[]): string[] => [
       "--allowedTools",
       ...commands.map((command) => `Bash(${command} *)`),
@@ -127,14 +122,11 @@ export const KNOWN_AGENTS = {
     name: "Codex",
     binary: "codex",
     efforts: AGENT_EFFORTS,
-    // `--skip-git-repo-check` is what lets Codex run at all in a project the
-    // user never put under version control: without it codex-cli refuses
-    // before it reaches a model, with "Not inside a trusted directory and
-    // --skip-git-repo-check was not specified", and every Codex request in a
-    // non-git project fails for a reason nothing in Leglas explained. The flag
-    // moves that precondition and only that: `-s workspace-write` still
-    // confines writes to the project, so the sandbox boundary is unchanged,
-    // and in a git repository the flag does nothing at all.
+    // Without `--skip-git-repo-check`, codex-cli refuses to run in a project
+    // that isn't a git repository, before it reaches a model: "Not inside a
+    // trusted directory and --skip-git-repo-check was not specified". The
+    // sandbox, `-s workspace-write`, still confines writes to the project, and
+    // in a git repository the flag does nothing.
     args: (
       prompt: string,
       effort: AgentEffort | null = null,
@@ -194,13 +186,12 @@ export const KNOWN_AGENTS = {
     name: "Cursor",
     binary: "cursor-agent",
     efforts: [],
-    // `--trust` on every invocation. Without it, print mode stops at a
-    // "Workspace Trust Required" prompt nothing can answer and exits 1 with
-    // no events, in any directory Cursor has not been trusted for by hand:
-    // measured against cursor-agent 2026.09.02, one second, zero output. The
-    // project is the one the user pointed Leglas at, which is the trust the
-    // flag grants. It is the only permission the run needs: with it alone,
-    // the edit and the shell command in the same run both executed.
+    // Without `--trust`, print mode stops at a "Workspace Trust Required"
+    // prompt nothing can answer and exits 1 with no events, in any directory
+    // not trusted by hand (cursor-agent 2026.09.02). The project is the one the
+    // user pointed Leglas at, which is all the flag trusts, and the flag is the
+    // only permission a run needs: with it, an edit and a shell command in the
+    // same run both ran.
     args: (
       prompt: string,
       _effort: AgentEffort | null = null,
@@ -211,16 +202,14 @@ export const KNOWN_AGENTS = {
       _effort: AgentEffort | null = null,
       _images: readonly string[] = [],
     ): string[] => ["-p", prompt, "--trust"],
-    // `--resume [chatId]` is documented alongside `--continue` in the CLI
-    // parameter reference, and every stream-json event carries the
-    // `session_id` to feed it. Cursor exposes no persistent transport the way
-    // Claude and Codex do, so its process still starts per request; what this
-    // buys is the same thing a resumed turn buys them, skipping the repo
-    // survey the first turn already paid for.
+    // `--resume [chatId]` is documented beside `--continue`, and every
+    // stream-json event carries the `session_id` it takes. Cursor's process
+    // still starts per request, but a resumed turn skips the repo survey, as it
+    // does for Claude and Codex.
     //
-    // Images are accepted and ignored, like its other argument builders:
-    // `cursor-agent` documents no flag for them, and the capture paths reach
-    // it as text in the prompt either way.
+    // Images are accepted and ignored, as in its other argument builders:
+    // `cursor-agent` documents no flag for them, and the capture paths reach it
+    // as text in the prompt.
     resumeArgs: (
       sessionId: string,
       prompt: string,
@@ -262,12 +251,11 @@ export type KnownAgentId = keyof typeof KNOWN_AGENTS;
 export type AgentChoice = KnownAgentId | "custom";
 
 /**
- * Whether Leglas can tell from a vendor's output that it edited a file.
- *
- * Only a vendor whose event shape has been read against the real CLI carries
- * this. It gates the runner's one cold rerun after a dead session: rerunning
- * a run that had already edited can stack half-applied changes, so a vendor
- * whose edits Leglas cannot see is never rerun on its own.
+ * Whether Leglas can tell from a vendor's output that it edited a file. Only
+ * an adapter whose event shape was read against the real CLI may set the flag.
+ * It gates the runner's one cold rerun after a dead session: rerunning a run
+ * that edited can stack half-applied changes, so a vendor whose edits Leglas
+ * can't see is never rerun on its own.
  */
 export function activityVerified(agent: AgentChoice): boolean {
   if (agent === "custom") return false;
@@ -303,17 +291,13 @@ export type AuthProbe = (binary: string, args: readonly string[]) => Promise<Pro
 const PROBE_TIMEOUT_MS = 3000;
 
 /**
- * One status command, capped stdout, hard deadline. A CLI that hangs on its
- * own status question must never hold the agents endpoint hostage; it just
- * reads as unknown.
- *
- * The deadline answers as well as kills. "close" waits for the child's output
- * streams to end, not merely for the child to exit, so a wrapper script whose
- * own child outlives it keeps the pipe open and that event never arrives. The
- * kill alone then left this promise pending for good, and because the agents
- * endpoint holds one in-flight probe for the whole process, every later
- * request queued behind it: the chooser in the composer simply stopped
- * loading, for the life of the server.
+ * One status command, capped stdout, hard deadline: a CLI that hangs on its
+ * status question reads as unknown instead of holding the agents endpoint. The
+ * deadline resolves as well as kills, because "close" waits for the output
+ * streams and a wrapper whose child outlives it keeps the pipe open. Without
+ * that, the endpoint's one in-flight probe would never settle, every later
+ * request would wait on it, and the composer's chooser would stop loading for
+ * the life of the server.
  */
 export function execProbe(
   binary: string,
@@ -357,11 +341,11 @@ export function execProbe(
 /**
  * The places agent CLIs commonly install themselves outside a service's PATH.
  *
- * A terminal normally inherits additions from .zprofile, .bashrc or a version
- * manager. A detached Leglas server does not, which made a CLI available in
- * the user's terminal disappear from the picker and then fail to spawn. Keep
- * the inherited PATH first, then add only conventional per-user and system
- * bin directories. Detection and execution both use this exact environment.
+ * A detached Leglas server doesn't inherit what .zprofile, .bashrc or a
+ * version manager add, so without these a CLI that works in the user's
+ * terminal is missing from the picker and fails to spawn. The inherited PATH
+ * stays first, followed only by conventional per-user and system bin
+ * directories; detection and execution both use this environment.
  */
 export function agentSearchPath(
   env: NodeJS.ProcessEnv = process.env,
@@ -447,10 +431,10 @@ export async function pathLookup(
 }
 
 /**
- * Report every built-in adapter: whether its binary can be executed, and
- * whether its login is live. Probes run in parallel, so the wall-clock cost
- * is the slowest vendor's status command, about a second, and the caller is
- * expected to cache the answer rather than pay it per request.
+ * Every built-in adapter: whether its binary can run and whether its login is
+ * live. Probes run in parallel, so a call costs the slowest status command,
+ * about a second, and callers cache the answer instead of paying it per
+ * request.
  */
 export async function detectAgents(
   lookup: BinaryLookup = pathLookup,
@@ -502,11 +486,9 @@ function shownPath(value: JsonValue | undefined, cwd: string): string | null {
 }
 
 /**
- * The command itself, cleaned for a status line: the shell wrapper agents
- * put around everything says nothing, and the first 48 characters of what
- * remains say everything ("npm test", "grep -r Hero src"). "running a
- * command" was the label before, and it managed to be true of every command
- * while describing none of them.
+ * The command itself for a status line: the shell wrapper agents put around
+ * everything is dropped, and the first 48 characters of its first line say
+ * enough ("npm test", "grep -r Hero src").
  */
 function shownCommand(value: JsonValue | undefined): string | null {
   let command = Array.isArray(value)
@@ -595,20 +577,14 @@ function codexActivity(event: JsonRecord, cwd: string): string | null {
 }
 
 /**
- * Cursor announces tool use in events of its own rather than inside the
- * assistant message, which is where reading it as Claude's shape went wrong:
- * every tool call read as nothing, so a Cursor run showed no activity at all
- * and, worse, never looked like it had edited anything.
- *
- * Read against cursor-agent 2026.09.02 rather than its documentation, which
- * corrected two things. The wrapper is not one key: the tool sits beside
- * `toolCallId`, `startedAtMs` and `hookAdditionalContexts`, so the tool is the
- * key that ends in `ToolCall`, wherever it sits. And the tool that changes a
- * file is `editToolCall`, with the path in `args.path`; `writeToolCall` is
- * kept in case a version emits it, but the documented name was not what the
- * CLI sent. Reading and running a shell command are `readToolCall` and
- * `shellToolCall`, with `args.path` and `args.command`. Anything else is
- * named without guessing what it did.
+ * Cursor reports tool use in `tool_call` events of its own, not inside the
+ * assistant message as Claude does. Read against cursor-agent 2026.09.02 rather
+ * than its docs: the tool is whichever key ends in `ToolCall` (it sits beside
+ * `toolCallId`, `startedAtMs` and `hookAdditionalContexts`), a file change is
+ * `editToolCall` with `args.path` (the documented `writeToolCall` is kept in
+ * case a version sends it), and `readToolCall` and `shellToolCall` carry
+ * `args.path` and `args.command`. Anything else is named without guessing what
+ * it did.
  */
 function cursorActivity(event: JsonRecord, cwd: string): string | null {
   if (event.type !== "tool_call") return null;
@@ -624,9 +600,8 @@ function cursorActivity(event: JsonRecord, cwd: string): string | null {
   const tool = key.replace(/ToolCall$/, "");
 
   if (tool === "edit" || tool === "write") {
-    // An edit call is an edit attempt whether or not its path resolved, and
-    // the runner reads "editing" off the label to know a run has touched a
-    // file. A label that said anything else here would let a run that had
+    // Still "editing" when the path didn't resolve: the runner reads that word
+    // to know a run touched a file, and anything else would let a run that
     // edited be rerun on top of its own change.
     const path = shownPath(args?.path, cwd);
 
@@ -734,9 +709,9 @@ export function activityFrom(agent: AgentChoice, line: string, cwd = process.cwd
 }
 
 /**
- * The session id one JSONL line names, so a later request can resume the
- * conversation instead of paying the survey again. Only vendors whose CLIs
- * expose a resume surface report one; everyone else stays null and cold.
+ * The session id a JSONL line names, so a later request can resume the
+ * conversation instead of surveying again. Only vendors with a resume surface
+ * report one; the rest stay null.
  */
 export function sessionFrom(agent: AgentChoice, line: string): string | null {
   if (agent === "custom") return null;
@@ -754,18 +729,14 @@ export function sessionFrom(agent: AgentChoice, line: string): string | null {
 }
 
 /**
- * The retry a vendor CLI is announcing, when it announces one.
+ * The retry a vendor CLI is announcing, if it announces one.
  *
  * Claude Code emits `system`/`api_retry` per attempt while it backs off, and
- * that event is the only thing Leglas hears during the stall: nothing reaches
- * stderr, and no other stdout event fires, so a run against an overloaded
- * provider looks identical to a run that is thinking. Measured against a
- * local endpoint returning 529: ten attempts with delays climbing 0.6s, 1s,
- * 2s, 4.9s, 9.2s, 19s, 32.6s, 35.3s, which is where the ~200s wait comes
- * from before the CLI exits nonzero.
- *
- * Codex retries its own requests silently, so a Codex stall stays opaque and
- * this returns nothing for it. That is the vendor's surface, not a gap here.
+ * nothing else reaches Leglas during the stall, so without it a run against an
+ * overloaded provider looks like one that is thinking. Against a local
+ * endpoint answering 529 that was ten attempts over about 200 s, then a
+ * nonzero exit. Cursor's lines are read the same way. Codex retries its own
+ * requests silently, so a Codex stall stays opaque.
  */
 export function retryFrom(agent: AgentChoice, line: string): RetryNotice | null {
   if (agent !== "claude" && agent !== "cursor") return null;

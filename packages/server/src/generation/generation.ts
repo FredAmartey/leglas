@@ -48,9 +48,8 @@ import { isJsonRecord, isString, parseJson } from "../json.js";
 export const MAX_DIRECTIONS = 6;
 
 /**
- * The longest a build may run. Medium-effort builds took 36 to 68 seconds in
- * measurement, so five minutes means something went wrong, and ending it
- * keeps the promise that nobody waits half an hour for a draft.
+ * The longest a build may run. Measured medium-effort builds took 36 to 68 s,
+ * so five minutes means something went wrong.
  */
 export const BUILD_DEADLINE_MS = 5 * 60_000;
 
@@ -624,10 +623,9 @@ export function createGenerations(deps: GenerationDeps): Generations {
 
   /**
    * Every piece of work on a slot holds the attempt it started under. A stop,
-   * a retry or a replace starts a new one, and work still running for an
-   * older attempt finds out at its next step and leaves the slot alone. A
-   * state string cannot do this: a retry sets "building" again, which is
-   * exactly what stale work expects to see.
+   * retry or replace starts a new one, and older work finds out at its next
+   * step and leaves the slot alone. A state string can't do this: a retry sets
+   * "building" again, which is what stale work expects to see.
    */
   const begin = (live: Live, slot: GenerationSlot): number => {
     const attempt = (live.attempts.get(slot.key) ?? 0) + 1;
