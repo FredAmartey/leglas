@@ -107,10 +107,8 @@ describe("KNOWN_AGENTS", () => {
 });
 
 test("codex is told it may run outside a git repository", () => {
-  // codex-cli 0.147.0 refuses before it contacts a model: "Not inside a
-  // trusted directory and --skip-git-repo-check was not specified." Every
-  // codex argv Leglas builds has to carry the flag, or the whole vendor is
-  // unusable in a project the user never put under version control.
+  // Every codex argv needs the flag: without it codex-cli 0.147.0 refuses to
+  // run outside a git repository, before it contacts a model.
   for (const argv of [
     KNOWN_AGENTS.codex.args("make it warmer"),
     KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
@@ -206,10 +204,9 @@ test("detectAgents probes binaries and logins through the injected hooks", async
 });
 
 test("a status command whose child outlives it still answers, as unknown", async () => {
-  // The shape that wedged the agents endpoint: the command exits at once, but
-  // something it started holds the output pipe open, so "close" never fires.
-  // Waiting on that event alone left the probe pending for the life of the
-  // process and the composer's chooser never loaded again.
+  // The command exits at once but something it started holds the output pipe
+  // open, so "close" never fires; waiting on that event alone would leave the
+  // probe pending for good.
   const started = Date.now();
   const result = await execProbe("/bin/sh", ["-c", "sleep 30 & echo hello"], 150);
 
@@ -362,8 +359,7 @@ test("sessionFrom reads each vendor's own id and nothing else", () => {
   expect(sessionFrom("claude", "not json")).toBeNull();
   expect(sessionFrom("custom", JSON.stringify({ session_id: "abc" }))).toBeNull();
   // Cursor names its session on every stream-json event, which is what
-  // `--resume` takes, so a second request continues the chat instead of
-  // surveying the repository again.
+  // `--resume` takes.
   expect(sessionFrom("cursor", JSON.stringify({ session_id: "abc" }))).toBe("abc");
 });
 
@@ -513,13 +509,11 @@ describe("activityFrom", () => {
   });
 
   test("reads Cursor's own tool_call events, which are not Claude's shape", () => {
-    // Read as Claude's shape these produced nothing at all, so a Cursor run
-    // showed no activity and never looked like it had touched a file. These
-    // three are what cursor-agent 2026.09.02 sent for one run that read a
-    // file, changed it and ran a command, with only the paths renamed: the
-    // tool sits beside `toolCallId`, `startedAtMs` and `hookAdditionalContexts`,
-    // and the tool that changes a file is `editToolCall`, not the documented
-    // `writeToolCall`.
+    // What cursor-agent 2026.09.02 sent for one run that read a file, changed
+    // it and ran a command, paths renamed; read as Claude's shape they give
+    // nothing. The tool sits beside `toolCallId`, `startedAtMs` and
+    // `hookAdditionalContexts`, and a change is `editToolCall`, not the
+    // documented `writeToolCall`.
     const cwd = "/home/someone/app";
 
     const read = JSON.stringify({
@@ -586,9 +580,8 @@ describe("activityFrom", () => {
   });
 
   test("a Cursor edit with no path is still an edit", () => {
-    // The runner reads "editing" off the label to know a run has touched a
-    // file; an edit call whose path did not resolve must still say so, or a
-    // run that edited could be rerun on top of its own change.
+    // An edit call whose path didn't resolve still says "editing": the runner
+    // reads that word to know a run touched a file.
     const noPath = JSON.stringify({
       type: "tool_call",
       subtype: "started",
@@ -607,8 +600,7 @@ describe("activityFrom", () => {
   });
 
   test("finds the Cursor tool wherever it sits among the wrapper's other keys", () => {
-    // Taking the first key was right only by the luck of key order. Put the
-    // bookkeeping first and the tool must still be the one that is read.
+    // Bookkeeping keys first: the tool must still be the key that's read.
     const line = JSON.stringify({
       type: "tool_call",
       subtype: "started",

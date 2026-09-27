@@ -6,13 +6,11 @@ import { fallbackKey, placeholderSource, readDirections } from "./switch-file.js
 import { isJsonRecord, parseJson } from "../json.js";
 
 /**
- * What a builder is told about the project, read without a model.
- *
- * Measured on a copy of a real project (2026-09-24): builders told nothing
- * wrote on-brand-looking pages in someone else's brand, 0 of 3 using the
- * project's copy or fonts; given these facts, 3 of 3 did, at no cost in time.
- * Reading them is deterministic, so every build gets the same picture and no
- * builder spends turns exploring.
+ * What a builder is told about the project, read without a model, so every
+ * build gets the same picture and none spends turns exploring. Told nothing,
+ * builders used the project's copy or fonts in 0 of 3 builds on a copy of a
+ * real project (2026-09-24); given these facts, 3 of 3 did, at no cost in
+ * time.
  */
 export type ProjectFacts = {
   dependencies: string[];
