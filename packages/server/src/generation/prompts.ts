@@ -102,6 +102,8 @@ export function buildPrompt(input: BuildInput): string {
 
   return `${what}${product}${rivals}
 
+Anything you draw is SVG or CSS written by hand, and a thing drawn that way from simple shapes (food, a pan, a fridge, a window, a sky, a machine, a person) looks amateur beside a finished layout, even as a frame around a photograph. So draw no such picture. Show real things with the project's own photographs when it has them, and carry the rest of the idea with type, colour and layout, or with a diagram, chart or piece of interface made with care.
+
 Everything you need is in this message, so do not look around the project. It is ${input.stack}. Your file is ${input.file}. It holds a placeholder: read it once, then replace it in a single write with a component exported as ${input.name}. Keep every new style in that file, in a <style> element or inline.
 
 ${input.facts}

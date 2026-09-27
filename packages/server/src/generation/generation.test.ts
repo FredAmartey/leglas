@@ -349,8 +349,104 @@ describe("the facts a builder is given", () => {
     expect(facts.stylesheet?.path).toBe("src/styles.css");
     expect(facts.stylesheet?.fonts).toEqual(["House Sans"]);
     expect(facts.stylesheet?.tokens).toContain("--accent: #d9542b;");
-    expect(facts.images).toEqual(["/photos/plate.jpg"]);
+    expect(facts.images).toEqual([{ path: "/photos/plate.jpg", alt: null }]);
     expect(facts.example?.path).toBe(".leglas/variants/hero/current.tsx");
+  });
+
+  test("describe each image with the alt text the app's code gives that image alone", async () => {
+    const cwd = await project("claude");
+
+    for (const name of ["bread.jpg", "fallback.jpg"])
+      await writeFile(join(cwd, "public", "photos", name), "not really a jpeg");
+    // Not one of these alts can be tied to a single image, so none is used.
+    await writeFile(
+      join(cwd, "src", "card.tsx"),
+      `const plate = "/photos/plate.jpg";
+const hero = { src: heroSrc, alt: "Harbour at dusk" }
+const spare = "/photos/fallback.jpg"
+const first = { src: "/photos/fallback.jpg" }
+const second = { src: dynamic, alt: "A portrait" }
+
+export const Card = () => <img src={plate} alt="Dining room" />;
+export const Swap = () => <Compare srcBefore="/photos/plate.jpg" srcAfter={after} alt="Fresh bread" />;
+export const RECIPE = { image: "/photos/plate.jpg", cover: "/photos/bread.jpg", alt: "Leeks, then bread" };
+export const Lazy = () => <img src={hero} data-src="/photos/fallback.jpg" alt="Hero portrait" />;
+export const Avatar = ({ photo }) => <img src={photo ?? "/photos/fallback.jpg"} alt="Your profile photo" />;
+export const Team = () => <img src={team} onError={(event) => swap(event, "/photos/fallback.jpg")} alt="Team photo" />;
+export const Wash = () => <img data-alt="Decorative" src="/photos/fallback.jpg" />;
+export const Sam = () => <img src={user.avatar} onError={() => swapTo({ src: "/photos/fallback.jpg" })} alt="Sam at his desk" />;
+export const SLIDE = { src: slide, onError: (event) => (event.target.src = "/photos/fallback.jpg"), alt: "A slide" };
+export const TILE = { src: "/photos/fallback.jpg", onError: (event) => (event.target.alt = "A missing picture") };
+`,
+    );
+    await writeFile(
+      join(cwd, "src", "choose.tsx"),
+      `export function choose(kind) {
+  if (kind === "plate") return { src: "/photos/plate.jpg" }
+  return { src: chosen, alt: "Chosen for you" }
+}
+`,
+    );
+    await writeFile(
+      join(cwd, "src", "menu.tsx"),
+      `export const SHOTS = [
+  { src: "/photos/bread.jpg", alt: "The baker's sourdough loaf" },
+  { src: "/photos/plate.jpg", alt: 'Leeks on the cook\\'s blue plate' },
+];
+`,
+    );
+
+    const facts = await readProjectFacts(cwd, ".leglas/variants/hero/switch.tsx");
+
+    expect([...facts.images].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "/photos/bread.jpg", alt: "The baker's sourdough loaf" },
+      { path: "/photos/fallback.jpg", alt: null },
+      { path: "/photos/plate.jpg", alt: "Leeks on the cook's blue plate" },
+    ]);
+    expect(factsBlock(facts, "hero")).toContain(
+      '/photos/bread.jpg ("The baker\'s sourdough loaf"), /photos/fallback.jpg',
+    );
+  });
+
+  test("read the app's code before its directions, and no direction the switch dropped", async () => {
+    const cwd = await project("claude");
+    const heroes = join(cwd, "src", "heroes");
+
+    await mkdir(heroes, { recursive: true });
+
+    for (const name of ["bread.jpg", "pear.jpg"])
+      await writeFile(join(cwd, "public", "photos", name), "not really a jpeg");
+
+    await writeFile(join(heroes, "switch.tsx"), SWITCH);
+    await writeFile(
+      join(heroes, "current.tsx"),
+      'export function Current() {\n  return <img src="/photos/pear.jpg" alt="A pear on a slate" />;\n}\n',
+    );
+    // Builds guess alt text: one direction still on the switch, one taken off it.
+    await writeFile(
+      join(heroes, "hero-a.tsx"),
+      'export function HeroA() {\n  return <img src="/photos/plate.jpg" alt="A skillet seen from above" />;\n}\n',
+    );
+    await writeFile(
+      join(heroes, "a-dropped.tsx"),
+      'export function Dropped() {\n  return <img src="/photos/bread.jpg" alt="A crowded kitchen counter" />;\n}\n',
+    );
+    await writeFile(
+      join(cwd, "src", "menu.tsx"),
+      `export const SHOTS = [
+  { src: "/photos/bread.jpg", alt: "A torn sourdough loaf" },
+  { src: "/photos/plate.jpg", alt: "Braised leeks on a blue plate" },
+];
+`,
+    );
+
+    const facts = await readProjectFacts(cwd, "src/heroes/switch.tsx");
+
+    expect([...facts.images].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "/photos/bread.jpg", alt: "A torn sourdough loaf" },
+      { path: "/photos/pear.jpg", alt: "A pear on a slate" },
+      { path: "/photos/plate.jpg", alt: "Braised leeks on a blue plate" },
+    ]);
   });
 
   test("say where a long direction was cut, so a build never takes it for the whole", async () => {

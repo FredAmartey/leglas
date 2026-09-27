@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 
 import { fallbackKey, placeholderSource, readDirections } from "./switch-file.js";
@@ -15,7 +15,8 @@ import { isJsonRecord, parseJson } from "../json.js";
 export type ProjectFacts = {
   dependencies: string[];
   stylesheet: { path: string; fonts: string[]; tokens: string } | null;
-  images: string[];
+  /** `alt` is what the project's own code says the image shows, or null when it says nothing. */
+  images: { path: string; alt: string | null }[];
   /** `key` is the direction it was read from, which is not always the one asked for. */
   example: { key: string; path: string; source: string } | null;
 };
@@ -124,6 +125,129 @@ async function images(cwd: string): Promise<string[]> {
   return found;
 }
 
+const CODE = /\.(tsx|jsx|ts|js|mjs|vue|svelte|astro|html|mdx)$/i;
+
+/**
+ * Only the app's source roots, as `findSwitch` walks: a whole-project walk
+ * reaches `src-tauri/target`.
+ */
+const CODE_ROOTS = ["src", "app", "components", "pages"];
+
+const CODE_LIMIT = 400;
+
+/** A generated data file can run to megabytes; alt text lives in components. */
+const CODE_BYTES = 256 * 1024;
+
+const ALT = /(?<![\w.-])alt["']?\s*[=:]\s*\{?\s*(["'`])((?:\\.|(?!\1)[^\\\n]){3,160})\1/;
+
+/** One tag, its attribute values quoted or in braces, two deep for `style={{…}}`. */
+const TAG =
+  /<[A-Za-z][\w.:-]*(?:"[^"]*"|'[^']*'|`[^`]*`|\{(?:[^{}]|\{[^{}]*\})*\}|[^<>{}"'`])*\/?>/g;
+
+/** One object with no object inside it, as each item in a list of images is. */
+const FLAT_OBJECT = /\{[^{}]*\}/g;
+
+/** A brace group in a tag other than one string: a handler, a style or an expression. */
+const EXPRESSION = /\{(?!\s*(["'`])[^"'`]*\1\s*\})(?:[^{}]|\{[^{}]*\})*\}/g;
+
+/**
+ * Keys whose direct value is the image a tag or object shows. Exact, since
+ * `srcBefore`, `data-src` or `event.target.src` may hold another image.
+ */
+const SOURCE_KEY =
+  /(?<![\w.-])(?:src|image|img|photo|poster|cover|href)["']?\s*[=:]\s*\{?\s*["'`]$/i;
+
+async function codeFiles(cwd: string, skip: (path: string) => boolean): Promise<string[]> {
+  const found: string[] = [];
+
+  const walk = async (folder: string): Promise<void> => {
+    let items;
+
+    try {
+      items = await readdir(join(cwd, folder), { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const item of items.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (found.length >= CODE_LIMIT || item.name.startsWith(".") || item.name === "node_modules")
+        continue;
+      const path = join(folder, item.name);
+
+      if (item.isDirectory()) await walk(path);
+      else if (CODE.test(item.name) && !skip(path)) found.push(path);
+    }
+  };
+
+  for (const root of CODE_ROOTS) await walk(root);
+
+  return found;
+}
+
+function names(piece: string, path: string): boolean {
+  for (let at = piece.indexOf(path); at !== -1; at = piece.indexOf(path, at + 1)) {
+    if (SOURCE_KEY.test(piece.slice(Math.max(0, at - 48), at))) return true;
+  }
+
+  return false;
+}
+
+/**
+ * An alt describes an image only when one tag or one flat object holds both,
+ * the image as its `src` or the like, and names no other. Anything else gives
+ * nothing: a fallback, a variable or a neighbour's path would take its words.
+ */
+function readAlts(source: string, paths: readonly string[], alts: Map<string, string>): void {
+  const pieces = [
+    ...[...source.matchAll(TAG)].map(([tag]) => tag.replace(EXPRESSION, "{}")),
+    ...[...source.matchAll(FLAT_OBJECT)].map(([object]) => object),
+  ];
+
+  for (const piece of pieces) {
+    const alt = ALT.exec(piece)?.[2]?.replace(/\\(.)/g, "$1").trim();
+
+    if (alt === undefined || alt.includes("${")) continue;
+    const [only, ...more] = paths.filter((path) => names(piece, path));
+
+    if (only !== undefined && more.length === 0 && !alts.has(only)) alts.set(only, alt);
+  }
+}
+
+/**
+ * Builds can't see the images, so they're told the alt text the project gives
+ * each. Directions are read last, in switch order, and nothing else in the
+ * switch's folder is: builds append theirs and guess, and a direction taken
+ * off the switch keeps its file.
+ */
+async function describedImages(cwd: string, switchPath: string): Promise<ProjectFacts["images"]> {
+  const paths = await images(cwd);
+
+  if (paths.length === 0) return [];
+  const source = await text(join(cwd, switchPath));
+  const directions: string[] = [];
+
+  for (const direction of source === null ? [] : readDirections(source)) {
+    const path = await componentFile(cwd, switchPath, direction.from);
+
+    if (path !== null) directions.push(normalize(path));
+  }
+
+  const folder = normalize(dirname(switchPath));
+  const skip = (path: string) => dirname(path) === folder || directions.includes(path);
+  const alts = new Map<string, string>();
+
+  for (const file of [...(await codeFiles(cwd, skip)), ...directions]) {
+    if (alts.size === paths.length) break;
+
+    const size = (await stat(join(cwd, file)).catch(() => null))?.size ?? Infinity;
+    const body = size > CODE_BYTES ? null : await text(join(cwd, file));
+
+    if (body !== null) readAlts(body, paths, alts);
+  }
+
+  return paths.map((path) => ({ path, alt: alts.get(path) ?? null }));
+}
+
 /** Resolves an import in `from` to a project-relative file. */
 export async function componentFile(
   cwd: string,
@@ -227,7 +351,7 @@ export async function readProjectFacts(
             ],
             tokens: /:root\s*\{[\s\S]*?\n\}/.exec(css)?.[0] ?? "",
           },
-    images: await images(cwd),
+    images: await describedImages(cwd, switchPath),
     example: await example(cwd, switchPath, prefer),
   };
 }
@@ -262,8 +386,17 @@ export function factsBlock(
       lines.push("It sets these tokens:", "```css", facts.stylesheet.tokens, "```");
   }
 
-  if (facts.images.length > 0)
-    lines.push(`Images the project already serves from its root: ${facts.images.join(", ")}.`);
+  if (facts.images.length > 0) {
+    const list = facts.images
+      .map((image) => (image.alt === null ? image.path : `${image.path} ("${image.alt}")`))
+      .join(", ");
+
+    lines.push(
+      facts.images.some((image) => image.alt !== null)
+        ? `Images the project already serves from its root, with the alt text its code gives them: ${list}.`
+        : `Images the project already serves from its root: ${list}.`,
+    );
+  }
 
   if (facts.example !== null) {
     lines.push(
