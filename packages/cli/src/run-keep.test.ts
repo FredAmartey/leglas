@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -61,6 +61,26 @@ describe("runKeep", () => {
     expect(envelope.to).toBe("src/components/hero.tsx");
     expect(existsSync(join(cwd, "src/components/hero.tsx"))).toBe(true);
     expect(existsSync(join(cwd, ".leglas/variants/hero"))).toBe(false);
+  });
+
+  test("notes the keep, and where it went, in the record of the set that built it", async () => {
+    const cwd = await project();
+    mkdirSync(join(cwd, ".leglas/generations/gen-1"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".leglas/generations/gen-1/set.json"),
+      JSON.stringify({ directions: [{ key: "hero-aurora", attempts: [{ title: "Aurora" }] }] }),
+    );
+
+    await keep(cwd, "src/components/hero.tsx");
+
+    expect(
+      readFileSync(join(cwd, ".leglas/generations/gen-1/events.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toMatchObject([
+      { kind: "keep", direction: "hero-aurora", detail: "src/components/hero.tsx" },
+    ]);
   });
 
   // Agents tend to pass absolute paths.

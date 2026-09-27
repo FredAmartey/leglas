@@ -40,6 +40,7 @@ export default {
 | `devCommand`     | with `branch` | How to start the app. Must contain `{port}`.                            |
 | `installCommand` | no            | Defaults to `npm install`                                               |
 | `scanPreviews`   | no            | Set `false` to skip background duplicate scans for expensive apps      |
+| `recordSets`     | no            | Set `false` to keep no record of the sets of directions Leglas builds  |
 
 Leglas proxies whatever answers on `devServer`. If that port turns out to
 be served from outside your project, Leglas says so and points at

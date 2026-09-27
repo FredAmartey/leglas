@@ -44,6 +44,8 @@ export type LeglasConfig = {
   previews: Preview[];
   /** Whether the shell should render unopened directions to detect duplicates. */
   scanPreviews?: boolean;
+  /** Whether Leglas keeps a record of each set of directions it builds. */
+  recordSets?: boolean;
   /** How to start the app in a checkout Leglas manages. `{port}` is required. */
   devCommand: string | undefined;
   installCommand: string;
@@ -273,10 +275,17 @@ export function normalizeConfig(
     errors.push("scanPreviews must be a boolean.");
   }
 
+  const recordSets = source["recordSets"] ?? true;
+
+  if (!isBoolean(recordSets)) {
+    errors.push("recordSets must be a boolean.");
+  }
+
   if (
     errors.length > 0 ||
     !isString(devServer) ||
     !isBoolean(scanPreviews) ||
+    !isBoolean(recordSets) ||
     !isString(installCommand) ||
     !isString(logDir)
   )
@@ -287,6 +296,7 @@ export function normalizeConfig(
       devServer,
       previews,
       scanPreviews,
+      recordSets,
       devCommand: isString(devCommand) ? devCommand : undefined,
       installCommand,
       logDir,

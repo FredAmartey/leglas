@@ -60,6 +60,8 @@ class FakePage implements CdpPage {
   documentStatus = 200;
   /** Load errors to emit instead of the default console line, as text or with the resource they are about. */
   loadErrors: (string | { text: string; url: string })[] | null = null;
+  /** Whether a JPEG screenshot fails, as it does when the target closes. */
+  jpegFails = false;
 
   async send<T = unknown>(method: string, params: JsonRecord = {}): Promise<T> {
     this.sent.push({ method, params });
@@ -98,6 +100,8 @@ class FakePage implements CdpPage {
     }
 
     if (method === "Page.captureScreenshot") {
+      if (params.format === "jpeg" && this.jpegFails) throw new Error("Target closed");
+
       // SAFETY: `Page.captureScreenshot` returns base64 image data; these bytes are the fixture image.
       return { data: Buffer.from("png-data").toString("base64") } as T;
     }
@@ -140,6 +144,27 @@ class FakePage implements CdpPage {
 }
 
 describe("capturePage", () => {
+  test("a picture for keeping that fails leaves the capture as it was", async () => {
+    const page = new FakePage();
+    page.jpegFails = true;
+
+    const browser: Browser = {
+      closed: false,
+      close: async () => {},
+      withPage: async (work) => work(page),
+    };
+
+    const captured = await capturePage(browser, {
+      url: "http://127.0.0.1/page",
+      width: 400,
+      jpeg: true,
+    });
+
+    expect(captured.frame.png.toString()).toBe("png-data");
+    expect(captured.errors).toEqual(["boom details"]);
+    expect(captured.jpeg).toBeNull();
+  });
+
   test("takes one frame and ordered crops while collecting load errors", async () => {
     const page = new FakePage();
 

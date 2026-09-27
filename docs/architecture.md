@@ -91,7 +91,7 @@ rest by area:
 | `config/` | Finding and loading `leglas.config.ts`, and what is local to one machine: added directions and renames |
 | `branches/` | Deciding whether a direction needs its own branch, and the worktree, install and dev server when it does |
 | `share/` | The share itself and the tunnel it borrows |
-| `generation/` | Building a set of directions with Claude or Codex: each agent's restricted runs, the plan, the builds, the render check that calls one ready and the slots in the switch file |
+| `generation/` | Building a set of directions with Claude or Codex: each agent's restricted runs, the plan, the builds, the render check that calls one ready, the slots in the switch file and the record of each set |
 
 At the top, `server.ts` is the HTTP server and every API route, `proxy.ts`
 forwards to the dev server, `live.ts` is the WebSocket, `server-info.ts`
@@ -148,6 +148,7 @@ main entries:
 | `annotations.json` | Notes left on a preview that have not been sent yet |
 | `captures/` and `references/` | Screenshots taken for a request, and images a person attached to one |
 | `variants/` | Switchers scaffolded by `leglas new` |
+| `generations/` | A record of each set of directions Leglas built, with pictures; the newest 100 |
 | `worktrees/` | Checkouts for directions that live on their own branch |
 | `watch.json` | The agent command chosen for this project |
 | `server.json` | Where the running server is, so a command in another process can find it |

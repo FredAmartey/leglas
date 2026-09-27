@@ -4,6 +4,7 @@ import {
   LOCAL_PREVIEWS_PATH,
   dropLocalPreviews,
   loadConfig,
+  noteDirections,
   readLocalPreviews,
   readRenames,
 } from "@leglas/server";
@@ -69,6 +70,7 @@ export async function runRemove(
   }
 
   await dropLocalPreviews(options.cwd, titles);
+  await noteDirections(options.cwd, titles, "remove");
 
   if (options.json) {
     deps.log(JSON.stringify({ ok: true, removed: titles }));

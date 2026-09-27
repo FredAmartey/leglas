@@ -42,6 +42,16 @@ describe("normalizeConfig", () => {
     expect(result.config).toBeNull();
   });
 
+  test("rejects a non-boolean record setting", () => {
+    const result = normalizeConfig({
+      recordSets: "no",
+      previews: [{ title: "App", url: "/" }],
+    });
+
+    expect(result.errors).toContain("recordSets must be a boolean.");
+    expect(result.config).toBeNull();
+  });
+
   test("treats a missing config as one preview of the app root", () => {
     const result = normalizeConfig(undefined);
 
