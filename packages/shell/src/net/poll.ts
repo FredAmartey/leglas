@@ -31,14 +31,6 @@ export function wasAborted(error: unknown): error is Error & { name: "AbortError
   return error instanceof Error && error.name === "AbortError";
 }
 
-/** Injected so tests can run an hour of polling instantly. */
-export type PollTimers = {
-  setInterval: (callback: () => void, ms: number) => TimerHandle;
-  clearInterval: (handle: TimerHandle) => void;
-  setTimeout: (callback: () => void, ms: number) => TimerHandle;
-  clearTimeout: (handle: TimerHandle) => void;
-};
-
 export type PollOptions = {
   everyMs: number;
   /**
@@ -59,17 +51,9 @@ export type PollOptions = {
    * lost to a wedged request comes back within the minute.
    */
   timeoutMs?: number;
-  timers?: PollTimers;
 };
 
 export const POLL_TIMEOUT_MS = 10_000;
-
-const realTimers: PollTimers = {
-  setInterval: (callback, ms) => globalThis.setInterval(callback, ms),
-  clearInterval: (handle) => globalThis.clearInterval(handle),
-  setTimeout: (callback, ms) => globalThis.setTimeout(callback, ms),
-  clearTimeout: (handle) => globalThis.clearTimeout(handle),
-};
 
 type Run = { controller: AbortController; deadline: TimerHandle };
 
@@ -78,7 +62,7 @@ type Run = { controller: AbortController; deadline: TimerHandle };
  * interval and aborts what's in flight.
  */
 export function startPoll(task: PollTask, options: PollOptions): () => void {
-  const { everyMs, timeoutMs = POLL_TIMEOUT_MS, timers = realTimers } = options;
+  const { everyMs, timeoutMs = POLL_TIMEOUT_MS } = options;
 
   let stopped = false;
   let active: Run | null = null;
@@ -89,7 +73,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
 
     const controller = new AbortController();
 
-    const deadline = timers.setTimeout(() => {
+    const deadline = globalThis.setTimeout(() => {
       controller.abort();
 
       // Clearing the slot as well as aborting matters for a task that ignores
@@ -104,7 +88,7 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
     // settling clears only the slot it still owns.
     const settle = () => {
       if (active !== current) return;
-      timers.clearTimeout(deadline);
+      globalThis.clearTimeout(deadline);
       active = null;
     };
 
@@ -112,17 +96,17 @@ export function startPoll(task: PollTask, options: PollOptions): () => void {
   };
 
   run();
-  const timer = timers.setInterval(run, everyMs);
+  const timer = globalThis.setInterval(run, everyMs);
   // After the first read, so a nudge during it is dropped by the guard.
   const unsubscribe = options.subscribe?.(run);
 
   return () => {
     stopped = true;
     unsubscribe?.();
-    timers.clearInterval(timer);
+    globalThis.clearInterval(timer);
 
     if (active === null) return;
-    timers.clearTimeout(active.deadline);
+    globalThis.clearTimeout(active.deadline);
     active.controller.abort();
     active = null;
   };
