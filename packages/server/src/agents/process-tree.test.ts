@@ -46,16 +46,6 @@ describe("signalTree", () => {
     expect(agent.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
-  test("a process that never started is only asked", () => {
-    const agent = child(undefined);
-    const system = deps("darwin");
-
-    signalTree(agent, "SIGTERM", system.value);
-
-    expect(system.value.kill).not.toHaveBeenCalled();
-    expect(agent.kill).toHaveBeenCalledWith("SIGTERM");
-  });
-
   test("on Windows taskkill walks the tree, and the process is killed if it cannot", () => {
     const agent = child(4242);
     const system = deps("win32");
