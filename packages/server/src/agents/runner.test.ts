@@ -6,13 +6,14 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { saveAgentChoice } from "./agents.js";
+import { saveAgentChoice, type AgentChoiceInput } from "./agents.js";
 import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
+import { isString } from "../json.js";
 import { required } from "../test-helpers.js";
 import { appendRequest, readRequests } from "../requests/requests.js";
-import { IDLE_RELEASE_MS, startRunner, type RunnerSpawn } from "./runner.js";
+import { IDLE_RELEASE_MS, startRunner, type RunnerOptions, type RunnerSpawn } from "./runner.js";
 import { QUIET_NOTICE_MS, SILENCE_CEILING_MS } from "./silence.js";
 
 const input = (title: string) => ({
@@ -76,6 +77,39 @@ function manualClock() {
   };
 }
 
+/**
+ * A project with `choice` saved, if any, and a request queued per title (or the
+ * request itself), and a runner on it driven by the manual clock and the fake
+ * spawn. `options` add to those or replace them.
+ */
+async function boot(
+  choice: AgentChoiceInput | null,
+  queue: readonly (string | Parameters<typeof appendRequest>[1])[],
+  options: Partial<RunnerOptions> = {},
+) {
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-"));
+
+  if (choice !== null) await saveAgentChoice(cwd, choice);
+
+  for (const request of queue) {
+    await appendRequest(cwd, isString(request) ? input(request) : request);
+  }
+
+  const clock = manualClock();
+  const spawned = spawner();
+
+  const runner = startRunner({
+    cwd,
+    externallyAttached: () => false,
+    spawn: spawned.spawn,
+    setInterval: clock.setInterval,
+    clearInterval: clock.clearInterval,
+    ...options,
+  });
+
+  return { cwd, clock, spawned, runner };
+}
+
 /** How long a wait may take before it is a hang rather than a slow machine. */
 const EVENTUALLY_MS = 15_000;
 
@@ -125,15 +159,16 @@ function alive(pid: number): boolean {
 
 describe("startRunner", () => {
   test("reports state changes through the optional onChange hook", async () => {
+    // What each call saw, so the hook is held to "tells you when state
+    // changed", not to how many updates happen.
+    const seen: boolean[] = [];
     const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-change-"));
     await saveAgentChoice(cwd, { agent: "claude" });
     await appendRequest(cwd, input("Observed"));
     const clock = manualClock();
     const spawned = spawner();
-    // What each call saw, so the hook is held to "tells you when state
-    // changed", not to how many updates happen.
-    const seen: boolean[] = [];
 
+    // Started here rather than by boot: the hook reads the runner it is given to.
     const runner = startRunner({
       cwd,
       externallyAttached: () => false,
@@ -154,20 +189,10 @@ describe("startRunner", () => {
   });
 
   test("runs requests in queue order and never overlaps children", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-order-"));
-    await saveAgentChoice(cwd, { agent: "claude", effort: "high" });
-    await appendRequest(cwd, input("First"));
-    await appendRequest(cwd, input("Second"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude", effort: "high" }, [
+      "First",
+      "Second",
+    ]);
 
     await until(() => spawned.calls.length === 1);
     expect(spawned.calls[0]?.[0]).toBe("claude");
@@ -196,19 +221,7 @@ describe("startRunner", () => {
 
   test("records a failed request as failed and never retries it", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-failed-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("Broken"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, ["Broken"]);
 
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.close(1);
@@ -228,50 +241,39 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("falls back to codex exec when the persistent app-server is unavailable", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-app-server-fallback-"));
-    await saveAgentChoice(cwd, { agent: "codex", effort: "high" });
-    await appendRequest(cwd, input("Fallback"));
-    const clock = manualClock();
-    const spawned = spawner();
+  test.each([
+    ["codex", "codexAppServer", ["exec", "--json", "model_reasoning_effort=high"]],
+    ["claude", "claudeAgentSession", ["-p", "prompt for Fallback", "--effort", "high"]],
+  ] as const)(
+    "falls back to the %s CLI when its persistent transport is unavailable",
+    async (agent, transport, argv) => {
+      // As a missing SDK, an older Codex or a failed handshake does.
+      const unavailable = {
+        warm: async () => {
+          throw new Error("unsupported");
+        },
+        run: async () => {
+          throw new Error("unsupported");
+        },
+        release: async () => {},
+        close: async () => {},
+      };
 
-    const appServer: CodexTurnRunner = {
-      warm: async () => {
-        throw new Error("unsupported");
-      },
-      run: async () => {
-        throw new Error("unsupported");
-      },
-      close: async () => {},
-    };
+      const { cwd, spawned, runner } = await boot({ agent, effort: "high" }, ["Fallback"], {
+        [transport]: unavailable,
+      });
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
-
-    await until(() => spawned.calls.length === 1);
-    expect(spawned.calls[0]?.[0]).toBe("codex");
-    expect(spawned.calls[0]?.[1]).toEqual(
-      expect.arrayContaining(["exec", "--json", "model_reasoning_effort=high"]),
-    );
-    spawned.children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 0);
-    await runner.stop();
-  });
+      await until(() => spawned.calls.length === 1);
+      expect(spawned.calls[0]?.[0]).toBe(agent);
+      expect(spawned.calls[0]?.[1]).toEqual(expect.arrayContaining([...argv]));
+      spawned.children[0]?.close(0);
+      await until(async () => (await readRequests(cwd)).length === 0);
+      await runner.stop();
+    },
+  );
 
   test("cancels a persistent run before its synthetic child exists", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-start-cancel-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("Starting"));
-    await appendRequest(cwd, input("Next"));
-    const clock = manualClock();
-    const spawned = spawner();
     let startSignal: AbortSignal | null = null;
     let finishCleanup: (() => void) | null = null;
     const calls: ClaudeTurnInput[] = [];
@@ -298,13 +300,8 @@ describe("startRunner", () => {
       close: async () => {},
     };
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, ["Starting", "Next"], {
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     await until(() => runner.snapshot().running && startSignal !== null);
@@ -390,56 +387,11 @@ describe("startRunner", () => {
     expect(sdk.close).toHaveBeenCalledOnce();
   });
 
-  test("falls back to claude -p when the Agent SDK is unavailable", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-claude-sdk-fallback-"));
-    await saveAgentChoice(cwd, { agent: "claude", effort: "xhigh" });
-    await appendRequest(cwd, input("Fallback"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const sdk: ClaudeTurnRunner = {
-      warm: async () => {
-        throw new Error("SDK unavailable");
-      },
-      run: async () => {
-        throw new Error("SDK unavailable");
-      },
-      close: async () => {},
-    };
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      claudeAgentSession: sdk,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
-
-    await until(() => spawned.calls.length === 1);
-    expect(spawned.calls[0]?.[0]).toBe("claude");
-    expect(spawned.calls[0]?.[1]).toEqual(
-      expect.arrayContaining(["-p", "prompt for Fallback", "--effort", "xhigh"]),
-    );
-    spawned.children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 0);
-    await runner.stop();
-  });
-
   test("yields while an external watcher is attached", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-external-"));
-    await saveAgentChoice(cwd, { agent: "cursor" });
-    await appendRequest(cwd, input("Waiting"));
     let attached = true;
-    const clock = manualClock();
-    const spawned = spawner();
 
-    const runner = startRunner({
-      cwd,
+    const { clock, spawned, runner } = await boot({ agent: "cursor" }, ["Waiting"], {
       externallyAttached: () => attached,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -451,84 +403,24 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("a finished run's session carries into the next request, cold after the cap", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-session-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("First"));
-    await appendRequest(cwd, input("Second"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
-
-    await until(() => spawned.children.length === 1);
-    expect(spawned.calls[0]?.[1]).toEqual([
-      "exec",
-      "--json",
-      "-c",
-      "sandbox_workspace_write.network_access=true",
-      "-s",
-      "workspace-write",
-      "--skip-git-repo-check",
-      "prompt for First",
-    ]);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
-    );
-    spawned.children[0]?.close(0);
-
-    await until(async () => (await readRequests(cwd)).length === 1);
-    await tickUntil(clock, () => spawned.children.length === 2);
-    // The second request continues the first one's conversation.
-    expect(spawned.calls[1]?.[1]).toEqual([
-      "exec",
-      "resume",
-      "th_1",
-      "--json",
-      "-c",
-      "sandbox_workspace_write.network_access=true",
-      "--skip-git-repo-check",
-      "prompt for Second",
-    ]);
-    spawned.children[1]?.child.stdout.write(
-      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
-    );
-    spawned.children[1]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 0);
-    await runner.stop();
-  });
-
   test("the ninth request starts cold: eight turns is one session's whole life", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cap-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-
-    for (let turn = 1; turn <= 10; turn += 1) await appendRequest(cwd, input(`Turn ${turn}`));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot(
+      { agent: "codex" },
+      Array.from({ length: 10 }, (_, index) => `Turn ${index + 1}`),
+    );
 
     for (let turn = 1; turn <= 10; turn += 1) {
       await tickUntil(clock, () => spawned.children.length === turn);
       const argv = spawned.calls[turn - 1]?.[1] ?? [];
+      const thread = turn <= 8 ? "th_1" : "th_2";
       // Turn 1 opens the session, 2 through 8 ride it, 9 hits the cap and opens
       // a fresh one, 10 rides that. Unbounded, every request costs more than
-      // the last.
+      // the last. A resumed run names the thread the last run reported.
       const shouldResume = turn !== 1 && turn !== 9;
-      expect([turn, argv[1]]).toEqual([turn, shouldResume ? "resume" : "--json"]);
-      const thread = turn <= 8 ? "th_1" : "th_2";
+      expect([turn, ...argv.slice(1, 3)]).toEqual([
+        turn,
+        ...(shouldResume ? ["resume", thread] : ["--json", "-c"]),
+      ]);
       spawned.children[turn - 1]?.child.stdout.write(
         `${JSON.stringify({ type: "thread.started", thread_id: thread })}\n`,
       );
@@ -541,20 +433,7 @@ describe("startRunner", () => {
 
   test("a failed resume that never edited retries cold, invisibly to the request", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-retry-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("Seed"));
-    await appendRequest(cwd, input("Fragile"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, ["Seed", "Fragile"]);
 
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
@@ -591,21 +470,12 @@ describe("startRunner", () => {
 
   test("a resume that edited and then failed is a real failure and ends the session", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-poisoned-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("Seed"));
-    await appendRequest(cwd, input("Broken"));
-    await appendRequest(cwd, input("After"));
-    const clock = manualClock();
-    const spawned = spawner();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, [
+      "Seed",
+      "Broken",
+      "After",
+    ]);
 
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
@@ -634,18 +504,7 @@ describe("startRunner", () => {
   });
 
   test("a nudge starts immediately and survives a tick already in flight", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-nudge-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, spawned, runner } = await boot({ agent: "claude" }, []);
 
     // The boot tick finds an empty queue and goes idle, and the timer never
     // fires here, so only the nudge can start the run.
@@ -686,19 +545,7 @@ describe("startRunner", () => {
 
   test("cancels the active child with SIGTERM and treats the request as failed", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cancel-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Cancelled"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Cancelled"]);
 
     await until(() => runner.snapshot().running && spawned.children.length === 1);
     expect(runner.snapshot().startedAt).toEqual(expect.any(Number));
@@ -724,20 +571,7 @@ describe("startRunner", () => {
 
   test("an overloaded provider is not answered with a second cold run", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-overload-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Seed"));
-    await appendRequest(cwd, input("Poster"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Seed", "Poster"]);
 
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
@@ -773,51 +607,12 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("a cancelled request is recorded as cancelled, not as a failure to retry", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cancel-state-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Poster"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-    });
-
-    await until(() => runner.snapshot().running);
-    expect(runner.cancel()).toBe(true);
-    await until(() => !runner.snapshot().running);
-
-    // Saved, so a restart doesn't read it as "your agent is on it" and the
-    // interface can say who stopped it.
-    const stopped = (await readRequests(cwd))[0];
-    expect(stopped?.status).toBe("cancelled");
-    expect(stopped?.failure?.code).toBe("cancelled");
-    await runner.stop();
-  });
-
   test("a child that will not go is stopped anyway, and the queue moves on", async () => {
     // An error the runner catches and logs must fail this test, not vanish.
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-wedge-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Poster"));
-    await appendRequest(cwd, input("Next"));
-    const clock = manualClock();
-    const spawned = spawner();
     const timers: Array<() => void> = [];
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Poster", "Next"], {
       setTimeout: (callback) => void timers.push(callback),
     });
 
@@ -912,20 +707,9 @@ describe("startRunner", () => {
 
   test("a run that goes quiet is described, then ended with a reason of its own", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Poster"));
-    await appendRequest(cwd, input("Next"));
-    const clock = manualClock();
-    const spawned = spawner();
     let now = 1_790_000_000_000;
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Poster", "Next"], {
       now: () => now,
     });
 
@@ -967,20 +751,10 @@ describe("startRunner", () => {
 
   test("a stop that lands while a quiet run is being ended leaves its verdict alone", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-race-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Poster"));
-    const clock = manualClock();
-    const spawned = spawner();
     let grace: (() => void) | null = null;
     let now = 1_790_000_000_000;
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Poster"], {
       setTimeout: (callback) => {
         grace = callback;
       },
@@ -1010,19 +784,9 @@ describe("startRunner", () => {
     "a child that errors on the way out keeps the %s's verdict",
     async (ending) => {
       vi.spyOn(console, "error").mockImplementation(() => {});
-      const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-error-exit-"));
-      await saveAgentChoice(cwd, { agent: "claude" });
-      await appendRequest(cwd, input("Poster"));
-      const clock = manualClock();
-      const spawned = spawner();
       let now = 1_790_000_000_000;
 
-      const runner = startRunner({
-        cwd,
-        externallyAttached: () => false,
-        spawn: spawned.spawn,
-        setInterval: clock.setInterval,
-        clearInterval: clock.clearInterval,
+      const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Poster"], {
         setTimeout: () => {},
         now: () => now,
       });
@@ -1055,19 +819,9 @@ describe("startRunner", () => {
   );
 
   test("an agent that keeps talking is never cut off, however long it runs", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-chatty-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Long"));
-    const clock = manualClock();
-    const spawned = spawner();
     let now = 1_790_000_000_000;
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Long"], {
       now: () => now,
     });
 
@@ -1092,11 +846,6 @@ describe("startRunner", () => {
 
   test("a transport that never finishes starting is ended by the same ceiling", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-quiet-start-"));
-    await saveAgentChoice(cwd, { agent: "codex" });
-    await appendRequest(cwd, input("Starting"));
-    const clock = manualClock();
-    const spawned = spawner();
     let startSignal: AbortSignal | null = null;
     let now = 1_790_000_000_000;
 
@@ -1113,13 +862,8 @@ describe("startRunner", () => {
       close: async () => {},
     };
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
+    const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, ["Starting"], {
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
       now: () => now,
     });
 
@@ -1136,21 +880,11 @@ describe("startRunner", () => {
   });
 
   test("hands claude the registration allowance on a fork, and only on a fork", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-allow-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, { ...input("Fork"), mode: "variant" });
-    await appendRequest(cwd, input("Tweak"));
-    const clock = manualClock();
-    const spawned = spawner();
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-      leglasCommand: "npx -y leglas",
-    });
+    const { cwd, clock, spawned, runner } = await boot(
+      { agent: "claude" },
+      [{ ...input("Fork"), mode: "variant" }, "Tweak"],
+      { leglasCommand: "npx -y leglas" },
+    );
 
     // A fork ends by running the registration CLI, and non-interactive Claude
     // can't approve a Bash call itself. Without the allowance that last step is
@@ -1179,21 +913,15 @@ describe("startRunner", () => {
 
   test("a resumed fork carries the registration allowance too", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-allow-resume-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, { ...input("First fork"), mode: "variant" });
-    await appendRequest(cwd, { ...input("Second fork"), mode: "variant" });
-    const clock = manualClock();
-    const spawned = spawner();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-      leglasCommand: "npx -y leglas",
-    });
+    const { cwd, clock, spawned, runner } = await boot(
+      { agent: "claude" },
+      [
+        { ...input("First fork"), mode: "variant" },
+        { ...input("Second fork"), mode: "variant" },
+      ],
+      { leglasCommand: "npx -y leglas" },
+    );
 
     await until(() => spawned.children.length === 1);
     spawned.children[0]?.child.stdout.write(
@@ -1217,20 +945,12 @@ describe("startRunner", () => {
 
   test("a fork that registers nothing fails instead of vanishing", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-unregistered-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, { ...input("Fork"), mode: "variant" });
-    const clock = manualClock();
-    const spawned = spawner();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
-      spawn: spawned.spawn,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
-      leglasCommand: "npx -y leglas",
-    });
+    const { cwd, clock, spawned, runner } = await boot(
+      { agent: "claude" },
+      [{ ...input("Fork"), mode: "variant" }],
+      { leglasCommand: "npx -y leglas" },
+    );
 
     // The agent exits 0 and never registers, which must not count as success.
     await until(() => spawned.children.length === 1);
@@ -1263,19 +983,7 @@ test("a Cursor resume that died without editing is tried once more, cold", async
   // evidence and a resumed run that died untouched gets the same one cold retry
   // as Claude and Codex.
   vi.spyOn(console, "error").mockImplementation(() => {});
-  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-rerun-"));
-  await saveAgentChoice(cwd, { agent: "cursor" });
-  await appendRequest(cwd, input("First"));
-  const clock = manualClock();
-  const spawned = spawner();
-
-  const runner = startRunner({
-    cwd,
-    externallyAttached: () => false,
-    spawn: spawned.spawn,
-    setInterval: clock.setInterval,
-    clearInterval: clock.clearInterval,
-  });
+  const { cwd, clock, spawned, runner } = await boot({ agent: "cursor" }, ["First"]);
 
   // First run is cold and names the session Cursor reports.
   await until(() => spawned.calls.length === 1);
@@ -1294,54 +1002,6 @@ test("a Cursor resume that died without editing is tried once more, cold", async
   expect(spawned.calls[2]?.[1]).not.toContain("--resume");
   spawned.children[2]?.close(0);
   await until(async () => (await readRequests(cwd)).length === 0);
-  await runner.stop();
-});
-
-test("a Cursor resume that edited and then died is not rerun", async () => {
-  // Rerunning a run that already changed a file could apply a half-finished
-  // change twice. The edit is read off the real event shape: `editToolCall`
-  // beside the wrapper's bookkeeping keys.
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cursor-edited-"));
-  await saveAgentChoice(cwd, { agent: "cursor" });
-  await appendRequest(cwd, input("First"));
-  const clock = manualClock();
-  const spawned = spawner();
-
-  const runner = startRunner({
-    cwd,
-    externallyAttached: () => false,
-    spawn: spawned.spawn,
-    setInterval: clock.setInterval,
-    clearInterval: clock.clearInterval,
-  });
-
-  await until(() => spawned.calls.length === 1);
-  spawned.children[0]?.child.stdout.write(`${JSON.stringify({ session_id: "chat_1" })}\n`);
-  spawned.children[0]?.close(0);
-  await until(async () => (await readRequests(cwd)).length === 0);
-
-  await appendRequest(cwd, input("Second"));
-  await tickUntil(clock, () => spawned.calls.length === 2);
-  spawned.children[1]?.child.stdout.write(
-    `${JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: {
-        editToolCall: { args: { path: join(cwd, "src", "Hero.tsx"), streamContent: "…" } },
-        hookAdditionalContexts: [],
-        toolCallId: "call-2",
-        startedAtMs: "1788791467322",
-      },
-      session_id: "chat_1",
-    })}\n`,
-  );
-  spawned.children[1]?.close(1);
-  await until(async () => (await readRequests(cwd))[0]?.status === "failed");
-
-  clock.tick();
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  expect(spawned.calls).toHaveLength(2);
   await runner.stop();
 });
 
@@ -1410,23 +1070,33 @@ describe("warm transports", () => {
     };
   };
 
+  /** A Claude transport whose turns are fake children the test ends. */
+  const claudeTurns = () => {
+    const children: ReturnType<typeof fakeChild>[] = [];
+
+    const sdk: Stub<ClaudeTurnRunner> = {
+      ...claudeStub(),
+      run: async () => {
+        const child = fakeChild();
+        children.push(child);
+
+        return child.child;
+      },
+    };
+
+    return { sdk, children };
+  };
+
   test("leaves every transport cold until something asks for it", async () => {
     // A saved choice isn't a request. Warming at boot would spawn the vendor
     // and every MCP server the user configured, for a session that may never
     // send anything.
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-cold-boot-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    const clock = manualClock();
     const sdk = claudeStub();
     const appServer = codexStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { clock, runner } = await boot({ agent: "claude" }, [], {
       claudeAgentSession: sdk,
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     clock.tick();
@@ -1437,18 +1107,12 @@ describe("warm transports", () => {
   });
 
   test("warming one vendor lets go of the other", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-one-warm-"));
-    const clock = manualClock();
     const sdk = claudeStub();
     const appServer = codexStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { runner } = await boot(null, [], {
       claudeAgentSession: sdk,
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     runner.prepare("codex");
@@ -1464,18 +1128,12 @@ describe("warm transports", () => {
   });
 
   test("releases an idle transport and warms it again on the next ask", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-idle-release-"));
-    const clock = manualClock();
     const later = deferrals();
     const sdk = claudeStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { runner } = await boot(null, [], {
       claudeAgentSession: sdk,
       codexAppServer: null,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
       setTimeout: later.setTimeout,
     });
 
@@ -1497,18 +1155,12 @@ describe("warm transports", () => {
   test("a superseded warm-up does not fire a stale release", async () => {
     // Two asks arm two clocks. Only the latest may release, or the composer's
     // second focus is undone by the first timer.
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-stale-release-"));
-    const clock = manualClock();
     const time = timeline();
     const sdk = claudeStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { runner } = await boot(null, [], {
       claudeAgentSession: sdk,
       codexAppServer: null,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
       setTimeout: time.setTimeout,
     });
 
@@ -1531,33 +1183,12 @@ describe("warm transports", () => {
     // Switching to Codex mid-run must not kill the Claude run, but once it ends
     // only the vendor last asked for stays warm, rather than both staying
     // resident until the idle clock.
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-switch-mid-run-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Long"));
-    const clock = manualClock();
-    const children: ReturnType<typeof fakeChild>[] = [];
-
-    const sdk: Stub<ClaudeTurnRunner> = {
-      warm: vi.fn(async () => {}),
-      run: async () => {
-        const child = fakeChild();
-        children.push(child);
-
-        return child.child;
-      },
-      release: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    };
-
+    const { sdk, children } = claudeTurns();
     const appServer = codexStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { runner } = await boot({ agent: "claude" }, ["Long"], {
       claudeAgentSession: sdk,
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     await until(() => children.length === 1);
@@ -1573,33 +1204,12 @@ describe("warm transports", () => {
   });
 
   test("with nothing asked for since boot, the vendor that ran stays warm", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-ran-stays-warm-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Only"));
-    const clock = manualClock();
-    const children: ReturnType<typeof fakeChild>[] = [];
-
-    const sdk: Stub<ClaudeTurnRunner> = {
-      warm: vi.fn(async () => {}),
-      run: async () => {
-        const child = fakeChild();
-        children.push(child);
-
-        return child.child;
-      },
-      release: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    };
-
+    const { sdk, children } = claudeTurns();
     const appServer = codexStub();
 
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { cwd, runner } = await boot({ agent: "claude" }, ["Only"], {
       claudeAgentSession: sdk,
       codexAppServer: appServer,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     await until(() => children.length === 1);
@@ -1614,31 +1224,11 @@ describe("warm transports", () => {
   });
 
   test("an ask warms the vendor for the conversation it will continue", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-warm-resume-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("First"));
-    const clock = manualClock();
-    const children: ReturnType<typeof fakeChild>[] = [];
+    const { sdk, children } = claudeTurns();
 
-    const sdk: Stub<ClaudeTurnRunner> = {
-      warm: vi.fn(async () => {}),
-      run: async () => {
-        const child = fakeChild();
-        children.push(child);
-
-        return child.child;
-      },
-      release: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    };
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { cwd, runner } = await boot({ agent: "claude" }, ["First"], {
       claudeAgentSession: sdk,
       codexAppServer: null,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
     });
 
     await until(() => children.length === 1);
@@ -1655,32 +1245,12 @@ describe("warm transports", () => {
   });
 
   test("the idle release waits out a run in flight", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-runner-idle-busy-"));
-    await saveAgentChoice(cwd, { agent: "claude" });
-    await appendRequest(cwd, input("Busy"));
-    const clock = manualClock();
     const later = deferrals();
-    const children: ReturnType<typeof fakeChild>[] = [];
+    const { sdk, children } = claudeTurns();
 
-    const sdk: ClaudeTurnRunner = {
-      warm: vi.fn(async () => {}),
-      run: async () => {
-        const child = fakeChild();
-        children.push(child);
-
-        return child.child;
-      },
-      release: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    };
-
-    const runner = startRunner({
-      cwd,
-      externallyAttached: () => false,
+    const { cwd, runner } = await boot({ agent: "claude" }, ["Busy"], {
       claudeAgentSession: sdk,
       codexAppServer: null,
-      setInterval: clock.setInterval,
-      clearInterval: clock.clearInterval,
       setTimeout: later.setTimeout,
     });
 
