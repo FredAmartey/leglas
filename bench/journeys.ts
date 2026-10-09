@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import {
   accessSync,
   constants,
@@ -516,11 +516,23 @@ export function stopWalking(): Promise<void> {
 export async function runJourneys(host: Host, wanted: readonly JourneyName[]): Promise<RunResult> {
   const root = mkdtempSync(join(tmpdir(), "leglas-bench-"));
   const children: ChildProcess[] = [];
+  let stopping = false;
   let launching: Promise<Browser> | null = null;
   let cleaned: Promise<void> | null = null;
 
+  // Every child of the walk starts here, so none can start once cleanup has
+  // begun: the list it stops is then the last one.
+  const start: Start = (command, args, options) => {
+    if (stopping) throw new Error("The walk is stopping.");
+    const child = spawn(command, args, options);
+    children.push(child);
+
+    return child;
+  };
+
   // Once: an interrupt and the finally below can both ask for it.
   const cleanup = (): Promise<void> => {
+    stopping = true;
     cleaned ??= (async () => {
       try {
         for (const child of children.toReversed()) await stop(child);
@@ -543,15 +555,14 @@ export async function runJourneys(host: Host, wanted: readonly JourneyName[]): P
     launching = launchBrowser(host.browser, { tmpdir: root });
     const browser = await launching;
 
-    const dev = spawn(process.execPath, [join(workspace.project, "server.ts"), "--port", "0"], {
+    const dev = start(process.execPath, [join(workspace.project, "server.ts"), "--port", "0"], {
       cwd: workspace.project,
       stdio: ["ignore", "pipe", "inherit"],
     });
 
-    children.push(dev);
     const devPort = await readLine(dev, /listening (\d+)/, "The fixture's dev server");
 
-    return await browser.withPage((page) => walk(page, workspace, devPort, wanted, children));
+    return await browser.withPage((page) => walk(page, workspace, devPort, wanted, start));
   } finally {
     // Cleared only once torn down, so a signal during teardown waits for it.
     await cleanup();
@@ -559,11 +570,13 @@ export async function runJourneys(host: Host, wanted: readonly JourneyName[]): P
   }
 }
 
+type Start = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+
 type Session = {
   page: CdpPage;
   workspace: Workspace;
   leglas: ChildProcess;
-  children: ChildProcess[];
+  start: Start;
   /** Requests a phase marker and returns when it was sent, by the runner's clock. */
   mark(phase: string): Promise<number>;
 };
@@ -657,13 +670,11 @@ async function idle(
 async function addCheck(session: Session, log: PageLog): Promise<{ ms: number; check: Check }> {
   const spawned = performance.now();
 
-  const add = spawn(process.execPath, [cliBin, "add", "--title", ADDED.title, "--url", ADDED.url], {
-    cwd: session.workspace.project,
-    env: session.workspace.env,
-    stdio: "ignore",
-  });
-
-  session.children.push(add);
+  const add = session.start(
+    process.execPath,
+    [cliBin, "add", "--title", ADDED.title, "--url", ADDED.url],
+    { cwd: session.workspace.project, env: session.workspace.env, stdio: "ignore" },
+  );
 
   const finished = await new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), ADD_WATCH_MS);
@@ -718,7 +729,7 @@ async function walk(
   workspace: Workspace,
   devPort: string,
   wanted: readonly JourneyName[],
-  children: ChildProcess[],
+  start: Start,
 ): Promise<RunResult> {
   const log: PageLog = { sockets: [], frames: [], configFrames: [], offMachine: [] };
   page.on("Network.webSocketCreated", () => log.sockets.push(performance.now()));
@@ -736,13 +747,12 @@ async function walk(
   });
   await page.send("Network.enable");
 
-  const leglas = spawn(
+  const leglas = start(
     process.execPath,
     ["--import", join(here, "probe.ts"), cliBin, "--no-open", "--json", "--user-port", devPort],
     { cwd: workspace.project, env: workspace.env, stdio: ["ignore", "pipe", "inherit"] },
   );
 
-  children.push(leglas);
   // What the CLI prints once it listens, as it would before opening a browser.
   const url = await readLine(leglas, /"url":"([^"]+)"/, "Leglas");
   const origin = new URL(url).origin;
@@ -751,7 +761,7 @@ async function walk(
     page,
     workspace,
     leglas,
-    children,
+    start,
     mark: async (phase) => {
       const sent = performance.now();
       await (await fetch(`${origin}${MARKER}${phase}`)).arrayBuffer();
