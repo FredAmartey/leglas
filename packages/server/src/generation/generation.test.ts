@@ -226,7 +226,10 @@ async function leglas(
   cwd: string,
   withBrowser: boolean,
   previews: Preview[] = [],
-  recordSets?: boolean,
+  // Off unless a test is about records: one still being written after the
+  // server closes races the folder's removal (ENOTEMPTY on CI). Null leaves the
+  // project's default, which records.
+  recordSets: boolean | null = false,
 ): Promise<{ server: RunningServer; log: string }> {
   const fake = join(cwd, "..", `${cwd.split("/").pop() ?? "x"}-fake-claude.mjs`);
   const log = `${fake}.log`;
@@ -246,7 +249,7 @@ async function leglas(
     previews,
   };
 
-  if (recordSets !== undefined) config.recordSets = recordSets;
+  if (recordSets !== null) config.recordSets = recordSets;
 
   const serverOptions: Parameters<typeof startServer>[0] = {
     config,
@@ -588,7 +591,7 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
     "plans, builds all at once, repairs a broken direction, stops one and replaces it",
     async () => {
       const cwd = await project("claude");
-      const { server, log } = await leglas(cwd, true);
+      const { server, log } = await leglas(cwd, true, [], null);
       const began = Date.now();
 
       const started = await call(server, "generate", {
@@ -811,6 +814,8 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
 
       // Everything but the fake agents' own sleeps is Leglas: planning, slots, renders and the fix run.
       expect(elapsed).toBeLessThan(30_000);
+      // The record's last writes land before the project folder goes.
+      await server.close();
     },
     START_TIMEOUT_MS * 2,
   );
@@ -2061,7 +2066,7 @@ describe("a generation's lifecycle", () => {
 
 describe("the record of a set", () => {
   test("is kept unless the project turns records off", async () => {
-    for (const recordSets of [undefined, false]) {
+    for (const recordSets of [null, false]) {
       const cwd = await project("claude");
       const { server } = await leglas(cwd, false, [], recordSets);
 
@@ -2090,6 +2095,7 @@ describe("the record of a set", () => {
       );
 
       expect(kept).toBe(recordSets === false ? "nothing" : "a record");
+      await server.close();
     }
   });
 
