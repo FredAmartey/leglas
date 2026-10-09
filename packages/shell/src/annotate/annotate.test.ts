@@ -13,45 +13,27 @@ import {
   unionOf,
 } from "./annotate.js";
 
-describe("isDrag", () => {
-  test("a press that wobbles is still a click", () => {
-    expect(isDrag({ x: 100, y: 100 }, { x: 103, y: 102 })).toBe(false);
-  });
-
-  test("a deliberate sweep is a region", () => {
-    expect(isDrag({ x: 100, y: 100 }, { x: 140, y: 101 })).toBe(true);
-    expect(isDrag({ x: 100, y: 100 }, { x: 101, y: 140 })).toBe(true);
-  });
+test("a press that wobbles is still a click, and a deliberate sweep is a region", () => {
+  expect(isDrag({ x: 100, y: 100 }, { x: 103, y: 102 })).toBe(false);
+  expect(isDrag({ x: 100, y: 100 }, { x: 140, y: 101 })).toBe(true);
+  expect(isDrag({ x: 100, y: 100 }, { x: 101, y: 140 })).toBe(true);
 });
 
-describe("boxBetween", () => {
-  test("reads the same box dragged in any direction", () => {
-    const forward = boxBetween({ x: 10, y: 20 }, { x: 110, y: 70 });
-    const backward = boxBetween({ x: 110, y: 70 }, { x: 10, y: 20 });
+test("boxBetween reads the same box dragged in any direction", () => {
+  const forward = boxBetween({ x: 10, y: 20 }, { x: 110, y: 70 });
 
-    expect(forward).toEqual({ height: 50, width: 100, x: 10, y: 20 });
-    expect(backward).toEqual(forward);
-  });
+  expect(forward).toEqual({ height: 50, width: 100, x: 10, y: 20 });
+  expect(boxBetween({ x: 110, y: 70 }, { x: 10, y: 20 })).toEqual(forward);
 });
 
-describe("overlaps and contains", () => {
+test("an element crossing a region's edge overlaps it, one inside is contained, and touching is neither", () => {
   const region = { height: 100, width: 100, x: 0, y: 0 };
+  const straddling = { height: 20, width: 20, x: 90, y: 10 };
+  const inside = { height: 20, width: 20, x: 10, y: 10 };
 
-  test("an element crossing the edge overlaps but is not contained", () => {
-    const straddling = { height: 20, width: 20, x: 90, y: 10 };
-    expect(overlaps(region, straddling)).toBe(true);
-    expect(contains(region, straddling)).toBe(false);
-  });
-
-  test("an element wholly inside is both", () => {
-    const inside = { height: 20, width: 20, x: 10, y: 10 };
-    expect(overlaps(region, inside)).toBe(true);
-    expect(contains(region, inside)).toBe(true);
-  });
-
-  test("touching edges is not overlapping", () => {
-    expect(overlaps(region, { height: 10, width: 10, x: 100, y: 0 })).toBe(false);
-  });
+  expect([overlaps(region, straddling), contains(region, straddling)]).toEqual([true, false]);
+  expect([overlaps(region, inside), contains(region, inside)]).toEqual([true, true]);
+  expect(overlaps(region, { height: 10, width: 10, x: 100, y: 0 })).toBe(false);
 });
 
 describe("fractionsIn and boxFromFractions", () => {
@@ -135,70 +117,34 @@ describe("placeCard", () => {
   });
 });
 
-describe("cardWidth", () => {
-  test("is comfortable on a desktop pane", () => {
-    expect(cardWidth(1440)).toBe(256);
-  });
-
-  test("still fits with room to spare on a phone preview", () => {
-    expect(cardWidth(390)).toBe(256);
-  });
-
-  test("gives up width rather than the margin when the pane is tiny", () => {
-    expect(cardWidth(280)).toBe(232);
-  });
-
-  test("never narrows past a slot you can type a sentence into", () => {
-    expect(cardWidth(200)).toBe(180);
-    expect(cardWidth(0)).toBe(256);
-  });
+test("cardWidth is comfortable on a pane, gives up width before the margin, and never too narrow to type in", () => {
+  // A desktop pane, and a phone preview with room to spare.
+  expect([cardWidth(1440), cardWidth(390)]).toEqual([256, 256]);
+  expect(cardWidth(280)).toBe(232);
+  expect(cardWidth(200)).toBe(180);
+  expect(cardWidth(0)).toBe(256);
 });
 
-describe("unionOf", () => {
-  test("holds everything it was given", () => {
-    expect(
-      unionOf([
-        { height: 40, width: 100, x: 10, y: 20 },
-        { height: 20, width: 60, x: 200, y: 100 },
-      ]),
-    ).toEqual({ height: 100, width: 250, x: 10, y: 20 });
-  });
+test("unionOf holds everything it was given, and nothing when the sweep caught nothing", () => {
+  const only = { height: 40, width: 100, x: 10, y: 20 };
 
-  test("is one box when there is one box", () => {
-    const only = { height: 10, width: 10, x: 5, y: 5 };
-    expect(unionOf([only])).toEqual(only);
+  expect(unionOf([only, { height: 20, width: 60, x: 200, y: 100 }])).toEqual({
+    height: 100,
+    width: 250,
+    x: 10,
+    y: 20,
   });
-
-  test("has nothing to hold when the sweep caught nothing", () => {
-    expect(unionOf([])).toBeNull();
-  });
+  expect(unionOf([only])).toEqual(only);
+  expect(unionOf([])).toBeNull();
 });
 
-describe("coversFrom", () => {
-  test("keeps what was given, in order", () => {
-    expect(
-      coversFrom([
-        { tag: "h1", text: "Dried fruit" },
-        { tag: "p", text: "Made in Ghana" },
-      ]),
-    ).toEqual([
-      { tag: "h1", text: "Dried fruit" },
-      { tag: "p", text: "Made in Ghana" },
-    ]);
-  });
+test("coversFrom keeps what was given in order, says a thing once, and caps a big region", () => {
+  const h1 = { tag: "h1", text: "Dried fruit" };
+  const p = { tag: "p", text: "Made in Ghana" };
 
-  test("says a thing once", () => {
-    expect(
-      coversFrom([
-        { tag: "span", text: "Bag" },
-        { tag: "span", text: "Bag" },
-      ]),
-    ).toHaveLength(1);
-  });
-
-  test("caps a region dragged over half the page", () => {
-    expect(
-      coversFrom(Array.from({ length: 40 }, (_, at) => ({ tag: "div", text: `row ${at}` }))),
-    ).toHaveLength(8);
-  });
+  expect(coversFrom([h1, p, h1])).toEqual([h1, p]);
+  // A region dragged over half the page.
+  expect(
+    coversFrom(Array.from({ length: 40 }, (_, at) => ({ tag: "div", text: `row ${at}` }))),
+  ).toHaveLength(8);
 });
