@@ -520,8 +520,9 @@ export async function runJourneys(host: Host, wanted: readonly JourneyName[]): P
 
     return await browser.withPage((page) => walk(page, workspace, devPort, wanted, children));
   } finally {
-    undo = null;
+    // Cleared only once torn down, so a signal during teardown waits for it.
     await cleanup();
+    undo = null;
   }
 }
 
