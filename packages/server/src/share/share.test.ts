@@ -780,8 +780,6 @@ describe("the ceiling on viewer traffic", () => {
 
     if (!created.ok) throw new Error(created.error);
     const first = required(created.share.grants[0]);
-
-    if (first === undefined) throw new Error("no link");
     const entry = await fetch(first.localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
     const port = created.share.sharePort;

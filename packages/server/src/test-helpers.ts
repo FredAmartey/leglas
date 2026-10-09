@@ -13,7 +13,7 @@ export function required<T>(value: T | null | undefined): T {
 
 /** A response's JSON, typed as the shape the test asserts on. */
 export async function readJson<T>(response: Response): Promise<T> {
-  // SAFETY: tests read their own server's routes and assert on every field they use.
+  // SAFETY: tests read their own server's routes; a field that drifts fails the test, at an assertion or a TypeError.
   return (await response.json()) as T;
 }
 

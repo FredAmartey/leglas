@@ -7,7 +7,7 @@
     "declaration": false,
     "rootDir": "../..",
     // server.test.ts dials the shell's live socket, a browser module.
-    "lib": ["ES2023", "DOM"]
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.test.ts", "src/test-helpers.ts"],
   "exclude": []
