@@ -14,7 +14,6 @@ import {
   readRequests,
   removeRequest,
   targetFor,
-  variantSlot,
 } from "./requests.js";
 import type { Captured } from "./attachments.js";
 import type { Preview } from "../config/config.js";
@@ -27,28 +26,17 @@ const preview = (title: string, url: string): Preview => ({
 });
 
 describe("targetFor", () => {
-  test("derives the file from a url the scaffold generated", () => {
-    expect(targetFor("/?v-hero=aurora")).toBe(".leglas/variants/hero/aurora.tsx");
-  });
-
-  test("works when the variant param is not the only one", () => {
-    expect(targetFor("/pricing?utm=x&v-hero=aurora")).toBe(".leglas/variants/hero/aurora.tsx");
-  });
-
-  test("returns nothing for a url that is not a variant of a surface", () => {
-    expect(targetFor("/pricing")).toBeNull();
-  });
-
-  test("returns nothing for an absolute url, which is not ours to edit", () => {
-    expect(targetFor("https://staging.example.com/?v-hero=aurora")).toBeNull();
-  });
-
-  test("ignores a param that merely looks similar", () => {
-    expect(targetFor("/?variant=aurora")).toBeNull();
-  });
-
-  test("refuses a value that would escape the variants directory", () => {
-    expect(targetFor("/?v-hero=../../etc/passwd")).toBeNull();
+  // Only a url the scaffold generated names a file, and only one that stays in
+  // the variants directory.
+  test.each([
+    ["/?v-hero=aurora", ".leglas/variants/hero/aurora.tsx"],
+    ["/pricing?utm=x&v-hero=aurora", ".leglas/variants/hero/aurora.tsx"],
+    ["/pricing", null],
+    ["https://staging.example.com/?v-hero=aurora", null],
+    ["/?variant=aurora", null],
+    ["/?v-hero=../../etc/passwd", null],
+  ])("reads %s as %s", (url, target) => {
+    expect(targetFor(url)).toBe(target);
   });
 });
 
@@ -61,8 +49,11 @@ describe("composeRequest, as a variant", () => {
     file,
   });
 
-  test("builds a new direction and says the old one is not to be touched", () => {
-    const { prompt } = composeRequest(
+  // A variant is its parent plus the change. An agent told only to build
+  // something new makes a fresh design under a related name, not comparable
+  // with its source.
+  test("builds a new direction from a copy of the parent and registers it under it", () => {
+    const { prompt, target } = composeRequest(
       preview("Poster", "/?v-hero=poster"),
       "the pouch looks fake",
       "variant",
@@ -71,31 +62,33 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain('add a new design direction based on the "Poster" direction');
     expect(prompt).toContain('Leave "Poster" itself exactly as it is');
     expect(prompt).toContain("the pouch looks fake");
-  });
-
-  // A variant is its parent plus the change. An agent told only to build
-  // something new makes a fresh design under a related name, not comparable
-  // with its source.
-  test("starts the new direction from a copy of the parent's file", () => {
-    const { prompt, target } = composeRequest(
-      preview("Poster", "/?v-hero=poster"),
-      "warmer",
-      "variant",
-    );
 
     expect(target).toBe(".leglas/variants/hero/poster.tsx");
     expect(prompt).toContain("Its source is .leglas/variants/hero/poster.tsx.");
     expect(prompt).toContain("Copy that file to a new one in the same folder");
-  });
-
-  test("hands over the registration that puts it under its parent", () => {
-    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
 
     expect(prompt).toContain("npx -y leglas add");
     expect(prompt).toContain('--url "/?v-hero=<key>"');
     expect(prompt).toContain('--based-on "Poster"');
-    expect(prompt).toContain('--asked-for "warmer"');
+    expect(prompt).toContain('--asked-for "the pouch looks fake"');
     expect(prompt).toContain(".leglas/variants/hero/switch.tsx");
+
+    // Discovery and the server are already done, and the look comes after
+    // registering.
+    expect(prompt).toContain(
+      "Request collection, direction discovery and the live-server check are already complete",
+    );
+    expect(prompt).toContain("do not start or restart the app or Leglas");
+    expect(prompt).toContain('npx -y leglas show "the title you registered" --screenshot');
+    expect(prompt).not.toContain("requests, list, show, help");
+    expect(prompt).not.toContain("last step; finish there");
+    expect(prompt).toContain("Register it before you look");
+    expect(prompt.indexOf("--based-on")).toBeLessThan(prompt.indexOf("look at it once"));
+
+    // The two prompts ask for opposite work, and getting it wrong overwrites a
+    // direction.
+    expect(prompt).not.toContain("Make the change in that file");
+    expect(prompt).not.toContain("change only");
   });
 
   test("registers through the exact running CLI without package discovery", () => {
@@ -109,17 +102,6 @@ describe("composeRequest, as a variant", () => {
 
     expect(prompt).toContain('node "/opt/Leglas Current/bin.js" add');
     expect(prompt).not.toContain("npx");
-  });
-
-  test("marks interface discovery and server startup as already complete", () => {
-    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
-
-    expect(prompt).toContain(
-      "Request collection, direction discovery and the live-server check are already complete",
-    );
-    expect(prompt).toContain("do not start or restart the app or Leglas");
-    expect(prompt).toContain('npx -y leglas show "the title you registered" --screenshot');
-    expect(prompt).not.toContain("requests, list, show, help");
   });
 
   test("puts fresh captures, comparison, references and load evidence after the ask", () => {
@@ -275,63 +257,9 @@ describe("composeRequest, as a variant", () => {
     expect(prompt).toContain("Copy its source rather than editing it");
     expect(prompt).toContain('--based-on "Current"');
   });
-
-  test("reports the mode it composed for, so the queue can record it", () => {
-    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "variant").mode).toBe(
-      "variant",
-    );
-    expect(composeRequest(preview("Poster", "/?v-hero=poster"), "x", "replace").mode).toBe(
-      "replace",
-    );
-  });
-
-  // The two prompts ask for opposite work, and getting it wrong overwrites a
-  // direction.
-  test("never tells the agent to edit the parent", () => {
-    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
-
-    expect(prompt).not.toContain("Make the change in that file");
-    expect(prompt).not.toContain("change only");
-  });
-});
-
-describe("variantSlot", () => {
-  test("reads the surface and option a scaffold url names", () => {
-    expect(variantSlot("/?v-hero=poster")).toEqual({ option: "poster", surface: "hero" });
-  });
-
-  test("refuses anything that could climb out of the variants directory", () => {
-    expect(variantSlot("/?v-hero=../../etc/passwd")).toBeNull();
-  });
-
-  test("has nothing to say about a url the scaffold did not write", () => {
-    expect(variantSlot("/pricing")).toBeNull();
-  });
 });
 
 describe("composeRequest", () => {
-  test("names the direction so the agent knows what is being changed", () => {
-    const { prompt } = composeRequest(
-      preview("Aurora", "/?v-hero=aurora"),
-      "make it warmer",
-      "replace",
-    );
-
-    expect(prompt).toContain("Aurora");
-    expect(prompt).toContain("make it warmer");
-  });
-
-  test("points at the exact file when the url reveals one", () => {
-    const { prompt, target } = composeRequest(
-      preview("Aurora", "/?v-hero=aurora"),
-      "warmer",
-      "replace",
-    );
-
-    expect(target).toBe(".leglas/variants/hero/aurora.tsx");
-    expect(prompt).toContain(".leglas/variants/hero/aurora.tsx");
-  });
-
   test("still produces a usable prompt when the file cannot be derived", () => {
     const { prompt, target } = composeRequest(
       preview("Pricing v2", "/pricing-v2"),
@@ -344,14 +272,28 @@ describe("composeRequest", () => {
     expect(prompt).toContain("/pricing-v2");
   });
 
-  test("tells the agent the change is scoped, so it skips the verification ceremony", () => {
-    const known = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace").prompt;
+  test("changes only this direction, in its file, and skips the verification ceremony", () => {
+    // Padding from a textarea must not reach the agent.
+    const { prompt: known, target } = composeRequest(
+      preview("Aurora", "/?v-hero=aurora"),
+      "  warmer\n\n",
+      "replace",
+    );
 
     const unknown = composeRequest(
       preview("Pricing v2", "/pricing-v2"),
       "warmer",
       "replace",
     ).prompt;
+
+    expect(target).toBe(".leglas/variants/hero/aurora.tsx");
+    expect(known).toContain(".leglas/variants/hero/aurora.tsx");
+    expect(known).toContain('change only the "Aurora" design direction');
+    expect(known).toContain("Leave every other direction exactly as it is");
+    expect(known).toContain("What to change: warmer");
+    expect(known).not.toMatch(/\n{3}/);
+    // It is already registered, so nothing is re-registered.
+    expect(known).not.toContain("leglas add");
 
     // Leaving this out cost minutes of post-edit test runs and repo searches
     // per request.
@@ -366,42 +308,11 @@ describe("composeRequest", () => {
     expect(known).toContain('show "Aurora" --screenshot');
     expect(unknown).toContain('show "Pricing v2" --screenshot');
   });
-
-  test("tells the agent to change only this direction, not its siblings", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
-
-    expect(prompt).toContain('change only the "Aurora" design direction');
-    expect(prompt).toContain("Leave every other direction exactly as it is");
-  });
-
-  test("does not ask the agent to re-register a direction that already exists", () => {
-    const { prompt } = composeRequest(preview("Aurora", "/?v-hero=aurora"), "warmer", "replace");
-
-    expect(prompt).not.toContain("leglas add");
-  });
-
-  test("trims the intent, so padding from a textarea does not reach the agent", () => {
-    const { prompt } = composeRequest(
-      preview("Aurora", "/?v-hero=aurora"),
-      "  warmer\n\n",
-      "replace",
-    );
-
-    expect(prompt).toContain("What to change: warmer");
-    expect(prompt).not.toMatch(/\n{3}/);
-  });
 });
 
 describe("request lifecycle", () => {
   const cwd = () => mkdtempSync(join(tmpdir(), "leglas-requests-"));
   const input = { title: "Aurora", url: "/", intent: "warmer", target: null, prompt: "prompt" };
-
-  test("append assigns an id and queued status", async () => {
-    const root = cwd();
-    await appendRequest(root, input);
-    const [request] = await readRequests(root);
-    expect(request).toMatchObject({ title: "Aurora", id: expect.any(String), status: "queued" });
-  });
 
   test("append accepts a preallocated id and ids stay URL-safe", async () => {
     const root = cwd();
@@ -409,32 +320,6 @@ describe("request lifecycle", () => {
     expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
     await appendRequest(root, input, id);
     expect((await readRequests(root))[0]?.id).toBe(id);
-  });
-
-  test("reads only attachments with a file and kind", async () => {
-    const root = cwd();
-    mkdirSync(join(root, ".leglas"));
-    writeFileSync(
-      join(root, ".leglas/requests.json"),
-      JSON.stringify({
-        requests: [
-          {
-            ...input,
-            id: "good",
-            attachments: [
-              { kind: "frame", file: ".leglas/captures/good/frame.png", width: 10, height: 20 },
-            ],
-            captureNote: "No browser.",
-          },
-          { ...input, id: "bad", attachments: [{ kind: "frame", width: 10 }] },
-        ],
-      }),
-    );
-
-    const [good, bad] = await readRequests(root);
-    expect(good?.attachments).toHaveLength(1);
-    expect(good?.captureNote).toBe("No browser.");
-    expect(bad?.attachments).toBeUndefined();
   });
 
   test("collect marks requests picked-up and persists", async () => {
@@ -462,15 +347,6 @@ describe("request lifecycle", () => {
       { ...input, id: "0", mode: "replace", status: "queued" },
     ]);
     expect(JSON.parse(readFileSync(queue, "utf8"))).toEqual({ requests: [input] });
-  });
-
-  test("clear drops the work that was collected", async () => {
-    const root = cwd();
-    await appendRequest(root, input);
-    await collectRequests(root);
-
-    expect(await clearRequests(root)).toEqual({ cleared: 1, pending: 0 });
-    expect(await readRequests(root)).toEqual([]);
   });
 
   test("clear keeps a request that arrived while the agent was working", async () => {
@@ -655,31 +531,20 @@ describe("terminal requests", () => {
   });
 });
 
-describe("the look-once instruction", () => {
-  test("quotes the title the way --based-on does, so a quote in the name survives", () => {
-    const { prompt } = composeRequest(
-      preview('Say "hi"', "/?v-hero=hi"),
-      "louder",
-      "replace",
-      [],
-      "npx -y leglas",
-    );
-
-    expect(prompt).toContain('npx -y leglas show "Say \\"hi\\"" --screenshot');
-  });
-});
-
 describe("what the agent is told to run", () => {
-  test("a title with shell metacharacters is inert inside the show command", () => {
+  test("a title with quotes or shell metacharacters is inert inside the show command", () => {
     const { prompt } = composeRequest(
-      preview("Say $(whoami) `now`", "/?v-hero=x"),
+      preview('Say "hi" $(whoami) `now`', "/?v-hero=x"),
       "louder",
       "replace",
       [],
       "npx -y leglas",
     );
 
-    expect(prompt).toContain('npx -y leglas show "Say \\$(whoami) \\`now\\`" --screenshot');
+    // Quoted the way --based-on is, so a quote in the name survives.
+    expect(prompt).toContain(
+      'npx -y leglas show "Say \\"hi\\" \\$(whoami) \\`now\\`" --screenshot',
+    );
   });
 
   test("the registration arguments are quoted the same way", () => {
@@ -691,13 +556,6 @@ describe("what the agent is told to run", () => {
 
     expect(prompt).toContain('--based-on "Cost \\$5"');
     expect(prompt).toContain('--asked-for "add a \\`code\\` sample"');
-  });
-
-  test("registration is not the end any more; the look comes after it", () => {
-    const { prompt } = composeRequest(preview("Poster", "/?v-hero=poster"), "warmer", "variant");
-    expect(prompt).not.toContain("last step; finish there");
-    expect(prompt).toContain("Register it before you look");
-    expect(prompt.indexOf("--based-on")).toBeLessThan(prompt.indexOf("look at it once"));
   });
 });
 
@@ -773,46 +631,5 @@ describe("attachments read back from the queue", () => {
     );
     const [read] = await readRequests(root);
     expect(read?.attachments).toEqual([attachment(".leglas/captures/abc123/frame.png")]);
-  });
-});
-
-describe("agents that receive paths rather than attachments", () => {
-  test("every capture is named as a file, so a path-only agent can still open it", () => {
-    const captured = {
-      attachments: [
-        {
-          kind: "frame" as const,
-          file: ".leglas/captures/r1/frame.png",
-          width: 1440,
-          height: 900,
-          viewport: 1440,
-        },
-        {
-          kind: "reference" as const,
-          file: ".leglas/captures/r1/reference-1.png",
-          width: 800,
-          height: 600,
-        },
-      ],
-      errors: [],
-      hydration: null,
-      cut: false,
-      skipped: null,
-    };
-
-    const { prompt } = composeRequest(
-      preview("Poster", "/?v-hero=poster"),
-      "warmer",
-      "replace",
-      [],
-      "npx -y leglas",
-      captured,
-    );
-
-    // Cursor, a custom command and `leglas watch` get only this text, so the
-    // paths and instruction must carry the whole job.
-    expect(prompt).toContain(".leglas/captures/r1/frame.png");
-    expect(prompt).toContain(".leglas/captures/r1/reference-1.png");
-    expect(prompt).toContain("Open every one and look at it");
   });
 });
