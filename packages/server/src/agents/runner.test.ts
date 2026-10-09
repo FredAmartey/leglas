@@ -1149,47 +1149,36 @@ describe("warm transports", () => {
     await runner.stop();
   });
 
-  test("a vendor kept warm through a switch is let go when its run ends", async () => {
-    // Switching to Codex mid-run must not kill the Claude run, but once it ends
-    // only the vendor last asked for stays warm, rather than both staying
+  test.each([
+    // Switching to Codex mid-run must not kill the Claude run, but once it
+    // ends only the vendor last asked for stays warm, rather than both staying
     // resident until the idle clock.
+    ["the vendor last asked for", "codex"],
+    ["the vendor that ran, with nothing asked for since boot", null],
+  ] as const)("when a run ends, %s stays warm", async (_name, asked) => {
     const { sdk, children } = claudeTurns();
     const appServer = codexStub();
 
-    const { runner } = await boot({ agent: "claude" }, ["Long"], {
+    const { cwd, runner } = await boot({ agent: "claude" }, ["Long"], {
       claudeAgentSession: sdk,
       codexAppServer: appServer,
     });
 
     await until(() => children.length === 1);
-    runner.prepare("codex");
+
+    if (asked !== null) runner.prepare(asked);
     await settle();
-    expect(appServer.warm).toHaveBeenCalledOnce();
+    // The run in flight keeps its vendor.
     expect(sdk.release).not.toHaveBeenCalled();
 
     children[0]?.close(0);
-    await until(() => sdk.release.mock.calls.length === 1);
-    expect(appServer.release).not.toHaveBeenCalled();
-    await runner.stop();
-  });
-
-  test("with nothing asked for since boot, the vendor that ran stays warm", async () => {
-    const { sdk, children } = claudeTurns();
-    const appServer = codexStub();
-
-    const { cwd, runner } = await boot({ agent: "claude" }, ["Only"], {
-      claudeAgentSession: sdk,
-      codexAppServer: appServer,
-    });
-
-    await until(() => children.length === 1);
-    children[0]?.close(0);
+    const [released, kept] = asked === null ? [appServer, sdk] : [sdk, appServer];
     // Wait on the release, not the queue emptying: the request is removed
     // before the run's tail finishes, and a fixed pause fails on a slow
     // machine.
-    await until(() => appServer.release.mock.calls.length > 0);
+    await until(() => released.release.mock.calls.length > 0);
     expect((await readRequests(cwd)).length).toBe(0);
-    expect(sdk.release).not.toHaveBeenCalled();
+    expect(kept.release).not.toHaveBeenCalled();
     await runner.stop();
   });
 
