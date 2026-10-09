@@ -33,6 +33,8 @@ describe("loadConfig", () => {
     expect(result.errors).toEqual([]);
     expect(result.config?.devServer).toBe("http://localhost:5173");
     expect(result.config?.previews[0]?.title).toBe("Wave");
+    // The resolved path, so the CLI can report what it used.
+    expect(result.path).toBe(join(dir, "leglas.config.ts"));
   });
 
   test("loads a JSON config", async () => {
@@ -77,14 +79,5 @@ describe("loadConfig", () => {
 
     expect(result.config).toBeNull();
     expect(result.errors.join(" ")).toContain("default");
-  });
-
-  test("returns the resolved path so the CLI can report what it used", async () => {
-    const dir = scratch();
-    writeFileSync(join(dir, "leglas.config.ts"), `export default { previews: [] };`);
-
-    const result = await loadConfig(dir);
-
-    expect(result.path).toBe(join(dir, "leglas.config.ts"));
   });
 });

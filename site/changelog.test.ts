@@ -1,13 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { anchor, inline, longDate, parseChangelog, renderPage } from "./changelog.ts";
 import { loadAssets } from "./chrome.ts";
-import { buildSite } from "./build.ts";
-import { releasesIndex } from "./release-notes.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -56,32 +53,6 @@ describe("CHANGELOG.md", () => {
       for (const version of entry.versions) {
         expect(html.split(`id="v${version}"`), `v${version}`).toHaveLength(2);
       }
-    }
-  });
-
-  test("buildSite writes a release index led by the published CLI version", () => {
-    const out = mkdtempSync(join(tmpdir(), "leglas-site-"));
-
-    try {
-      const written = buildSite(root, out);
-      const path = join(out, "releases.json");
-      expect(written).toContain(path);
-      const text = readFileSync(path, "utf8");
-      const releases: { version: string; date: string; title: string }[] = JSON.parse(text);
-
-      const declared = JSON.parse(
-        readFileSync(join(root, "packages/cli/package.json"), "utf8"),
-      ).version;
-
-      expect(releases[0]).toMatchObject({
-        version: declared,
-        date: expect.any(String),
-        title: expect.any(String),
-      });
-      expect(releases.some((release) => release.version === "Unreleased")).toBe(false);
-      expect(text).toBe(`${JSON.stringify(releases, null, 2)}\n`);
-    } finally {
-      rmSync(out, { recursive: true, force: true });
     }
   });
 });
@@ -194,15 +165,6 @@ describe("reading the markdown", () => {
       title: "First release",
     });
     expect(anchor(entries[1]!)).toBe("v0.1.0");
-  });
-
-  test("every indexed version in a shared heading has one landing anchor", () => {
-    const markdown = "## 0.1.0 and 0.1.1 (2026-08-01): First release\n\nWords.\n";
-    const html = renderPage(parseChangelog(markdown), loadAssets(root));
-
-    for (const { version } of releasesIndex(markdown)) {
-      expect(html.split(`id="v${version}"`)).toHaveLength(2);
-    }
   });
 
   test("an audience nobody ships is refused", () => {

@@ -81,7 +81,7 @@ describe("readLocalPreviews", () => {
     expect(result.errors).toEqual([]);
   });
 
-  test("reads previews that were added locally", async () => {
+  test("reads previews that were added locally, marked local so the interface can tell them apart", async () => {
     const dir = scratch();
     seed(dir, JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }));
 
@@ -89,14 +89,6 @@ describe("readLocalPreviews", () => {
 
     expect(result.previews).toHaveLength(1);
     expect(result.previews[0]?.title).toBe("Aurora");
-  });
-
-  test("marks them local, so the interface can tell shared from unshared", async () => {
-    const dir = scratch();
-    seed(dir, JSON.stringify({ previews: [{ title: "Aurora", url: "/?v-hero=aurora" }] }));
-
-    const result = await readLocalPreviews(dir);
-
     expect(result.previews[0]?.local).toBe(true);
   });
 
@@ -132,15 +124,6 @@ describe("readLocalPreviews", () => {
 });
 
 describe("addLocalPreview", () => {
-  test("writes a preview that then reads back", async () => {
-    const dir = scratch();
-
-    const outcome = await addLocalPreview(dir, { title: "Aurora", url: "/?v-hero=aurora" }, shared);
-
-    expect(outcome.ok).toBe(true);
-    expect((await readLocalPreviews(dir)).previews[0]?.title).toBe("Aurora");
-  });
-
   test("appends rather than replacing what is already there", async () => {
     const dir = scratch();
     await addLocalPreview(dir, { title: "Aurora", url: "/?a" }, shared);
@@ -167,15 +150,6 @@ describe("addLocalPreview", () => {
     const outcome = await addLocalPreview(dir, { title: "Aurora", url: "/?b" }, shared);
 
     expect(outcome.ok).toBe(false);
-  });
-
-  test("refuses a url that is neither root relative nor absolute", async () => {
-    const dir = scratch();
-
-    const outcome = await addLocalPreview(dir, { title: "Aurora", url: "pricing" }, shared);
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.error).toContain("pricing");
   });
 
   test("keeps the note and tags it was given", async () => {

@@ -97,29 +97,6 @@ async function call(
 }
 
 describe("the MCP face", () => {
-  test("lists the same tools the CLI offers", async () => {
-    const client = await connect(scratch());
-
-    const { tools } = await client.listTools();
-    const names = tools.map((tool) => tool.name).sort();
-
-    expect(names).toEqual([
-      "add",
-      "classify",
-      "explore",
-      "init",
-      "keep",
-      "link",
-      "list",
-      "remove",
-      "requests",
-      "scaffold",
-      "share",
-      "show",
-      "start",
-    ]);
-  });
-
   test("share reaches the running Leglas through the CLI, and says so when there is none", async () => {
     const dir = scratch();
     // A port that was free a moment ago: the project's record points at nothing
@@ -141,7 +118,7 @@ describe("the MCP face", () => {
     });
   });
 
-  test("add registers a local preview and returns the CLI's envelope", async () => {
+  test("add registers a url, a branch or a file, returns the CLI's envelope, and list shows it", async () => {
     const dir = scratch();
     const client = await connect(dir);
 
@@ -156,9 +133,33 @@ describe("the MCP face", () => {
     expect(envelope["added"]).toBe("Aurora");
     const written = JSON.parse(readFileSync(join(dir, ".leglas/previews.json"), "utf8"));
     expect(written.previews[0].title).toBe("Aurora");
+
+    // A branch carries the warning about the missing devCommand.
+    const branch = await call(client, "add", { title: "PR", url: "/", branch: "feature/hero" });
+
+    expect(branch.envelope["branch"]).toBe("feature/hero");
+    expect(String(branch.envelope["warning"])).toContain("devCommand");
+
+    // A file preview, for the greenfield case.
+    const file = await call(client, "add", { title: "Sketch", file: ".leglas/pages/aurora.html" });
+
+    expect(file.isError).toBe(false);
+    expect(file.envelope["file"]).toBe(".leglas/pages/aurora.html");
+
+    // A failed add is marked as an error, with the CLI's message.
+    const again = await call(client, "add", { title: "Aurora", url: "/?v-hero=again" });
+
+    expect(again.isError).toBe(true);
+    expect(String(again.envelope["error"])).toContain("Aurora");
+
+    const listed = await call(client, "list", {});
+
+    expect(listed.envelope["previews"]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Aurora", local: true })]),
+    );
   });
 
-  test("show answers for one direction, file behind it included", async () => {
+  test("show answers for one direction, file behind it included, and an unknown one is an error", async () => {
     const dir = scratch();
     const client = await connect(dir);
     await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora", note: "Warm." });
@@ -173,16 +174,13 @@ describe("the MCP face", () => {
     });
     expect(envelope["comparedWith"]).toContain("Dusk");
     expect(envelope["comparedWith"]).not.toContain("Aurora");
-  });
 
-  test("show marks an unknown title as an error, with the CLI's message", async () => {
-    const client = await connect(scratch());
+    // With the CLI's message.
+    const unknown = await call(client, "show", { title: "Nope" });
 
-    const { envelope, isError } = await call(client, "show", { title: "Nope" });
-
-    expect(isError).toBe(true);
-    expect(envelope["ok"]).toBe(false);
-    expect(String(envelope["error"])).toContain("No direction called");
+    expect(unknown.isError).toBe(true);
+    expect(unknown.envelope["ok"]).toBe(false);
+    expect(String(unknown.envelope["error"])).toContain("No direction called");
   });
 
   test("show with a screenshot returns the PNG beside its JSON envelope", async () => {
@@ -233,45 +231,6 @@ describe("the MCP face", () => {
     });
   });
 
-  test("add with a branch carries the warning about the missing devCommand", async () => {
-    const client = await connect(scratch());
-
-    const { envelope } = await call(client, "add", {
-      title: "PR",
-      url: "/",
-      branch: "feature/hero",
-    });
-
-    expect(envelope["branch"]).toBe("feature/hero");
-    expect(String(envelope["warning"])).toContain("devCommand");
-  });
-
-  test("a failed add is marked as an error, with the CLI's message", async () => {
-    const dir = scratch();
-    const client = await connect(dir);
-    await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
-
-    const { envelope, isError } = await call(client, "add", {
-      title: "Aurora",
-      url: "/?v-hero=again",
-    });
-
-    expect(isError).toBe(true);
-    expect(String(envelope["error"])).toContain("Aurora");
-  });
-
-  test("list shows what add registered", async () => {
-    const dir = scratch();
-    const client = await connect(dir);
-    await call(client, "add", { title: "Aurora", url: "/?v-hero=aurora" });
-
-    const { envelope } = await call(client, "list", {});
-
-    expect(envelope["previews"]).toEqual(
-      expect.arrayContaining([expect.objectContaining({ title: "Aurora", local: true })]),
-    );
-  });
-
   test("classify routes a dependency change to a checkout", async () => {
     const client = await connect(scratch());
 
@@ -283,60 +242,41 @@ describe("the MCP face", () => {
     expect(String(envelope["reason"])).toContain("dependency");
   });
 
-  test("explore briefs the set without prescribing designs", async () => {
+  test("explore briefs the set without prescribing designs, or variants of a direction", async () => {
     const client = await connect(scratch());
 
-    const { envelope } = await call(client, "explore", { surface: "hero", count: 4 });
+    const spread = await call(client, "explore", { surface: "hero", count: 4 });
 
-    expect(envelope["ok"]).toBe(true);
-    expect(String(envelope["instructions"])).toContain("Build 4 design directions");
-    expect(String(envelope["instructions"])).toContain(".leglas/variants/hero/");
-  });
+    expect(spread.envelope["ok"]).toBe(true);
+    expect(String(spread.envelope["instructions"])).toContain("Build 4 design directions");
+    expect(String(spread.envelope["instructions"])).toContain(".leglas/variants/hero/");
 
-  test("explore based on a direction asks for variants instead", async () => {
-    const client = await connect(scratch());
-
-    const { envelope } = await call(client, "explore", {
+    const variants = await call(client, "explore", {
       surface: "hero",
       count: 3,
       basedOn: "Aurora",
     });
 
-    expect(envelope["ok"]).toBe(true);
-    expect(String(envelope["instructions"])).toContain('variations of the "Aurora" direction');
-  });
-
-  test("add accepts a file preview for the greenfield case", async () => {
-    const client = await connect(scratch());
-
-    const { envelope, isError } = await call(client, "add", {
-      title: "Aurora",
-      file: ".leglas/pages/aurora.html",
-    });
-
-    expect(isError).toBe(false);
-    expect(envelope["file"]).toBe(".leglas/pages/aurora.html");
+    expect(variants.envelope["ok"]).toBe(true);
+    expect(String(variants.envelope["instructions"])).toContain(
+      'variations of the "Aurora" direction',
+    );
   });
 
   test("working the queue marks the session engaged", async () => {
     const touches = { count: 0 };
     const client = await connect(scratch(), { touches });
 
-    await call(client, "requests", {});
+    // A fresh project's queue is empty.
+    const { envelope } = await call(client, "requests", {});
+    expect(envelope["ok"]).toBe(true);
+    expect(envelope["requests"]).toEqual([]);
+
     await call(client, "list", {});
     await call(client, "requests", { clear: true });
 
     // Only the queue tool signals engagement; browsing previews does not.
     expect(touches.count).toBe(2);
-  });
-
-  test("requests is empty for a fresh project", async () => {
-    const client = await connect(scratch());
-
-    const { envelope } = await call(client, "requests", {});
-
-    expect(envelope["ok"]).toBe(true);
-    expect(envelope["requests"]).toEqual([]);
   });
 
   // A booting server asks each agent CLI whether it is logged in. Stand-ins

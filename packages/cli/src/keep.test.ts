@@ -18,116 +18,62 @@ const previews = [
 ];
 
 describe("planKeep", () => {
-  test("moves the winner out of the ignored directory into real source", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.move).toEqual({
-      from: ".leglas/variants/hero/aurora.tsx",
-      to: "src/components/hero.tsx",
-    });
-  });
-
-  test("deletes the whole exploration, since nothing there was ever shared", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.removeDir).toBe(".leglas/variants/hero");
-  });
-
-  test("drops every direction of that surface from the rail, winner included", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.dropTitles.sort()).toEqual(["Aurora", "Current", "Dusk"]);
-  });
-
-  test("leaves directions belonging to other surfaces alone", () => {
+  test("moves the winner into real source and ends that surface's exploration alone", () => {
     const plan = planKeep({
       title: "Aurora",
       previews: [...previews, preview("Compact", "/?v-nav=compact")],
       to: "src/components/hero.tsx",
     });
 
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.dropTitles).not.toContain("Compact");
-  });
-
-  test("renames the exported component to suit its new home", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
+    if (!plan.ok) throw new Error(plan.error);
+    // Out of the ignored directory, renamed to suit its new home.
+    expect(plan.move).toEqual({
+      from: ".leglas/variants/hero/aurora.tsx",
+      to: "src/components/hero.tsx",
+    });
     expect(plan.exportName).toBe("Hero");
-  });
-
-  test("tells the user the one import change left to them", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "src/components/hero.tsx" });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
+    // The whole exploration goes, since nothing there was ever shared, and every
+    // direction of the surface leaves the rail, the winner included. Other
+    // surfaces are left alone.
+    expect(plan.removeDir).toBe(".leglas/variants/hero");
+    expect(plan.dropTitles.sort()).toEqual(["Aurora", "Current", "Dusk"]);
+    // The one import change left to the user.
     expect(plan.instructions).toContain("src/components/hero.tsx");
     expect(plan.instructions).toContain("Hero");
   });
 
-  test("refuses a direction it cannot find", () => {
-    const plan = planKeep({ title: "Nope", previews, to: "src/hero.tsx" });
+  test.each([
+    ["a direction it cannot find", "Nope", previews, "src/hero.tsx", "Nope"],
+    // Rather than guessing.
+    [
+      "a direction whose file it cannot locate",
+      "Pricing v2",
+      [preview("Pricing v2", "/pricing-v2")],
+      "src/pricing.tsx",
+      "cannot tell",
+    ],
+    // Which defeats the point.
+    [
+      "a destination inside the ignored directory",
+      "Aurora",
+      previews,
+      ".leglas/variants/hero/keep.tsx",
+      ".leglas",
+    ],
+    [
+      "a destination that escapes the project",
+      "Aurora",
+      previews,
+      "../elsewhere/hero.tsx",
+      "inside the project",
+    ],
+    // runKeep makes a path inside the project relative first, so an absolute one
+    // here is outside it, such as another drive on Windows.
+    ["an absolute destination", "Aurora", previews, "/elsewhere/hero.tsx", "inside the project"],
+  ])("refuses %s", (_case, title, among, to, said) => {
+    const plan = planKeep({ title, previews: among, to });
 
     expect(plan.ok).toBe(false);
-
-    if (plan.ok) return;
-    expect(plan.error).toContain("Nope");
-  });
-
-  test("refuses a direction whose file it cannot locate, rather than guessing", () => {
-    const plan = planKeep({
-      title: "Pricing v2",
-      previews: [preview("Pricing v2", "/pricing-v2")],
-      to: "src/pricing.tsx",
-    });
-
-    expect(plan.ok).toBe(false);
-
-    if (plan.ok) return;
-    expect(plan.error.toLowerCase()).toContain("cannot tell");
-  });
-
-  test("refuses a destination inside the ignored directory, which defeats the point", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: ".leglas/variants/hero/keep.tsx" });
-
-    expect(plan.ok).toBe(false);
-
-    if (plan.ok) return;
-    expect(plan.error).toContain(".leglas");
-  });
-
-  test("refuses a destination that escapes the project", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "../elsewhere/hero.tsx" });
-
-    expect(plan.ok).toBe(false);
-
-    if (plan.ok) return;
-    expect(plan.error.toLowerCase()).toContain("inside the project");
-  });
-
-  // runKeep makes a path inside the project relative first, so an absolute one
-  // here is outside it, such as another drive on Windows.
-  test("refuses an absolute destination", () => {
-    const plan = planKeep({ title: "Aurora", previews, to: "/elsewhere/hero.tsx" });
-
-    expect(plan.ok).toBe(false);
-
-    if (plan.ok) return;
-    expect(plan.error.toLowerCase()).toContain("inside the project");
+    expect(plan.ok ? "" : plan.error.toLowerCase()).toContain(said.toLowerCase());
   });
 });

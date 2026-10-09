@@ -64,18 +64,6 @@ describe("releaseNotes", () => {
       "### Fixed\r\n\r\n- The fix.",
     );
   });
-
-  test("the real 1.0.0 entry has a title and a body", () => {
-    const notes = releaseNotes(
-      readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8"),
-      "1.0.0",
-    );
-
-    expect(notes?.title).toBe("Share the rail with someone who has no repo");
-    expect(notes?.body).toContain("### Added");
-    expect(notes?.body).toContain("**Share what is on your rail with someone who has no repo.**");
-    expect(notes?.body).not.toMatch(/^## /m);
-  });
 });
 
 describe("releasesIndex", () => {

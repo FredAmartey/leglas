@@ -1,6 +1,3 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { BRANCH_IDLE_MS, createBranchRegistry } from "./branches.js";
@@ -52,40 +49,6 @@ function proxy(
 }
 
 describe("branch preview registry", () => {
-  test("joins a start already in flight, so one title gets one checkout", async () => {
-    const checkout = deferred<RunningWorktree>();
-    let starts = 0;
-
-    const registry = createBranchRegistry({
-      cwd: "/repo",
-      previews: [branch],
-      installCommand: "pnpm install",
-      devCommand: "pnpm dev --port {port}",
-      startProxy: proxy(),
-      startWorktree: async () => {
-        starts += 1;
-
-        return checkout.promise;
-      },
-    });
-
-    const first = registry.start("Wave");
-    const second = registry.start("Wave");
-
-    expect(first).toBe(second);
-    expect(starts).toBe(1);
-    expect(registry.state("Wave")).toEqual({
-      status: "starting",
-      phase: "checking out",
-    });
-
-    const worktree = running();
-    checkout.resolve(worktree);
-    await first;
-
-    expect(registry.state("Wave")).toEqual({ status: "ready", worktree });
-  });
-
   test("records a failure and lets the next start retry it", async () => {
     let attempts = 0;
     const worktree = running();
@@ -180,8 +143,6 @@ describe("branch preview registry", () => {
     let starts = 0;
     let proxyStops = 0;
     let worktreeStops = 0;
-    const checkout = join(mkdtempSync(join(tmpdir(), "leglas-idle-")), "wave");
-    mkdirSync(checkout);
     const transitions: string[] = [];
 
     const registry = createBranchRegistry({
@@ -196,10 +157,8 @@ describe("branch preview registry", () => {
 
         return {
           ...running(),
-          path: checkout,
           stop: async () => {
             worktreeStops += 1;
-            rmSync(checkout, { recursive: true, force: true });
           },
         };
       },

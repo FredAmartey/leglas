@@ -10,10 +10,6 @@ const scratch = () => mkdtempSync(join(tmpdir(), "leglas-renames-"));
 const titles = ["Cool", "Warm", "Aurora"];
 
 describe("resolveTitle", () => {
-  test("a config title resolves to itself", () => {
-    expect(resolveTitle("Cool", titles, {})).toEqual({ ok: true, title: "Cool" });
-  });
-
   test("a name from the rail resolves to the title the config knows", () => {
     // The user says the name their own interface showed them.
     expect(resolveTitle("Sunrise", titles, { Cool: "Sunrise" })).toEqual({

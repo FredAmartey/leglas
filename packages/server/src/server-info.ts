@@ -61,19 +61,15 @@ export async function readServerInfo(cwd: string): Promise<ServerInfo | null> {
 /**
  * Removes the record, but only the one this server wrote. Two Leglas processes
  * can serve one project; the earlier one closing must not take the newer
- * record, or `show --screenshot` loses a running server. With no expectation,
- * the file goes regardless.
+ * record, or `show --screenshot` loses a running server.
  */
 export async function removeServerInfo(
   cwd: string,
-  expected?: { port: number; pid: number },
+  expected: { port: number; pid: number },
 ): Promise<void> {
-  if (expected !== undefined) {
-    const current = await readServerInfo(cwd);
+  const current = await readServerInfo(cwd);
 
-    if (current !== null && (current.port !== expected.port || current.pid !== expected.pid))
-      return;
-  }
+  if (current !== null && (current.port !== expected.port || current.pid !== expected.pid)) return;
 
   await rm(join(cwd, SERVER_INFO_PATH), { force: true });
 }
