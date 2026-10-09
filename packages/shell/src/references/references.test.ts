@@ -117,9 +117,15 @@ describe("what a request names", () => {
     ];
 
     expect(referenceIds(drafts)).toEqual(["a", "d"]);
-    // A failure needs a decision, so it outranks an upload in flight, which
-    // only waits; a clean set sends.
+    // A failure needs a decision, so it outranks an upload in flight on either
+    // side of it, which only waits; a clean set sends.
     expect(sendBlocker(drafts)).toBe("failed");
+    expect(
+      sendBlocker([
+        draft({ status: "failed", id: null }),
+        draft({ status: "uploading", id: null }),
+      ]),
+    ).toBe("failed");
     expect(sendBlocker([draft({ status: "failed", id: null })])).toBe("failed");
     expect(sendBlocker([draft({ status: "uploading", id: null }), draft()])).toBe("uploading");
     expect(sendBlocker([draft(), draft({ key: "2" })])).toBeNull();
