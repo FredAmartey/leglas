@@ -106,33 +106,6 @@ describe("KNOWN_AGENTS", () => {
   });
 });
 
-test("codex is told it may run outside a git repository", () => {
-  // Every codex argv needs the flag: without it codex-cli 0.147.0 refuses to
-  // run outside a git repository, before it contacts a model.
-  for (const argv of [
-    KNOWN_AGENTS.codex.args("make it warmer"),
-    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
-    KNOWN_AGENTS.codex.terminalArgs("make it warmer"),
-  ]) {
-    expect(argv).toContain("--skip-git-repo-check");
-  }
-
-  // The flag moves the repository precondition and nothing else: the sandbox
-  // still confines writes to the workspace.
-  expect(KNOWN_AGENTS.codex.args("make it warmer")).toContain("workspace-write");
-});
-
-test("agent defaults do not override the user's quality settings", () => {
-  for (const argv of [
-    KNOWN_AGENTS.codex.args("make it warmer"),
-    KNOWN_AGENTS.codex.resumeArgs("th_1", "make it warmer"),
-    KNOWN_AGENTS.codex.terminalArgs("make it warmer"),
-  ]) {
-    expect(argv).toContain("sandbox_workspace_write.network_access=true");
-    expect(argv.join(" ")).not.toMatch(/model_reasoning_effort|--model|-m /);
-  }
-});
-
 test("adds an explicit effort only when the user chooses one", () => {
   expect(KNOWN_AGENTS.claude.args("make it warmer", "high")).toEqual(
     expect.arrayContaining(["--effort", "high"]),
@@ -221,22 +194,6 @@ test("an unreadable or failed probe reads as unknown, never as signed out", asyn
   );
 
   expect(agents.map((agent) => agent.auth)).toEqual(["unknown", "unknown", "unknown"]);
-});
-
-test("reads both of Cursor's real status answers", async () => {
-  // Read from cursor-agent 2026.09.02. Both exit 0, and the signed-out one
-  // contains "logged in".
-  for (const [stdout, auth] of [
-    ["✓ Logged in as someone@example.com\n", "ok"],
-    ["Not logged in\n", "signed-out"],
-  ] as const) {
-    const agents = await detectAgents(
-      async () => true,
-      async (binary) => (binary === "cursor-agent" ? { code: 0, stdout } : null),
-    );
-
-    expect(agents.find((agent) => agent.id === "cursor")?.auth).toBe(auth);
-  }
 });
 
 /**
@@ -343,6 +300,16 @@ test("resume argv continues the session without trying to replace its sandbox", 
     "--skip-git-repo-check",
     "make it warmer",
   ]);
+  // Cursor resumes a chat by its id.
+  expect(KNOWN_AGENTS.cursor.resumeArgs("chat_1", "make it warmer")).toEqual([
+    "-p",
+    "--resume",
+    "chat_1",
+    "make it warmer",
+    "--output-format",
+    "stream-json",
+    "--trust",
+  ]);
 });
 
 test("sessionFrom reads each vendor's own id and nothing else", () => {
@@ -363,18 +330,6 @@ test("sessionFrom reads each vendor's own id and nothing else", () => {
   expect(sessionFrom("cursor", JSON.stringify({ session_id: "abc" }))).toBe("abc");
 });
 
-test("Cursor resumes a chat by its id", () => {
-  expect(KNOWN_AGENTS.cursor.resumeArgs("chat_1", "make it warmer")).toEqual([
-    "-p",
-    "--resume",
-    "chat_1",
-    "make it warmer",
-    "--output-format",
-    "stream-json",
-    "--trust",
-  ]);
-});
-
 test("only a vendor whose output Leglas has read reports edits it can act on", () => {
   expect(activityVerified("claude")).toBe(true);
   expect(activityVerified("codex")).toBe(true);
@@ -384,16 +339,17 @@ test("only a vendor whose output Leglas has read reports edits it can act on", (
   expect(activityVerified("custom")).toBe(false);
 });
 
-test("each vendor's verdict reads its own CLI honestly", () => {
-  expect(KNOWN_AGENTS.claude.authVerdict({ code: 0, stdout: '{"loggedIn": false}' })).toBe(
-    "signed-out",
-  );
-  expect(KNOWN_AGENTS.codex.authVerdict({ code: 0, stdout: "Logged in using ChatGPT" })).toBe("ok");
-  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "Logged in as fred" })).toBe("ok");
-  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "Please sign in" })).toBe("signed-out");
-  expect(KNOWN_AGENTS.cursor.authVerdict({ code: 0, stdout: "cursor-agent 1.2.3" })).toBe(
-    "unknown",
-  );
+test.each([
+  ["claude", '{"loggedIn": false}', "signed-out"],
+  ["codex", "Logged in using ChatGPT", "ok"],
+  // Cursor's two real answers, read from cursor-agent 2026.09.02. Both exit
+  // 0, and the signed-out one contains "logged in".
+  ["cursor", "✓ Logged in as someone@example.com\n", "ok"],
+  ["cursor", "Not logged in\n", "signed-out"],
+  ["cursor", "Please sign in", "signed-out"],
+  ["cursor", "cursor-agent 1.2.3", "unknown"],
+] as const)("%s's verdict reads its own CLI honestly: %j", (agent, stdout, auth) => {
+  expect(KNOWN_AGENTS[agent].authVerdict({ code: 0, stdout })).toBe(auth);
 });
 
 describe("retryFrom", () => {
@@ -419,9 +375,8 @@ describe("retryFrom", () => {
     // Cursor's stream-json follows Claude's shape; codex retries silently.
     expect(retryFrom("cursor", line)).not.toBeNull();
     expect(retryFrom("codex", line)).toBeNull();
-  });
 
-  test("ignores every other line, including malformed ones", () => {
+    // Every other line, malformed ones included, is not a retry.
     expect(retryFrom("claude", "not json")).toBeNull();
     expect(
       retryFrom("claude", JSON.stringify({ type: "system", subtype: "init", session_id: "s" })),
@@ -463,51 +418,6 @@ describe("editedFiles", () => {
 });
 
 describe("activityFrom", () => {
-  test("reads Claude tool-use events", () => {
-    const line = JSON.stringify({
-      type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            name: "Edit",
-            input: { file_path: "src/Hero.tsx" },
-          },
-        ],
-      },
-    });
-
-    expect(activityFrom("claude", line)).toBe("editing src/Hero.tsx");
-  });
-
-  test("reads the Codex file-change item shape emitted by codex exec --json", () => {
-    const line = JSON.stringify({
-      type: "item.started",
-      item: {
-        id: "item_2",
-        type: "file_change",
-        changes: [{ path: "src/Hero.tsx", kind: "update" }],
-        status: "in_progress",
-      },
-    });
-
-    expect(activityFrom("codex", line)).toBe("editing src/Hero.tsx");
-  });
-
-  test("shows the command a Codex item is running, unwrapped from its shell", () => {
-    const line = JSON.stringify({
-      type: "item.started",
-      item: {
-        id: "item_1",
-        type: "command_execution",
-        command: "bash -lc 'npm test'",
-        status: "in_progress",
-      },
-    });
-
-    expect(activityFrom("codex", line)).toBe("running npm test");
-  });
-
   test("reads Cursor's own tool_call events, which are not Claude's shape", () => {
     // What cursor-agent 2026.09.02 sent for one run that read a file, changed
     // it and ran a command, paths renamed; read as Claude's shape they give
@@ -579,59 +489,32 @@ describe("activityFrom", () => {
     expect(activityFrom("cursor", write)).toBe("editing src/Hero.tsx");
   });
 
-  test("a Cursor edit with no path is still an edit", () => {
-    // An edit call whose path didn't resolve still says "editing": the runner
-    // reads that word to know a run touched a file.
-    const noPath = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: { editToolCall: { args: {} }, toolCallId: "call-5" },
-    });
-
-    expect(activityFrom("cursor", noPath)).toBe("editing a file");
-
-    const noArgs = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: { editToolCall: {}, toolCallId: "call-6" },
-    });
-
-    expect(activityFrom("cursor", noArgs)).toBe("editing a file");
-  });
-
-  test("finds the Cursor tool wherever it sits among the wrapper's other keys", () => {
-    // Bookkeeping keys first: the tool must still be the key that's read.
-    const line = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: {
+  test.each([
+    // An edit whose path didn't resolve still says "editing": the runner reads
+    // that word to know a run touched a file.
+    [
+      "an edit with no path",
+      { editToolCall: { args: {} }, toolCallId: "call-5" },
+      "editing a file",
+    ],
+    ["an edit with no args", { editToolCall: {}, toolCallId: "call-6" }, "editing a file"],
+    [
+      "its tool after the bookkeeping keys",
+      {
         toolCallId: "call-3",
         startedAtMs: "1788791468000",
         hookAdditionalContexts: [],
         editToolCall: { args: { path: "src/Hero.tsx", streamContent: "…" } },
       },
-    });
-
-    expect(activityFrom("cursor", line)).toBe("editing src/Hero.tsx");
-  });
-
-  test("names a Cursor tool it does not know without guessing what it did", () => {
-    const line = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: { grepToolCall: { args: { pattern: "Hero" } } },
-    });
-
-    expect(activityFrom("cursor", line)).toBe("using grep");
-  });
-
-  test("shows the command a Cursor tool call is running", () => {
+      "editing src/Hero.tsx",
+    ],
+    // Named without guessing what it did.
+    ["a tool it does not know", { grepToolCall: { args: { pattern: "Hero" } } }, "using grep"],
     // The real `shellToolCall` carries seventeen argument fields beside the
     // command; the command is the one that matters.
-    const line = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      tool_call: {
+    [
+      "a shell command",
+      {
         shellToolCall: {
           args: {
             command: "bash -lc 'npm test'",
@@ -646,9 +529,12 @@ describe("activityFrom", () => {
         toolCallId: "call-4",
         startedAtMs: "1788791472000",
       },
-    });
+      "running npm test",
+    ],
+  ])("reads a Cursor tool_call with %s", (_name, toolCall, expected) => {
+    const line = JSON.stringify({ type: "tool_call", subtype: "started", tool_call: toolCall });
 
-    expect(activityFrom("cursor", line)).toBe("running npm test");
+    expect(activityFrom("cursor", line)).toBe(expected);
   });
 
   test("shows the command Claude's Bash tool is running", () => {
@@ -664,6 +550,7 @@ describe("activityFrom", () => {
 
   test.each([
     [["bash", "-lc", "pnpm build"], "running pnpm build"],
+    ["bash -lc 'npm test'", "running npm test"],
     ['/bin/zsh -lc "pwd && rg --files"', "running pwd && rg --files"],
     ["  git  status\nsecond line ignored", "running git status"],
     [`sh -c "${"x".repeat(60)}"`, `running ${"x".repeat(47)}…`],

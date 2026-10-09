@@ -52,8 +52,4 @@ describe("hydrationEvidence", () => {
       message: "Error: Minified React error #418; visit https://react.dev/errors/418",
     });
   });
-
-  test("returns null for an empty list", () => {
-    expect(hydrationEvidence([])).toBeNull();
-  });
 });

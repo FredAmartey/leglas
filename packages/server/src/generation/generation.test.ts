@@ -22,7 +22,14 @@ import { afterAll, describe, expect, test, vi } from "vitest";
 
 import { codexResultText, codexServers } from "./codex.js";
 import { factsBlock, readProjectFacts } from "./facts.js";
-import { createGenerations, type GenerationDeps } from "./generation.js";
+import {
+  createGenerations,
+  type GenerationDeps,
+  type GenerationJob,
+  type GenerationRequest,
+  type GenerationSlot,
+  type Generations,
+} from "./generation.js";
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
@@ -90,6 +97,9 @@ const STYLES = `@font-face {
   --accent: #d9542b;
 }
 `;
+
+/** What a direction's file holds while it waits for its build, or after one is undone. */
+const placeholder = (name: string) => `export function ${name}() {\n  return null;\n}\n`;
 
 /**
  * Stands in for \`claude -p\`. A plan run answers with three concepts, or one
@@ -216,7 +226,10 @@ async function leglas(
   cwd: string,
   withBrowser: boolean,
   previews: Preview[] = [],
-  recordSets?: boolean,
+  // Off unless a test is about records: one still being written after the
+  // server closes races the folder's removal (ENOTEMPTY on CI). Null leaves the
+  // project's default, which records.
+  recordSets: boolean | null = false,
 ): Promise<{ server: RunningServer; log: string }> {
   const fake = join(cwd, "..", `${cwd.split("/").pop() ?? "x"}-fake-claude.mjs`);
   const log = `${fake}.log`;
@@ -236,7 +249,7 @@ async function leglas(
     previews,
   };
 
-  if (recordSets !== undefined) config.recordSets = recordSets;
+  if (recordSets !== null) config.recordSets = recordSets;
 
   const serverOptions: Parameters<typeof startServer>[0] = {
     config,
@@ -487,32 +500,21 @@ export const TILE = { src: "/photos/fallback.jpg", onError: (event) => (event.ta
 });
 
 describe("starting a generation", () => {
-  test("is refused, with the reason, for an agent Leglas cannot hold to time", async () => {
-    const { server } = await leglas(await project("cursor"), false);
-
-    const started = await call(server, "generate", {
-      surface: "hero",
-      brief: "Dinner apps",
-      count: 3,
-    });
-
-    expect(started.status).toBe(422);
-    expect(String(started.json.error)).toBe(
+  test.each([
+    // An agent Leglas cannot hold to time, with the reason.
+    [
+      "cursor",
+      "hero",
       "Building directions runs on Claude or Codex. Choose one of them as the agent to use it.",
-    );
-  });
-
-  test("is refused for a surface with no switch, naming the command that makes one", async () => {
-    const { server } = await leglas(await project("claude"), false);
-
-    const started = await call(server, "generate", {
-      surface: "pricing",
-      brief: "Plans",
-      count: 3,
-    });
+    ],
+    // A surface with no switch, naming the command that makes one.
+    ["claude", "pricing", "Run `leglas new pricing --from <your component>`"],
+  ])("is refused for %s on the %s", async (agent, surface, reason) => {
+    const { server } = await leglas(await project(agent), false);
+    const started = await call(server, "generate", { surface, brief: "Plans", count: 3 });
 
     expect(started.status).toBe(422);
-    expect(String(started.json.error)).toContain("leglas new pricing --from");
+    expect(String(started.json.error)).toContain(reason);
   });
 
   test("builds variations of a direction named as the rail names it, with no brief needed", async () => {
@@ -589,7 +591,7 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
     "plans, builds all at once, repairs a broken direction, stops one and replaces it",
     async () => {
       const cwd = await project("claude");
-      const { server, log } = await leglas(cwd, true);
+      const { server, log } = await leglas(cwd, true, [], null);
       const began = Date.now();
 
       const started = await call(server, "generate", {
@@ -647,7 +649,7 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
       // The stopped build's half-finished work does not stay on the rail.
       expect(
         await readFile(join(cwd, ".leglas", "variants", "hero", `${slow.key}.tsx`), "utf8"),
-      ).toBe("export function HeroSlow() {\n  return null;\n}\n");
+      ).toBe(placeholder("HeroSlow"));
 
       const switchFile = await readFile(
         join(cwd, ".leglas", "variants", "hero", "switch.tsx"),
@@ -812,6 +814,8 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
 
       // Everything but the fake agents' own sleeps is Leglas: planning, slots, renders and the fix run.
       expect(elapsed).toBeLessThan(30_000);
+      // The record's last writes land before the project folder goes.
+      await server.close();
     },
     START_TIMEOUT_MS * 2,
   );
@@ -948,7 +952,10 @@ function orchestrator(
   return { generations, builds, spawned, prompts, announced };
 }
 
-async function settled<T>(read: () => T | undefined, holds: (value: T) => boolean): Promise<T> {
+async function settled<T>(
+  read: () => T | undefined,
+  holds: (value: T) => boolean = () => true,
+): Promise<T> {
   for (let tries = 0; tries < 400; tries += 1) {
     const value = read();
 
@@ -959,82 +966,103 @@ async function settled<T>(read: () => T | undefined, holds: (value: T) => boolea
   throw new Error("The condition never held.");
 }
 
-describe("a generation's lifecycle", () => {
-  test("a direction stopped while its page is being rendered stays stopped", async () => {
-    const cwd = await project("claude");
-    let rendered!: (report: { errors: readonly string[] }) => void;
-    const pending = new Promise<{ errors: readonly string[] }>((resolve) => (rendered = resolve));
+/** A stream line in which Claude uses `tool` on these files. */
+const uses = (tool: string, ...files: string[]) =>
+  `${JSON.stringify({ type: "assistant", message: { content: files.map((file) => ({ type: "tool_use", name: tool, input: { file_path: file } })) } })}\n`;
 
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      () => pending,
-    );
+/** The one concept most sets here are planned with. */
+const LEDGER = [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }];
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+/** A render that finds nothing wrong with the page. */
+const clean = async () => ({ errors: [] });
 
-    if (!started.ok) throw new Error(started.error);
+const CLAUDE = { agent: "claude" as const, effort: null, run: null };
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "checking",
-    );
-
-    expect(await generations.stop(started.job.id, slot.key)).toBe(true);
-    rendered({ errors: [] });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
-    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
+/** Starts a set of one direction on the hero with Claude, unless `request` says otherwise, and returns it. */
+async function startSet(
+  generations: Generations,
+  request: Partial<GenerationRequest> = {},
+): Promise<GenerationJob> {
+  const started = await generations.start({
+    surface: "hero",
+    brief: "Dinner",
+    count: 1,
+    agent: CLAUDE,
+    ...request,
   });
+
+  if (!started.ok) throw new Error(started.error);
+
+  return started.job;
+}
+
+/** The first set's first direction, once `holds` is true of it. */
+const firstSlot = (generations: Generations, holds: (slot: GenerationSlot) => boolean) =>
+  settled(() => generations.snapshot()[0]?.slots[0], holds);
+
+describe("a generation's lifecycle", () => {
+  test.each([
+    // A clean page after the stop must not call the direction ready.
+    ["a stop", []],
+    // Closing takes the browser with it, so the render ends in an error, and
+    // that must not start a fix run.
+    ["closing", ["Target closed"]],
+  ])(
+    "%s while a page is being rendered leaves the direction stopped, with no fix run and its placeholder back",
+    async (ending, errors) => {
+      const cwd = await project("claude");
+      let rendered!: (report: { errors: readonly string[] }) => void;
+
+      const { generations, builds } = orchestrator(
+        cwd,
+        LEDGER,
+        ["write"],
+        () => new Promise((resolve) => (rendered = resolve)),
+      );
+
+      const set = await startSet(generations);
+      const slot = await firstSlot(generations, (value) => value.state === "checking");
+      const ended = ending === "a stop" ? generations.stop(set.id, slot.key) : generations.close();
+      rendered({ errors });
+
+      // A stop says it stopped something; the route answers 409 when it did not.
+      if (ending === "a stop") expect(await ended).toBe(true);
+      await ended;
+
+      // Close answers only once the placeholder is back.
+      if (ending === "closing") {
+        expect(await readFile(join(cwd, slot.file), "utf8")).toBe(placeholder("HeroLedger"));
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
+      expect(builds).toHaveLength(1);
+      expect(await readFile(join(cwd, slot.file), "utf8")).toBe(placeholder("HeroLedger"));
+    },
+  );
 
   test("a retry waits for the stopped build's process to be gone", async () => {
     const cwd = await project("claude");
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang", "write"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang", "write"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
+    const slot = await firstSlot(generations, (value) => value.state === "building");
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "building",
-    );
-
-    await settled(
-      () => builds[0],
-      () => true,
-    );
+    await settled(() => builds[0]);
     required(builds[0]).exitAfterKillMs = 200;
 
-    const stopping = generations.stop(started.job.id, slot.key);
+    const stopping = generations.stop(set.id, slot.key);
 
     // The old process is still shutting down: a retry now would race it.
-    expect(generations.retry(started.job.id, slot.key)).toBe(false);
+    expect(generations.retry(set.id, slot.key)).toBe(false);
     await stopping;
-    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+    expect(generations.retry(set.id, slot.key)).toBe(true);
 
-    const done = await settled(
-      () => generations.snapshot()[0]?.slots[0],
+    const done = await firstSlot(
+      generations,
       (value) => value.state !== "building" && value.state !== "checking",
     );
 
@@ -1054,33 +1082,15 @@ describe("a generation's lifecycle", () => {
         : Promise.resolve({ errors: [] });
     };
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write", "hang"],
-      render,
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["write", "hang"], render);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
+    const slot = await firstSlot(generations, (value) => value.state === "checking");
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "checking",
-    );
-
-    await generations.stop(started.job.id, slot.key);
-    expect(generations.retry(started.job.id, slot.key)).toBe(true);
-    await settled(
-      () => builds[1],
-      () => true,
-    );
+    await generations.stop(set.id, slot.key);
+    expect(generations.retry(set.id, slot.key)).toBe(true);
+    await settled(() => builds[1]);
 
     // The first attempt's render now reports errors: it must neither call the slot ready nor start a fix run.
     staleRender({ errors: ["Uncaught Error: broken"] });
@@ -1104,39 +1114,17 @@ describe("a generation's lifecycle", () => {
         : Promise.resolve({ ok: true });
     };
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      register,
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["write"], clean, register);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
+    const slot = await firstSlot(generations, (value) => value.state === "ready");
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
-
-    expect(generations.replace(started.job.id, slot.key)).toBe(true);
-    await settled(
-      () => (registrations === 2 ? true : undefined),
-      () => true,
-    );
-    await generations.stop(started.job.id, slot.key);
-    expect(generations.retry(started.job.id, slot.key)).toBe(true);
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => builds.length === 2 && value.state === "ready",
-    );
+    expect(generations.replace(set.id, slot.key)).toBe(true);
+    await settled(() => (registrations === 2 ? true : undefined));
+    await generations.stop(set.id, slot.key);
+    expect(generations.retry(set.id, slot.key)).toBe(true);
+    await firstSlot(generations, (value) => builds.length === 2 && value.state === "ready");
 
     // The replace wakes up after the retry finished; the retry's file is the one that stays.
     registered();
@@ -1149,7 +1137,7 @@ describe("a generation's lifecycle", () => {
     );
   });
 
-  test("a stop while the directions go on the rail waits for them and lists them, stopped", async () => {
+  test("a stop and a close while the directions go on the rail wait for them, and list them stopped", async () => {
     const cwd = await project("claude");
     let registered!: () => void;
     let registrations = 0;
@@ -1162,90 +1150,30 @@ describe("a generation's lifecycle", () => {
         : Promise.resolve({ ok: true });
     };
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      register,
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["write"], clean, register);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
+    await settled(() => (registrations === 1 ? true : undefined));
+    const stopping = generations.stop(set.id);
+    const closing = generations.close();
+    const answered: string[] = [];
 
-    if (!started.ok) throw new Error(started.error);
-    await settled(
-      () => (registrations === 1 ? true : undefined),
-      () => true,
-    );
-    const stopping = generations.stop(started.job.id);
-    let answered = false;
-
-    void stopping.then(() => (answered = true));
+    void stopping.then(() => answered.push("stop"));
+    void closing.then(() => answered.push("close"));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    // Stopped means the writes already under way are done, so the answer waits for them.
-    expect(answered).toBe(false);
+    // Stopped means the writes already under way are done, and the process
+    // must not exit while the switch file and the rail are still being written.
+    expect(answered).toEqual([]);
 
     registered();
     expect(await stopping).toBe(true);
+    await closing;
 
     const job = required(generations.snapshot()[0]);
 
     expect(job.state).toBe("stopped");
     expect(job.slots.map((slot) => slot.state)).toEqual(["stopped"]);
     expect(builds).toHaveLength(0);
-  });
-
-  test("closing waits for directions still going on the rail, even after a stop", async () => {
-    const cwd = await project("claude");
-    let registered!: () => void;
-    let registrations = 0;
-
-    const register = (): Promise<{ ok: boolean }> => {
-      registrations += 1;
-
-      return registrations === 1
-        ? new Promise((resolve) => (registered = () => resolve({ ok: true })))
-        : Promise.resolve({ ok: true });
-    };
-
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      register,
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
-    await settled(
-      () => (registrations === 1 ? true : undefined),
-      () => true,
-    );
-
-    const stopping = generations.stop(started.job.id);
-    const closing = generations.close();
-    let closed = false;
-
-    void closing.then(() => (closed = true));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    // The switch file and the rail are still being written, so the process must not exit yet.
-    expect(closed).toBe(false);
-
-    registered();
-    await Promise.all([stopping, closing]);
-    expect(generations.snapshot()[0]?.slots.map((slot) => slot.state)).toEqual(["stopped"]);
   });
 
   test("a replace whose registration fails shows the error on the direction", async () => {
@@ -1260,34 +1188,15 @@ describe("a generation's lifecycle", () => {
         : Promise.resolve({ ok: true });
     };
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      register,
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["write"], clean, register);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
+    const slot = await firstSlot(generations, (value) => value.state === "ready");
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    expect(generations.replace(set.id, slot.key)).toBe(true);
 
-    expect(generations.replace(started.job.id, slot.key)).toBe(true);
-
-    const failed = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const failed = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(failed.failure).toEqual({
       code: "unexpected",
@@ -1299,101 +1208,36 @@ describe("a generation's lifecycle", () => {
   test("a render that throws fails that direction and its retry, not the whole set", async () => {
     const cwd = await project("claude");
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => {
-        throw new Error("no browser to render with");
-      },
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["write"], async () => {
+      throw new Error("no browser to render with");
     });
 
-    if (!started.ok) throw new Error(started.error);
+    const set = await startSet(generations);
 
-    const failed = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const failed = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(failed.failure).toEqual({ code: "unexpected", message: "no browser to render with" });
     expect(generations.snapshot()[0]?.state).toBe("done");
-    expect(generations.retry(started.job.id, failed.key)).toBe(true);
+    expect(generations.retry(set.id, failed.key)).toBe(true);
 
-    const again = await settled(
-      () => generations.snapshot()[0]?.slots[0],
+    const again = await firstSlot(
+      generations,
       (value) => builds.length === 2 && value.state === "failed",
     );
 
     expect(again.failure?.code).toBe("unexpected");
   });
 
-  test("closing while a page is being rendered starts no fix run and puts the placeholder back", async () => {
-    const cwd = await project("claude");
-    let rendered!: (report: { errors: readonly string[] }) => void;
-
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      () => new Promise((resolve) => (rendered = resolve)),
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
-
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "checking",
-    );
-
-    const closing = generations.close();
-    // The browser goes with the rest, so the render ends in an error.
-    rendered({ errors: ["Target closed"] });
-    await closing;
-
-    expect(builds).toHaveLength(1);
-    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
-  });
-
   test("a retry, a replace or a new set asked for while Leglas closes is refused and writes nothing", async () => {
     const cwd = await project("claude");
     const kept = "export function HeroLedger() {\n  return <p>kept</p>;\n}\n";
 
-    const { generations, spawned } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, spawned } = orchestrator(cwd, LEDGER, ["hang"], clean);
 
-    const request = {
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude" as const, effort: null, run: null },
-    };
+    const set = await startSet(generations);
 
-    const started = await generations.start(request);
-
-    if (!started.ok) throw new Error(started.error);
-
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
+    const slot = await firstSlot(
+      generations,
       (value) => spawned.length === 2 && value.state === "building",
     );
 
@@ -1401,9 +1245,14 @@ describe("a generation's lifecycle", () => {
     // Close has finished waiting, so anything started now could be cut off mid-write.
     await writeFile(join(cwd, slot.file), kept);
 
-    expect(generations.retry(started.job.id, slot.key)).toBe(false);
-    expect(generations.replace(started.job.id, slot.key)).toBe(false);
-    expect(await generations.start(request)).toEqual({ ok: false, error: "Leglas is closing." });
+    expect(generations.retry(set.id, slot.key)).toBe(false);
+    expect(generations.replace(set.id, slot.key)).toBe(false);
+    expect(
+      await generations.start({ surface: "hero", brief: "Dinner", count: 1, agent: CLAUDE }),
+    ).toEqual({
+      ok: false,
+      error: "Leglas is closing.",
+    });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(await readFile(join(cwd, slot.file), "utf8")).toBe(kept);
     expect(spawned).toHaveLength(2);
@@ -1412,24 +1261,11 @@ describe("a generation's lifecycle", () => {
   test("a set that starts as Leglas closes starts no process", async () => {
     const cwd = await project("claude");
 
-    const { generations, spawned } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, spawned } = orchestrator(cwd, LEDGER, ["write"], clean);
 
-    const starting = generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
+    const starting = startSet(generations);
     await generations.close();
-    const started = await starting;
-
-    if (!started.ok) throw new Error(started.error);
+    await starting;
     await settled(
       () => generations.snapshot()[0],
       (value) => value.state === "failed",
@@ -1459,19 +1295,9 @@ describe("a generation's lifecycle", () => {
       }),
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 2,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations, { count: 2 });
 
-    if (!started.ok) throw new Error(started.error);
-
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "checking",
-    );
+    await firstSlot(generations, (value) => value.state === "checking");
     // Long enough to look at the page twice, both times blaming Steam's file while Steam is written.
     await new Promise((resolve) => setTimeout(resolve, 2000));
     expect(builds).toHaveLength(2);
@@ -1479,10 +1305,7 @@ describe("a generation's lifecycle", () => {
 
     steamBroken = false;
 
-    const ready = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    const ready = await firstSlot(generations, (value) => value.state === "ready");
 
     expect(ready.fixed).toBe(false);
     expect(builds).toHaveLength(2);
@@ -1499,19 +1322,9 @@ describe("a generation's lifecycle", () => {
       async () => ({ errors: [], layout: [cut] }),
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const ready = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    const ready = await firstSlot(generations, (value) => value.state === "ready");
 
     expect(ready).toMatchObject({ fixed: false, layout: [cut] });
     const fixes = prompts.filter((prompt) => prompt.startsWith("Leglas rendered "));
@@ -1542,17 +1355,10 @@ describe("a generation's lifecycle", () => {
         fixes,
       );
 
-      const started = await generations.start({
-        surface: "hero",
-        brief: "Dinner",
-        count: 1,
-        agent: { agent: "claude", effort: null, run: null },
-      });
+      await startSet(generations);
 
-      if (!started.ok) throw new Error(started.error);
-
-      const ended = await settled(
-        () => generations.snapshot()[0]?.slots[0],
+      const ended = await firstSlot(
+        generations,
         (value) => value.state === "ready" || value.state === "failed",
       );
 
@@ -1603,35 +1409,20 @@ describe("a generation's lifecycle", () => {
         "hang",
       );
 
-      const started = await generations.start({
-        surface: "hero",
-        brief: "Dinner",
-        count: 1,
-        agent: { agent: "claude", effort: null, run: null },
-      });
-
-      if (!started.ok) throw new Error(started.error);
-      await settled(
-        () => reports[0],
-        () => true,
-      );
+      await startSet(generations);
+      await settled(() => reports[0]);
       reports[0]!({ errors: [], layout: [cut] });
 
-      const fix = await settled(
-        () => builds[1],
-        () => true,
-      );
+      const fix = await settled(() => builds[1]);
 
       await writeFile(join(cwd, stray), "export const COPY = {};\n");
 
       // A file Leglas cannot write back stays edited.
       if (locked) await chmod(join(cwd, stray), 0o444);
-      fix.stdout.write(
-        `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: join(cwd, stray) } }] } })}\n`,
-      );
+      fix.stdout.write(uses("Write", join(cwd, stray)));
 
-      const ended = await settled(
-        () => generations.snapshot()[0]?.slots[0],
+      const ended = await firstSlot(
+        generations,
         (value) => value.state === "ready" || value.state === "failed",
       );
 
@@ -1647,31 +1438,14 @@ describe("a generation's lifecycle", () => {
   test("a failed draft goes back to the placeholder, so it cannot break the others' pages", async () => {
     const cwd = await project("claude");
 
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["fail"],
-      async () => ({ errors: [] }),
-    );
+    const { generations } = orchestrator(cwd, LEDGER, ["fail"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const failed = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const failed = await firstSlot(generations, (value) => value.state === "failed");
 
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await readFile(join(cwd, failed.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
+    expect(await readFile(join(cwd, failed.file), "utf8")).toBe(placeholder("HeroLedger"));
   });
 
   test("two drafts that fail their render check do not stop the rest", async () => {
@@ -1688,14 +1462,7 @@ describe("a generation's lifecycle", () => {
       async (title) => ({ errors: title === "Timer" ? [] : ["Uncaught Error: still broken"] }),
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 3,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
+    await startSet(generations, { count: 3 });
 
     await settled(
       () => generations.snapshot()[0]?.slots,
@@ -1707,35 +1474,17 @@ describe("a generation's lifecycle", () => {
   test("a new idea's start is when it was asked for, not when its build began", async () => {
     const cwd = await project("claude");
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["fail", "hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["fail", "hang"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
+    const failed = await firstSlot(generations, (value) => value.state === "failed");
 
-    const failed = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
-
-    expect(generations.replace(started.job.id, failed.key)).toBe(true);
+    expect(generations.replace(set.id, failed.key)).toBe(true);
     const asked = generations.snapshot()[0]?.slots[0]?.startedAt;
 
     // The replacement is planned first, and only then built.
-    await settled(
-      () => builds[1],
-      () => true,
-    );
+    await settled(() => builds[1]);
     expect(generations.snapshot()[0]?.slots[0]?.startedAt).toBe(asked);
   });
 
@@ -1743,30 +1492,14 @@ describe("a generation's lifecycle", () => {
     const cwd = await project("claude");
     const registered: AddInput[] = [];
 
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      async (input) => {
-        registered.push(input);
+    const { generations } = orchestrator(cwd, LEDGER, ["write"], clean, async (input) => {
+      registered.push(input);
 
-        return { ok: true };
-      },
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner in thirty minutes",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
+      return { ok: true };
     });
 
-    if (!started.ok) throw new Error(started.error);
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    await startSet(generations, { brief: "Dinner in thirty minutes" });
+    await firstSlot(generations, (value) => value.state === "ready");
 
     expect(registered).toEqual([
       {
@@ -1779,41 +1512,20 @@ describe("a generation's lifecycle", () => {
     ]);
   });
 
-  /** A stream line in which Claude edits these files. */
-  const edits = (...files: string[]) =>
-    `${JSON.stringify({ type: "assistant", message: { content: files.map((file) => ({ type: "tool_use", name: "Edit", input: { file_path: file } })) } })}\n`;
-
   test("a retry in an older set puts back the switch as it is now, not as that set found it", async () => {
     const cwd = await project("claude");
     const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
 
     // The first set's build fails, the second's writes, the retry of the first hangs.
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["fail", "write", "hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["fail", "write", "hang"], clean);
 
-    const ask = () =>
-      generations.start({
-        surface: "hero",
-        brief: "Dinner",
-        count: 1,
-        agent: { agent: "claude", effort: null, run: null },
-      });
-
-    const first = await ask();
-
-    if (!first.ok) throw new Error(first.error);
+    const first = await startSet(generations);
     await settled(
       () => generations.snapshot()[0],
       (value) => value.state === "done",
     );
 
-    const second = await ask();
-
-    if (!second.ok) throw new Error(second.error);
+    await startSet(generations);
     await settled(
       () => generations.snapshot()[1],
       (value) => value.state === "done",
@@ -1822,19 +1534,13 @@ describe("a generation's lifecycle", () => {
     const now = await readFile(switchFile, "utf8");
     expect(now).toContain("hero-ledger-2");
 
-    expect(generations.retry(first.job.id, "hero-ledger")).toBe(true);
+    expect(generations.retry(first.id, "hero-ledger")).toBe(true);
 
-    const retry = await settled(
-      () => builds[2],
-      () => true,
-    );
+    const retry = await settled(() => builds[2]);
 
     await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
-    retry.stdout.write(edits(switchFile));
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    retry.stdout.write(uses("Edit", switchFile));
+    await firstSlot(generations, (value) => value.state === "failed");
 
     expect(await readFile(switchFile, "utf8")).toBe(now);
   });
@@ -1847,36 +1553,18 @@ describe("a generation's lifecycle", () => {
     await writeFile(sheet, ".hero { color: tomato; }\n");
     await writeFile(join(folder, "current.tsx"), `import "./hero.css";\n${CURRENT}`);
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
+    const build = await settled(() => builds[0]);
 
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, "// tidied\n");
     await writeFile(sheet, "");
-    build.stdout.write(edits(switchFile, sheet));
+    build.stdout.write(uses("Edit", switchFile, sheet));
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const slot = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(slot.failure?.message).toBe(
       "The build edited .leglas/variants/hero/switch.tsx and .leglas/variants/hero/hero.css, which are not its own files, so Leglas stopped it and put them back.",
@@ -1889,34 +1577,19 @@ describe("a generation's lifecycle", () => {
     const cwd = await project("claude");
     const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
+    const build = await settled(() => builds[0]);
 
     const planned = await readFile(switchFile, "utf8");
     // Slow to die, so there is time for one last edit after the stop.
     build.exitAfterKillMs = 200;
-    const stopping = generations.stop(started.job.id, "hero-ledger");
+    const stopping = generations.stop(set.id, "hero-ledger");
     await new Promise((resolve) => setTimeout(resolve, 20));
     await writeFile(switchFile, "// tidied on the way out\n");
-    build.stdout.write(edits(switchFile));
+    build.stdout.write(uses("Edit", switchFile));
     await stopping;
 
     let content = "";
@@ -1933,36 +1606,18 @@ describe("a generation's lifecycle", () => {
     const cwd = await project("claude");
     const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
 
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang"], clean);
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
+    const build = await settled(() => builds[0]);
 
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, "// tidied\n");
-    build.stdout.write(edits(switchFile).trimEnd());
+    build.stdout.write(uses("Edit", switchFile).trimEnd());
     build.finish(0);
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const slot = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(slot.failure?.code).toBe("outside-file");
     expect(await readFile(switchFile, "utf8")).toBe(planned);
@@ -1980,17 +1635,10 @@ describe("a generation's lifecycle", () => {
         { key: "steam", title: "Steam", idea: "A pan." },
       ],
       ["hang", "fail", "hang"],
-      async () => ({ errors: [] }),
+      clean,
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 2,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
+    const set = await startSet(generations, { count: 2 });
     await settled(
       () => generations.snapshot()[0]?.slots[1],
       (value) => value.state === "failed",
@@ -2002,26 +1650,17 @@ describe("a generation's lifecycle", () => {
     // Ledger strays and is slow to die; Steam is retried inside that window.
     ledger.exitAfterKillMs = 400;
     await writeFile(switchFile, "// tidied by Ledger\n");
-    ledger.stdout.write(edits(switchFile));
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.activity !== null,
-    );
-    expect(generations.retry(started.job.id, "hero-steam")).toBe(true);
+    ledger.stdout.write(uses("Edit", switchFile));
+    await firstSlot(generations, (value) => value.activity !== null);
+    expect(generations.retry(set.id, "hero-steam")).toBe(true);
 
-    const retry = await settled(
-      () => builds[2],
-      () => true,
-    );
+    const retry = await settled(() => builds[2]);
 
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    await firstSlot(generations, (value) => value.state === "failed");
 
     // Steam's retry strays into the switch too, after Ledger's is put back.
     await writeFile(switchFile, "// tidied by Steam\n");
-    retry.stdout.write(edits(switchFile));
+    retry.stdout.write(uses("Edit", switchFile));
     await settled(
       () => generations.snapshot()[0]?.slots[1],
       (value) => value.state === "failed",
@@ -2034,53 +1673,27 @@ describe("a generation's lifecycle", () => {
     const cwd = await project("claude");
 
     // The first set's build fails, the second set's hangs, the first set's retry hangs.
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["fail", "hang", "hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, builds } = orchestrator(cwd, LEDGER, ["fail", "hang", "hang"], clean);
 
-    const ask = (brief: string) =>
-      generations.start({
-        surface: "hero",
-        brief,
-        count: 1,
-        agent: { agent: "claude", effort: null, run: null },
-      });
-
-    const first = await ask("Dinner");
-
-    if (!first.ok) throw new Error(first.error);
+    const first = await startSet(generations);
     await settled(
       () => generations.snapshot()[0],
       (value) => value.state === "done",
     );
 
-    const second = await ask("Supper");
-
-    if (!second.ok) throw new Error(second.error);
-    await settled(
-      () => builds[1],
-      () => true,
-    );
+    await startSet(generations, { brief: "Supper" });
+    await settled(() => builds[1]);
 
     // The second set's slot, still building.
     const secondFile = join(cwd, ".leglas", "variants", "hero", "hero-ledger-2.tsx");
-    expect(generations.retry(first.job.id, "hero-ledger")).toBe(true);
+    expect(generations.retry(first.id, "hero-ledger")).toBe(true);
 
-    const retry = await settled(
-      () => builds[2],
-      () => true,
-    );
+    const retry = await settled(() => builds[2]);
 
     await writeFile(secondFile, "// half of the second set's draft\n");
-    retry.stdout.write(edits(secondFile));
+    retry.stdout.write(uses("Edit", secondFile));
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const slot = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(slot.failure?.message).toBe(
       "The build edited .leglas/variants/hero/hero-ledger-2.tsx, which is not its own file, so Leglas stopped it. Check .leglas/variants/hero/hero-ledger-2.tsx before trying again.",
@@ -2106,30 +1719,17 @@ describe("a generation's lifecycle", () => {
           : { errors: [] },
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 2,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
-    await settled(
-      () => builds[1],
-      () => true,
-    );
+    await startSet(generations, { count: 2 });
+    await settled(() => builds[1]);
     const [ledger, steam] = [builds[0]!, builds[1]!];
 
     // Ledger strays and takes a while to die; Steam finishes meanwhile.
     ledger.exitAfterKillMs = 400;
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, `// tidied\n${planned}`);
-    ledger.stdout.write(edits(switchFile));
+    ledger.stdout.write(uses("Edit", switchFile));
     // Wait until Ledger's edit has been read.
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.activity !== null,
-    );
+    await firstSlot(generations, (value) => value.activity !== null);
     await writeFile(
       join(cwd, ".leglas", "variants", "hero", "hero-steam.tsx"),
       "export function HeroSteam() {\n  return <h1>Steam</h1>;\n}\n",
@@ -2147,53 +1747,6 @@ describe("a generation's lifecycle", () => {
     ]);
   });
 
-  test("a build that edits the switch file is stopped, and the switch is put back", async () => {
-    const cwd = await project("claude");
-    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
-
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
-
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
-
-    // As the set wrote it.
-    const planned = await readFile(switchFile, "utf8");
-    expect(planned).toContain("hero-ledger");
-
-    await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
-    build.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: switchFile } }] } })}\n`,
-    );
-
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
-
-    expect(slot.failure).toEqual({
-      code: "outside-file",
-      message:
-        "The build edited .leglas/variants/hero/switch.tsx, which is not its own file, so Leglas stopped it and put the file back.",
-    });
-    expect(await readFile(switchFile, "utf8")).toBe(planned);
-  });
-
   test("a fix run that edits a file a direction imports is stopped, and the file is put back", async () => {
     const cwd = await project("claude");
     // Imported by the current direction.
@@ -2204,49 +1757,28 @@ describe("a generation's lifecycle", () => {
 
     const { generations, builds } = orchestrator(
       cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      LEDGER,
       ["hang"],
       () => new Promise((resolve) => reports.push(resolve)),
       undefined,
       "hang",
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    const set = await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
+    const build = await settled(() => builds[0]);
 
     await writeFile(file, "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n");
     build.finish(0);
-    await settled(
-      () => reports[0],
-      () => true,
-    );
+    await settled(() => reports[0]);
     reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
 
-    const fix = await settled(
-      () => builds[1],
-      () => true,
-    );
+    const fix = await settled(() => builds[1]);
 
     await writeFile(copy, "export const COPY = {};\n");
-    fix.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: copy } }] } })}\n`,
-    );
+    fix.stdout.write(uses("Write", copy));
 
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "failed",
-    );
+    const slot = await firstSlot(generations, (value) => value.state === "failed");
 
     expect(slot.failure?.message).toBe(
       "The build edited src/copy.ts, which is not its own file, so Leglas stopped it and put the file back.",
@@ -2255,82 +1787,35 @@ describe("a generation's lifecycle", () => {
       'export const COPY = { headline: "Dinner tonight" };\n',
     );
     // Still retryable.
-    expect(generations.retry(started.job.id, slot.key)).toBe(true);
+    expect(generations.retry(set.id, slot.key)).toBe(true);
     await generations.close();
   });
 
-  test("a building direction says what its build is doing", async () => {
-    const cwd = await project("claude");
-
-    const { generations, builds } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
-
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
-
-    const child = await settled(
-      () => builds[0],
-      () => true,
-    );
-
-    const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
-
-    child.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: file, content: "" } }] } })}\n`,
-    );
-
-    const building = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.activity !== null,
-    );
-
-    expect(building.activity).toBe("editing .leglas/variants/hero/hero-ledger.tsx");
-  });
-
-  test("checking starts with no build step left over, and a fix run says what it is doing", async () => {
+  test("a build and its fix run say what they are doing, and checking starts with no step left over", async () => {
     const cwd = await project("claude");
     const reports: ((report: { errors: readonly string[] }) => void)[] = [];
     const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
 
-    const edit = (tool: string) =>
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: tool, input: { file_path: file } }] } })}\n`;
-
     const { generations, builds, announced } = orchestrator(
       cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      LEDGER,
       ["hang"],
       () => new Promise((resolve) => reports.push(resolve)),
       undefined,
       "hang",
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
+    await startSet(generations);
     const slot = () => generations.snapshot()[0]?.slots[0];
 
-    const build = await settled(
-      () => builds[0],
-      () => true,
-    );
+    const build = await settled(() => builds[0]);
 
-    build.stdout.write(edit("Write"));
-    await settled(slot, (value) => value.activity !== null);
+    build.stdout.write(uses("Write", file));
+
+    expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
+      state: "building",
+      activity: "editing .leglas/variants/hero/hero-ledger.tsx",
+    });
     await writeFile(file, "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n");
     build.finish(0);
 
@@ -2338,18 +1823,12 @@ describe("a generation's lifecycle", () => {
       activity: null,
     });
 
-    await settled(
-      () => reports[0],
-      () => true,
-    );
+    await settled(() => reports[0]);
     reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
 
-    const fix = await settled(
-      () => builds[1],
-      () => true,
-    );
+    const fix = await settled(() => builds[1]);
 
-    fix.stdout.write(edit("Edit"));
+    fix.stdout.write(uses("Edit", file));
 
     expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
       state: "checking",
@@ -2357,10 +1836,7 @@ describe("a generation's lifecycle", () => {
     });
 
     fix.finish(0);
-    await settled(
-      () => reports[1],
-      () => true,
-    );
+    await settled(() => reports[1]);
     // Opening the page again, the fix run's last step is over too, and the interface is told.
     expect(slot()?.activity).toBeNull();
     expect(announced.at(-1)?.[0]?.slots[0]?.activity).toBeNull();
@@ -2392,20 +1868,10 @@ describe("a generation's lifecycle", () => {
       "hang",
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 2,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!started.ok) throw new Error(started.error);
+    const set = await startSet(generations, { count: 2 });
 
     const slots = () => generations.snapshot()[0]?.slots ?? [];
-    await settled(
-      () => builds[1],
-      () => true,
-    );
+    await settled(() => builds[1]);
     const [ledger, steam] = [builds[0]!, builds[1]!];
 
     await writeFile(
@@ -2413,20 +1879,12 @@ describe("a generation's lifecycle", () => {
       "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n",
     );
     ledger.finish(0);
-    await settled(
-      () => reports[0],
-      () => true,
-    );
+    await settled(() => reports[0]);
     reports[0]!({ errors: ["Transform failed: hero-ledger.tsx:2:3"] });
 
-    const fix = await settled(
-      () => builds[2],
-      () => true,
-    );
+    const fix = await settled(() => builds[2]);
 
-    fix.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(folder, "hero-ledger.tsx") } }] } })}\n`,
-    );
+    fix.stdout.write(uses("Edit", join(folder, "hero-ledger.tsx")));
     await settled(
       () => slots()[0],
       (value) => value.activity !== null,
@@ -2446,7 +1904,7 @@ describe("a generation's lifecycle", () => {
       state: "checking",
       activity: "editing .leglas/variants/hero/hero-ledger.tsx",
     });
-    await generations.stop(started.job.id);
+    await generations.stop(set.id);
   });
 
   test("a planned direction never overwrites a file that is already there", async () => {
@@ -2458,22 +1916,12 @@ describe("a generation's lifecycle", () => {
       cwd,
       [{ key: "image", title: "Image", idea: "A photograph." }],
       ["write"],
-      async () => ({ errors: [] }),
+      clean,
     );
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
+    await startSet(generations);
 
-    if (!started.ok) throw new Error(started.error);
-
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    const slot = await firstSlot(generations, (value) => value.state === "ready");
 
     expect(slot.key).toBe("hero-image-2");
     expect(await readFile(join(cwd, ".leglas", "variants", "hero", "hero-image.tsx"), "utf8")).toBe(
@@ -2499,7 +1947,7 @@ describe("a generation's lifecycle", () => {
         { key: "tight", title: "Tight", idea: "The same page, denser." },
       ],
       ["write"],
-      async () => ({ errors: [] }),
+      clean,
       async (input) => {
         registered.push(input);
 
@@ -2507,15 +1955,12 @@ describe("a generation's lifecycle", () => {
       },
     );
 
-    const started = await generations.start({
-      surface: "hero",
+    const set = await startSet(generations, {
       brief: "",
       count: 2,
-      agent: { agent: "claude", effort: null, run: null },
       basedOn: { title: "Hero A", key: "hero-a", idea: "Ink and a single accent." },
     });
 
-    if (!started.ok) throw new Error(started.error);
     await settled(
       () => generations.snapshot()[0],
       (value) => value.slots.length === 2 && value.slots.every((slot) => slot.state === "ready"),
@@ -2541,11 +1986,8 @@ describe("a generation's lifecycle", () => {
 
     // A new idea for one of them is still a variation of Hero A.
     const warm = required(generations.snapshot()[0]?.slots[0]);
-    expect(generations.replace(started.job.id, warm.key)).toBe(true);
-    await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (value) => value.state === "ready",
-    );
+    expect(generations.replace(set.id, warm.key)).toBe(true);
+    await firstSlot(generations, (value) => value.state === "ready");
 
     expect(prompts.find((prompt) => prompt.startsWith("Propose 1 "))).toMatch(
       /^Propose 1 more variation of the hero direction "Hero A" \(Ink and a single accent\)\. It stays recognisably Hero A/,
@@ -2555,21 +1997,9 @@ describe("a generation's lifecycle", () => {
   test("a direction that failed to build cannot be varied until it is built", async () => {
     const cwd = await project("claude");
 
-    const { generations, spawned } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["fail"],
-      async () => ({ errors: [] }),
-    );
+    const { generations, spawned } = orchestrator(cwd, LEDGER, ["fail"], clean);
 
-    const first = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "claude", effort: null, run: null },
-    });
-
-    if (!first.ok) throw new Error(first.error);
+    await startSet(generations);
     await settled(
       () => generations.snapshot()[0],
       (value) => value.state === "done" && value.slots[0]?.state === "failed",
@@ -2580,7 +2010,7 @@ describe("a generation's lifecycle", () => {
       surface: "hero",
       brief: "",
       count: 2,
-      agent: { agent: "claude", effort: null, run: null },
+      agent: CLAUDE,
       basedOn: { title: "Ledger", key: "hero-ledger", idea: "Ruled lines." },
     });
 
@@ -2594,19 +2024,14 @@ describe("a generation's lifecycle", () => {
   test("two sets asked for at once start only one", async () => {
     const cwd = await project("claude");
 
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["hang"],
-      async () => ({ errors: [] }),
-    );
+    const { generations } = orchestrator(cwd, LEDGER, ["hang"], clean);
 
     const ask = () =>
       generations.start({
         surface: "hero",
         brief: "Dinner",
         count: 1,
-        agent: { agent: "claude", effort: null, run: null },
+        agent: CLAUDE,
       });
 
     const answers = await Promise.all([ask(), ask()]);
@@ -2620,13 +2045,13 @@ describe("a generation's lifecycle", () => {
   test("a direction that is not in the switch cannot be varied, and nothing starts", async () => {
     const cwd = await project("claude");
 
-    const { generations, spawned } = orchestrator(cwd, [], ["write"], async () => ({ errors: [] }));
+    const { generations, spawned } = orchestrator(cwd, [], ["write"], clean);
 
     const started = await generations.start({
       surface: "hero",
       brief: "",
       count: 2,
-      agent: { agent: "claude", effort: null, run: null },
+      agent: CLAUDE,
       basedOn: { title: "Gone", key: "hero-gone", idea: "" },
     });
 
@@ -2640,10 +2065,8 @@ describe("a generation's lifecycle", () => {
 });
 
 describe("the record of a set", () => {
-  const agent = { agent: "claude" as const, effort: null, run: null };
-
   test("is kept unless the project turns records off", async () => {
-    for (const recordSets of [undefined, false]) {
+    for (const recordSets of [null, false]) {
       const cwd = await project("claude");
       const { server } = await leglas(cwd, false, [], recordSets);
 
@@ -2672,6 +2095,7 @@ describe("the record of a set", () => {
       );
 
       expect(kept).toBe(recordSets === false ? "nothing" : "a record");
+      await server.close();
     }
   });
 
@@ -2704,7 +2128,7 @@ describe("the record of a set", () => {
 
       const { generations, spawned } = orchestrator(
         cwd,
-        [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+        LEDGER,
         [stopping === "fixing" || stopping === "replacing" ? "write" : "hang"],
         async () => ({ errors: stopping === "fixing" ? ["Uncaught Error: broken"] : [] }),
         undefined,
@@ -2713,34 +2137,24 @@ describe("the record of a set", () => {
         true,
       );
 
-      const started = await generations.start({
-        surface: "hero",
-        brief: "Dinner",
-        count: 1,
-        agent,
-      });
-
-      if (!started.ok) throw new Error(started.error);
+      const set = await startSet(generations);
 
       if (stopping === "replacing") {
-        const ready = await settled(
-          () => generations.snapshot()[0]?.slots[0],
-          (slot) => slot.state === "ready",
-        );
+        const ready = await firstSlot(generations, (slot) => slot.state === "ready");
 
-        generations.replace(started.job.id, ready.key);
+        generations.replace(set.id, ready.key);
       }
 
       await settled(
         () => spawned.at(-1),
         () => spawned.length === runs,
       );
-      await generations.stop(started.job.id);
+      await generations.stop(set.id);
 
       await vi.waitFor(async () => {
         expect(
           parseJson(
-            await readFile(join(cwd, ".leglas", "generations", started.job.id, "set.json"), "utf8"),
+            await readFile(join(cwd, ".leglas", "generations", set.id, "set.json"), "utf8"),
           ),
         ).toMatchObject({ state: "stopped", ...ended });
       });
@@ -2749,44 +2163,9 @@ describe("the record of a set", () => {
     }
   });
 
-  test("keeps the newest hundred sets, and a new set makes room", async () => {
-    const cwd = await project("claude");
-    const folder = join(cwd, ".leglas", "generations");
-    const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
-
-    for (let index = 0; index < 100; index += 1) {
-      const id = `gen-${(1_700_000_000_000 + index).toString(36)}`;
-      await mkdir(join(folder, id), { recursive: true });
-      await writeFile(join(folder, id, "set.json"), "{}\n");
-    }
-
-    const { generations } = orchestrator(
-      cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
-      ["write"],
-      async () => ({ errors: [] }),
-      undefined,
-      "answer",
-      "answer",
-      true,
-    );
-
-    const started = await generations.start({ surface: "hero", brief: "Dinner", count: 1, agent });
-
-    if (!started.ok) throw new Error(started.error);
-
-    await vi.waitFor(async () => {
-      const kept = await readdir(folder);
-
-      expect(kept).toHaveLength(100);
-      expect(kept).toContain(started.job.id);
-      expect(kept).not.toContain(oldest);
-    });
-
-    await generations.close();
-  });
-
-  test("of variations whose direction's set was just let go brings none of it back", async () => {
+  test("keeps the newest hundred sets, and a new set makes room before it looks up its base", async () => {
+    // The oldest set built the direction the new set varies. Let go to make
+    // room, it is not brought back by the new set's lookup or its event.
     const cwd = await project("claude");
     const folder = join(cwd, ".leglas", "generations");
     const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
@@ -2806,27 +2185,27 @@ describe("the record of a set", () => {
       cwd,
       [{ key: "warm", title: "Warm", idea: "The same page in warm light." }],
       ["write"],
-      async () => ({ errors: [] }),
+      clean,
       undefined,
       "answer",
       "answer",
       true,
     );
 
-    const started = await generations.start({
-      surface: "hero",
+    const set = await startSet(generations, {
       brief: "",
-      count: 1,
-      agent,
       basedOn: { title: "Hero A", key: "hero-a", idea: "Ink and a single accent." },
     });
 
-    if (!started.ok) throw new Error(started.error);
-
     await vi.waitFor(async () => {
-      expect(
-        parseJson(await readFile(join(folder, started.job.id, "set.json"), "utf8")),
-      ).toMatchObject({ basedOn: { key: "hero-a", set: null } });
+      const kept = await readdir(folder);
+
+      expect(kept).toHaveLength(100);
+      expect(kept).toContain(set.id);
+      expect(kept).not.toContain(oldest);
+      expect(parseJson(await readFile(join(folder, set.id, "set.json"), "utf8"))).toMatchObject({
+        basedOn: { key: "hero-a", set: null },
+      });
     });
 
     await generations.close();
@@ -2838,47 +2217,36 @@ describe("the record of a set", () => {
 
     const { generations } = orchestrator(
       cwd,
-      [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }],
+      LEDGER,
       ["write"],
-      async () => ({ errors: [] }),
+      clean,
       undefined,
       "answer",
       "answer",
       true,
     );
 
-    const first = await generations.start({ surface: "hero", brief: "Dinner", count: 1, agent });
+    const first = await startSet(generations);
 
-    if (!first.ok) throw new Error(first.error);
+    const built = await firstSlot(generations, (slot) => slot.state === "ready");
 
-    const built = await settled(
-      () => generations.snapshot()[0]?.slots[0],
-      (slot) => slot.state === "ready",
-    );
-
-    const second = await generations.start({
-      surface: "hero",
+    const second = await startSet(generations, {
       brief: "",
-      count: 1,
-      agent,
       basedOn: { title: built.title, key: built.key, idea: built.idea },
     });
 
-    if (!second.ok) throw new Error(second.error);
     const folder = join(cwd, ".leglas", "generations");
 
     await vi.waitFor(async () => {
-      expect(
-        parseJson(await readFile(join(folder, second.job.id, "set.json"), "utf8")),
-      ).toMatchObject({
-        basedOn: { title: built.title, key: built.key, set: first.job.id },
+      expect(parseJson(await readFile(join(folder, second.id, "set.json"), "utf8"))).toMatchObject({
+        basedOn: { title: built.title, key: built.key, set: first.id },
       });
       expect(
-        (await readFile(join(folder, first.job.id, "events.jsonl"), "utf8"))
+        (await readFile(join(folder, first.id, "events.jsonl"), "utf8"))
           .trim()
           .split("\n")
           .map((line) => parseJson(line)),
-      ).toMatchObject([{ kind: "more-like", direction: built.key, detail: second.job.id }]);
+      ).toMatchObject([{ kind: "more-like", direction: built.key, detail: second.id }]);
     });
 
     await generations.close();
@@ -3024,21 +2392,14 @@ describe("a set built with Codex", () => {
       },
     });
 
-    const started = await generations.start({
-      surface: "hero",
-      brief: "Dinner",
-      count: 1,
-      agent: { agent: "codex", effort: null, run: null },
-    });
+    const set = await startSet(generations, { agent: { agent: "codex", effort: null, run: null } });
 
-    if (!started.ok) throw new Error(started.error);
-
-    const slot = await settled(
-      () => generations.snapshot()[0]?.slots[0],
+    const slot = await firstSlot(
+      generations,
       (value) => value.state === "ready" || value.state === "failed",
     );
 
-    return { ...codex, cwd, job: started.job, slot };
+    return { ...codex, cwd, job: set, slot };
   }
 
   test("a build that edits a file of the app's own is stopped, and the file is named", async () => {
@@ -3053,17 +2414,21 @@ describe("a set built with Codex", () => {
     expect(await readFile(join(cwd, "src", "main.tsx"), "utf8")).toBe("export const COPY = {};\n");
   });
 
-  test("plans and builds with restricted Codex runs, reading its answer and its steps", async () => {
-    const { calls, announced, job, slot } = await run();
+  test("plans, builds and fixes with restricted Codex runs, reading its answer and its steps", async () => {
+    // The first render reports an error, so the build gets a fix run.
+    const { calls, announced, job, slot } = await run(false, true);
 
     expect(job.agent).toBe("codex");
-    expect(slot.state).toBe("ready");
-    expect(calls.map((call) => call.command)).toEqual(["codex", "codex"]);
+    expect(slot).toMatchObject({ state: "ready", fixed: true });
+    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
 
-    const [plan, build] = calls.map((call) => call.args.join(" "));
+    const [plan, build, fix] = calls.map((call) => call.args.join(" "));
     expect(plan).toContain("exec --json --ephemeral --skip-git-repo-check");
     expect(plan).toContain("-s read-only");
     expect(build).toContain("-s workspace-write");
+    // A fix run may write.
+    expect(calls[2]?.args.at(-1)).toMatch(/^Leglas rendered /);
+    expect(fix).toContain("-s workspace-write");
 
     for (const args of [plan, build]) {
       expect(args).toContain("-c model_reasoning_effort=medium");
@@ -3086,17 +2451,6 @@ describe("a set built with Codex", () => {
       "paper",
       "spaced",
     ]);
-  });
-
-  test("a page that fails its check gets a Codex fix run that may write", async () => {
-    const { calls, slot } = await run(false, true);
-
-    expect(slot).toMatchObject({ state: "ready", fixed: true });
-    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
-
-    const fix = calls[2]?.args ?? [];
-    expect(fix.at(-1)).toMatch(/^Leglas rendered /);
-    expect(fix.join(" ")).toContain("-s workspace-write");
   });
 
   test("a failed build says Codex failed, not Claude", async () => {
