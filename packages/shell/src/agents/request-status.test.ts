@@ -73,59 +73,31 @@ describe("request direction activity", () => {
   });
 });
 
-describe("composerAgent", () => {
-  test("offers the chooser while agents are detected and none is chosen", () => {
-    expect(composerAgent(null, [option("codex", false), option("claude")])).toEqual({
-      kind: "choose",
-    });
-  });
+test("composerAgent offers the chooser, wears the chosen agent's name, or disappears", () => {
+  const chosen = (id: string, name: string) => ({ kind: "chosen", id, name });
 
-  test.each<[AgentOption[]]>([[[]], [[option("claude", false)]]])(
-    "disappears when no agent is detected: %j",
-    (available) => {
-      expect(composerAgent(null, available)).toEqual({ kind: "none" });
-    },
+  // Agents detected and none chosen; then none detected, or none available.
+  expect(composerAgent(null, [option("codex", false), option("claude")])).toEqual({
+    kind: "choose",
+  });
+  expect(composerAgent(null, [])).toEqual({ kind: "none" });
+  expect(composerAgent(null, [option("claude", false)])).toEqual({ kind: "none" });
+
+  expect(composerAgent("claude", [option("codex"), option("claude")])).toEqual(
+    chosen("claude", "Claude"),
   );
+  // A custom choice is named after its own command, or else just Custom.
+  expect(composerAgent("custom", [option("claude")])).toEqual(chosen("custom", "Custom"));
+  expect(composerAgent("custom", [], "aider --yes {prompt}")).toEqual(chosen("custom", "aider"));
+  expect(composerAgent("custom", [], "/usr/local/bin/goose run {prompt}")).toEqual(
+    chosen("custom", "goose"),
+  );
+  expect(composerAgent("custom", [], "   ")).toEqual(chosen("custom", "Custom"));
 
-  test("wears the chosen agent's name", () => {
-    expect(composerAgent("claude", [option("codex"), option("claude")])).toEqual({
-      kind: "chosen",
-      id: "claude",
-      name: "Claude",
-    });
-  });
-
-  test("gives an existing custom choice a display name", () => {
-    expect(composerAgent("custom", [option("claude")])).toEqual({
-      kind: "chosen",
-      id: "custom",
-      name: "Custom",
-    });
-  });
-
-  test("names a custom choice after its own command", () => {
-    expect(composerAgent("custom", [], "aider --yes {prompt}")).toEqual({
-      kind: "chosen",
-      id: "custom",
-      name: "aider",
-    });
-    expect(composerAgent("custom", [], "/usr/local/bin/goose run {prompt}")).toEqual({
-      kind: "chosen",
-      id: "custom",
-      name: "goose",
-    });
-    expect(composerAgent("custom", [], "   ")).toEqual({
-      kind: "chosen",
-      id: "custom",
-      name: "Custom",
-    });
-  });
-
-  test("drops a chosen agent whose binary is no longer detected", () => {
-    expect(composerAgent("claude", [option("claude", false)])).toEqual({ kind: "none" });
-    expect(composerAgent("claude", [option("claude", false), option("codex")])).toEqual({
-      kind: "choose",
-    });
+  // A chosen binary no longer detected loses its name.
+  expect(composerAgent("claude", [option("claude", false)])).toEqual({ kind: "none" });
+  expect(composerAgent("claude", [option("claude", false), option("codex")])).toEqual({
+    kind: "choose",
   });
 });
 
@@ -175,125 +147,82 @@ describe("requestCard", () => {
     });
   });
 
-  test("counts queued requests ahead of picked-up and failed states", () => {
-    expect(
-      requestCard(
-        [
-          request("failed", "failed"),
-          request("picked-up", "picked-up"),
-          request("queued-1", "queued"),
-          request("queued-2", "queued"),
-        ],
-        { ...idleAgent, attached: true },
-        true,
-      ),
-    ).toEqual({ kind: "queued", count: 2, attended: true });
-  });
+  test("with nothing running: the queue, then a pickup, then the latest ending", () => {
+    const attached = { ...idleAgent, attached: true };
+    const failed = request("failed", "failed");
+    const pickedUp = request("picked-up", "picked-up");
+    const queued = [request("queued-1", "queued"), request("queued-2", "queued")];
 
-  test("says when nothing will drain the queue", () => {
+    expect(requestCard([failed, pickedUp, ...queued], attached, true)).toEqual({
+      kind: "queued",
+      count: 2,
+      attended: true,
+    });
+    // Nothing will drain it.
     expect(requestCard([request("queued", "queued")], idleAgent, false)).toEqual({
       kind: "queued",
       count: 1,
       attended: false,
     });
-  });
+    expect(requestCard([failed, pickedUp], attached, true)).toEqual({ kind: "picked-up" });
 
-  test("reports an external pickup ahead of a failed request", () => {
+    const overloaded = {
+      code: "provider-overloaded",
+      message: "Claude's provider was overloaded and gave up.",
+    };
+
     expect(
       requestCard(
-        [request("failed", "failed"), request("picked-up", "picked-up")],
-        { ...idleAgent, attached: true },
-        true,
-      ),
-    ).toEqual({ kind: "picked-up" });
-  });
-
-  test("offers the most recent failure with the reason it ended", () => {
-    expect(
-      requestCard(
-        [
-          request("older", "failed"),
-          request("newer", "failed", "Dark grotesk", {
-            code: "provider-overloaded",
-            message: "Claude's provider was overloaded and gave up.",
-          }),
-        ],
+        [request("older", "failed"), request("newer", "failed", "Dark grotesk", overloaded)],
         idleAgent,
         true,
       ),
-    ).toEqual({
-      kind: "failed",
-      id: "newer",
-      title: "Dark grotesk",
-      reason: "Claude's provider was overloaded and gave up.",
-    });
-  });
-
-  test("a stop is its own card, so nothing offers to redo what was stopped", () => {
-    // From a run cancelled and the same words typed again: both requests ended,
-    // and the card must tell them apart.
-    expect(
-      requestCard(
-        [
-          request("failed", "failed", "Poster", {
-            code: "provider-overloaded",
-            message: "Claude's provider was overloaded and gave up.",
-          }),
-          request("stopped", "cancelled", "Poster"),
-        ],
-        idleAgent,
-        true,
-      ),
-    ).toEqual({ kind: "stopped", id: "stopped", title: "Poster" });
-  });
-
-  test("a stop in progress drops the backoff line and says so", () => {
-    // Between the click and the agent going, the card must not describe a live
-    // run or blame the provider.
-    expect(
-      requestCard(
-        [request("running", "running", "Poster")],
-        {
-          ...idleAgent,
-          running: true,
-          name: "Claude",
-          stopping: true,
-          waiting: { attempt: 4, max: 10, status: 529, reason: "overloaded" },
-        },
-        true,
-      ),
-    ).toMatchObject({ kind: "running", stopping: true, waiting: null });
-  });
-
-  test("a failure with no recorded reason still names the direction", () => {
+    ).toEqual({ kind: "failed", id: "newer", title: "Dark grotesk", reason: overloaded.message });
     expect(requestCard([request("old", "failed", "Poster")], idleAgent, true)).toEqual({
       kind: "failed",
       id: "old",
       title: "Poster",
       reason: null,
     });
+    // A run cancelled and the same words typed again: a stop is its own card,
+    // so nothing offers to redo what was stopped.
+    expect(
+      requestCard(
+        [
+          request("failed", "failed", "Poster", overloaded),
+          request("stopped", "cancelled", "Poster"),
+        ],
+        idleAgent,
+        true,
+      ),
+    ).toEqual({ kind: "stopped", id: "stopped", title: "Poster" });
+    expect(requestCard([], attached, true)).toBeNull();
   });
 
-  test("a run inside the vendor's backoff says what it is waiting on", () => {
-    const card = requestCard(
-      [request("running", "running", "Poster")],
-      {
-        ...idleAgent,
-        running: true,
-        name: "Claude",
-        waiting: { attempt: 4, max: 10, status: 529, reason: "overloaded" },
-      },
-      true,
-    );
+  test("a run carries the vendor's backoff and its quiet, and a stop in progress drops both", () => {
+    const running = [request("running", "running", "Poster")];
 
-    expect(card).toMatchObject({
+    const agent = {
+      ...idleAgent,
+      running: true,
+      name: "Claude",
+      waiting: { attempt: 4, max: 10, status: 529, reason: "overloaded" },
+      quietSince: 2_000,
+    };
+
+    expect(requestCard(running, agent, true)).toMatchObject({
       kind: "running",
       waiting: { attempt: 4, max: 10 },
+      quietSince: 2_000,
     });
-  });
-
-  test("stays empty while the queue is empty", () => {
-    expect(requestCard([], { ...idleAgent, attached: true }, true)).toBeNull();
+    // Between the click and the agent going, the card must not describe a live
+    // run or blame the provider.
+    expect(requestCard(running, { ...agent, stopping: true }, true)).toMatchObject({
+      kind: "running",
+      stopping: true,
+      waiting: null,
+      quietSince: null,
+    });
   });
 });
 
@@ -329,7 +258,9 @@ describe("formatElapsed", () => {
   });
 });
 
-describe("notesAwaitingChange", () => {
+// A failed or stopped change never answered its notes, so they're waiting to be
+// sent again, which is what an unmarked pin means.
+test("notesAwaitingChange collects the notes every unsettled change answers, and no others", () => {
   const request = (over: Partial<RequestStatus>): RequestStatus => ({
     id: "r1",
     status: "queued",
@@ -337,39 +268,17 @@ describe("notesAwaitingChange", () => {
     ...over,
   });
 
-  test("collects the notes every unsettled change answers", () => {
-    const found = notesAwaitingChange([
-      request({ id: "r1", notes: ["a", "b"], status: "queued" }),
-      request({ id: "r2", notes: ["c"], status: "running" }),
-      request({ id: "r3", notes: ["d"], status: "picked-up" }),
-    ]);
+  const found = notesAwaitingChange([
+    request({ id: "r1", notes: ["a", "b"], status: "queued" }),
+    request({ id: "r2", notes: ["c"], status: "running" }),
+    request({ id: "r3", notes: ["d"], status: "picked-up" }),
+    request({ id: "r4", notes: ["e"], status: "failed" }),
+    request({ id: "r5", notes: ["f"], status: "cancelled" }),
+    // Typed with no pins.
+    request({ id: "r6" }),
+  ]);
 
-    expect([...found].toSorted()).toEqual(["a", "b", "c", "d"]);
-  });
-
-  // A failed or stopped change never answered its notes, so they're waiting to
-  // be sent again, which is what an unmarked pin means.
-  test("leaves out the notes of a change nobody is working on", () => {
-    const found = notesAwaitingChange([
-      request({ id: "r1", notes: ["a"], status: "failed" }),
-      request({ id: "r2", notes: ["b"], status: "cancelled" }),
-    ]);
-
-    expect([...found]).toEqual([]);
-  });
-
-  test("a change typed with no pins contributes nothing", () => {
-    expect([...notesAwaitingChange([request({})])]).toEqual([]);
-  });
-
-  test("one note answered by two changes is counted once", () => {
-    const found = notesAwaitingChange([
-      request({ id: "r1", notes: ["a"] }),
-      request({ id: "r2", notes: ["a"] }),
-    ]);
-
-    expect([...found]).toEqual(["a"]);
-  });
+  expect([...found].toSorted()).toEqual(["a", "b", "c", "d"]);
 });
 
 describe("what the status card says", () => {
@@ -385,15 +294,47 @@ describe("what the status card says", () => {
     quietSince: null,
   };
 
-  test("a run names its agent, then the one useful thing about it", () => {
-    expect(cardHeadline(running)).toBe("Claude is on it");
-    expect(cardDetail(running)).toBe("Editing hero.tsx");
+  /** The card's two lines. */
+  const said = (card: RequestCard) => [cardHeadline(card), cardDetail(card)];
+
+  test("a headline for what happened, then the one useful thing about it", () => {
+    expect(said(running)).toEqual(["Claude is on it", "Editing hero.tsx"]);
     // No activity yet: the direction it is changing is the next best thing.
-    expect(cardDetail({ ...running, activity: null })).toBe("Aurora");
+    expect(said({ ...running, activity: null })).toEqual(["Claude is on it", "Aurora"]);
     // A provider backing off outranks the activity, so the wait is explained.
     expect(
-      cardDetail({ ...running, waiting: { attempt: 2, max: 5, status: 429, reason: null } }),
-    ).toBe("provider is rate limiting · retry 2 of 5");
+      said({ ...running, waiting: { attempt: 2, max: 5, status: 429, reason: null } }),
+    ).toEqual(["Claude is on it", "provider is rate limiting · retry 2 of 5"]);
+    // A stop in progress says so until the agent actually goes.
+    expect(said({ ...running, stopping: true })).toEqual([
+      "Stopping Claude",
+      "waiting for it to exit",
+    ]);
+
+    // The queue counts itself and says who takes it next.
+    expect(said({ kind: "queued", count: 1, attended: true })).toEqual([
+      "Change queued",
+      "your agent picks it up next",
+    ]);
+    expect(cardHeadline({ kind: "queued", count: 3, attended: true })).toBe("3 changes queued");
+    expect(cardDetail({ kind: "queued", count: 1, attended: false })).toBe(
+      "pick who runs your changes",
+    );
+
+    // A failure shows the server's verdict, and the direction when there is none.
+    const failed = { kind: "failed", id: "r1", title: "Aurora", reason: "Claude is not signed in" };
+    expect(said({ ...failed, kind: "failed" })).toEqual([
+      "That change failed",
+      "Claude is not signed in",
+    ]);
+    expect(cardDetail({ ...failed, kind: "failed", reason: null })).toBe("Aurora");
+
+    // A stop is the person's own; a pickup needs no detail.
+    expect(said({ kind: "stopped", id: "r1", title: "Aurora" })).toEqual([
+      "You stopped that change",
+      "Aurora",
+    ]);
+    expect(said({ kind: "picked-up" })).toEqual(["Your agent is on it", null]);
   });
 
   test("a run that has gone quiet says for how long, in place of its last activity", () => {
@@ -407,59 +348,5 @@ describe("what the status card says", () => {
     expect(cardDetail({ ...quiet, stopping: true }, 0)).toBe("waiting for it to exit");
     // Without a clock, the card falls back to what it had.
     expect(cardDetail(quiet)).toBe("Editing hero.tsx");
-  });
-
-  test("the card carries the quiet only while the run is not already stopping", () => {
-    const agent = {
-      attached: false,
-      running: true,
-      name: "Codex",
-      activity: "editing src/Hero.tsx",
-      startedAt: 1_000,
-      quietSince: 2_000,
-    };
-
-    const card = requestCard([request("running", "running")], agent, true);
-    expect(card?.kind === "running" ? card.quietSince : "not running").toBe(2_000);
-
-    const stopping = requestCard(
-      [request("running", "running")],
-      { ...agent, stopping: true },
-      true,
-    );
-
-    expect(stopping?.kind === "running" ? stopping.quietSince : "not running").toBeNull();
-  });
-
-  test("a stop in progress says so until the agent actually goes", () => {
-    expect(cardHeadline({ ...running, stopping: true })).toBe("Stopping Claude");
-    expect(cardDetail({ ...running, stopping: true })).toBe("waiting for it to exit");
-  });
-
-  test("the queue counts itself and says who takes it next", () => {
-    expect(cardHeadline({ kind: "queued", count: 1, attended: true })).toBe("Change queued");
-    expect(cardHeadline({ kind: "queued", count: 3, attended: true })).toBe("3 changes queued");
-    expect(cardDetail({ kind: "queued", count: 1, attended: true })).toBe(
-      "your agent picks it up next",
-    );
-    expect(cardDetail({ kind: "queued", count: 1, attended: false })).toBe(
-      "pick who runs your changes",
-    );
-  });
-
-  test("a failure shows the server's verdict, and the direction when there is none", () => {
-    const failed = { kind: "failed", id: "r1", title: "Aurora", reason: "Claude is not signed in" };
-    expect(cardHeadline({ ...failed, kind: "failed" })).toBe("That change failed");
-    expect(cardDetail({ ...failed, kind: "failed" })).toBe("Claude is not signed in");
-    expect(cardDetail({ ...failed, kind: "failed", reason: null })).toBe("Aurora");
-  });
-
-  test("a stop is named as the person's own, and a pickup needs no detail", () => {
-    expect(cardHeadline({ kind: "stopped", id: "r1", title: "Aurora" })).toBe(
-      "You stopped that change",
-    );
-    expect(cardDetail({ kind: "stopped", id: "r1", title: "Aurora" })).toBe("Aurora");
-    expect(cardHeadline({ kind: "picked-up" })).toBe("Your agent is on it");
-    expect(cardDetail({ kind: "picked-up" })).toBeNull();
   });
 });
