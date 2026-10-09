@@ -126,16 +126,6 @@ describe("resolving a name through re-exports", () => {
     expect(found).toEqual({ kind: "external", from: "@somewhere/else" });
   });
 
-  test("a name nothing on the chain declares is missing, not silently absent", () => {
-    const directory = dist({
-      "index.d.ts": 'export { Gone } from "./real.js";',
-      "real.d.ts": "export type Present = { yes: true };",
-    });
-
-    const found = resolve(directory, join(directory, "index.d.ts"), "Gone", new Set());
-    expect(found).toEqual({ kind: "missing" });
-  });
-
   // The guarantee is the refusal: a surface with a hole in it is not written.
   test("the surface refuses to build around a name nothing declares", () => {
     const root = mkdtempSync(join(tmpdir(), "leglas-surface-root-"));

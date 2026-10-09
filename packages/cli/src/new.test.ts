@@ -135,38 +135,30 @@ function typeErrors(writes: Write[]): string {
 }
 
 describe("detectFramework", () => {
-  test("recognises a Next app, which reads params on the server", () => {
-    expect(detectFramework(nextPkg)).toBe("next");
-  });
-
-  test("recognises a Vite React app, which reads params in the browser", () => {
-    expect(detectFramework(vitePkg)).toBe("react");
-  });
-
-  test("falls back to the browser form when the framework is unknown", () => {
-    expect(detectFramework(JSON.stringify({ dependencies: {} }))).toBe("react");
-  });
-
-  test("falls back rather than throwing on an unreadable package.json", () => {
-    expect(detectFramework("{not json")).toBe("react");
-  });
-
-  test("falls back when there is no package.json at all", () => {
-    expect(detectFramework(null)).toBe("react");
+  test.each([
+    ["a Next app, which reads params on the server", nextPkg, "next"],
+    ["a Vite React app, which reads params in the browser", vitePkg, "react"],
+    [
+      "an unknown framework, by falling back to the browser form",
+      JSON.stringify({ dependencies: {} }),
+      "react",
+    ],
+    ["an unreadable package.json, by falling back rather than throwing", "{not json", "react"],
+    ["no package.json at all, by falling back", null, "react"],
+  ])("recognises %s", (_case, pkg, framework) => {
+    expect(detectFramework(pkg)).toBe(framework);
   });
 });
 
 describe("surfaceSlug", () => {
-  test("keeps a simple name as-is", () => {
-    expect(surfaceSlug("hero")).toBe("hero");
-  });
-
-  test("normalises spacing and case so the param is predictable", () => {
-    expect(surfaceSlug("Hero Backdrop")).toBe("hero-backdrop");
-  });
-
-  test("strips characters that would break a query string", () => {
-    expect(surfaceSlug("hero/backdrop?x")).toBe("herobackdropx");
+  // Spacing and case are normalised so the param is predictable, and characters
+  // that would break a query string are stripped.
+  test.each([
+    ["hero", "hero"],
+    ["Hero Backdrop", "hero-backdrop"],
+    ["hero/backdrop?x", "herobackdropx"],
+  ])("turns %j into %j", (surface, slug) => {
+    expect(surfaceSlug(surface)).toBe(slug);
   });
 });
 
@@ -174,41 +166,20 @@ describe("planNew", () => {
   const plan = (surface: string, pkg: string | null = nextPkg) =>
     planNew({ surface, packageJson: pkg, gitignore: null });
 
-  test("writes the switcher into the ignored directory, not the user's source", () => {
-    const paths = plan("hero").writes.map((write) => write.path);
-
-    expect(paths.every((path) => path.startsWith(".leglas/"))).toBe(true);
+  test("writes a switcher named for the surface and a first variant, into the ignored directory alone", () => {
+    expect(plan("hero").writes.map((write) => write.path)).toEqual([
+      ".leglas/variants/hero/switch.tsx",
+      ".leglas/variants/hero/current.tsx",
+      ".leglas/variants/hero/hero-a.tsx",
+    ]);
   });
 
-  test("names the switcher after the surface", () => {
-    const paths = plan("hero").writes.map((write) => write.path);
-
-    expect(paths).toContain(".leglas/variants/hero/switch.tsx");
-  });
-
-  test("ships a first variant so there is something to render immediately", () => {
-    const paths = plan("hero").writes.map((write) => write.path);
-
-    expect(
-      paths.some(
-        (path) =>
-          path.includes("/variants/hero/") && path.endsWith(".tsx") && !path.endsWith("switch.tsx"),
-      ),
-    ).toBe(true);
-  });
-
-  test("adds the ignored directory to .gitignore", () => {
+  test("adds the ignored directory to .gitignore, once", () => {
     expect(plan("hero").gitignore).toContain(".leglas/");
-  });
-
-  test("does not add a second .gitignore entry when one is already there", () => {
-    const result = planNew({
-      surface: "hero",
-      packageJson: nextPkg,
-      gitignore: "node_modules\n.leglas/\n",
-    });
-
-    expect(result.gitignore).toBeNull();
+    expect(
+      planNew({ surface: "hero", packageJson: nextPkg, gitignore: "node_modules\n.leglas/\n" })
+        .gitignore,
+    ).toBeNull();
   });
 
   afterEach(() => {
@@ -239,17 +210,14 @@ describe("planNew", () => {
     }
   });
 
-  test("reads the param on the server for Next", () => {
-    const switcher = plan("hero", nextPkg).writes.find((w) => w.path.endsWith("switch.tsx"));
+  test.each([
+    ["on the server for Next", nextPkg, "searchParams", "window.location"],
+    ["in the browser for a plain React app", vitePkg, "window.location", "searchParams"],
+  ])("reads the param %s", (_where, pkg, reads, avoids) => {
+    const switcher = plan("hero", pkg).writes.find((w) => w.path.endsWith("switch.tsx"));
 
-    expect(switcher?.contents).toContain("searchParams");
-    expect(switcher?.contents).not.toContain("window.location");
-  });
-
-  test("reads the param in the browser for a plain React app", () => {
-    const switcher = plan("hero", vitePkg).writes.find((w) => w.path.endsWith("switch.tsx"));
-
-    expect(switcher?.contents).toContain("window.location");
+    expect(switcher?.contents).toContain(reads);
+    expect(switcher?.contents).not.toContain(avoids);
   });
 
   test.each([nextPkg, vitePkg])("exports only the component so edits hot-swap in place", (pkg) => {
@@ -277,18 +245,15 @@ describe("planNew", () => {
     expect(typeErrors(plan("hero", vitePkg).writes)).toBe("");
   });
 
-  test("uses the surface name as the query param, matching the config it suggests", () => {
+  test("suggests config entries for the current state and the first direction, on the switch's param", () => {
     const result = plan("hero");
     const switcher = result.writes.find((w) => w.path.endsWith("switch.tsx"));
 
     expect(switcher?.contents).toContain("v-hero");
-    expect(result.previews[0]?.url).toBe("/?v-hero=current");
-  });
-
-  test("suggests config entries for the current state and the first direction", () => {
-    const titles = plan("hero").previews.map((preview) => preview.title);
-
-    expect(titles).toEqual(["Current", "Hero A"]);
+    expect(result.previews).toEqual([
+      { title: "Current", url: "/?v-hero=current" },
+      { title: "Hero A", url: "/?v-hero=hero-a" },
+    ]);
   });
 
   test("tells the user the one wiring change it deliberately did not make", () => {

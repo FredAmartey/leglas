@@ -10,8 +10,40 @@ function write(result: ReturnType<typeof planInit>, path: string) {
 }
 
 describe("planInit", () => {
-  test("creates AGENTS.md when the project has none", () => {
-    expect(write(plan(), "AGENTS.md")?.contents).toContain(AGENTS_MARKER_START);
+  test("the section it writes into a new AGENTS.md teaches the loop an agent follows", () => {
+    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
+
+    expect(contents).toContain(AGENTS_MARKER_START);
+    // Additive authoring, which is what keeps switching instant.
+    expect(contents.toLowerCase()).toContain("beside");
+    expect(contents.toLowerCase()).toContain("never replace");
+    expect(contents).toContain("defaults to what it renders today");
+    // The live loop: viewer first, register as each lands. The viewer step
+    // comes before build-and-register, or nothing is open while the rail fills.
+    expect(contents).toContain("Before building, make sure the interface is up");
+    expect(contents).toContain("Register each direction as it lands");
+    expect(contents.indexOf("make sure the interface is up")).toBeLessThan(
+      contents.indexOf("Build one direction at a time"),
+    );
+    expect(contents).toContain('npx leglas show "<title>" --screenshot');
+    expect(contents).toContain("--width 390");
+    expect(contents.indexOf("Register each direction as it lands")).toBeLessThan(
+      contents.indexOf("Then look at it"),
+    );
+    // A request created by the running interface does not repeat setup.
+    expect(contents).toMatch(/already\s+completed exploration, request collection/);
+    expect(contents).toMatch(/Do not\s+repeat `explore`, `requests`, `list`/);
+    expect(contents).toContain("or server startup");
+    // The hands-free path, so agents can offer it.
+    expect(contents).toContain("npx leglas watch --run");
+    expect(contents).toContain("{prompt}");
+    // The images a request can carry.
+    expect(contents).toContain(".leglas/captures/");
+    expect(contents).toContain("Look at them before changing anything.");
+
+    for (const command of ["npx leglas new", "npx leglas add", "npx leglas list"]) {
+      expect(contents).toContain(command);
+    }
   });
 
   test("appends to an existing AGENTS.md without disturbing it", () => {
@@ -43,61 +75,6 @@ describe("planInit", () => {
     expect(contents.split("<!-- leglas:end -->")).toHaveLength(2);
   });
 
-  test("teaches additive authoring, which is what keeps switching instant", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    expect(contents.toLowerCase()).toContain("beside");
-    expect(contents.toLowerCase()).toContain("never replace");
-    expect(contents).toContain("defaults to what it renders today");
-  });
-
-  test("choreographs the live loop: viewer first, register as each lands", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    expect(contents).toContain("Before building, make sure the interface is up");
-    expect(contents).toContain("Register each direction as it lands");
-    // The viewer step comes before build-and-register, or nothing is open while
-    // the rail fills in.
-    expect(contents.indexOf("make sure the interface is up")).toBeLessThan(
-      contents.indexOf("Build one direction at a time"),
-    );
-    expect(contents).toContain('npx leglas show "<title>" --screenshot');
-    expect(contents).toContain("--width 390");
-    expect(contents.indexOf("Register each direction as it lands")).toBeLessThan(
-      contents.indexOf("Then look at it"),
-    );
-  });
-
-  test("does not repeat setup for a request created by the running interface", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    expect(contents).toMatch(/already\s+completed exploration, request collection/);
-    expect(contents).toMatch(/Do not\s+repeat `explore`, `requests`, `list`/);
-    expect(contents).toContain("or server startup");
-  });
-
-  test("teaches the hands-free path so agents can offer it", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    expect(contents).toContain("npx leglas watch --run");
-    expect(contents).toContain("{prompt}");
-  });
-
-  test("explains the images a request can carry", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    expect(contents).toContain(".leglas/captures/");
-    expect(contents).toContain("Look at them before changing anything.");
-  });
-
-  test("names the commands an agent needs", () => {
-    const contents = write(plan(), "AGENTS.md")?.contents ?? "";
-
-    for (const command of ["npx leglas new", "npx leglas add", "npx leglas list"]) {
-      expect(contents).toContain(command);
-    }
-  });
-
   test("creates a starter config when the project has none", () => {
     expect(write(plan(), "leglas.config.ts")?.contents).toContain("previews");
   });
@@ -108,13 +85,32 @@ describe("planInit", () => {
     expect(write(result, "leglas.config.ts")).toBeUndefined();
   });
 
-  test("ignores the working directory", () => {
-    expect(plan().gitignore).toContain(".leglas/");
+  // The ignore entry every command that writes into .leglas/ shares with this one.
+  test.each([
+    [null, [".leglas/"]],
+    ["node_modules\ndist\n", ["node_modules", "dist", ".leglas/"]],
+    // A longer path is not the entry.
+    [".leglas/variants\n", [".leglas/\n"]],
+  ])("ignores .leglas/ in a .gitignore of %j, keeping what is there", (gitignore, kept) => {
+    const result = plan({ gitignore }).gitignore;
+
+    for (const text of kept) expect(result).toContain(text);
   });
 
-  test("leaves .gitignore alone when it already ignores the directory", () => {
-    expect(plan({ gitignore: ".leglas/\n" }).gitignore).toBeNull();
+  test("ends the .gitignore in exactly one newline", () => {
+    const result = plan({ gitignore: "node_modules" }).gitignore;
+
+    expect(result?.endsWith("\n")).toBe(true);
+    expect(result?.endsWith("\n\n")).toBe(false);
   });
+
+  // With or without the trailing slash, and with whitespace around it.
+  test.each([".leglas/\n", "node_modules\n.leglas/\n", ".leglas\n", "  .leglas/  \n"])(
+    "leaves a .gitignore of %j alone, since it already ignores the directory",
+    (gitignore) => {
+      expect(plan({ gitignore }).gitignore).toBeNull();
+    },
+  );
 
   test("reports when there is nothing left to do", () => {
     const existing = `${AGENTS_MARKER_START}\nx\n${AGENTS_MARKER_END}\n`;

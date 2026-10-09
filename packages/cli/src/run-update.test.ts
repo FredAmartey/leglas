@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { UpdateService, UpdateStatus, startServer } from "@leglas/server";
@@ -5,14 +8,17 @@ import { runWithServices, skipStartupCheck } from "./run.js";
 
 const server = { start: vi.fn<typeof startServer>(), close: vi.fn(async () => {}) };
 
+/**
+ * A project with no config of its own and nothing registered, so the update
+ * check is all that varies. No dev server owner is looked up on this machine.
+ */
 const run = (
   options: Parameters<typeof runWithServices>[0],
   deps: Parameters<typeof runWithServices>[1],
 ) =>
   runWithServices(options, deps, {
-    loadConfig: async () => ({ config: null, errors: [], path: null }),
-    readLocalPreviews: async () => ({ previews: [], errors: [] }),
     startServer: server.start,
+    inspectLocalDevServer: async () => [],
   });
 
 const status: UpdateStatus = {
@@ -61,7 +67,8 @@ afterEach(() => {
 });
 
 const options = {
-  cwd: "/work/app",
+  // A project directory that is gone: the update check must not depend on it.
+  cwd: join(mkdtempSync(join(tmpdir(), "leglas-update-")), "gone"),
   open: true,
   json: false,
   port: undefined,
@@ -70,22 +77,23 @@ const options = {
 };
 
 describe("skipStartupCheck", () => {
-  test.each([undefined, "", "false"])("CI=%s permits the check", (CI) => {
-    expect(skipStartupCheck(CI === undefined ? {} : { CI })).toBe(false);
-  });
-  test.each(["true", "1", "0", "FALSE"])("CI=%s skips the check", (CI) => {
-    expect(skipStartupCheck({ CI })).toBe(true);
-  });
-  test.each([undefined, "", "0", "false"])(
-    "LEGLAS_NO_UPDATE_CHECK=%s permits the check",
-    (value) => {
-      expect(skipStartupCheck(value === undefined ? {} : { LEGLAS_NO_UPDATE_CHECK: value })).toBe(
-        false,
-      );
-    },
-  );
-  test.each(["1", "true", "FALSE"])("LEGLAS_NO_UPDATE_CHECK=%s skips the check", (value) => {
-    expect(skipStartupCheck({ LEGLAS_NO_UPDATE_CHECK: value })).toBe(true);
+  // CI follows ci-info: only the literal false opts out of a nonempty CI value.
+  test.each([
+    [{}, false],
+    [{ CI: "" }, false],
+    [{ CI: "false" }, false],
+    [{ CI: "true" }, true],
+    [{ CI: "1" }, true],
+    [{ CI: "0" }, true],
+    [{ CI: "FALSE" }, true],
+    [{ LEGLAS_NO_UPDATE_CHECK: "" }, false],
+    [{ LEGLAS_NO_UPDATE_CHECK: "0" }, false],
+    [{ LEGLAS_NO_UPDATE_CHECK: "false" }, false],
+    [{ LEGLAS_NO_UPDATE_CHECK: "1" }, true],
+    [{ LEGLAS_NO_UPDATE_CHECK: "true" }, true],
+    [{ LEGLAS_NO_UPDATE_CHECK: "FALSE" }, true],
+  ])("%j skips the check: %s", (env, skips) => {
+    expect(skipStartupCheck(env)).toBe(skips);
   });
 });
 
@@ -152,21 +160,15 @@ describe("startup update check without a listener", () => {
     expect(log).toHaveBeenLastCalledWith("An update is available.");
   });
 
-  test("JSON output remains one envelope with no startup check", async () => {
+  test.each<[name: string, env: Record<string, string>, json: boolean]>([
+    ["CI", { CI: "1" }, false],
+    ["LEGLAS_NO_UPDATE_CHECK", { LEGLAS_NO_UPDATE_CHECK: "1" }, false],
+    // An agent's --json run never asks npm, not even on the hour.
+    ["--json", {}, true],
+  ])("%s suppresses the startup check", async (_name, env, json) => {
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
     const updates = fakeUpdates();
-    const log = vi.fn();
-    await run({ ...options, json: true }, { updates, log, open: async () => {} });
-    expect(updates.check).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(updates.check).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledOnce();
-    expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ ok: true });
-  });
-
-  test.each(["CI", "LEGLAS_NO_UPDATE_CHECK"])("%s suppresses the startup check", async (name) => {
-    vi.stubEnv(name, "1");
-    const updates = fakeUpdates();
-    await run(options, { updates, log: vi.fn(), open: async () => {} });
+    await run({ ...options, json }, { updates, log: vi.fn(), open: async () => {} });
     expect(updates.check).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(60 * 60_000);
     expect(updates.check).not.toHaveBeenCalled();

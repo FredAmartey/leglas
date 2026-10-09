@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { writeRenames } from "@leglas/server";
 import { describe, expect, test } from "vitest";
 
-import { runAdd, runList } from "./run-previews.js";
+import { runList } from "./run-previews.js";
 import { runRemove } from "./run-remove.js";
-
-const quiet = { log: () => {}, error: () => {} };
+import { addLocal } from "./test-helpers.js";
 
 /** A project whose config shares Table and whose machine registered Aurora and Ember. */
 async function project(): Promise<string> {
@@ -18,18 +17,7 @@ async function project(): Promise<string> {
   );
 
   for (const title of ["Aurora", "Ember"]) {
-    const preview = {
-      title,
-      url: `/?v-hero=${title.toLowerCase()}`,
-      note: undefined,
-      tags: undefined,
-      branch: undefined,
-      file: undefined,
-      basedOn: undefined,
-      askedFor: undefined,
-    };
-
-    await runAdd({ preview, json: true, cwd }, quiet);
+    await addLocal(cwd, "--title", title, "--url", `/?v-hero=${title.toLowerCase()}`);
   }
 
   return cwd;
