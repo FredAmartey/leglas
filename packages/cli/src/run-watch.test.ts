@@ -127,6 +127,7 @@ describe("runWatch", () => {
     expect(statusDuringFirstBeat).toBe("queued");
   });
 
+  // Under --json the refusal is the usual failure envelope.
   test("refuses to start with no template anywhere", async () => {
     const d = deps();
     const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd() }, d);
@@ -134,25 +135,28 @@ describe("runWatch", () => {
     expect(outcome.exitCode).toBe(1);
     expect(d.lines.join("\n")).toContain("pick an agent in the interface");
     expect(d.lines.join("\n")).toContain("--run");
+
+    const json = deps();
+    const quiet = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd(), json: true }, json);
+
+    expect(quiet.exitCode).toBe(1);
+    expect(json.lines.map((line) => JSON.parse(line))).toEqual([
+      { ok: false, error: expect.stringContaining("pick an agent in the interface") },
+    ]);
   });
 
-  test("a --run flag beats both the saved template and agent choice", async () => {
+  test.each([
+    ["a --run flag beats both the saved template and", "flag-agent {prompt}"],
+    ["a saved template beats", undefined],
+  ])("%s the saved agent choice", async (_rule, run) => {
     const root = cwd();
     writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
 
-    const lines = await startAndStop(root, "flag-agent {prompt}");
+    const lines = await startAndStop(root, run);
 
-    expect(lines).toContain("Watching for change requests. Each one runs: flag-agent {prompt}");
-    expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
-  });
-
-  test("a saved template beats the saved agent choice", async () => {
-    const root = cwd();
-    writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
-
-    const lines = await startAndStop(root);
-
-    expect(lines).toContain("Watching for change requests. Each one runs: saved-agent {prompt}");
+    expect(lines).toContain(
+      `Watching for change requests. Each one runs: ${run ?? "saved-agent {prompt}"}`,
+    );
     expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
   });
 
@@ -298,16 +302,6 @@ describe("runWatch", () => {
       code: "agent-error",
       reason: written?.failure?.message,
     });
-  });
-
-  test("under --json a watch that cannot start prints the usual failure envelope", async () => {
-    const d = deps();
-    const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd(), json: true }, d);
-
-    expect(outcome.exitCode).toBe(1);
-    expect(d.lines.map((line) => JSON.parse(line))).toEqual([
-      { ok: false, error: expect.stringContaining("pick an agent in the interface") },
-    ]);
   });
 
   test("a command that cannot spawn is written down as failed and unretried", async () => {

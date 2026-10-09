@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { startViewer } from "./bin-start.js";
 import type { run } from "./run.js";
-import type { installShutdown } from "./shutdown.js";
+import { installShutdown } from "./shutdown.js";
 
 const service = {
   status: vi.fn<UpdateService["status"]>(),
@@ -55,7 +55,7 @@ afterEach(() => {
 
 const entry = fileURLToPath(new URL("./bin.ts", import.meta.url));
 
-function start(json: boolean) {
+function start(json: boolean, extra: Partial<Parameters<typeof startViewer>[1]> = {}) {
   return startViewer(
     {
       cwd: process.cwd(),
@@ -73,6 +73,7 @@ function start(json: boolean) {
       createUpdateService: mocked.create,
       run: mocked.run,
       installShutdown: mocked.shutdown,
+      ...extra,
     },
   );
 }
@@ -113,25 +114,8 @@ describe("CLI update wiring", () => {
     const kill = vi.spyOn(child, "kill").mockReturnValue(true);
     const exit = vi.fn<(code: number) => void>();
 
-    await startViewer(
-      {
-        cwd: process.cwd(),
-        json: false,
-        open: false,
-        port: undefined,
-        userPort: undefined,
-        configPath: undefined,
-      },
-      {
-        entry,
-        version: "1.0.0",
-        open: async () => {},
-        realpath: mocked.realpath,
-        createUpdateService: mocked.create,
-        run: mocked.run,
-        handoff: { spawn: () => child, exit, target },
-      },
-    );
+    // The real installShutdown, on the same target the handoff listens to.
+    await start(false, { installShutdown, handoff: { spawn: () => child, exit, target } });
 
     const { stop } = await mocked.run.mock.results[0]!.value;
     const restart = service.onRestart.mock.calls[0]![0];
