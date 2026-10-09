@@ -47,22 +47,18 @@ describe("parseTemplate", () => {
     });
   });
 
-  test("refuses a placeholder glued to another word, which is always a typo for substitution", () => {
-    const error = refusal("claude --message={prompt}");
-    expect(error).toContain("{prompt}");
+  test.each([
+    // A placeholder glued to another word is always a typo for substitution.
+    ["claude --message={prompt}", "{prompt}"],
+    // A second placeholder is refused rather than filling both.
+    ["claude -p {prompt} {prompt}", "once"],
+    ["{prompt}", "program"],
+    ["   ", "agent command"],
+  ])("refuses %j with one line that says why", (raw, why) => {
+    const error = refusal(raw);
+
+    expect(error).toContain(why);
     expect(error.split("\n")).toHaveLength(1);
-  });
-
-  test("refuses a second placeholder rather than filling both", () => {
-    expect(refusal("claude -p {prompt} {prompt}")).toContain("once");
-  });
-
-  test("refuses a placeholder used as the program itself", () => {
-    expect(refusal("{prompt}")).toContain("program");
-  });
-
-  test("refuses an empty command", () => {
-    expect(refusal("   ")).toContain("agent command");
   });
 
   test("keeps a quoted value together as one token, in either quote", () => {
