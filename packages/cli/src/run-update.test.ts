@@ -60,7 +60,8 @@ afterEach(() => {
 });
 
 const options = {
-  cwd: mkdtempSync(join(tmpdir(), "leglas-update-")),
+  // A project directory that is gone: the update check must not depend on it.
+  cwd: join(mkdtempSync(join(tmpdir(), "leglas-update-")), "gone"),
   open: true,
   json: false,
   port: undefined,

@@ -30,14 +30,16 @@ type ShowOptions = Parameters<typeof runShow>[0];
 async function show(
   cwd: string,
   options: Partial<ShowOptions> & { title: string },
-  fetch: typeof globalThis.fetch = globalThis.fetch,
+  fetch?: typeof globalThis.fetch,
 ) {
   const lines: string[] = [];
+  const deps = { log: (line: string) => lines.push(line), error: () => {} };
+  const shown = { json: true, screenshot: false, width: null, port: null, cwd, ...options };
 
-  const { exitCode } = await runShow(
-    { json: true, screenshot: false, width: null, port: null, cwd, ...options },
-    { log: (line) => lines.push(line), error: () => {}, fetch },
-  );
+  // Without a fetch, the command's own default asks the network.
+  const { exitCode } = await (fetch === undefined
+    ? runShow(shown, deps)
+    : runShow(shown, { ...deps, fetch }));
 
   return {
     exitCode,

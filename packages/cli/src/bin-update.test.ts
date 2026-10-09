@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { startViewer } from "./bin-start.js";
 import type { run } from "./run.js";
-import { installShutdown } from "./shutdown.js";
+import type { installShutdown } from "./shutdown.js";
 
 const service = {
   status: vi.fn<UpdateService["status"]>(),
@@ -72,7 +72,6 @@ function start(json: boolean, extra: Partial<Parameters<typeof startViewer>[1]> 
       realpath: mocked.realpath,
       createUpdateService: mocked.create,
       run: mocked.run,
-      installShutdown: mocked.shutdown,
       ...extra,
     },
   );
@@ -90,7 +89,7 @@ describe("CLI update wiring", () => {
       ];
       const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
       const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      await start(json);
+      await start(json, { installShutdown: mocked.shutdown });
       const input = mocked.create.mock.calls[0]![0];
       input.deps?.log?.("Updating Leglas.");
       input.deps?.log?.("Restarting Leglas.");
@@ -114,8 +113,8 @@ describe("CLI update wiring", () => {
     const kill = vi.spyOn(child, "kill").mockReturnValue(true);
     const exit = vi.fn<(code: number) => void>();
 
-    // The real installShutdown, on the same target the handoff listens to.
-    await start(false, { installShutdown, handoff: { spawn: () => child, exit, target } });
+    // The ordinary shutdown is the one startViewer installs by default.
+    await start(false, { handoff: { spawn: () => child, exit, target } });
 
     const { stop } = await mocked.run.mock.results[0]!.value;
     const restart = service.onRestart.mock.calls[0]![0];
@@ -139,7 +138,7 @@ describe("CLI update wiring", () => {
       throw new Error("The cache entry is gone.");
     });
     vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    await start(false);
+    await start(false, { installShutdown: mocked.shutdown });
     expect(mocked.create.mock.calls[0]![0].entry).toBe(entry);
     expect(mocked.run).toHaveBeenCalledOnce();
   });
