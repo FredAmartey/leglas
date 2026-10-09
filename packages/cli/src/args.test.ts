@@ -194,6 +194,8 @@ describe("parseArgs", () => {
     [["--port"], expect.stringContaining("--port")],
     [["--port", "99999"], expect.any(String)],
     [["--port", "-1"], expect.any(String)],
+    // The range's lower end: -1 is refused as not a number before the range is checked.
+    [["--port", "0"], "--port must be between 1 and 65535, received 0."],
     [["start"], expect.stringContaining("start")],
     [["shwo"], expect.any(String)],
     [["new"], expect.stringMatching(/surface/i)],
