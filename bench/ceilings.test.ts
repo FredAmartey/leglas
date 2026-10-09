@@ -64,6 +64,11 @@ describe("checking ceilings against a base", () => {
     };
 
     expect(unexplainedRaises(base, raisedTo(3, [...base.raised, logged]))).toEqual([]);
+
+    // An entry with no reason in it explains nothing, however it got into the file.
+    expect(unexplainedRaises(base, raisedTo(3, [...base.raised, { ...logged, why: " " }]))).toEqual(
+      ["boot.processes.lsof rose from 2 to 3"],
+    );
   });
 
   test("an entry already at the base can't explain a new rise to the same value", () => {
