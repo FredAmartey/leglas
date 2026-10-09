@@ -1265,6 +1265,9 @@ describe("startServer", () => {
     const forked: { prompt: string; mode: string } = await implied.json();
     expect(forked.mode).toBe("variant");
     expect(forked.prompt).toContain("add a new design direction based on");
+    // The interface always names its mode, and naming the default is the same
+    // request again: refused as a copy, not as a mode it does not know.
+    expect((await send("variant")).status).toBe(409);
 
     // Forking and rewriting are different work, so this is a second request,
     // not a copy.
