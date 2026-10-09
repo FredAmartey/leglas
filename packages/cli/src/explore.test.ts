@@ -3,13 +3,24 @@ import { describe, expect, test } from "vitest";
 import { planExplore } from "./explore.js";
 
 describe("planExplore", () => {
-  test("tells the agent where the files belong and how to register", () => {
-    const plan = planExplore("hero", 4);
+  test("a new set must disagree, is decided before building, and registers as each lands", () => {
+    const text = planExplore("hero", 5).instructions;
 
-    expect(plan.instructions).toContain(".leglas/variants/hero/");
-    expect(plan.instructions).toContain("npx leglas add");
-    expect(plan.instructions).toContain("/?v-hero=");
-    expect(plan.instructions).toContain("npx leglas new hero");
+    expect(text).toContain("Build 5 design directions");
+    expect(text).toContain(".leglas/variants/hero/");
+    expect(text).toContain("npx leglas add");
+    expect(text).toContain("/?v-hero=");
+    expect(text).toContain("npx leglas new hero");
+    // The goal and the collapse trap.
+    expect(text.toLowerCase()).toContain("genuinely disagree");
+    expect(text.toLowerCase()).toContain("before building");
+    // Registered as each direction lands, not batched.
+    expect(text).toContain("the moment it renders");
+    expect(text).toContain("not the set at the end");
+    expect(text).toContain('npx leglas show "<name>" --screenshot');
+    expect(text).toContain("look before building the next one");
+    // Spread directions are roots and carry no parent.
+    expect(text).not.toContain("--based-on");
   });
 
   test("normalises the surface name the same way the scaffold does", () => {
@@ -17,10 +28,6 @@ describe("planExplore", () => {
 
     expect(plan.slug).toBe("hero-backdrop");
     expect(plan.instructions).toContain("/?v-hero-backdrop=");
-  });
-
-  test("asks for the number of directions requested", () => {
-    expect(planExplore("hero", 5).instructions).toContain("Build 5 design directions");
   });
 
   test("supplies no taste of its own", () => {
@@ -33,38 +40,15 @@ describe("planExplore", () => {
     }
   });
 
-  test("exploring states the goal and the collapse trap", () => {
-    const text = planExplore("hero", 6).instructions.toLowerCase();
-
-    expect(text).toContain("genuinely disagree");
-    expect(text).toContain("before building");
-  });
-
-  test("variants state the opposite goal and the drift trap", () => {
+  test("variants state the opposite goal and the drift trap, and register with their parent", () => {
     const plan = planExplore("hero", 4, "Aurora");
 
     expect(plan.basedOn).toBe("Aurora");
     expect(plan.instructions).toContain('variations of the "Aurora" direction');
     expect(plan.instructions.toLowerCase()).toContain("drift");
+    expect(plan.instructions).toContain('--based-on "Aurora"');
     // The disagreement demand belongs to the other mode.
     expect(plan.instructions.toLowerCase()).not.toContain("genuinely disagree");
-  });
-
-  test("variants register with the direction they are based on", () => {
-    const variants = planExplore("hero", 3, "Aurora").instructions;
-
-    expect(variants).toContain('--based-on "Aurora"');
-    // Spread directions are roots and carry no parent.
-    expect(planExplore("hero", 3).instructions).not.toContain("--based-on");
-  });
-
-  test("asks for registration as each direction lands, not batched", () => {
-    const text = planExplore("hero", 3).instructions;
-
-    expect(text).toContain("the moment it renders");
-    expect(text).toContain("not the set at the end");
-    expect(text).toContain('npx leglas show "<name>" --screenshot');
-    expect(text).toContain("look before building the next one");
   });
 
   test("both modes share the same file mechanics", () => {

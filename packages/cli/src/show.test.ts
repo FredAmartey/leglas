@@ -33,12 +33,14 @@ const request = (title: string, intent: string): PendingRequest => ({
 });
 
 describe("planShow", () => {
-  test("answers with everything the config holds about the direction", () => {
-    const plan = planShow({ title: "Aurora", previews, requests: [] });
+  test("answers with everything held about the direction, what it is up against and what is pending", () => {
+    const plan = planShow({
+      title: "Aurora",
+      previews,
+      requests: [request("Aurora", "warmer"), request("Current", "tighter")],
+    });
 
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
+    if (!plan.ok) throw new Error(plan.error);
     expect(plan.direction).toEqual({
       title: "Aurora",
       url: "/?v-hero=aurora",
@@ -50,75 +52,34 @@ describe("planShow", () => {
       local: false,
       target: ".leglas/variants/hero/aurora.tsx",
     });
-  });
-
-  test("names the file behind it, which is the one thing nothing else exposes", () => {
-    const plan = planShow({ title: "Dot grid", previews, requests: [] });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.direction.target).toBe(".leglas/variants/hero/dotgrid.tsx");
-    expect(plan.direction.local).toBe(true);
-  });
-
-  test("a url outside the scaffold's shape has no file to name", () => {
-    const plan = planShow({
-      title: "Staging",
-      previews: [preview("Staging", "https://staging.example.com/pricing")],
-      requests: [],
-    });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.direction.target).toBeNull();
-  });
-
-  test("a file preview names its own source rather than decoding a url", () => {
-    const plan = planShow({
-      title: "Sketch",
-      previews: [preview("Sketch", "/leglas/files/Sketch/a.html", { file: "pages/a.html" })],
-      requests: [],
-    });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.direction.target).toBe("pages/a.html");
-  });
-
-  test("gathers the variants that are based on it", () => {
-    const plan = planShow({ title: "Aurora", previews, requests: [] });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
     expect(plan.variants.map((variant) => variant.title)).toEqual(["Aurora Dusk"]);
-  });
-
-  test("says what the direction is up against, without repeating its own variants", () => {
-    const plan = planShow({ title: "Aurora", previews, requests: [] });
-
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
     // A direction handed over alone gets improved straight out of the
-    // comparison.
+    // comparison, and its own variants are listed above.
     expect(plan.comparedWith).toEqual(["Current", "Dot grid"]);
+    expect(plan.requests.map((entry) => entry.intent)).toEqual(["warmer"]);
   });
 
-  test("carries only the requests pending against this direction", () => {
-    const plan = planShow({
-      title: "Aurora",
-      previews,
-      requests: [request("Aurora", "warmer"), request("Current", "tighter")],
-    });
+  // The file behind it is the one thing nothing else exposes.
+  test.each([
+    ["a local scaffold direction", "Dot grid", previews, ".leglas/variants/hero/dotgrid.tsx", true],
+    [
+      "a url outside the scaffold's shape, which has none",
+      "Staging",
+      [preview("Staging", "https://staging.example.com/pricing")],
+      null,
+      false,
+    ],
+    [
+      "a file preview, by its own source rather than its url",
+      "Sketch",
+      [preview("Sketch", "/leglas/files/Sketch/a.html", { file: "pages/a.html" })],
+      "pages/a.html",
+      false,
+    ],
+  ])("names the file behind %s", (_case, title, among, target, local) => {
+    const plan = planShow({ title, previews: among, requests: [] });
 
-    expect(plan.ok).toBe(true);
-
-    if (!plan.ok) return;
-    expect(plan.requests.map((entry) => entry.intent)).toEqual(["warmer"]);
+    expect(plan).toMatchObject({ ok: true, direction: { target, local } });
   });
 
   test("refuses a title that is not registered, the way the other commands do", () => {

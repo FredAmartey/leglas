@@ -107,14 +107,12 @@ export async function runWithServices(
   options: RunOptions & { cwd: string },
   deps: RunDeps,
   services: {
-    loadConfig?: typeof loadConfig;
-    readLocalPreviews?: typeof readLocalPreviews;
     startServer?: typeof startServer;
     inspectLocalDevServer?: typeof inspectLocalDevServer;
   } = {},
 ): Promise<RunResult> {
-  const loaded = await (services.loadConfig ?? loadConfig)(options.cwd);
-  const local = await (services.readLocalPreviews ?? readLocalPreviews)(options.cwd);
+  const loaded = await loadConfig(options.cwd);
+  const local = await readLocalPreviews(options.cwd);
 
   let devServer =
     options.userPort === undefined

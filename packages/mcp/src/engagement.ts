@@ -16,14 +16,7 @@ const ENGAGEMENT_MS = 120_000;
 /** A beat is worth a moment, never a stall. */
 const POST_TIMEOUT_MS = 1000;
 
-export type EngagementDeps = {
-  post?: (watching: boolean) => Promise<void>;
-  setInterval?: (callback: () => void, milliseconds: number) => ReturnType<typeof setInterval>;
-  clearInterval?: (handle: ReturnType<typeof setInterval>) => void;
-  now?: () => number;
-};
-
-function defaultPost(watching: boolean): Promise<void> {
+function post(watching: boolean): Promise<void> {
   // Best effort: every tool works without the server. LEGLAS_PORT covers a
   // server bound elsewhere.
   const port = Number(process.env.LEGLAS_PORT ?? "") || DEFAULT_PORT;
@@ -51,27 +44,18 @@ export type Engagement = {
   stop(): Promise<void>;
 };
 
-export function createEngagement(deps: EngagementDeps = {}): Engagement {
-  const post = deps.post ?? defaultPost;
-
-  const setEvery =
-    deps.setInterval ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
-
-  const clearEvery = deps.clearInterval ?? ((handle) => clearInterval(handle));
-
-  const now = deps.now ?? (() => Date.now());
-
+export function createEngagement(): Engagement {
   let timer: ReturnType<typeof setInterval> | null = null;
   let lastTouch = 0;
 
   const quiet = () => {
     if (timer === null) return;
-    clearEvery(timer);
+    clearInterval(timer);
     timer = null;
   };
 
   const beat = () => {
-    if (now() - lastTouch > ENGAGEMENT_MS) {
+    if (Date.now() - lastTouch > ENGAGEMENT_MS) {
       quiet();
       void post(false);
 
@@ -83,13 +67,13 @@ export function createEngagement(deps: EngagementDeps = {}): Engagement {
 
   return {
     touch() {
-      lastTouch = now();
+      lastTouch = Date.now();
 
       // Mid-cycle the server already knows: nothing to wait for.
       if (timer !== null) return Promise.resolve();
-      timer = setEvery(beat, BEAT_MS);
+      timer = setInterval(beat, BEAT_MS);
 
-      return post(true).catch(() => {});
+      return post(true);
     },
     async stop() {
       const wasBeating = timer !== null;

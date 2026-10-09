@@ -55,7 +55,7 @@ afterEach(() => {
 
 const entry = fileURLToPath(new URL("./bin.ts", import.meta.url));
 
-function start(json: boolean) {
+function start(json: boolean, extra: Partial<Parameters<typeof startViewer>[1]> = {}) {
   return startViewer(
     {
       cwd: process.cwd(),
@@ -72,7 +72,7 @@ function start(json: boolean) {
       realpath: mocked.realpath,
       createUpdateService: mocked.create,
       run: mocked.run,
-      installShutdown: mocked.shutdown,
+      ...extra,
     },
   );
 }
@@ -89,7 +89,7 @@ describe("CLI update wiring", () => {
       ];
       const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
       const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      await start(json);
+      await start(json, { installShutdown: mocked.shutdown });
       const input = mocked.create.mock.calls[0]![0];
       input.deps?.log?.("Updating Leglas.");
       input.deps?.log?.("Restarting Leglas.");
@@ -113,25 +113,8 @@ describe("CLI update wiring", () => {
     const kill = vi.spyOn(child, "kill").mockReturnValue(true);
     const exit = vi.fn<(code: number) => void>();
 
-    await startViewer(
-      {
-        cwd: process.cwd(),
-        json: false,
-        open: false,
-        port: undefined,
-        userPort: undefined,
-        configPath: undefined,
-      },
-      {
-        entry,
-        version: "1.0.0",
-        open: async () => {},
-        realpath: mocked.realpath,
-        createUpdateService: mocked.create,
-        run: mocked.run,
-        handoff: { spawn: () => child, exit, target },
-      },
-    );
+    // The ordinary shutdown is the one startViewer installs by default.
+    await start(false, { handoff: { spawn: () => child, exit, target } });
 
     const { stop } = await mocked.run.mock.results[0]!.value;
     const restart = service.onRestart.mock.calls[0]![0];
@@ -155,7 +138,7 @@ describe("CLI update wiring", () => {
       throw new Error("The cache entry is gone.");
     });
     vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    await start(false);
+    await start(false, { installShutdown: mocked.shutdown });
     expect(mocked.create.mock.calls[0]![0].entry).toBe(entry);
     expect(mocked.run).toHaveBeenCalledOnce();
   });
