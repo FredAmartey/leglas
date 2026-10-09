@@ -6,42 +6,15 @@ import { describe, expect, test } from "vitest";
 import { writeRenames } from "@leglas/server";
 
 import { isJsonObject, type JsonValue } from "./json.js";
-import { runAdd } from "./run-previews.js";
 import { runShare, type ShareOptions } from "./run-share.js";
+import { addLocal } from "./test-helpers.js";
 
 function scratch(): string {
   return mkdtempSync(join(tmpdir(), "leglas-share-"));
 }
 
-function collect() {
-  const lines: string[] = [];
-  const errors: string[] = [];
-
-  return {
-    deps: { log: (line: string) => lines.push(line), error: (line: string) => errors.push(line) },
-    lines,
-    errors,
-  };
-}
-
-const add = (cwd: string, title: string, url: string, branch?: string) =>
-  runAdd(
-    {
-      preview: {
-        title,
-        url,
-        note: undefined,
-        tags: undefined,
-        branch,
-        file: undefined,
-        basedOn: undefined,
-        askedFor: undefined,
-      },
-      json: true,
-      cwd,
-    },
-    collect().deps,
-  );
+const add = (cwd: string, title: string, url: string, ...flags: string[]) =>
+  addLocal(cwd, "--title", title, "--url", url, ...flags);
 
 type Tunnel = { [key: string]: JsonValue };
 
@@ -186,29 +159,50 @@ function fakeLeglas(
   };
 }
 
-const options = (cwd: string, extra: Partial<ShareOptions> = {}): ShareOptions => ({
-  titles: [],
-  reach: "open",
-  tunnel: null,
-  stop: false,
-  rotate: false,
-  revoke: null,
-  port: 4321,
-  json: true,
-  cwd,
-  ...extra,
-});
-
 const instantly = async () => {};
 
-const last = (lines: string[]): { [key: string]: JsonValue } => JSON.parse(lines.at(-1) ?? "{}");
+/** `leglas share --port 4321 --json` against that Leglas, unless the extra options say otherwise. */
+async function share(
+  cwd: string,
+  fetch: typeof globalThis.fetch,
+  extra: Partial<ShareOptions> = {},
+  sleep = instantly,
+) {
+  const lines: string[] = [];
+  const errors: string[] = [];
+
+  const { exitCode } = await runShare(
+    {
+      titles: [],
+      reach: "open",
+      tunnel: null,
+      stop: false,
+      rotate: false,
+      revoke: null,
+      port: 4321,
+      json: true,
+      cwd,
+      ...extra,
+    },
+    { log: (line) => lines.push(line), error: (line) => errors.push(line), fetch, sleep },
+  );
+
+  return {
+    exitCode,
+    /** The envelope, under --json. */
+    get last(): { [key: string]: JsonValue } {
+      return JSON.parse(lines.at(-1) ?? "{}");
+    },
+    text: lines.join("\n"),
+  };
+}
 
 describe("runShare", () => {
   test("shares the rail by default, leaving out what cannot go, and waits for the link", async () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
     await add(cwd, "Dusk", "/?v=dusk");
-    await add(cwd, "Warm red", "/", "warm-red");
+    await add(cwd, "Warm red", "/", "--branch", "warm-red");
 
     const leglas = fakeLeglas(cwd, [
       { status: "starting", provider: "cloudflared" },
@@ -216,11 +210,9 @@ describe("runShare", () => {
       { status: "ready", provider: "cloudflared", url: "https://abc.trycloudflare.com" },
     ]);
 
-    const { deps, lines } = collect();
+    const { exitCode, last } = await share(cwd, leglas.fetch);
 
-    const result = await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly });
-
-    expect(result.exitCode).toBe(0);
+    expect(exitCode).toBe(0);
     // A project with no config file has the implicit App on its rail too.
     expect(leglas.posted[0]).toEqual({
       path: "/leglas/api/share",
@@ -238,7 +230,7 @@ describe("runShare", () => {
         routes: [],
       },
     });
-    expect(last(lines)).toMatchObject({
+    expect(last).toMatchObject({
       ok: true,
       alreadySharing: false,
       leftOut: ["Warm red"],
@@ -258,11 +250,7 @@ describe("runShare", () => {
 
     const alone = fakeLeglas(cwd);
     // The name the rail shows is the one people say.
-    await runShare(options(cwd, { titles: ["Sunrise"] }), {
-      ...collect().deps,
-      fetch: alone.fetch,
-      sleep: instantly,
-    });
+    await share(cwd, alone.fetch, { titles: ["Sunrise"] });
     expect(alone.posted[0]?.body).toMatchObject({
       scope: "direction",
       titles: ["Cool"],
@@ -270,11 +258,7 @@ describe("runShare", () => {
     });
 
     const pair = fakeLeglas(cwd);
-    await runShare(options(cwd, { titles: ["Cool", "Dusk"], reach: "listed", tunnel: "ngrok" }), {
-      ...collect().deps,
-      fetch: pair.fetch,
-      sleep: instantly,
-    });
+    await share(cwd, pair.fetch, { titles: ["Cool", "Dusk"], reach: "listed", tunnel: "ngrok" });
     expect(pair.posted[0]?.body).toMatchObject({
       scope: "compare",
       titles: ["Cool", "Dusk"],
@@ -289,16 +273,11 @@ describe("runShare", () => {
     await add(cwd, "Cool", "/?v=cool");
     await writeRenames(cwd, { Cool: "Sunrise" });
     const leglas = fakeLeglas(cwd);
-    const { deps, lines } = collect();
 
-    const result = await runShare(options(cwd, { titles: ["Sunrise", "Cool"] }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { exitCode, last } = await share(cwd, leglas.fetch, { titles: ["Sunrise", "Cool"] });
 
-    expect(result.exitCode).toBe(1);
-    expect(last(lines)).toEqual({
+    expect(exitCode).toBe(1);
+    expect(last).toEqual({
       ok: false,
       error: "Both names are Cool. Name two different directions to compare them.",
     });
@@ -311,13 +290,12 @@ describe("runShare", () => {
     await add(cwd, "Dusk", "/?v=dusk");
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "direction", titles: ["Aurora"] });
-    const { deps, lines } = collect();
 
-    expect(
-      (await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly })).exitCode,
-    ).toBe(0);
+    const shown = await share(cwd, leglas.fetch);
+
+    expect(shown.exitCode).toBe(0);
     expect(leglas.posted).toEqual([]);
-    expect(last(lines)).toMatchObject({
+    expect(shown.last).toMatchObject({
       ok: true,
       alreadySharing: true,
       share: { titles: ["Aurora"] },
@@ -326,45 +304,28 @@ describe("runShare", () => {
     // The same name as a different kind of share is something else too.
     const rail = fakeLeglas(cwd);
     rail.running({ scope: "rail", titles: ["Aurora"] });
-    const narrower = collect();
+    const narrower = await share(cwd, rail.fetch, { titles: ["Aurora"] });
 
-    expect(
-      (
-        await runShare(options(cwd, { titles: ["Aurora"] }), {
-          ...narrower.deps,
-          fetch: rail.fetch,
-          sleep: instantly,
-        })
-      ).exitCode,
-    ).toBe(1);
-    expect(String(last(narrower.lines).error)).toContain("already sharing the rail");
+    expect(narrower.exitCode).toBe(1);
+    expect(String(narrower.last.error)).toContain("already sharing the rail");
 
     // Asking for something else while it runs says how to get there.
-    const other = collect();
+    const other = await share(cwd, leglas.fetch, { titles: ["Aurora", "Dusk"] });
 
-    expect(
-      (
-        await runShare(options(cwd, { titles: ["Aurora", "Dusk"] }), {
-          ...other.deps,
-          fetch: leglas.fetch,
-          sleep: instantly,
-        })
-      ).exitCode,
-    ).toBe(1);
-    expect(String(last(other.lines).error)).toContain("npx leglas share --stop");
+    expect(other.exitCode).toBe(1);
+    expect(String(other.last.error)).toContain("npx leglas share --stop");
   });
 
   test("--stop ends the share", async () => {
     const cwd = scratch();
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "rail", titles: [] });
-    const { deps, lines } = collect();
 
-    expect(
-      (await runShare(options(cwd, { stop: true }), { ...deps, fetch: leglas.fetch })).exitCode,
-    ).toBe(0);
+    const { exitCode, last } = await share(cwd, leglas.fetch, { stop: true });
+
+    expect(exitCode).toBe(0);
     expect(leglas.posted.map((entry) => entry.path)).toEqual(["/leglas/api/share/stop"]);
-    expect(last(lines)).toEqual({ ok: true, stopped: true });
+    expect(last).toEqual({ ok: true, stopped: true });
   });
 
   test("--revoke ends the one link it names, by its address or its id", async () => {
@@ -372,24 +333,22 @@ describe("runShare", () => {
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "rail", titles: [] });
     leglas.link("Sam");
-    const byAddress = collect();
 
-    const run = (revoke: string, deps: ReturnType<typeof collect>["deps"]) =>
-      runShare(options(cwd, { revoke }), { ...deps, fetch: leglas.fetch, sleep: instantly });
+    const byAddress = await share(cwd, leglas.fetch, {
+      revoke: "https://abc.trycloudflare.com/leglas/join/token-Sam",
+    });
 
-    expect(
-      (await run("https://abc.trycloudflare.com/leglas/join/token-Sam", byAddress.deps)).exitCode,
-    ).toBe(0);
-    expect(last(byAddress.lines)).toMatchObject({
+    expect(byAddress.exitCode).toBe(0);
+    expect(byAddress.last).toMatchObject({
       ok: true,
       revoked: { id: "grant-2", name: "Sam" },
       share: { links: [{ id: "grant-1" }] },
     });
 
-    const byId = collect();
+    const byId = await share(cwd, leglas.fetch, { revoke: "grant-1" });
 
-    expect((await run("grant-1", byId.deps)).exitCode).toBe(0);
-    expect(last(byId.lines)).toMatchObject({ ok: true, share: { links: [] } });
+    expect(byId.exitCode).toBe(0);
+    expect(byId.last).toMatchObject({ ok: true, share: { links: [] } });
     expect(leglas.posted.map((entry) => entry.body)).toEqual([
       { id: "grant-2" },
       { id: "grant-1" },
@@ -400,34 +359,23 @@ describe("runShare", () => {
     const cwd = scratch();
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "rail", titles: [] });
-    const { deps, lines } = collect();
 
-    await runShare(options(cwd, { revoke: "grant-1", json: false }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { text } = await share(cwd, leglas.fetch, { revoke: "grant-1", json: false });
 
-    expect(lines.join("\n")).toContain("no link is live; npx leglas share --rotate starts one");
+    expect(text).toContain("no link is live; npx leglas share --rotate starts one");
   });
 
   test("--revoke refuses a link the share doesn't have, and ends nothing", async () => {
     const cwd = scratch();
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "rail", titles: [] });
-    const { deps, lines } = collect();
 
-    const outcome = await runShare(
-      options(cwd, { revoke: "https://elsewhere.example/leglas/join/x" }),
-      {
-        ...deps,
-        fetch: leglas.fetch,
-        sleep: instantly,
-      },
-    );
+    const { exitCode, last } = await share(cwd, leglas.fetch, {
+      revoke: "https://elsewhere.example/leglas/join/x",
+    });
 
-    expect(outcome.exitCode).toBe(1);
-    expect(String(last(lines).error)).toContain("npx leglas share lists them");
+    expect(exitCode).toBe(1);
+    expect(String(last.error)).toContain("npx leglas share lists them");
     expect(leglas.posted).toEqual([]);
   });
 
@@ -436,19 +384,12 @@ describe("runShare", () => {
     const leglas = fakeLeglas(cwd);
     leglas.running({ scope: "rail", titles: [] });
     leglas.link("Sam");
-    const { deps, lines } = collect();
 
-    expect(
-      (
-        await runShare(options(cwd, { rotate: true }), {
-          ...deps,
-          fetch: leglas.fetch,
-          sleep: instantly,
-        })
-      ).exitCode,
-    ).toBe(0);
+    const { exitCode, last } = await share(cwd, leglas.fetch, { rotate: true });
+
+    expect(exitCode).toBe(0);
     expect(leglas.posted.map((entry) => entry.path)).toEqual(["/leglas/api/share/rotate"]);
-    expect(last(lines)).toMatchObject({
+    expect(last).toMatchObject({
       ok: true,
       rotated: true,
       share: { links: [{ url: "https://abc.trycloudflare.com/leglas/join/rotated" }] },
@@ -460,16 +401,10 @@ describe("runShare", () => {
     const leglas = fakeLeglas(cwd);
 
     for (const extra of [{ rotate: true }, { revoke: "grant-1" }]) {
-      const { deps, lines } = collect();
+      const { exitCode, last } = await share(cwd, leglas.fetch, extra);
 
-      const outcome = await runShare(options(cwd, extra), {
-        ...deps,
-        fetch: leglas.fetch,
-        sleep: instantly,
-      });
-
-      expect(outcome.exitCode).toBe(1);
-      expect(String(last(lines).error)).toContain("Nothing is being shared");
+      expect(exitCode).toBe(1);
+      expect(String(last.error)).toContain("Nothing is being shared");
     }
   });
 
@@ -478,13 +413,12 @@ describe("runShare", () => {
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd);
     leglas.garble();
-    const { deps, lines } = collect();
 
-    expect(
-      (await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly })).exitCode,
-    ).toBe(1);
+    const { exitCode, last } = await share(cwd, leglas.fetch);
+
+    expect(exitCode).toBe(1);
     expect(leglas.sharing()).toBe(false);
-    expect(String(last(lines).error)).toBe(
+    expect(String(last.error)).toBe(
       "Leglas started a share this version of the command cannot read. The share it started is stopped.",
     );
   });
@@ -493,15 +427,14 @@ describe("runShare", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd, [{ status: "starting", provider: "cloudflared" }]);
-    const { deps, lines } = collect();
 
-    const sleep = async () => leglas.failReadsAfterStart();
-
-    expect((await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep })).exitCode).toBe(
-      1,
+    const { exitCode, last } = await share(cwd, leglas.fetch, {}, async () =>
+      leglas.failReadsAfterStart(),
     );
+
+    expect(exitCode).toBe(1);
     expect(leglas.sharing()).toBe(false);
-    expect(String(last(lines).error)).toContain("The share it started is stopped.");
+    expect(String(last.error)).toContain("The share it started is stopped.");
   });
 
   test("a start whose answer was lost is treated as a share that may exist", async () => {
@@ -509,49 +442,40 @@ describe("runShare", () => {
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd);
     leglas.dropCreateReply();
-    const { deps, lines } = collect();
 
-    expect(
-      (await runShare(options(cwd), { ...deps, fetch: leglas.fetch, sleep: instantly })).exitCode,
-    ).toBe(1);
+    const { exitCode, last } = await share(cwd, leglas.fetch);
+
+    expect(exitCode).toBe(1);
     expect(leglas.sharing()).toBe(false);
-    expect(String(last(lines).error)).toBe(
+    expect(String(last.error)).toBe(
       "Leglas stopped answering while the share was starting. Anything it started is stopped.",
     );
   });
 
   test("the server's own refusal is what the person reads", async () => {
     const cwd = scratch();
-    await add(cwd, "Warm red", "/", "warm-red");
+    await add(cwd, "Warm red", "/", "--branch", "warm-red");
     const leglas = fakeLeglas(cwd);
     leglas.refuse("Branch directions can't be shared yet: Warm red.");
-    const { deps, lines } = collect();
 
-    expect(
-      (
-        await runShare(options(cwd, { titles: ["Warm red"] }), {
-          ...deps,
-          fetch: leglas.fetch,
-          sleep: instantly,
-        })
-      ).exitCode,
-    ).toBe(1);
-    expect(last(lines)).toEqual({
+    const { exitCode, last } = await share(cwd, leglas.fetch, { titles: ["Warm red"] });
+
+    expect(exitCode).toBe(1);
+    expect(last).toEqual({
       ok: false,
       error: "Branch directions can't be shared yet: Warm red.",
     });
   });
 
   test("nothing running here is said plainly", async () => {
-    const cwd = scratch();
-    const { deps, lines } = collect();
-
     const down: typeof fetch = async () => {
       throw new TypeError("fetch failed");
     };
 
-    expect((await runShare(options(cwd), { ...deps, fetch: down })).exitCode).toBe(1);
-    expect(last(lines)).toEqual({
+    const { exitCode, last } = await share(scratch(), down);
+
+    expect(exitCode).toBe(1);
+    expect(last).toEqual({
       ok: false,
       error: "Leglas is not running here. Start it with npx leglas, then try again.",
     });
@@ -560,16 +484,9 @@ describe("runShare", () => {
   test("in a terminal: the link, when it stops working, and how to stop it", async () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
-    const leglas = fakeLeglas(cwd);
-    const { deps, lines } = collect();
 
-    await runShare(options(cwd, { titles: ["Aurora"], json: false }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { text } = await share(cwd, fakeLeglas(cwd).fetch, { titles: ["Aurora"], json: false });
 
-    const text = lines.join("\n");
     expect(text).toContain("sharing  Aurora");
     expect(text).toContain("link     https://abc.trycloudflare.com/leglas/join/token");
     // A link lasts a day, so its end names the day as well as the time.
@@ -581,15 +498,9 @@ describe("runShare", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd, [{ status: "none" }], []);
-    const { deps, lines } = collect();
 
-    await runShare(options(cwd, { json: false }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { text } = await share(cwd, leglas.fetch, { json: false });
 
-    const text = lines.join("\n");
     expect(text).toContain("local    http://127.0.0.1:50123/leglas/join/token");
     expect(text).toContain("no cloudflared or ngrok on this machine");
   });
@@ -598,15 +509,10 @@ describe("runShare", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd, [{ status: "none" }], ["cloudflared"]);
-    const { deps, lines } = collect();
 
-    await runShare(options(cwd, { json: false, tunnel: "none" }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { text } = await share(cwd, leglas.fetch, { json: false, tunnel: "none" });
 
-    expect(lines.join("\n")).toContain(
+    expect(text).toContain(
       "tunnel   none, as asked; the link works on this machine, or through a tunnel you run yourself",
     );
   });
@@ -615,15 +521,10 @@ describe("runShare", () => {
     const cwd = scratch();
     await add(cwd, "Aurora", "/?v=aurora");
     const leglas = fakeLeglas(cwd, [{ status: "starting", provider: "cloudflared" }]);
-    const { deps, lines } = collect();
 
-    await runShare(options(cwd, { json: false }), {
-      ...deps,
-      fetch: leglas.fetch,
-      sleep: instantly,
-    });
+    const { text } = await share(cwd, leglas.fetch, { json: false });
 
-    expect(lines.join("\n")).toContain(
+    expect(text).toContain(
       "cloudflared is still starting; run npx leglas share again for the public link",
     );
   });

@@ -7,27 +7,14 @@ import { describe, expect, test, vi } from "vitest";
 import { readLink } from "../../shell/src/link.js";
 
 import { runLink } from "./run-link.js";
-import { runAdd } from "./run-previews.js";
 import { NOT_RUNNING } from "./running.js";
-import { leglasServing } from "./test-helpers.js";
+import { addLocal, leglasServing } from "./test-helpers.js";
 
 async function project(): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-link-"));
-  const quiet = { log: () => {}, error: () => {} };
 
   for (const title of ["Aurora", "Ember"]) {
-    const preview = {
-      title,
-      url: `/?v-hero=${title.toLowerCase()}`,
-      note: undefined,
-      tags: undefined,
-      branch: undefined,
-      file: undefined,
-      basedOn: undefined,
-      askedFor: undefined,
-    };
-
-    await runAdd({ preview, json: true, cwd }, quiet);
+    await addLocal(cwd, "--title", title, "--url", `/?v-hero=${title.toLowerCase()}`);
   }
 
   await writeRenames(cwd, { Aurora: "Dawn" });
