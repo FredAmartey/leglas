@@ -153,10 +153,15 @@ describe("startup update check without a listener", () => {
     expect(log).toHaveBeenLastCalledWith("An update is available.");
   });
 
-  test.each(["CI", "LEGLAS_NO_UPDATE_CHECK"])("%s suppresses the startup check", async (name) => {
-    vi.stubEnv(name, "1");
+  test.each<[name: string, env: Record<string, string>, json: boolean]>([
+    ["CI", { CI: "1" }, false],
+    ["LEGLAS_NO_UPDATE_CHECK", { LEGLAS_NO_UPDATE_CHECK: "1" }, false],
+    // An agent's --json run never asks npm, not even on the hour.
+    ["--json", {}, true],
+  ])("%s suppresses the startup check", async (_name, env, json) => {
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
     const updates = fakeUpdates();
-    await run(options, { updates, log: vi.fn(), open: async () => {} });
+    await run({ ...options, json }, { updates, log: vi.fn(), open: async () => {} });
     expect(updates.check).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(60 * 60_000);
     expect(updates.check).not.toHaveBeenCalled();
