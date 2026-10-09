@@ -7,102 +7,91 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   NO_BROWSER,
-  START_TIMEOUT_MS,
   createBrowserPool,
   findBrowser,
   reapOrphanedBrowsers,
   launchBrowser,
   type Browser,
+  type BrowserSearch,
   type CdpPage,
   type CdpSocket,
+  type LaunchOptions,
 } from "./browser.js";
 
 import { type JsonRecord } from "../json.js";
 
-/**
- * Derived from launchBrowser's own deadline and above it, so vitest never kills
- * the test before the launch can succeed or say why.
- */
-const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
-
 describe("findBrowser", () => {
-  test("prefers the explicit Leglas and Chrome paths", () => {
-    const exists = vi.fn((path: string) => path === "/chosen/leglas");
-    expect(
-      findBrowser({
+  const playwrightMac = "/Users/u/Library/Caches/ms-playwright";
+  const playwrightLinux = "/home/u/.cache/ms-playwright";
+  const brave = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
+  const edge = "/Users/u/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge";
+  const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+  const macShell = `${playwrightMac}/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
+
+  /** Only these paths exist. */
+  const only =
+    (...paths: string[]) =>
+    (path: string) =>
+      paths.includes(path);
+
+  /** A cache folder whose name ends `folder` holds `entries`; every other folder is empty. */
+  const cached =
+    (folder: string, ...entries: string[]) =>
+    (dir: string) =>
+      dir.endsWith(folder) ? entries : [];
+
+  test.each<[string, BrowserSearch, string | null]>([
+    [
+      "LEGLAS_BROWSER before CHROME_PATH",
+      {
         env: { LEGLAS_BROWSER: "/chosen/leglas", CHROME_PATH: "/chosen/chrome" },
-        platform: "linux",
-        home: "/home/u",
-        exists,
-        onPath: () => null,
-        readdir: () => [],
-      }),
-    ).toBe("/chosen/leglas");
-
-    expect(
-      findBrowser({
+        exists: only("/chosen/leglas", "/chosen/chrome"),
+      },
+      "/chosen/leglas",
+    ],
+    [
+      "CHROME_PATH when LEGLAS_BROWSER is gone",
+      {
         env: { LEGLAS_BROWSER: "/gone", CHROME_PATH: "/chosen/chrome" },
-        platform: "linux",
-        home: "/home/u",
-        exists: (path) => path === "/chosen/chrome",
-        onPath: () => null,
-        readdir: () => [],
-      }),
-    ).toBe("/chosen/chrome");
-  });
-
-  test("checks system then user applications on macOS", () => {
-    const system = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
-    expect(
-      findBrowser({
-        env: {},
-        platform: "darwin",
-        home: "/Users/u",
-        exists: (path) => path === system,
-        readdir: () => [],
-      }),
-    ).toBe(system);
-
-    const user = "/Users/u/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge";
-    expect(
-      findBrowser({
-        env: {},
-        platform: "darwin",
-        home: "/Users/u",
-        exists: (path) => path === user,
-        readdir: () => [],
-      }),
-    ).toBe(user);
-  });
-
-  test("checks PATH before fixed Linux locations", () => {
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
+        exists: only("/chosen/chrome"),
+      },
+      "/chosen/chrome",
+    ],
+    [
+      "the executable a test tool already points at",
+      {
+        env: { PUPPETEER_EXECUTABLE_PATH: "/opt/chrome/chrome" },
+        exists: only("/opt/chrome/chrome"),
+      },
+      "/opt/chrome/chrome",
+    ],
+    [
+      "system applications before the user's on macOS",
+      { platform: "darwin", home: "/Users/u", exists: only(brave, edge) },
+      brave,
+    ],
+    [
+      "the user's applications on macOS",
+      { platform: "darwin", home: "/Users/u", exists: only(edge) },
+      edge,
+    ],
+    [
+      "PATH before fixed Linux locations",
+      {
         exists: () => true,
         onPath: (name) => (name === "chromium" ? "/custom/bin/chromium" : null),
-        readdir: () => [],
-      }),
-    ).toBe("/custom/bin/chromium");
-
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        exists: (path) => path === "/snap/bin/brave-browser",
-        onPath: () => null,
-        readdir: () => [],
-      }),
-    ).toBe("/snap/bin/brave-browser");
-  });
-
-  test("checks each Windows program root", () => {
-    const edge = "C:\\Programs/Microsoft/Edge/Application/msedge.exe";
-    expect(
-      findBrowser({
+      },
+      "/custom/bin/chromium",
+    ],
+    [
+      "a fixed Linux location",
+      { exists: only("/snap/bin/brave-browser") },
+      "/snap/bin/brave-browser",
+    ],
+    [
+      "each Windows program root",
+      {
         env: {
           PROGRAMFILES: "C:\\Programs",
           "PROGRAMFILES(X86)": "C:\\Programs32",
@@ -110,162 +99,119 @@ describe("findBrowser", () => {
         },
         platform: "win32",
         home: "C:\\Users\\u",
-        exists: (path) => path === edge,
-      }),
-    ).toBe(edge);
-  });
-
-  test("uses the newest Playwright and Puppeteer cache entries", () => {
-    const playwright =
-      "/Users/u/Library/Caches/ms-playwright/chromium-1200/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium";
-
-    expect(
-      findBrowser({
-        env: {},
+        exists: only("C:\\Programs/Microsoft/Edge/Application/msedge.exe"),
+      },
+      "C:\\Programs/Microsoft/Edge/Application/msedge.exe",
+    ],
+    [
+      "an older Playwright Chromium.app",
+      {
         platform: "darwin",
         home: "/Users/u",
-        exists: (path) => path === playwright,
-        readdir: (dir) =>
-          dir.endsWith("ms-playwright") ? ["firefox-1", "chromium-1100", "chromium-1200"] : [],
-      }),
-    ).toBe(playwright);
-
-    const puppeteer = "/home/u/.cache/puppeteer/chrome/125/chrome-linux64/chrome";
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        exists: (path) => path === puppeteer,
-        onPath: () => null,
-        readdir: (dir) => (dir.endsWith("puppeteer/chrome") ? ["124", "125"] : []),
-      }),
-    ).toBe(puppeteer);
-  });
-
-  test("finds the Chrome for Testing the tools actually install today", () => {
+        exists: only(
+          `${playwrightMac}/chromium-1200/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium`,
+        ),
+        readdir: cached("ms-playwright", "firefox-1", "chromium-1100", "chromium-1200"),
+      },
+      `${playwrightMac}/chromium-1200/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium`,
+    ],
+    [
+      "Puppeteer's Chrome",
+      {
+        exists: only("/home/u/.cache/puppeteer/chrome/125/chrome-linux64/chrome"),
+        readdir: cached("puppeteer/chrome", "124", "125"),
+      },
+      "/home/u/.cache/puppeteer/chrome/125/chrome-linux64/chrome",
+    ],
     // The layout Playwright ships now. Looking for Chromium.app found nothing
     // on a current install, so a machine with no desktop browser got no
     // capture.
-    const testing =
-      "/Users/u/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/" +
-      "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-
-    expect(
-      findBrowser({
-        env: {},
+    [
+      "the Chrome for Testing the tools actually install today",
+      {
         platform: "darwin",
         home: "/Users/u",
-        exists: (path) => path === testing,
-        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium-1234"] : []),
-      }),
-    ).toBe(testing);
-  });
-
-  test("finds the headless shell, which is often the only Chromium in a container", () => {
-    const shell =
-      "/home/u/.cache/ms-playwright/chromium_headless_shell-1234/" +
-      "chrome-headless-shell-linux64/chrome-headless-shell";
-
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        onPath: () => null,
-        exists: (path) => path === shell,
-        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
-      }),
-    ).toBe(shell);
-
-    const puppeteerShell =
-      "/home/u/.cache/puppeteer/chrome-headless-shell/130/" +
-      "chrome-headless-shell-linux64/chrome-headless-shell";
-
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        onPath: () => null,
-        exists: (path) => path === puppeteerShell,
-        readdir: (dir) => (dir.endsWith("puppeteer/chrome-headless-shell") ? ["130"] : []),
-      }),
-    ).toBe(puppeteerShell);
-  });
-
-  test("prefers the newest build when several are cached", () => {
-    const newest = "/home/u/.cache/ms-playwright/chromium-1240/chrome-linux64/chrome";
-    expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        onPath: () => null,
-        // Both builds present: the newer wins, and "1240" must not sort below
-        // "999" as strings would.
-        exists: (path) =>
-          path === newest ||
-          path === "/home/u/.cache/ms-playwright/chromium-999/chrome-linux64/chrome",
-        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium-999", "chromium-1240"] : []),
-      }),
-    ).toBe(newest);
-  });
-
-  test("honours the executable a test tool already points at", () => {
-    expect(
-      findBrowser({
-        env: { PUPPETEER_EXECUTABLE_PATH: "/opt/chrome/chrome" },
-        platform: "linux",
-        home: "/home/u",
-        onPath: () => null,
-        exists: (path) => path === "/opt/chrome/chrome",
-        readdir: () => [],
-      }),
-    ).toBe("/opt/chrome/chrome");
-  });
-
-  test("prefers a headless shell over a desktop browser on the same machine", () => {
-    const shell =
-      "/Users/u/Library/Caches/ms-playwright/chromium_headless_shell-1234/" +
-      "chrome-headless-shell-mac-arm64/chrome-headless-shell";
-
-    const desktop = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+        exists: only(
+          `${playwrightMac}/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+        ),
+        readdir: cached("ms-playwright", "chromium-1234"),
+      },
+      `${playwrightMac}/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+    ],
+    // Often the only Chromium in a container.
+    [
+      "Playwright's headless shell",
+      {
+        exists: only(
+          `${playwrightLinux}/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell`,
+        ),
+        readdir: cached("ms-playwright", "chromium_headless_shell-1234"),
+      },
+      `${playwrightLinux}/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell`,
+    ],
+    [
+      "Puppeteer's headless shell",
+      {
+        exists: only(
+          "/home/u/.cache/puppeteer/chrome-headless-shell/130/chrome-headless-shell-linux64/chrome-headless-shell",
+        ),
+        readdir: cached("puppeteer/chrome-headless-shell", "130"),
+      },
+      "/home/u/.cache/puppeteer/chrome-headless-shell/130/chrome-headless-shell-linux64/chrome-headless-shell",
+    ],
+    // Both builds present: the newer wins, and "1240" must not sort below "999"
+    // as strings would.
+    [
+      "the newest of several cached builds",
+      {
+        exists: only(
+          `${playwrightLinux}/chromium-1240/chrome-linux64/chrome`,
+          `${playwrightLinux}/chromium-999/chrome-linux64/chrome`,
+        ),
+        readdir: cached("ms-playwright", "chromium-999", "chromium-1240"),
+      },
+      `${playwrightLinux}/chromium-1240/chrome-linux64/chrome`,
+    ],
     // Same engine and picture at a fraction of the weight, so the shell wins
     // when present.
+    [
+      "a headless shell before a desktop browser",
+      {
+        platform: "darwin",
+        home: "/Users/u",
+        exists: only(macShell, chrome),
+        readdir: cached("ms-playwright", "chromium_headless_shell-1234"),
+      },
+      macShell,
+    ],
+    [
+      "an explicit choice before a headless shell",
+      {
+        env: { LEGLAS_BROWSER: chrome },
+        platform: "darwin",
+        home: "/Users/u",
+        exists: only(macShell, chrome),
+        readdir: cached("ms-playwright", "chromium_headless_shell-1234"),
+      },
+      chrome,
+    ],
+    [
+      "nothing when no supported browser exists",
+      { platform: "freebsd", exists: () => false },
+      null,
+    ],
+  ])("finds %s", (_name, search, expected) => {
+    // Linux in an empty environment, with nothing installed or on PATH, unless a row says otherwise.
     expect(
       findBrowser({
         env: {},
-        platform: "darwin",
-        home: "/Users/u",
-        exists: (path) => path === shell || path === desktop,
-        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
-      }),
-    ).toBe(shell);
-
-    // An explicit choice still outranks it.
-    expect(
-      findBrowser({
-        env: { LEGLAS_BROWSER: desktop },
-        platform: "darwin",
-        home: "/Users/u",
-        exists: (path) => path === shell || path === desktop,
-        readdir: (dir) => (dir.endsWith("ms-playwright") ? ["chromium_headless_shell-1234"] : []),
-      }),
-    ).toBe(desktop);
-  });
-
-  test("returns null when no supported browser exists", () => {
-    expect(
-      findBrowser({
-        env: {},
-        platform: "freebsd",
+        platform: "linux",
         home: "/home/u",
-        exists: () => false,
         onPath: () => null,
         readdir: () => [],
+        ...search,
       }),
-    ).toBeNull();
+    ).toBe(expected);
   });
 });
 
@@ -343,6 +289,18 @@ function launchHarness() {
   return { process, socket };
 }
 
+/** Launches over a fake process and socket. */
+const launchOver = (
+  process: ReturnType<typeof fakeProcess>,
+  socket: CdpSocket,
+  options: LaunchOptions = {},
+) =>
+  launchBrowser("/browser", {
+    spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
+    connect: async () => socket,
+    ...options,
+  });
+
 describe("launchBrowser", () => {
   test("uses the required argv and frames page commands with their session", async () => {
     const harness = launchHarness();
@@ -408,10 +366,7 @@ describe("launchBrowser", () => {
   test("serializes tabs and closes each target after work", async () => {
     const harness = launchHarness();
 
-    const browser = await launchBrowser("/browser", {
-      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
-      connect: async () => harness.socket,
-    });
+    const browser = await launchOver(harness.process, harness.socket);
 
     let release!: () => void;
 
@@ -449,10 +404,7 @@ describe("launchBrowser", () => {
       }
     };
 
-    const browser = await launchBrowser("/browser", {
-      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
-      connect: async () => harness.socket,
-    });
+    const browser = await launchOver(harness.process, harness.socket);
 
     await expect(
       browser.withPage((page) => page.send("Runtime.evaluate", { expression: "wait" })),
@@ -478,11 +430,7 @@ describe("launchBrowser", () => {
       // Everything else is swallowed: the socket is alive and silent.
     };
 
-    const browser = await launchBrowser("/browser", {
-      spawn: vi.fn<typeof import("node:child_process").spawn>(() => harness.process),
-      connect: async () => harness.socket,
-      commandTimeoutMs: 10,
-    });
+    const browser = await launchOver(harness.process, harness.socket, { commandTimeoutMs: 10 });
 
     await expect(
       browser.withPage((page) => page.send("Runtime.evaluate", { expression: "wait" })),
@@ -495,42 +443,26 @@ describe("launchBrowser", () => {
 
   test("times out and kills a browser that never exposes CDP", async () => {
     const process = fakeProcess(false);
-    await expect(
-      launchBrowser("/browser", {
-        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
-        connect: async () => new FakeSocket(),
-        startTimeoutMs: 5,
-      }),
-    ).rejects.toThrow("did not expose its debugging endpoint");
+    await expect(launchOver(process, new FakeSocket(), { startTimeoutMs: 5 })).rejects.toThrow(
+      "did not expose its debugging endpoint",
+    );
     expect(process.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
-  test("a startup failure carries what the browser itself said", async () => {
+  test("a startup failure carries its exit code and what the browser itself said", async () => {
     // "The browser did not start" alone says nothing on someone else's machine;
     // the browser's own words say why.
     const process = fakeProcess(false);
     queueMicrotask(() => {
       process.stderr.write("Failed to move to new namespace\n");
       process.stderr.write("No usable sandbox!\n");
-      process.emit("close", 1, null);
+      process.emit("close", 17, null);
     });
-    await expect(
-      launchBrowser("/browser", {
-        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
-        connect: async () => new FakeSocket(),
-      }),
-    ).rejects.toThrow("No usable sandbox");
-  });
 
-  test("includes the early exit code in a startup failure", async () => {
-    const process = fakeProcess(false);
-    queueMicrotask(() => process.emit("close", 17, null));
-    await expect(
-      launchBrowser("/browser", {
-        spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
-        connect: async () => new FakeSocket(),
-      }),
-    ).rejects.toThrow("exit code 17");
+    const launching = launchOver(process, new FakeSocket());
+
+    await expect(launching).rejects.toThrow("exit code 17");
+    await expect(launching).rejects.toThrow("No usable sandbox");
   });
 });
 
@@ -724,39 +656,17 @@ describe("createBrowserPool", () => {
   });
 });
 
-const liveExecutable = findBrowser();
-
-describe.skipIf(liveExecutable === null)("launchBrowser with a real browser", () => {
-  test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
-    "evaluates JavaScript over CDP",
-    async () => {
-      const browser = await launchBrowser(required(liveExecutable));
-
-      try {
-        const response = await browser.withPage((page) =>
-          page.send<{ result: { value: number } }>("Runtime.evaluate", {
-            expression: "1 + 1",
-            returnByValue: true,
-          }),
-        );
-
-        expect(response.result.value).toBe(2);
-      } finally {
-        await browser.close();
-      }
-    },
-    LIVE_TEST_TIMEOUT_MS,
-  );
-});
-
 describe("reapOrphanedBrowsers", () => {
   const record = (fields: JsonRecord) => JSON.stringify(fields);
   const now = 1_000_000;
   /** A profile old enough that the grace period for a pending record is over. */
   const old = now - 600_000;
 
-  const reap = (over: Partial<Parameters<typeof reapOrphanedBrowsers>[0]>) =>
-    reapOrphanedBrowsers({
+  /** How many browsers a sweep closed, and every directory it removed. */
+  const reap = async (over: Partial<Parameters<typeof reapOrphanedBrowsers>[0]>) => {
+    const removed: string[] = [];
+
+    const reaped = await reapOrphanedBrowsers({
       tmpdir: "/tmp",
       now: () => now,
       list: async () => [],
@@ -767,9 +677,12 @@ describe("reapOrphanedBrowsers", () => {
       connect: async () => {
         throw new Error("nothing should connect");
       },
-      remove: async () => {},
+      remove: async (path) => void removed.push(path),
       ...over,
     });
+
+    return { reaped, removed };
+  };
 
   const socket = () => {
     const sent: string[] = [];
@@ -798,9 +711,8 @@ describe("reapOrphanedBrowsers", () => {
     // that browser minted, so only it accepts it. A pid can be reused between
     // proving whose it is and signalling it.
     const live = socket();
-    const removed: string[] = [];
 
-    const reaped = await reap({
+    const { reaped, removed } = await reap({
       list: async () => ["leglas-browser-dead", "unrelated"],
       read: async () =>
         record({ owner: 4242, browser: 9001, ws: "ws://127.0.0.1:51000/devtools/browser/tok" }),
@@ -810,7 +722,6 @@ describe("reapOrphanedBrowsers", () => {
 
         return live.handle;
       },
-      remove: async (path) => void removed.push(path),
     });
 
     expect(reaped).toBe(1);
@@ -822,13 +733,10 @@ describe("reapOrphanedBrowsers", () => {
   test("leaves a browser alone while its Leglas is still running", async () => {
     // Two Leglas instances on one machine is ordinary; reaping by directory
     // name alone would close the other's browser mid-capture.
-    const removed: string[] = [];
-
-    const reaped = await reap({
+    const { reaped, removed } = await reap({
       list: async () => ["leglas-browser-live"],
       read: async () => record({ owner: 777, browser: 9002, ws: "ws://127.0.0.1:51001/x" }),
       alive: () => true,
-      remove: async (path) => void removed.push(path),
     });
 
     expect(reaped).toBe(0);
@@ -836,52 +744,38 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("a dead endpoint costs nothing and still clears the directory", async () => {
-    const removed: string[] = [];
-
-    const reaped = await reap({
+    const { reaped, removed } = await reap({
       list: async () => ["leglas-browser-gone"],
       read: async () => record({ owner: 4242, ws: "ws://127.0.0.1:51002/x" }),
       connect: async () => {
         throw new Error("ECONNREFUSED");
       },
-      remove: async (path) => void removed.push(path),
     });
 
     expect(reaped).toBe(0);
     expect(removed).toEqual(["/tmp/leglas-browser-gone"]);
   });
 
-  test("spares a profile whose record has not been written yet", async () => {
+  test.each([
     // The owner record is written before spawning, but a directory can be seen
     // between being made and being filled. Treating that as an orphan let one
     // Leglas delete another's profile mid-launch.
-    const removed: string[] = [];
-
-    const reaped = await reap({
-      list: async () => ["leglas-browser-newborn"],
-      read: async () => {
-        throw new Error("ENOENT");
-      },
-      profile: async () => ({ createdAt: now - 1_000, uid: 501 }),
-      remove: async (path) => void removed.push(path),
-    });
-
-    expect(reaped).toBe(0);
-    expect(removed).toEqual([]);
-  });
-
-  test("clears a long-abandoned profile that never got a record", async () => {
-    const removed: string[] = [];
-    await reap({
+    ["spares a profile whose record has not been written yet", now - 1_000, []],
+    [
+      "clears a long-abandoned profile that never got a record",
+      old,
+      ["/tmp/leglas-browser-halfborn"],
+    ],
+  ])("%s", async (_name, createdAt, expected) => {
+    const { removed } = await reap({
       list: async () => ["leglas-browser-halfborn"],
       read: async () => {
         throw new Error("ENOENT");
       },
-      profile: async () => ({ createdAt: old, uid: 501 }),
-      remove: async (path) => void removed.push(path),
+      profile: async () => ({ createdAt, uid: 501 }),
     });
 
-    expect(removed).toEqual(["/tmp/leglas-browser-halfborn"]);
+    expect(removed).toEqual(expected);
   });
 
   test("never signals a process id, whatever the record says", async () => {
@@ -913,16 +807,13 @@ describe("reapOrphanedBrowsers", () => {
   test("leaves another user's profile alone", async () => {
     // On Linux the temp directory is shared by every account. Another user's
     // profile isn't ours to close or read.
-    const removed: string[] = [];
-
-    const reaped = await reap({
+    const { reaped, removed } = await reap({
       list: async () => ["leglas-browser-someone-else"],
       read: async () => {
         throw new Error("nothing should be read from another user's profile");
       },
       profile: async () => ({ createdAt: old, uid: 999 }),
       uid: () => 501,
-      remove: async (path) => void removed.push(path),
     });
 
     expect(reaped).toBe(0);
@@ -930,12 +821,12 @@ describe("reapOrphanedBrowsers", () => {
   });
 
   test("survives a temp directory it cannot read", async () => {
-    await expect(
-      reap({
-        list: async () => {
-          throw new Error("EACCES");
-        },
-      }),
-    ).resolves.toBe(0);
+    const { reaped } = await reap({
+      list: async () => {
+        throw new Error("EACCES");
+      },
+    });
+
+    expect(reaped).toBe(0);
   });
 });
