@@ -1985,8 +1985,9 @@ describe("startServer", () => {
     });
   });
 
-  // The mechanism is the config read's above; each read the shell polls has
-  // to go through it.
+  // `sendConditionalJson` hashes the bytes it sends, and the config read above
+  // proves a changed body changes the etag. Each read the shell polls goes
+  // through it; a route that builds its own etag needs that check of its own.
   test.each(["requests", "annotations", "health"])(
     "answers /api/%s conditionally",
     async (route) => {

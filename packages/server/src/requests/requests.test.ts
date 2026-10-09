@@ -626,10 +626,18 @@ describe("attachments read back from the queue", () => {
               attachment(".leglas/captures/abc123/note-1.png", "poem"),
             ],
           },
+          // Every attachment refused leaves the field out, not an empty list.
+          {
+            ...entry,
+            id: "def456",
+            attachments: [attachment(".leglas/captures/abc123/frame.png")],
+          },
         ],
       }),
     );
-    const [read] = await readRequests(root);
+    const [read, refused] = await readRequests(root);
     expect(read?.attachments).toEqual([attachment(".leglas/captures/abc123/frame.png")]);
+    expect(refused).toMatchObject({ id: "def456" });
+    expect(refused?.attachments).toBeUndefined();
   });
 });
