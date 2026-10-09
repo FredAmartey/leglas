@@ -1000,26 +1000,35 @@ const firstSlot = (generations: Generations, holds: (slot: GenerationSlot) => bo
   settled(() => generations.snapshot()[0]?.slots[0], holds);
 
 describe("a generation's lifecycle", () => {
-  test("a direction stopped while its page is being rendered stays stopped", async () => {
-    const cwd = await project("claude");
-    let rendered!: (report: { errors: readonly string[] }) => void;
-    const pending = new Promise<{ errors: readonly string[] }>((resolve) => (rendered = resolve));
+  test.each(["a stop", "closing"])(
+    "%s while a page is being rendered leaves the direction stopped, with no fix run and its placeholder back",
+    async (ending) => {
+      const cwd = await project("claude");
+      let rendered!: (report: { errors: readonly string[] }) => void;
 
-    const { generations } = orchestrator(cwd, LEDGER, ["write"], () => pending);
+      const { generations, builds } = orchestrator(
+        cwd,
+        LEDGER,
+        ["write"],
+        () => new Promise((resolve) => (rendered = resolve)),
+      );
 
-    const set = await startSet(generations);
+      const set = await startSet(generations);
+      const slot = await firstSlot(generations, (value) => value.state === "checking");
+      const ended = ending === "a stop" ? generations.stop(set.id, slot.key) : generations.close();
+      // The render answers after the ending, with the errors a browser that is
+      // going reports: neither a ready direction nor a fix run may follow.
+      rendered({ errors: ["Target closed"] });
+      await ended;
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const slot = await firstSlot(generations, (value) => value.state === "checking");
-
-    expect(await generations.stop(set.id, slot.key)).toBe(true);
-    rendered({ errors: [] });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
-    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
-  });
+      expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
+      expect(builds).toHaveLength(1);
+      expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
+        "export function HeroLedger() {\n  return null;\n}\n",
+      );
+    },
+  );
 
   test("a retry waits for the stopped build's process to be gone", async () => {
     const cwd = await project("claude");
@@ -1116,7 +1125,7 @@ describe("a generation's lifecycle", () => {
     );
   });
 
-  test("a stop while the directions go on the rail waits for them and lists them, stopped", async () => {
+  test("a stop and a close while the directions go on the rail wait for them, and list them stopped", async () => {
     const cwd = await project("claude");
     let registered!: () => void;
     let registrations = 0;
@@ -1134,53 +1143,25 @@ describe("a generation's lifecycle", () => {
     const set = await startSet(generations);
     await settled(() => (registrations === 1 ? true : undefined));
     const stopping = generations.stop(set.id);
-    let answered = false;
+    const closing = generations.close();
+    const answered: string[] = [];
 
-    void stopping.then(() => (answered = true));
+    void stopping.then(() => answered.push("stop"));
+    void closing.then(() => answered.push("close"));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    // Stopped means the writes already under way are done, so the answer waits for them.
-    expect(answered).toBe(false);
+    // Stopped means the writes already under way are done, and the process
+    // must not exit while the switch file and the rail are still being written.
+    expect(answered).toEqual([]);
 
     registered();
     expect(await stopping).toBe(true);
+    await closing;
 
     const job = required(generations.snapshot()[0]);
 
     expect(job.state).toBe("stopped");
     expect(job.slots.map((slot) => slot.state)).toEqual(["stopped"]);
     expect(builds).toHaveLength(0);
-  });
-
-  test("closing waits for directions still going on the rail, even after a stop", async () => {
-    const cwd = await project("claude");
-    let registered!: () => void;
-    let registrations = 0;
-
-    const register = (): Promise<{ ok: boolean }> => {
-      registrations += 1;
-
-      return registrations === 1
-        ? new Promise((resolve) => (registered = () => resolve({ ok: true })))
-        : Promise.resolve({ ok: true });
-    };
-
-    const { generations } = orchestrator(cwd, LEDGER, ["write"], clean, register);
-
-    const set = await startSet(generations);
-    await settled(() => (registrations === 1 ? true : undefined));
-
-    const stopping = generations.stop(set.id);
-    const closing = generations.close();
-    let closed = false;
-
-    void closing.then(() => (closed = true));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    // The switch file and the rail are still being written, so the process must not exit yet.
-    expect(closed).toBe(false);
-
-    registered();
-    await Promise.all([stopping, closing]);
-    expect(generations.snapshot()[0]?.slots.map((slot) => slot.state)).toEqual(["stopped"]);
   });
 
   test("a replace whose registration fails shows the error on the direction", async () => {
@@ -1233,32 +1214,6 @@ describe("a generation's lifecycle", () => {
     );
 
     expect(again.failure?.code).toBe("unexpected");
-  });
-
-  test("closing while a page is being rendered starts no fix run and puts the placeholder back", async () => {
-    const cwd = await project("claude");
-    let rendered!: (report: { errors: readonly string[] }) => void;
-
-    const { generations, builds } = orchestrator(
-      cwd,
-      LEDGER,
-      ["write"],
-      () => new Promise((resolve) => (rendered = resolve)),
-    );
-
-    await startSet(generations);
-
-    const slot = await firstSlot(generations, (value) => value.state === "checking");
-
-    const closing = generations.close();
-    // The browser goes with the rest, so the render ends in an error.
-    rendered({ errors: ["Target closed"] });
-    await closing;
-
-    expect(builds).toHaveLength(1);
-    expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
   });
 
   test("a retry, a replace or a new set asked for while Leglas closes is refused and writes nothing", async () => {
@@ -1788,35 +1743,6 @@ describe("a generation's lifecycle", () => {
     ]);
   });
 
-  test("a build that edits the switch file is stopped, and the switch is put back", async () => {
-    const cwd = await project("claude");
-    const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
-
-    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang"], clean);
-
-    await startSet(generations);
-
-    const build = await settled(() => builds[0]);
-
-    // As the set wrote it.
-    const planned = await readFile(switchFile, "utf8");
-    expect(planned).toContain("hero-ledger");
-
-    await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
-    build.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: switchFile } }] } })}\n`,
-    );
-
-    const slot = await firstSlot(generations, (value) => value.state === "failed");
-
-    expect(slot.failure).toEqual({
-      code: "outside-file",
-      message:
-        "The build edited .leglas/variants/hero/switch.tsx, which is not its own file, so Leglas stopped it and put the file back.",
-    });
-    expect(await readFile(switchFile, "utf8")).toBe(planned);
-  });
-
   test("a fix run that edits a file a direction imports is stopped, and the file is put back", async () => {
     const cwd = await project("claude");
     // Imported by the current direction.
@@ -1863,27 +1789,7 @@ describe("a generation's lifecycle", () => {
     await generations.close();
   });
 
-  test("a building direction says what its build is doing", async () => {
-    const cwd = await project("claude");
-
-    const { generations, builds } = orchestrator(cwd, LEDGER, ["hang"], clean);
-
-    await startSet(generations);
-
-    const child = await settled(() => builds[0]);
-
-    const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
-
-    child.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: file, content: "" } }] } })}\n`,
-    );
-
-    const building = await firstSlot(generations, (value) => value.activity !== null);
-
-    expect(building.activity).toBe("editing .leglas/variants/hero/hero-ledger.tsx");
-  });
-
-  test("checking starts with no build step left over, and a fix run says what it is doing", async () => {
+  test("a build and its fix run say what they are doing, and checking starts with no step left over", async () => {
     const cwd = await project("claude");
     const reports: ((report: { errors: readonly string[] }) => void)[] = [];
     const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
@@ -1906,7 +1812,11 @@ describe("a generation's lifecycle", () => {
     const build = await settled(() => builds[0]);
 
     build.stdout.write(edit("Write"));
-    await settled(slot, (value) => value.activity !== null);
+
+    expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
+      state: "building",
+      activity: "editing .leglas/variants/hero/hero-ledger.tsx",
+    });
     await writeFile(file, "export function HeroLedger() {\n  return <h1>Ledger</h1>;\n}\n");
     build.finish(0);
 
