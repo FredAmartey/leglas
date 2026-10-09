@@ -97,43 +97,45 @@ describe("runAdd with --json", () => {
   });
 });
 
+/** `leglas add … --json`, then `leglas list --json`, both asking that Leglas: their envelopes. */
+async function addThenList(cwd: string, over: Partial<AddPreview>, fetch: typeof globalThis.fetch) {
+  const added = collect();
+  await runAdd({ preview: preview(over), json: true, cwd }, { ...added.deps, fetch });
+  const listed = collect();
+  await runList({ json: true, cwd }, { ...listed.deps, fetch });
+
+  const list: { previews: { title: string; interfaceUrl: string | null }[] } = JSON.parse(
+    listed.lines[0] ?? "{}",
+  );
+
+  return { added: JSON.parse(added.lines[0] ?? "{}"), previews: list.previews };
+}
+
 describe("the address of the running interface", () => {
   test("add and list give one that opens on the direction, for this project's Leglas", async () => {
     const cwd = scratch();
     await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
-    const fetch = leglasServing(cwd, ["App", "Night sky"]);
 
-    const added = collect();
-    await runAdd(
-      { preview: preview({ title: "Night sky" }), json: true, cwd },
-      { ...added.deps, fetch },
+    const { added, previews } = await addThenList(
+      cwd,
+      { title: "Night sky" },
+      leglasServing(cwd, ["App", "Night sky"]),
     );
-    const listed = collect();
-    await runList({ json: true, cwd }, { ...listed.deps, fetch });
 
-    const opens = new URL(JSON.parse(added.lines[0] ?? "{}").interfaceUrl);
+    const opens = new URL(added.interfaceUrl);
 
     expect(`${opens.origin}${opens.pathname}`).toBe("http://localhost:4321/leglas");
     expect(readLink(opens.search)).toEqual({ direction: "Night sky", compare: null });
-
-    const previews: { title: string; interfaceUrl: string }[] = JSON.parse(
-      listed.lines[0] ?? "{}",
-    ).previews;
-
     expect(previews.find((entry) => entry.title === "Night sky")?.interfaceUrl).toBe(opens.href);
   });
 
   test("is left out, and nothing is asked, with no Leglas recorded", async () => {
-    const cwd = scratch();
     const fetch = vi.fn<typeof globalThis.fetch>();
 
-    const added = collect();
-    await runAdd({ preview: preview({}), json: true, cwd }, { ...added.deps, fetch });
-    const listed = collect();
-    await runList({ json: true, cwd }, { ...listed.deps, fetch });
+    const { added, previews } = await addThenList(scratch(), {}, fetch);
 
-    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
-    expect(JSON.parse(listed.lines[0] ?? "{}").previews[0].interfaceUrl).toBeNull();
+    expect(added).not.toHaveProperty("interfaceUrl");
+    expect(previews[0]?.interfaceUrl).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -141,13 +143,9 @@ describe("the address of the running interface", () => {
     const cwd = scratch();
     await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
 
-    const added = collect();
-    await runAdd(
-      { preview: preview({}), json: true, cwd },
-      { ...added.deps, fetch: leglasServing(scratch(), ["X"]) },
-    );
+    const { added } = await addThenList(cwd, {}, leglasServing(scratch(), ["X"]));
 
-    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(added).not.toHaveProperty("interfaceUrl");
   });
 
   // A branch or file direction added while Leglas runs reaches its rail only
@@ -155,22 +153,15 @@ describe("the address of the running interface", () => {
   test("is left out for a direction the running rail doesn't show yet", async () => {
     const cwd = scratch();
     await writeServerInfo(cwd, { port: 4321, url: "http://localhost:4321", pid: 1 });
-    const fetch = leglasServing(cwd, ["App"]);
 
-    const added = collect();
-    await runAdd(
-      { preview: preview({ title: "On a branch", branch: "aurora" }), json: true, cwd },
-      { ...added.deps, fetch },
+    const { added, previews } = await addThenList(
+      cwd,
+      { title: "On a branch", branch: "aurora" },
+      leglasServing(cwd, ["App"]),
     );
-    const listed = collect();
-    await runList({ json: true, cwd }, { ...listed.deps, fetch });
 
-    const previews: { title: string; interfaceUrl: string | null }[] = JSON.parse(
-      listed.lines[0] ?? "{}",
-    ).previews;
-
-    expect(JSON.parse(added.lines[0] ?? "{}")).toMatchObject({ ok: true, added: "On a branch" });
-    expect(JSON.parse(added.lines[0] ?? "{}")).not.toHaveProperty("interfaceUrl");
+    expect(added).toMatchObject({ ok: true, added: "On a branch" });
+    expect(added).not.toHaveProperty("interfaceUrl");
     expect(previews.find((entry) => entry.title === "On a branch")?.interfaceUrl).toBeNull();
     expect(previews.find((entry) => entry.title === "App")?.interfaceUrl).toEqual(
       expect.any(String),
