@@ -21,23 +21,15 @@ export type LiveHub = {
   /** Tell every listening interface that something changed. */
   nudge(change: LiveChange): void;
   /** Take an upgrade if it is ours. Returns false for anything else. */
-  upgrade(
-    req: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    options?: { viewer?: boolean },
-  ): boolean;
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
   close(): Promise<void>;
   /** Interfaces currently listening. For tests and for the idle probe. */
   readonly listening: number;
-  /** Listening interfaces that entered through the share listener. */
-  readonly viewers: number;
 };
 
 type Listener = {
   socket: Duplex;
   buffered: Buffer;
-  viewer: boolean;
 };
 
 /** Encode one unmasked server frame, including all three payload length forms. */
@@ -128,16 +120,11 @@ export function createCoalescer(
   };
 }
 
-export function createLiveHub(
-  options: { now?: () => number; onViewers?: (count: number) => void } = {},
-): LiveHub {
+export function createLiveHub(): LiveHub {
   const listeners = new Set<Listener>();
-  let viewers = 0;
 
   const drop = (listener: Listener): void => {
-    if (!listeners.delete(listener) || !listener.viewer) return;
-    viewers = Math.max(0, viewers - 1);
-    options.onViewers?.(viewers);
+    listeners.delete(listener);
   };
 
   const write = (listener: Listener, opcode: number, payload: Buffer | string): boolean => {
@@ -245,7 +232,7 @@ export function createLiveHub(
         }
       }
     },
-    upgrade: (req, socket, head, upgradeOptions = {}) => {
+    upgrade: (req, socket, head) => {
       const path = (req.url ?? "/").split("?")[0] ?? "/";
 
       if (req.method !== "GET" || path !== LIVE_PATH) return false;
@@ -281,18 +268,9 @@ export function createLiveHub(
         return false;
       }
 
-      const listener: Listener = {
-        socket,
-        buffered: Buffer.alloc(0),
-        viewer: upgradeOptions.viewer === true,
-      };
+      const listener: Listener = { socket, buffered: Buffer.alloc(0) };
 
       listeners.add(listener);
-
-      if (listener.viewer) {
-        viewers += 1;
-        options.onViewers?.(viewers);
-      }
 
       socket.on("data", (chunk: Buffer | string) => read(listener, chunk));
       socket.once("error", () => drop(listener));
@@ -312,9 +290,6 @@ export function createLiveHub(
     },
     get listening() {
       return listeners.size;
-    },
-    get viewers() {
-      return viewers;
     },
   };
 }

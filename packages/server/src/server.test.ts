@@ -97,9 +97,6 @@ function fakeLiveHub(initialListening = 0): FakeLiveHub {
     get listening() {
       return listening;
     },
-    get viewers() {
-      return 0;
-    },
     setListening: (value) => {
       listening = value;
     },

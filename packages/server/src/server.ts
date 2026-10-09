@@ -2585,19 +2585,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     socket.once("close", () => sockets.delete(socket));
   });
 
-  const handleUpgrade = (
-    req: http.IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    context: { remote: boolean },
-  ): boolean => {
+  const handleUpgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): boolean => {
     // Returns whether the socket was taken, so the share manager can count a
     // viewer against the link.
-    const liveUpgrade = context.remote
-      ? live.upgrade(req, socket, head, { viewer: true })
-      : live.upgrade(req, socket, head);
-
-    if (liveUpgrade) return true;
+    if (live.upgrade(req, socket, head)) return true;
     const path = (req.url ?? "/").split("?")[0] ?? "/";
 
     // The live hub owns one shell upgrade; other Leglas upgrades are refused,
@@ -2614,7 +2605,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   server.on("upgrade", (req, socket, head) => {
-    handleUpgrade(req, socket, head, { remote: false });
+    handleUpgrade(req, socket, head);
   });
 
   const shareOptions: Parameters<typeof createShareManager>[0] = {
@@ -2632,7 +2623,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         publicOrigin: context.publicOrigin,
         grantId: context.grantId,
       }),
-    upgrade: (req, socket, head) => handleUpgrade(req, socket, head, { remote: true }),
+    upgrade: handleUpgrade,
   };
 
   if (options.detectTunnels !== undefined) shareOptions.detectTunnels = options.detectTunnels;
