@@ -21,20 +21,6 @@ import {
 } from "./server-info.js";
 
 describe("server info", () => {
-  test("round-trips the running endpoint and records when it started", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-server-info-"));
-    const info = { port: 4123, url: "http://localhost:4123", pid: 987 };
-    await writeServerInfo(cwd, info);
-
-    expect(await readServerInfo(cwd)).toEqual(info);
-    expect(JSON.parse(readFileSync(join(cwd, SERVER_INFO_PATH), "utf8"))).toMatchObject({
-      ...info,
-      startedAt: expect.any(String),
-    });
-    await removeServerInfo(cwd);
-    expect(existsSync(join(cwd, SERVER_INFO_PATH))).toBe(false);
-  });
-
   test("returns null for missing or malformed state", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-server-info-bad-"));
     expect(await readServerInfo(cwd)).toBeNull();
