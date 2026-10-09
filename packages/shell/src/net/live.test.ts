@@ -1,10 +1,10 @@
+// @vitest-environment happy-dom
 /// <reference types="node" />
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 // The server's side of the protocol. Its module imports Node built-ins, hence
 // the reference above.
 import type { LiveChange as ServerChange } from "../../../server/src/live.js";
-import type { TimerHandle } from "./timers.js";
 
 import {
   FIRST_RETRY_MS,
@@ -13,22 +13,24 @@ import {
   isLiveChange,
   retryDelay,
   startLive,
-  type LiveEvent,
-  type LiveSocket,
 } from "./live.js";
 
-/** A socket a test drives by hand, standing in for the browser's. */
-class FakeSocket implements LiveSocket {
-  closes = 0;
-  private readonly handlers = new Map<string, Array<(event: LiveEvent) => void>>();
+type Listener = (event: { data?: unknown }) => void;
 
-  addEventListener(type: string, listener: (event: LiveEvent) => void): void {
-    const group = this.handlers.get(type) ?? [];
-    group.push(listener);
-    this.handlers.set(type, group);
+/** The browser's socket, as a test drives it by hand. */
+class FakeSocket {
+  closes = 0;
+  private readonly handlers = new Map<string, Listener[]>();
+
+  constructor(readonly url: string) {
+    sockets.push(this);
   }
 
-  emit(type: string, event: LiveEvent = {}): void {
+  addEventListener(type: string, listener: Listener): void {
+    this.handlers.set(type, [...(this.handlers.get(type) ?? []), listener]);
+  }
+
+  emit(type: string, event: { data?: unknown } = {}): void {
     for (const listener of this.handlers.get(type) ?? []) listener(event);
   }
 
@@ -37,38 +39,22 @@ class FakeSocket implements LiveSocket {
   }
 }
 
-/** Timers a test advances itself, so backoff costs no wall clock. */
-function manualTimers() {
-  const pending = new Map<TimerHandle, { at: number; callback: () => void }>();
-  let now = 0;
-  let next = 1;
+/** Every socket dialled, in order. */
+let sockets: FakeSocket[] = [];
 
-  return {
-    setTimeout: (callback: () => void, ms: number) => {
-      const handle = next;
-      next += 1;
-      pending.set(handle, { at: now + ms, callback });
+const frame = (changed: string) => ({ data: JSON.stringify({ changed }) });
 
-      return handle;
-    },
-    clearTimeout: (handle: TimerHandle) => {
-      pending.delete(handle);
-    },
-    advance(ms: number) {
-      now += ms;
+// Backoff is timers, faked so it costs no wall clock.
+beforeEach(() => {
+  sockets = [];
+  vi.useFakeTimers();
+  vi.stubGlobal("WebSocket", FakeSocket);
+});
 
-      for (const [handle, entry] of [...pending]) {
-        if (entry.at <= now) {
-          pending.delete(handle);
-          entry.callback();
-        }
-      }
-    },
-    get waiting() {
-      return pending.size;
-    },
-  };
-}
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 /**
  * Every kind the server nudges with, keyed by the server's own type so the two
@@ -115,25 +101,25 @@ describe("retryDelay", () => {
 
 describe("startLive", () => {
   test("hands each frame to whoever asked for that kind, and nobody else", () => {
-    const socket = new FakeSocket();
-    const live = startLive({ connect: () => socket, url: "ws://x/live" });
+    const live = startLive();
     const config = vi.fn();
     const requests = vi.fn();
     live.on("config", config);
     live.on("requests", requests);
-    socket.emit("open");
+    expect(sockets[0]?.url).toMatch(/^ws:\/\/[^/]*\/leglas\/api\/live$/);
+    sockets[0]?.emit("open");
 
-    socket.emit("message", { data: JSON.stringify({ changed: "requests" }) });
+    sockets[0]?.emit("message", frame("requests"));
     expect(requests).toHaveBeenCalledOnce();
     expect(config).not.toHaveBeenCalled();
 
-    socket.emit("message", { data: JSON.stringify({ changed: "config" }) });
+    sockets[0]?.emit("message", frame("config"));
     expect(config).toHaveBeenCalledOnce();
 
     // Anything unreadable is ignored, not thrown: the fallback read covers it
     // and a bad frame mustn't kill the socket.
-    socket.emit("message", { data: "{" });
-    socket.emit("message", { data: JSON.stringify({ changed: "annotations" }) });
+    sockets[0]?.emit("message", { data: "{" });
+    sockets[0]?.emit("message", frame("annotations"));
     expect(config).toHaveBeenCalledOnce();
     expect(requests).toHaveBeenCalledOnce();
 
@@ -141,15 +127,14 @@ describe("startLive", () => {
   });
 
   test("unsubscribing stops one listener without touching the others", () => {
-    const socket = new FakeSocket();
-    const live = startLive({ connect: () => socket, url: "ws://x/live" });
+    const live = startLive();
     const first = vi.fn();
     const second = vi.fn();
     const off = live.on("config", first);
     live.on("config", second);
 
     off();
-    socket.emit("message", { data: JSON.stringify({ changed: "config" }) });
+    sockets[0]?.emit("message", frame("config"));
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledOnce();
@@ -157,20 +142,7 @@ describe("startLive", () => {
   });
 
   test("redials on a backoff when the socket goes, and resets once one opens", () => {
-    const sockets: FakeSocket[] = [];
-    const timers = manualTimers();
-
-    const live = startLive({
-      connect: () => {
-        const socket = new FakeSocket();
-        sockets.push(socket);
-
-        return socket;
-      },
-      url: "ws://x/live",
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
+    const live = startLive();
 
     expect(sockets).toHaveLength(1);
     sockets[0]?.emit("open");
@@ -180,117 +152,87 @@ describe("startLive", () => {
     sockets[0]?.emit("close");
     expect(live.connected).toBe(false);
     expect(sockets).toHaveLength(1);
-    timers.advance(FIRST_RETRY_MS - 1);
+    vi.advanceTimersByTime(FIRST_RETRY_MS - 1);
     expect(sockets).toHaveLength(1);
-    timers.advance(1);
+    vi.advanceTimersByTime(1);
     expect(sockets).toHaveLength(2);
 
     // That one never opens, so the next wait is longer.
     sockets[1]?.emit("close");
-    timers.advance(FIRST_RETRY_MS * 2 - 1);
+    vi.advanceTimersByTime(FIRST_RETRY_MS * 2 - 1);
     expect(sockets).toHaveLength(2);
-    timers.advance(1);
+    vi.advanceTimersByTime(1);
     expect(sockets).toHaveLength(3);
 
     // A socket that actually opens resets the backoff, so a server restarting
     // twice isn't punished for the first.
     sockets[2]?.emit("open");
     sockets[2]?.emit("close");
-    timers.advance(FIRST_RETRY_MS);
+    vi.advanceTimersByTime(FIRST_RETRY_MS);
     expect(sockets).toHaveLength(4);
 
     live.stop();
   });
 
   test("a dial that throws is treated as a failure, not an exception", () => {
-    const timers = manualTimers();
     let attempts = 0;
-    const socket = new FakeSocket();
 
-    const live = startLive({
-      connect: () => {
-        attempts += 1;
+    vi.stubGlobal(
+      "WebSocket",
+      class extends FakeSocket {
+        constructor(url: string) {
+          attempts += 1;
 
-        if (attempts === 1) throw new Error("refused");
-
-        return socket;
+          if (attempts === 1) throw new Error("refused");
+          super(url);
+        }
       },
-      url: "ws://x/live",
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
+    );
+
+    const live = startLive();
 
     expect(attempts).toBe(1);
     expect(live.connected).toBe(false);
-    timers.advance(FIRST_RETRY_MS);
+    vi.advanceTimersByTime(FIRST_RETRY_MS);
     expect(attempts).toBe(2);
     live.stop();
   });
 
   test("an error is a close: it redials once, not twice", () => {
-    const sockets: FakeSocket[] = [];
-    const timers = manualTimers();
-
-    const live = startLive({
-      connect: () => {
-        const socket = new FakeSocket();
-        sockets.push(socket);
-
-        return socket;
-      },
-      url: "ws://x/live",
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
+    const live = startLive();
 
     // Browsers commonly fire error and then close for one failure.
     sockets[0]?.emit("error");
     sockets[0]?.emit("close");
-    timers.advance(MAX_RETRY_MS);
+    vi.advanceTimersByTime(MAX_RETRY_MS);
 
     expect(sockets).toHaveLength(2);
     live.stop();
   });
 
   test("stopping closes the socket and cancels a pending redial", () => {
-    const sockets: FakeSocket[] = [];
-    const timers = manualTimers();
-
-    const start = () =>
-      startLive({
-        connect: () => {
-          const socket = new FakeSocket();
-          sockets.push(socket);
-
-          return socket;
-        },
-        url: "ws://x/live",
-        setTimeout: timers.setTimeout,
-        clearTimeout: timers.clearTimeout,
-      });
-
     // Stopped while its socket is open, it closes that socket.
-    const open = start();
+    const open = startLive();
     sockets[0]?.emit("open");
     open.stop();
     expect(sockets[0]?.closes).toBe(1);
     expect(open.connected).toBe(false);
 
     // Stopped while waiting to redial, it never dials again.
-    const redialling = start();
+    const redialling = startLive();
     const heard = vi.fn();
     redialling.on("config", heard);
     sockets[1]?.emit("open");
     sockets[1]?.emit("close");
-    expect(timers.waiting).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
 
     redialling.stop();
 
-    expect(timers.waiting).toBe(0);
-    timers.advance(MAX_RETRY_MS * 2);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(MAX_RETRY_MS * 2);
     expect(sockets).toHaveLength(2);
     // A frame arriving from a socket nobody closed in time reaches nobody.
-    sockets[1]?.emit("message", { data: JSON.stringify({ changed: "config" }) });
+    sockets[1]?.emit("message", frame("config"));
     expect(heard).not.toHaveBeenCalled();
   });
 });
