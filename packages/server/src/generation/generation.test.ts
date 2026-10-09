@@ -1019,6 +1019,9 @@ describe("a generation's lifecycle", () => {
       const slot = await firstSlot(generations, (value) => value.state === "checking");
       const ended = ending === "a stop" ? generations.stop(set.id, slot.key) : generations.close();
       rendered({ errors });
+
+      // A stop says it stopped something; the route answers 409 when it did not.
+      if (ending === "a stop") expect(await ended).toBe(true);
       await ended;
       await new Promise((resolve) => setTimeout(resolve, 50));
 
