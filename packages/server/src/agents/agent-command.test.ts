@@ -49,7 +49,7 @@ describe("parseTemplate", () => {
 
   test.each([
     // A placeholder glued to another word is always a typo for substitution.
-    ["claude --message={prompt}", "{prompt}"],
+    ["claude --message={prompt}", "{prompt} must stand as a word of its own"],
     // A second placeholder is refused rather than filling both.
     ["claude -p {prompt} {prompt}", "once"],
     ["{prompt}", "program"],
