@@ -16,6 +16,8 @@
     "format:check": "prettier --check .",
     "build": "pnpm -r build",
     "api:update": "node scripts/api-surface.ts",
+    "bench": "pnpm build && node bench/run.ts",
+    "bench:update": "pnpm build && node bench/run.ts --update",
     "site": "node site/build.ts"
   },
   "devDependencies": {

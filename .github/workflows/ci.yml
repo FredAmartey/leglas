@@ -30,3 +30,41 @@ jobs:
         with:
           name: coverage-summary
           path: coverage/coverage-summary.json
+
+  # Counts what booting and sitting idle cost against bench/ceilings.json; see
+  # CONTRIBUTING.md. The counts are exact, so the image and Chrome are pinned
+  # and move only on purpose: an update to either can change what a walk does.
+  journeys:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The base branch's ceilings are read from history.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: 155.0.8059.39
+      # Ubuntu 24.04 lets only programs with an AppArmor profile make the user
+      # namespaces Chrome's sandbox needs, and this Chrome has none.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - if: github.event_name == 'pull_request'
+        run: node bench/run.ts --check-ceilings "origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+      - run: node bench/run.ts --runs 1
+        env:
+          LEGLAS_BROWSER: ${{ steps.chrome.outputs.chrome-path }}
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journeys
+          path: bench/results.json
+          if-no-files-found: ignore
