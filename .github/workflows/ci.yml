@@ -24,3 +24,9 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test:coverage
+      # A tripped coverage cap: the per-file summary shows which files gained uncovered lines.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json

@@ -30,10 +30,12 @@ export default defineConfig({
       /**
        * Caps on how many lines and branches may go uncovered, not percentage
        * floors: deleting well-tested code moves a percentage but not this count.
-       * Each cap is CI's count plus 12 for the timing races that flip a few
-       * between runs. Lower a cap by hand when a change leaves fewer uncovered;
-       * never raise one to get a run through. Vitest's autoUpdate would add the
-       * slack back after every run, so a small regression would raise the cap.
+       * Each cap is CI's count with the known timing races unhit (2,122 lines
+       * and 2,954 branches, the same in five runs) plus 8 of slack. A race only
+       * ever lowers the count, so a jump on an untouched main points at a Node
+       * or V8 update. CONTRIBUTING says what to do when a cap trips. autoUpdate
+       * stays off: it adds the slack back after every run, so a small regression
+       * would raise the cap.
        */
       thresholds: { lines: -2130, branches: -2962 },
     },
