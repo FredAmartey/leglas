@@ -120,6 +120,10 @@ describe("startLive", () => {
     // and a bad frame mustn't kill the socket.
     sockets[0]?.emit("message", { data: "{" });
     sockets[0]?.emit("message", frame("annotations"));
+    // Only text frames are read, even one whose text form would parse.
+    sockets[0]?.emit("message", {
+      data: { toString: () => JSON.stringify({ changed: "config" }) },
+    });
     expect(config).toHaveBeenCalledOnce();
     expect(requests).toHaveBeenCalledOnce();
 

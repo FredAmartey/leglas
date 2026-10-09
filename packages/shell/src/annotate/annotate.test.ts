@@ -139,7 +139,7 @@ test("coversFrom keeps what was given in order, says a thing once, and caps a bi
   const h1 = { tag: "h1", text: "Dried fruit" };
   const p = { tag: "p", text: "Made in Ghana" };
 
-  expect(coversFrom([h1, p, h1])).toEqual([h1, p]);
+  expect(coversFrom([h1, p, { ...h1 }])).toEqual([h1, p]);
   // A region dragged over half the page.
   expect(
     coversFrom(Array.from({ length: 40 }, (_, at) => ({ tag: "div", text: `row ${at}` }))),
