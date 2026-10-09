@@ -11,9 +11,13 @@ import {
 
 describe("renderedSignature", () => {
   test("different words, or the same words in a different structure, disagree", () => {
-    expect(renderedSignature("Ship design faster", ["H1"])).not.toBe(
-      renderedSignature("Choose well", ["H1"]),
+    // Both long enough to be signed, so a null cannot pass for a difference.
+    const words = ["Ship design faster", "Choose a plan today"].map((text) =>
+      renderedSignature(text, ["H1"]),
     );
+
+    expect(words).not.toContain(null);
+    expect(words[0]).not.toBe(words[1]);
     // Two directions can say the same thing and look nothing alike, which is
     // why they're compared.
     expect(renderedSignature("Ship design faster", ["SECTION", "H1"])).not.toBe(
