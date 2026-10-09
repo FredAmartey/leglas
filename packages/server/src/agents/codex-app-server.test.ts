@@ -104,15 +104,27 @@ function byMethod(process: FakeProcess, method: string): Message[] {
   return process.messages.filter((message) => message.method === method);
 }
 
+/** Waits for request `index` of `method`, answers it with `result` and returns it. */
+async function answer(
+  process: FakeProcess,
+  method: string,
+  result: JsonRecord,
+  index = 0,
+): Promise<Message> {
+  await until(() => byMethod(process, method).length > index);
+  const request = required(byMethod(process, method)[index]);
+  process.send({ id: request.id ?? null, result });
+
+  return request;
+}
+
 async function initialize(requestTimeoutMs = 30_000, closeOnSigterm = true) {
   const spawned = harness(closeOnSigterm);
   const server = createCodexAppServer("/project", spawned.spawn, requestTimeoutMs);
   const warming = server.warm();
   await until(() => spawned.processes.length === 1);
   const process = required(spawned.processes[0]);
-  await until(() => byMethod(process, "initialize").length === 1);
-  const request = required(byMethod(process, "initialize")[0]);
-  process.send({ id: request.id, result: { userAgent: "codex-test" } });
+  await answer(process, "initialize", { userAgent: "codex-test" });
   await warming;
   await until(() => byMethod(process, "initialized").length === 1);
 
@@ -139,9 +151,7 @@ describe("Codex app-server transport", () => {
     // Released, not closed: a later ask still brings it up.
     const again = server.warm();
     await until(() => spawned.processes.length === 3);
-    const process = required(spawned.processes[2]);
-    await until(() => byMethod(process, "initialize").length === 1);
-    process.send({ id: required(byMethod(process, "initialize")[0]).id, result: {} });
+    await answer(required(spawned.processes[2]), "initialize", {});
     await again;
     await server.close();
   });
@@ -158,8 +168,7 @@ describe("Codex app-server transport", () => {
 
     await until(() => spawned.processes.length === 2);
     const process = required(spawned.processes[1]);
-    await until(() => byMethod(process, "initialize").length === 1);
-    process.send({ id: required(byMethod(process, "initialize")[0]).id, result: {} });
+    await answer(process, "initialize", {});
     await warming;
     expect(process.signals).not.toContain("SIGTERM");
     await server.close();
@@ -177,18 +186,15 @@ describe("Codex app-server transport", () => {
       images: ["/project/frame.png", "/project/note-1.png"],
     });
 
-    await until(() => byMethod(process, "thread/start").length === 1);
-    const threadStart = required(byMethod(process, "thread/start")[0]);
+    const threadStart = await answer(process, "thread/start", { thread: { id: "th_1" } });
     expect(threadStart.params).toMatchObject({
       cwd: "/project",
       approvalPolicy: "never",
       sandbox: "workspace-write",
     });
     expect(threadStart.params).not.toHaveProperty("model");
-    process.send({ id: threadStart.id, result: { thread: { id: "th_1" } } });
 
-    await until(() => byMethod(process, "turn/start").length === 1);
-    const firstTurn = required(byMethod(process, "turn/start")[0]);
+    const firstTurn = await answer(process, "turn/start", { turn: { id: "turn_1" } });
     expect(firstTurn.params).toMatchObject({
       threadId: "th_1",
       input: [
@@ -200,7 +206,6 @@ describe("Codex app-server transport", () => {
       approvalPolicy: "never",
       sandboxPolicy: { type: "workspaceWrite", networkAccess: true },
     });
-    process.send({ id: firstTurn.id, result: { turn: { id: "turn_1" } } });
     const firstChild = await firstRun;
     const firstLines: string[] = [];
     firstChild.stdout.on("data", (chunk: Buffer) => firstLines.push(chunk.toString()));
@@ -244,12 +249,10 @@ describe("Codex app-server transport", () => {
       images: [],
     });
 
-    await until(() => byMethod(process, "turn/start").length === 2);
+    const secondTurn = await answer(process, "turn/start", { turn: { id: "turn_2" } }, 1);
     expect(byMethod(process, "thread/start")).toHaveLength(1);
     expect(byMethod(process, "thread/resume")).toHaveLength(0);
-    const secondTurn = required(byMethod(process, "turn/start")[1]);
     expect(secondTurn.params).not.toHaveProperty("effort");
-    process.send({ id: secondTurn.id, result: { turn: { id: "turn_2" } } });
     const secondChild = await secondRun;
     const secondClosed = new Promise<void>((resolve) => secondChild.once("close", () => resolve()));
     process.send({
@@ -271,12 +274,8 @@ describe("Codex app-server transport", () => {
       images: [],
     });
 
-    await until(() => byMethod(process, "thread/resume").length === 1);
-    const resume = required(byMethod(process, "thread/resume")[0]);
-    process.send({ id: resume.id, result: { thread: { id: "stored_1" } } });
-    await until(() => byMethod(process, "turn/start").length === 1);
-    const turn = required(byMethod(process, "turn/start")[0]);
-    process.send({ id: turn.id, result: { turn: { id: "turn_1" } } });
+    await answer(process, "thread/resume", { thread: { id: "stored_1" } });
+    const turn = await answer(process, "turn/start", { turn: { id: "turn_1" } });
     const child = await running;
     const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
     process.send({
@@ -294,21 +293,12 @@ describe("Codex app-server transport", () => {
   test("maps cancellation to turn/interrupt", async () => {
     const { process, server } = await initialize();
     const running = server.run({ prompt: "keep going", effort: null, sessionId: null, images: [] });
-    await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = required(byMethod(process, "thread/start")[0]);
-    process.send({ id: thread.id, result: { thread: { id: "th_cancel" } } });
-    await until(() => byMethod(process, "turn/start").length === 1);
-    const turn = required(byMethod(process, "turn/start")[0]);
-    process.send({ id: turn.id, result: { turn: { id: "turn_cancel" } } });
+    await answer(process, "thread/start", { thread: { id: "th_cancel" } });
+    await answer(process, "turn/start", { turn: { id: "turn_cancel" } });
     const child = await running;
     expect(child.kill("SIGTERM")).toBe(true);
-    await until(() => byMethod(process, "turn/interrupt").length === 1);
-    expect(byMethod(process, "turn/interrupt")[0]?.params).toEqual({
-      threadId: "th_cancel",
-      turnId: "turn_cancel",
-    });
-    const interrupt = required(byMethod(process, "turn/interrupt")[0]);
-    process.send({ id: interrupt.id, result: {} });
+    const interrupt = await answer(process, "turn/interrupt", {});
+    expect(interrupt.params).toEqual({ threadId: "th_cancel", turnId: "turn_cancel" });
     const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
     process.send({
       method: "turn/completed",
@@ -324,9 +314,7 @@ describe("Codex app-server transport", () => {
   test("replays an immediate completion to a late close listener", async () => {
     const { process, server } = await initialize();
     const running = server.run({ prompt: "quick", effort: null, sessionId: null, images: [] });
-    await until(() => byMethod(process, "thread/start").length === 1);
-    const thread = required(byMethod(process, "thread/start")[0]);
-    process.send({ id: thread.id, result: { thread: { id: "th_quick" } } });
+    await answer(process, "thread/start", { thread: { id: "th_quick" } });
     await until(() => byMethod(process, "turn/start").length === 1);
     const turn = required(byMethod(process, "turn/start")[0]);
 
