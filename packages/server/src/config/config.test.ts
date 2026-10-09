@@ -69,8 +69,10 @@ describe("normalizeConfig", () => {
     ],
     [
       "a url that is neither absolute nor root-relative",
-      { previews: [{ title: "App", url: "pricing" }] },
-      "pricing",
+      // Not "pricing": the error's own hint names "/pricing", so the row could
+      // not tell whether the message names the url it refused.
+      { previews: [{ title: "App", url: "about" }] },
+      "about",
     ],
     [
       "a devServer that is not a valid origin",
