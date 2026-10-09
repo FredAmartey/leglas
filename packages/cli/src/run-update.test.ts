@@ -8,11 +8,18 @@ import { runWithServices, skipStartupCheck } from "./run.js";
 
 const server = { start: vi.fn<typeof startServer>(), close: vi.fn(async () => {}) };
 
-/** A project with no config and nothing registered, so the update check is all that varies. */
+/**
+ * A project with no config of its own and nothing registered, so the update
+ * check is all that varies. No dev server owner is looked up on this machine.
+ */
 const run = (
   options: Parameters<typeof runWithServices>[0],
   deps: Parameters<typeof runWithServices>[1],
-) => runWithServices(options, deps, { startServer: server.start });
+) =>
+  runWithServices(options, deps, {
+    startServer: server.start,
+    inspectLocalDevServer: async () => [],
+  });
 
 const status: UpdateStatus = {
   version: "1.0.0",
