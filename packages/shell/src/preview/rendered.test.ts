@@ -6,42 +6,38 @@ import {
   renderedSignature,
   twinsOf,
   visualSample,
+  type Sampled,
 } from "./rendered.js";
 
 describe("renderedSignature", () => {
-  test("different words disagree", () => {
-    const a = renderedSignature("Ship design faster", ["H1"]);
-    const b = renderedSignature("Choose well", ["H1"]);
+  test("different words, or the same words in a different structure, disagree", () => {
+    // Both long enough to be signed, so a null cannot pass for a difference.
+    const words = ["Ship design faster", "Choose a plan today"].map((text) =>
+      renderedSignature(text, ["H1"]),
+    );
 
-    expect(a).not.toBe(b);
-  });
-
-  test("the same words in a different structure disagree", () => {
+    expect(words).not.toContain(null);
+    expect(words[0]).not.toBe(words[1]);
     // Two directions can say the same thing and look nothing alike, which is
     // why they're compared.
-    const a = renderedSignature("Ship design faster", ["SECTION", "H1"]);
-    const b = renderedSignature("Ship design faster", ["ARTICLE", "FIGURE", "H1"]);
-
-    expect(a).not.toBe(b);
+    expect(renderedSignature("Ship design faster", ["SECTION", "H1"])).not.toBe(
+      renderedSignature("Ship design faster", ["ARTICLE", "FIGURE", "H1"]),
+    );
   });
 
-  test("ignores whitespace, which reflows without changing the design", () => {
-    const a = renderedSignature("Ship design   faster\n\n  Get started", ["H1"]);
-    const b = renderedSignature("Ship design faster\nGet started", ["H1"]);
-
-    expect(a).toBe(b);
-  });
-
-  test("ignores case, since a text-transform is styling not content", () => {
-    expect(renderedSignature("SHIP DESIGN", ["H1"])).toBe(renderedSignature("Ship design", ["H1"]));
+  test("ignores whitespace and case, which reflow and style without changing the design", () => {
+    expect(renderedSignature("Ship design   faster\n\n  Get started", ["H1"])).toBe(
+      renderedSignature("Ship design faster\nGet started", ["H1"]),
+    );
+    // A text-transform is styling, not content. Long enough to be signed at all.
+    const shouted = renderedSignature("SHIP DESIGN FASTER", ["H1"]);
+    expect(shouted).not.toBeNull();
+    expect(shouted).toBe(renderedSignature("Ship design faster", ["H1"]));
   });
 
   test("says nothing about a page that drew nothing yet", () => {
     expect(renderedSignature("", [])).toBeNull();
     expect(renderedSignature("   ", ["DIV"])).toBeNull();
-  });
-
-  test("treats a bare app shell as nothing drawn", () => {
     // A single-page app before hydration: a root div and no text. Comparing
     // these would call every direction identical.
     expect(renderedSignature("", ["DIV", "SCRIPT"])).toBeNull();
@@ -49,17 +45,11 @@ describe("renderedSignature", () => {
 });
 
 describe("twinsOf", () => {
-  test("pairs previews that drew the same page", () => {
-    const twins = twinsOf({ Original: "sig-a", Typo: "sig-a", Other: "sig-b" });
-
-    expect(twins["Original"]).toEqual(["Typo"]);
-    expect(twins["Typo"]).toEqual(["Original"]);
-  });
-
-  test("says nothing about a preview that is unique", () => {
-    const twins = twinsOf({ Original: "sig-a", Other: "sig-b" });
-
-    expect(twins["Other"]).toBeUndefined();
+  test("pairs previews that drew the same page, and says nothing of a unique one", () => {
+    expect(twinsOf({ Original: "sig-a", Typo: "sig-a", Other: "sig-b" })).toEqual({
+      Original: ["Typo"],
+      Typo: ["Original"],
+    });
   });
 
   test("groups three that all match", () => {
@@ -72,10 +62,6 @@ describe("twinsOf", () => {
     const twins = twinsOf({ A: null, B: null, C: "sig" });
 
     expect(twins).toEqual({});
-  });
-
-  test("returns nothing when every preview differs", () => {
-    expect(twinsOf({ A: "one", B: "two" })).toEqual({});
   });
 });
 
@@ -137,32 +123,11 @@ describe("paint in the signature", () => {
 });
 
 describe("visualSample", () => {
-  type FakeElement = {
-    /** The computed animation-name and transform the stand-in reports. */
+  /** An element as the sampler reads it, with the animation-name and transform its style reports. */
+  interface FakeElement extends Sampled<FakeElement> {
     animation: string;
-    getAttribute: (name: string) => string | null;
-    getBoundingClientRect: () => {
-      bottom: number;
-      height: number;
-      left: number;
-      right: number;
-      top: number;
-      width: number;
-    };
-    matches: () => boolean;
-    closest: () => null;
-    ownerDocument: {
-      defaultView: {
-        getComputedStyle: () => { position: string };
-        scrollX: number;
-        scrollY: number;
-      };
-    };
-    parentElement: FakeElement | null;
-    querySelectorAll: () => FakeElement[];
-    tagName: string;
     transform: string;
-  };
+  }
 
   /** A body and one child, which `moving` catches at some frame of an animation. */
   const fakeTree = (
@@ -288,23 +253,15 @@ describe("paintSample", () => {
 
   const styleOf = (element: Node) => element.paint;
 
-  test("a script beside the root is not a branch", () => {
-    // Vite injects its module script into body, so body has two children in
-    // every app it serves. Counting the script stopped the descent at body,
-    // whose colour is the same for every direction.
+  test("descends single-child wrappers to find the page surface, past a script beside them", () => {
+    // body > #root > main: the gradient sits on main, two levels down. Vite
+    // injects its module script into body, so body has two children in every
+    // app it serves; counting the script stopped the descent at body, whose
+    // colour is the same for every direction.
     const body = node("transparent", [
       node("", [], "SCRIPT"),
       node("transparent", [node("#0E1B3A")]),
     ]);
-
-    const samples = paintSample(body, styleOf);
-
-    expect(samples[2]).toContain("#0E1B3A");
-  });
-
-  test("descends single-child wrappers to find the page surface", () => {
-    // body > #root > main: the gradient sits on main, two levels down.
-    const body = node("transparent", [node("transparent", [node("#0E1B3A")])]);
 
     const samples = paintSample(body, styleOf);
 

@@ -21,7 +21,7 @@ export type ShareRequest = {
  * port, a second origin the tunnel doesn't reach; saying so beats silently
  * dropping it.
  */
-export function unshareableReason(preview: Preview | undefined): string | null {
+function unshareableReason(preview: Preview | undefined): string | null {
   if (preview === undefined) return "is not on the rail";
 
   if (preview.branch !== undefined) return "runs on its own port and can't be shared yet";
@@ -311,18 +311,4 @@ export function expiryLine(expiresAt: number, now: number): string {
 /** A link with nothing typed against it still needs calling something. */
 export function grantLabel(name: string, index: number): string {
   return name.trim() === "" ? `Link ${index + 1}` : name;
-}
-
-/**
- * A share link short enough to read: the host and a hint of the token. The full
- * link goes to the clipboard.
- */
-export function shortLink(url: string): string {
-  try {
-    const parsed = new URL(url);
-
-    return `${parsed.host}${parsed.pathname.replace(/\/s\/.+$/, "/s/…")}`;
-  } catch {
-    return url;
-  }
 }

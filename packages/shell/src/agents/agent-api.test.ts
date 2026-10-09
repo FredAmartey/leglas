@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   cancelAgentRun,
@@ -7,31 +7,34 @@ import {
   dismissFailedRequest,
   readAgents,
   retryFailedRequest,
-  type AgentFetcher,
+  type AgentsPayload,
 } from "./agent-api.js";
 import type { JsonValue } from "../json.js";
 
-function recorder(body: JsonValue = { ok: true }, status = 200) {
-  const calls: { input: string; init?: RequestInit }[] = [];
+/** Answers every call with `body`, and records each one less its abort signal. */
+function serve(body: JsonValue = { ok: true }, status = 200) {
+  const calls: { input: string; init: RequestInit }[] = [];
 
-  const fetcher: AgentFetcher = async (input, init) => {
-    if (init === undefined) calls.push({ input });
-    else {
-      const { signal: _signal, ...recorded } = init;
-      calls.push(Object.keys(recorded).length === 0 ? { input } : { input, init: recorded });
-    }
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
+    const { signal: _signal, ...recorded } = init;
+    calls.push({ input, init: recorded });
 
     return new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
     });
-  };
+  });
 
-  return { calls, fetcher };
+  return calls;
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
 describe("embedded agent API", () => {
-  test("reads the complete agent picker state", async () => {
+  test("reads the complete agent picker state, freshly detected when the picker opens", async () => {
     const payload = {
       agents: [
         { id: "claude", name: "Claude", available: true, auth: "ok", efforts: ["low", "high"] },
@@ -42,173 +45,107 @@ describe("embedded agent API", () => {
       effort: null,
     };
 
-    const recorded = recorder(payload);
+    const calls = serve(payload);
 
-    await expect(readAgents(false, recorded.fetcher)).resolves.toEqual(payload);
-    expect(recorded.calls).toEqual([{ input: "/leglas/api/agents" }]);
+    await expect(readAgents()).resolves.toEqual(payload);
+    await readAgents(true);
+
+    expect(calls).toEqual([
+      { input: "/leglas/api/agents", init: {} },
+      { input: "/leglas/api/agents?refresh=1", init: {} },
+    ]);
   });
 
-  test("can ask for a fresh detection when the picker opens", async () => {
-    const recorded = recorder({ agents: [], choice: null, customRun: null, effort: null });
+  test.each<[string, () => Promise<void>, string, Record<string, string | null> | null]>([
+    ["the picked adapter", () => chooseAgent("claude"), "/leglas/api/agent", { agent: "claude" }],
+    [
+      "a custom adapter with its template",
+      () => chooseAgent("custom", "aider --yes {prompt}"),
+      "/leglas/api/agent",
+      { agent: "custom", run: "aider --yes {prompt}" },
+    ],
+    [
+      "an effort override",
+      () => chooseAgentEffort("codex", "high"),
+      "/leglas/api/agent",
+      { agent: "codex", effort: "high" },
+    ],
+    [
+      "a return to the agent's default effort",
+      () => chooseAgentEffort("codex", null),
+      "/leglas/api/agent",
+      { agent: "codex", effort: null },
+    ],
+    [
+      "a stop naming the request it knows",
+      () => cancelAgentRun("request-3"),
+      "/leglas/api/requests/cancel",
+      { id: "request-3" },
+    ],
+    [
+      "a stop of whatever is running",
+      () => cancelAgentRun(null),
+      "/leglas/api/requests/cancel",
+      null,
+    ],
+    [
+      "a retry of the failed id",
+      () => retryFailedRequest("request-7"),
+      "/leglas/api/requests/retry",
+      { id: "request-7" },
+    ],
+    [
+      "a dismissal of the failed id",
+      () => dismissFailedRequest("request-7"),
+      "/leglas/api/requests/dismiss",
+      { id: "request-7" },
+    ],
+  ])("posts %s", async (_, write, path, body) => {
+    const calls = serve();
 
-    await readAgents(true, recorded.fetcher);
+    await write();
 
-    expect(recorded.calls).toEqual([{ input: "/leglas/api/agents?refresh=1" }]);
-  });
-
-  test("posts the picked adapter as JSON, with the template when custom", async () => {
-    const recorded = recorder();
-
-    await chooseAgent("custom", "aider --yes {prompt}", recorded.fetcher);
-    expect(recorded.calls[0]).toEqual({
-      input: "/leglas/api/agent",
-      init: {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent: "custom", run: "aider --yes {prompt}" }),
-      },
-    });
-    recorded.calls.length = 0;
-
-    await chooseAgent("claude", undefined, recorded.fetcher);
-
-    expect(recorded.calls).toEqual([
+    expect(calls).toEqual([
       {
-        input: "/leglas/api/agent",
-        init: {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ agent: "claude" }),
-        },
+        input: path,
+        init:
+          body === null
+            ? { method: "POST" }
+            : {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(body),
+              },
       },
     ]);
   });
 
-  test("saves an effort override or returns to the agent default", async () => {
-    const recorded = recorder();
-
-    await chooseAgentEffort("codex", "high", recorded.fetcher);
-    await chooseAgentEffort("codex", null, recorded.fetcher);
-
-    expect(recorded.calls.map((call) => call.init?.body)).toEqual([
-      JSON.stringify({ agent: "codex", effort: "high" }),
-      JSON.stringify({ agent: "codex", effort: null }),
-    ]);
-  });
-
-  test("stops waiting when a local agent action never answers", async () => {
+  test.each<[string, () => Promise<AgentsPayload | void>, number]>([
+    ["agent detection", () => readAgents(true), 5_000],
+    ["a local agent action", () => chooseAgent("claude"), 10_000],
+  ])("stops waiting when %s never answers", async (_, call, deadline) => {
     vi.useFakeTimers();
 
-    try {
-      const fetcher: AgentFetcher = (_input, init) =>
+    vi.stubGlobal(
+      "fetch",
+      (_input: string, init: RequestInit) =>
         new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
             once: true,
           });
-        });
+        }),
+    );
 
-      const assertion = expect(chooseAgent("claude", undefined, fetcher)).rejects.toThrow(
-        "aborted",
-      );
+    const assertion = expect(call()).rejects.toThrow("aborted");
 
-      await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(deadline);
 
-      await assertion;
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("stops waiting when agent detection never answers", async () => {
-    vi.useFakeTimers();
-
-    try {
-      const fetcher: AgentFetcher = (_input, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
-            once: true,
-          });
-        });
-
-      const assertion = expect(readAgents(true, fetcher)).rejects.toThrow("aborted");
-
-      await vi.advanceTimersByTimeAsync(5_000);
-
-      await assertion;
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("names the request being stopped when it knows one", async () => {
-    const recorded = recorder();
-
-    await cancelAgentRun("request-3", recorded.fetcher);
-
-    expect(recorded.calls).toEqual([
-      {
-        input: "/leglas/api/requests/cancel",
-        init: {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: "request-3" }),
-        },
-      },
-    ]);
-  });
-
-  test("wires cancellation to the running-request endpoint", async () => {
-    const recorded = recorder({ ok: true, cancelled: true });
-
-    await cancelAgentRun(null, recorded.fetcher);
-
-    expect(recorded.calls).toEqual([
-      {
-        input: "/leglas/api/requests/cancel",
-        init: { method: "POST" },
-      },
-    ]);
-  });
-
-  test("posts the failed id when retrying", async () => {
-    const recorded = recorder();
-
-    await retryFailedRequest("request-7", recorded.fetcher);
-
-    expect(recorded.calls).toEqual([
-      {
-        input: "/leglas/api/requests/retry",
-        init: {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: "request-7" }),
-        },
-      },
-    ]);
-  });
-
-  test("posts the failed id when dismissing", async () => {
-    const recorded = recorder();
-
-    await dismissFailedRequest("request-7", recorded.fetcher);
-
-    expect(recorded.calls).toEqual([
-      {
-        input: "/leglas/api/requests/dismiss",
-        init: {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: "request-7" }),
-        },
-      },
-    ]);
+    await assertion;
   });
 
   test("rejects a refused mutation so the caller can show a toast", async () => {
-    const recorded = recorder({ ok: false, error: "refused" }, 400);
+    serve({ ok: false, error: "refused" }, 400);
 
-    await expect(chooseAgent("claude", undefined, recorded.fetcher)).rejects.toThrow(
-      "Leglas refused the agent request.",
-    );
+    await expect(chooseAgent("claude")).rejects.toThrow("Leglas refused the agent request.");
   });
 });

@@ -22,8 +22,8 @@ export async function readNotes(fetcher: NoteFetcher = browserFetch): Promise<An
   return payload.annotations ?? [];
 }
 
-async function post<T>(path: string, body: JsonValue, fetcher: NoteFetcher): Promise<T> {
-  const response = await fetcher(path, {
+async function post<T>(path: string, body: JsonValue): Promise<T> {
+  const response = await fetch(path, {
     body: JSON.stringify(body),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -41,27 +41,15 @@ export function addNote(
   title: string,
   note: string,
   anchor: Anchor,
-  fetcher: NoteFetcher = browserFetch,
 ): Promise<{ annotation: Annotation }> {
-  return post<{ annotation: Annotation }>(
-    "/leglas/api/annotations",
-    { anchor, note, title },
-    fetcher,
-  );
+  return post<{ annotation: Annotation }>("/leglas/api/annotations", { anchor, note, title });
 }
 
 /** Rewords a note. Only the words go up; where it points is the half worth keeping. */
-export function updateNote(
-  id: string,
-  note: string,
-  fetcher: NoteFetcher = browserFetch,
-): Promise<{ annotation: Annotation }> {
-  return post<{ annotation: Annotation }>("/leglas/api/annotations/update", { id, note }, fetcher);
+export function updateNote(id: string, note: string): Promise<{ annotation: Annotation }> {
+  return post<{ annotation: Annotation }>("/leglas/api/annotations/update", { id, note });
 }
 
-export function deleteNotes(
-  ids: readonly string[],
-  fetcher: NoteFetcher = browserFetch,
-): Promise<{ deleted: number }> {
-  return post<{ deleted: number }>("/leglas/api/annotations/delete", { ids }, fetcher);
+export function deleteNotes(ids: readonly string[]): Promise<{ deleted: number }> {
+  return post<{ deleted: number }>("/leglas/api/annotations/delete", { ids });
 }

@@ -15,10 +15,12 @@ const ERROR_SURFACES = [
 ];
 
 describe("BADGE_CSS", () => {
-  test("hides the badges it is meant to", () => {
+  test("hides the badges it is meant to, in one declaration that cannot leak into app styling", () => {
     for (const badge of ["#__next-build-watcher", "#nuxt-devtools-anchor", "astro-dev-toolbar"]) {
       expect(BADGE_CSS).toContain(badge);
     }
+
+    expect(BADGE_CSS).toMatch(/^[^{]+\{display:none!important\}$/);
   });
 
   test("never touches an element that could be an error overlay", () => {
@@ -26,24 +28,14 @@ describe("BADGE_CSS", () => {
       expect(BADGE_CSS.toLowerCase()).not.toContain(surface);
     }
   });
-
-  test("is a single declaration, so it cannot leak into app styling", () => {
-    expect(BADGE_CSS).toMatch(/^[^{]+\{display:none!important\}$/);
-  });
 });
 
 describe("NEXT_BADGE_CSS", () => {
-  test("targets only the dev tools indicator inside the portal", () => {
+  test("targets only the dev tools indicator inside the portal, never the portal or its modal", () => {
     // The portal hosts both the badge and the error modal, so only this child
-    // is hidden, never the host.
+    // is hidden, never the host, and no wildcard reaches the modal.
     expect(NEXT_BADGE_CSS).toContain("#devtools-indicator");
-  });
-
-  test("does not hide the portal itself", () => {
     expect(NEXT_BADGE_CSS).not.toContain("nextjs-portal");
-  });
-
-  test("does not use a wildcard that would catch the error modal", () => {
     expect(NEXT_BADGE_CSS).not.toContain("*");
     expect(NEXT_BADGE_CSS).not.toMatch(/:host\b(?!-)/);
   });

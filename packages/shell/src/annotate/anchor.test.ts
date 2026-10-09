@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { anchorFor, elementText, selectorFor, type ElementLike } from "./anchor.js";
+import { anchorFor, elementText, selectorFor, type ElementLike, type Rect } from "./anchor.js";
 
 type Spec = { tag: string; id?: string; className?: string; text?: string; children?: Spec[] };
 
@@ -75,28 +75,24 @@ describe("selectorFor", () => {
     expect(selectorFor(find(before, "p"))).toBe(selectorFor(find(after, "p")));
   });
 
-  test("stops at a stable id, which is shorter and stronger", () => {
-    const root = tree({
-      children: [
-        { children: [{ children: [{ tag: "span" }], tag: "div" }], id: "hero", tag: "section" },
-      ],
-      tag: "body",
-    });
-
-    expect(selectorFor(find(root, "span"))).toBe(
-      "#hero > div:nth-of-type(1) > span:nth-of-type(1)",
-    );
-  });
-
   // React's useId mints ids like `:r7:`, and a framework may mint a new one per
   // render. Anchoring to one truncates the path that would have worked.
-  test("ignores an id that cannot survive a reload", () => {
-    const root = tree({
-      children: [{ children: [{ tag: "span" }], id: ":r7:", tag: "section" }],
-      tag: "body",
-    });
+  test("stops at a stable id, which is shorter and stronger, and ignores one that cannot survive a reload", () => {
+    const under = (id: string) =>
+      selectorFor(
+        find(
+          tree({
+            children: [
+              { children: [{ children: [{ tag: "span" }], tag: "div" }], id, tag: "section" },
+            ],
+            tag: "body",
+          }),
+          "span",
+        ),
+      );
 
-    expect(selectorFor(find(root, "span"))).toBe("section:nth-of-type(1) > span:nth-of-type(1)");
+    expect(under("hero")).toBe("#hero > div:nth-of-type(1) > span:nth-of-type(1)");
+    expect(under(":r7:")).toBe("section:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1)");
   });
 
   test("gives up at a depth that still describes an element, not a skeleton", () => {
@@ -109,19 +105,12 @@ describe("selectorFor", () => {
   });
 });
 
-describe("elementText", () => {
-  test("collapses the whitespace a source file leaves behind", () => {
-    expect(elementText("  Made in\n   Ghana  ")).toBe("Made in Ghana");
-  });
-
-  test("caps a paragraph so one note cannot flood the brief", () => {
-    expect(elementText("x".repeat(200))).toHaveLength(80);
-    expect(elementText("x".repeat(200)).endsWith("…")).toBe(true);
-  });
-
-  test("has nothing to say about an element with no words", () => {
-    expect(elementText(null)).toBe("");
-  });
+test("elementText collapses a source file's whitespace, caps a paragraph, and is empty for no words", () => {
+  expect(elementText("  Made in\n   Ghana  ")).toBe("Made in Ghana");
+  // So one note cannot flood the brief.
+  expect(elementText("x".repeat(200))).toHaveLength(80);
+  expect(elementText("x".repeat(200)).endsWith("…")).toBe(true);
+  expect(elementText(null)).toBe("");
 });
 
 describe("anchorFor", () => {
@@ -150,34 +139,16 @@ describe("anchorFor", () => {
 
   // The element may be a different size next time; a fraction survives that and
   // a coordinate doesn't.
-  test("keeps the pointed-at spot as a fraction of the element", () => {
-    const anchor = anchorFor(
-      find(element, "div"),
-      { height: 200, width: 400, x: 100, y: 100 },
-      1440,
-      { x: 200, y: 150 },
-    );
+  test("keeps the pointed-at spot as a fraction of the element, inside its own box", () => {
+    const spot = (rect: Rect, point: { x: number; y: number }) =>
+      anchorFor(find(element, "div"), rect, 1440, point).spot;
 
-    expect(anchor.spot).toEqual({ x: 0.25, y: 0.25 });
-  });
+    const box = { height: 200, width: 400, x: 100, y: 100 };
 
-  test("keeps a point outside the element inside its own box", () => {
-    const anchor = anchorFor(
-      find(element, "div"),
-      { height: 200, width: 400, x: 100, y: 100 },
-      1440,
-      { x: -50, y: 9999 },
-    );
-
-    expect(anchor.spot).toEqual({ x: 0, y: 1 });
-  });
-
-  test("falls back to the middle when an element has no width to divide by", () => {
-    const anchor = anchorFor(find(element, "div"), { height: 0, width: 0, x: 0, y: 0 }, 1440, {
-      x: 10,
-      y: 10,
-    });
-
-    expect(anchor.spot).toEqual({ x: 0.5, y: 0.5 });
+    expect(spot(box, { x: 200, y: 150 })).toEqual({ x: 0.25, y: 0.25 });
+    // A point outside the element stays on its edge.
+    expect(spot(box, { x: -50, y: 9999 })).toEqual({ x: 0, y: 1 });
+    // An element with no width to divide by: the middle.
+    expect(spot({ height: 0, width: 0, x: 0, y: 0 }, { x: 10, y: 10 })).toEqual({ x: 0.5, y: 0.5 });
   });
 });

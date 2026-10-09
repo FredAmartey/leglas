@@ -270,7 +270,7 @@ export function segmentsOf(row: LineageRow): Segment[] {
  * A direction's line back to its family root, as the rows it runs through,
  * root first. Only rows on the rail: a removed ancestor is not on the line.
  */
-export function tracedChain(parents: ReadonlyMap<string, string>, target: string): string[] {
+function tracedChain(parents: ReadonlyMap<string, string>, target: string): string[] {
   const path = [target];
 
   for (

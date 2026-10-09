@@ -38,12 +38,18 @@ describe("preview iframe readiness", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("recognizes a cached same-origin document immediately", () => {
-    const { frame } = fakeFrame({ href: "http://localhost:4103/", readyState: "complete" });
+  /** Watches `frame` with a 15 s limit, recording what it reports. */
+  function watch(frame: HTMLIFrameElement, sameOrigin = true) {
     const onReady = vi.fn();
     const onFailure = vi.fn();
+    const stop = watchPreviewFrame({ frame, onFailure, onReady, sameOrigin, timeoutMs: 15_000 });
 
-    watchPreviewFrame({ frame, onFailure, onReady, sameOrigin: true, timeoutMs: 15_000 });
+    return { onReady, onFailure, stop };
+  }
+
+  it("recognizes a cached same-origin document immediately", () => {
+    const { frame } = fakeFrame({ href: "http://localhost:4103/", readyState: "complete" });
+    const { onReady, onFailure } = watch(frame);
 
     expect(previewFrameIsReady(frame)).toBe(true);
     expect(onReady).toHaveBeenCalledOnce();
@@ -53,10 +59,7 @@ describe("preview iframe readiness", () => {
 
   it("waits through about:blank and accepts the real load event", () => {
     const { frame, setDocument } = fakeFrame({ href: "about:blank", readyState: "complete" });
-    const onReady = vi.fn();
-    const onFailure = vi.fn();
-
-    watchPreviewFrame({ frame, onFailure, onReady, sameOrigin: true, timeoutMs: 15_000 });
+    const { onReady, onFailure } = watch(frame);
     expect(onReady).not.toHaveBeenCalled();
 
     setDocument({ href: "http://localhost:4103/", readyState: "interactive" });
@@ -68,15 +71,8 @@ describe("preview iframe readiness", () => {
 
   it("treats a cross-origin load event as the only available success signal", () => {
     const { frame } = fakeFrame(null);
-    const onReady = vi.fn();
+    const { onReady } = watch(frame, false);
 
-    watchPreviewFrame({
-      frame,
-      onFailure: vi.fn(),
-      onReady,
-      sameOrigin: false,
-      timeoutMs: 15_000,
-    });
     frame.dispatchEvent(new Event("load"));
 
     expect(onReady).toHaveBeenCalledOnce();
@@ -84,10 +80,8 @@ describe("preview iframe readiness", () => {
 
   it("checks the rendered document once more before timing out", () => {
     const { frame, setDocument } = fakeFrame({ href: "about:blank", readyState: "complete" });
-    const onReady = vi.fn();
-    const onFailure = vi.fn();
+    const { onReady, onFailure } = watch(frame);
 
-    watchPreviewFrame({ frame, onFailure, onReady, sameOrigin: true, timeoutMs: 15_000 });
     setDocument({ href: "http://localhost:4103/", readyState: "complete" });
     vi.advanceTimersByTime(15_000);
 
@@ -97,15 +91,8 @@ describe("preview iframe readiness", () => {
 
   it("reports a real navigation failure exactly once", () => {
     const { frame } = fakeFrame(null);
-    const onFailure = vi.fn();
+    const { onFailure } = watch(frame);
 
-    watchPreviewFrame({
-      frame,
-      onFailure,
-      onReady: vi.fn(),
-      sameOrigin: true,
-      timeoutMs: 15_000,
-    });
     frame.dispatchEvent(new Event("error"));
     vi.advanceTimersByTime(15_000);
 
@@ -114,16 +101,7 @@ describe("preview iframe readiness", () => {
 
   it("removes listeners and timers when its owner unmounts", () => {
     const { frame } = fakeFrame(null);
-    const onReady = vi.fn();
-    const onFailure = vi.fn();
-
-    const stop = watchPreviewFrame({
-      frame,
-      onFailure,
-      onReady,
-      sameOrigin: true,
-      timeoutMs: 15_000,
-    });
+    const { onReady, onFailure, stop } = watch(frame);
 
     stop();
     frame.dispatchEvent(new Event("load"));
@@ -135,7 +113,7 @@ describe("preview iframe readiness", () => {
 });
 
 describe("preview loading identity", () => {
-  it("separates URL changes and explicit reloads of one title", () => {
+  it("separates URL changes and explicit reloads of one title, and forgets a prior mount", () => {
     const first = previewIdentity("Aurora", "/?v=one", 0);
     const changed = previewIdentity("Aurora", "/?v=two", 0);
     const reloaded = previewIdentity("Aurora", "/?v=one", 1);
@@ -144,12 +122,7 @@ describe("preview loading identity", () => {
     expect(previewIsLoaded(loaded, "Aurora", first)).toBe(true);
     expect(previewIsLoaded(loaded, "Aurora", changed)).toBe(false);
     expect(previewIsLoaded(loaded, "Aurora", reloaded)).toBe(false);
-  });
-
-  it("forgets a prior mount before the same identity is shown again", () => {
-    const identity = previewIdentity("Aurora", "/?v=one", 0);
-    const loaded = markPreviewLoaded({}, "Aurora", identity);
-
+    // Before the same identity is shown again.
     expect(resetPreviewLoaded(loaded, "Aurora")).toEqual({});
     expect(resetPreviewLoaded({}, "Aurora")).toEqual({});
   });

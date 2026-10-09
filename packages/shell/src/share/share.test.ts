@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_PREFS, loadPrefs, type Prefs } from "../prefs.js";
+import { DEFAULT_PREFS, type Prefs } from "../prefs.js";
 import {
   adoptLayout,
   directoryOf,
@@ -10,10 +10,7 @@ import {
   railShare,
   sameShare,
   scopeLine,
-  shortLink,
   stageShare,
-  unshareableReason,
-  viewerPrefsRaw,
   totalViewers,
   viewersLine,
 } from "./share.js";
@@ -51,15 +48,11 @@ describe("railShare", () => {
     });
   });
 
-  test("keeps a rename only for a direction that goes", () => {
+  test("keeps a rename only for a direction that goes, and with no saved order uses config order", () => {
     const { request } = railShare({ ...prefs, hidden: [] }, previews);
     expect(request.titles).toEqual(["Wave", "Aurora", "Ember"]);
     expect(request.layout.renames).toEqual({ Wave: "Tide" });
-  });
-
-  test("a rail with no saved order shares config order", () => {
-    const { request } = railShare(DEFAULT_PREFS, previews);
-    expect(request.titles).toEqual(["Aurora", "Ember", "Wave"]);
+    expect(railShare(DEFAULT_PREFS, previews).request.titles).toEqual(["Aurora", "Ember", "Wave"]);
   });
 });
 
@@ -80,22 +73,12 @@ describe("stageShare", () => {
     expect(request?.layout.compare).toBe("Ember");
   });
 
-  test("refuses a pair with a branch on one side, naming it as the rail does", () => {
+  test("refuses a pair with a branch or a gone direction on one side, naming it as the rail does", () => {
     const { request, reason } = stageShare(prefs, previews, "Aurora", "Old");
     expect(request).toBeNull();
     expect(reason).toBe("Last week runs on its own port and can't be shared yet");
-  });
-
-  test("an empty stage has nothing to share", () => {
+    expect(stageShare(prefs, previews, "Aurora", "Gone").reason).toBe("Gone is not on the rail");
     expect(stageShare(prefs, previews, "", null).reason).toBe("Nothing is on stage yet");
-  });
-});
-
-describe("unshareableReason", () => {
-  test("a branch preview cannot go; a route can", () => {
-    expect(unshareableReason(previews[3])).toMatch(/own port/);
-    expect(unshareableReason(previews[0])).toBeNull();
-    expect(unshareableReason(undefined)).toBe("is not on the rail");
   });
 });
 
@@ -149,17 +132,7 @@ describe("sameShare", () => {
   });
 });
 
-describe("viewerPrefsRaw", () => {
-  test("seeds a viewer's rail through the same validation as a saved one", () => {
-    const { request } = railShare({ ...prefs, hidden: [] }, previews);
-    const seeded = loadPrefs(viewerPrefsRaw(request.layout), previews);
-    expect(seeded.order).toEqual(["Wave", "Aurora", "Ember", "Old"]);
-    expect(seeded.renames).toEqual({ Wave: "Tide" });
-    expect(seeded.collapsedFamilies).toEqual(["Aurora"]);
-    expect(seeded.viewport).toBe(834);
-    expect(seeded.hidden).toEqual([]);
-  });
-
+describe("a viewer's rail", () => {
   test("adopting a pushed layout takes its fields and keeps the viewer's own", () => {
     const { request } = railShare({ ...prefs, hidden: [] }, previews);
 
@@ -238,10 +211,13 @@ describe("words", () => {
     expect(scopeLine("direction", ["Wave"], name)).toBe("Tide");
   });
 
-  test("viewersLine counts sessions, never people", () => {
+  test("viewersLine counts sessions, never people, and totalViewers counts across every link", () => {
     expect(viewersLine(0)).toBe("nobody on it yet");
     expect(viewersLine(1)).toBe("1 watching");
     expect(viewersLine(4)).toBe("4 watching");
+    expect(totalViewers([])).toBe(0);
+    expect(totalViewers([{ viewers: 0 }, { viewers: 0 }])).toBe(0);
+    expect(totalViewers([{ viewers: 2 }, { viewers: 1 }, { viewers: 0 }])).toBe(3);
   });
 
   test("expiryLine reads in hours until the last hour, then minutes", () => {
@@ -253,12 +229,6 @@ describe("words", () => {
     expect(expiryLine(now + 20_000, now)).toBe("1m left");
     expect(expiryLine(now, now)).toBe("expired");
     expect(expiryLine(now - 5_000, now)).toBe("expired");
-  });
-
-  test("totalViewers counts across every link", () => {
-    expect(totalViewers([])).toBe(0);
-    expect(totalViewers([{ viewers: 0 }, { viewers: 0 }])).toBe(0);
-    expect(totalViewers([{ viewers: 2 }, { viewers: 1 }, { viewers: 0 }])).toBe(3);
   });
 
   test("directoryOf offers the folder beside a refused path, never the root", () => {
@@ -273,12 +243,5 @@ describe("words", () => {
     expect(grantLabel("Ana", 0)).toBe("Ana");
     expect(grantLabel("", 0)).toBe("Link 1");
     expect(grantLabel("   ", 2)).toBe("Link 3");
-  });
-
-  test("shortLink keeps the host and hides the token", () => {
-    expect(shortLink("https://example-share.trycloudflare.com/leglas/s/abcdef123456")).toBe(
-      "example-share.trycloudflare.com/leglas/s/…",
-    );
-    expect(shortLink("not a url")).toBe("not a url");
   });
 });

@@ -21,15 +21,21 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "t" })).toEqual({ kind: "tools" });
     expect(resolveKey({ key: "k", metaKey: true })).toEqual({ kind: "search" });
     expect(resolveKey({ key: "?" })).toEqual({ kind: "help" });
+    // A leaves notes on the design.
+    expect(resolveKey({ key: "a" })).toEqual({ kind: "note" });
+
+    // Whether or not shift is down.
+    const shifted = { C: "split", B: "rail", R: "request", T: "tools", A: "note" };
+
+    for (const [key, kind] of Object.entries(shifted)) {
+      expect(resolveKey({ key })).toEqual({ kind });
+    }
   });
 
   describe("search", () => {
-    test("takes command or control, on either platform", () => {
+    test("takes command or control, on either platform, even from inside a text field", () => {
       expect(resolveKey({ key: "k", metaKey: true })).toEqual({ kind: "search" });
       expect(resolveKey({ key: "K", ctrlKey: true })).toEqual({ kind: "search" });
-    });
-
-    test("still reaches the search from inside a text field", () => {
       expect(resolveKey({ key: "k", metaKey: true, typing: true })).toEqual({ kind: "search" });
     });
 
@@ -51,15 +57,8 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "0" })).toBeNull();
   });
 
-  test("takes a letter binding whether or not shift is down", () => {
-    expect(resolveKey({ key: "C" })).toEqual({ kind: "split" });
-    expect(resolveKey({ key: "B" })).toEqual({ kind: "rail" });
-    expect(resolveKey({ key: "R" })).toEqual({ kind: "request" });
-    expect(resolveKey({ key: "T" })).toEqual({ kind: "tools" });
-  });
-
   test("ignores everything while typing", () => {
-    for (const key of ["c", "b", "r", "t", "/", "?", "1", "ArrowDown"]) {
+    for (const key of ["a", "c", "b", "r", "t", "/", "?", "1", "ArrowDown"]) {
       expect(resolveKey({ key, typing: true })).toBeNull();
     }
   });
@@ -68,6 +67,7 @@ describe("resolveKey", () => {
     expect(resolveKey({ key: "c", metaKey: true })).toBeNull();
     expect(resolveKey({ key: "c", ctrlKey: true })).toBeNull();
     expect(resolveKey({ key: "b", altKey: true })).toBeNull();
+    expect(resolveKey({ key: "a", metaKey: true })).toBeNull();
     // AltGr, as Windows reports it.
     expect(resolveKey({ key: "?", ctrlKey: true, altKey: true })).toBeNull();
   });
@@ -107,20 +107,5 @@ describe("resolveKey", () => {
     for (const cap of SHORTCUTS.flatMap((shortcut) => shortcut.keys)) {
       expect(NEEDS_ALTGR).not.toContain(cap);
     }
-  });
-});
-
-describe("annotating", () => {
-  test("A leaves notes on the design", () => {
-    expect(resolveKey({ key: "a" })).toEqual({ kind: "note" });
-    expect(resolveKey({ key: "A" })).toEqual({ kind: "note" });
-  });
-
-  test("stays out of the way while words are being typed", () => {
-    expect(resolveKey({ key: "a", typing: true })).toBeNull();
-  });
-
-  test("leaves the browser's own chords alone", () => {
-    expect(resolveKey({ key: "a", metaKey: true })).toBeNull();
   });
 });

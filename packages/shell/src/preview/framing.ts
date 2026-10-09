@@ -23,14 +23,9 @@ function isRefusal(value: JsonValue | undefined): value is FrameRefusal {
  * unanswered page shows itself in the frame, and a viewer or older server has
  * no answer.
  */
-export async function frameRefusal(
-  title: string,
-  fetcher: typeof fetch = fetch,
-): Promise<FrameRefusal | null> {
+export async function frameRefusal(title: string): Promise<FrameRefusal | null> {
   try {
-    const response = await fetcher(
-      `/leglas/api/previews/framing?title=${encodeURIComponent(title)}`,
-    );
+    const response = await fetch(`/leglas/api/previews/framing?title=${encodeURIComponent(title)}`);
 
     if (!response.ok) return null;
     const payload: JsonValue = await response.json();
