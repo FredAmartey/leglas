@@ -1,36 +1,38 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { JsonValue } from "../json.js";
 import { frameRefusal, refusalWords } from "./framing.js";
 
-const answering =
-  (body: JsonValue, status = 200): typeof fetch =>
-  async () =>
-    new Response(JSON.stringify(body), { status });
+/** What the server says about a direction's page, from the next read on. */
+const answering = (body: JsonValue, status = 200) =>
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(body), { status }));
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("frameRefusal", () => {
   test("names the header that refused the frame", async () => {
-    const refusal = await frameRefusal(
-      "Docs",
-      answering({ framable: false, refusal: { header: "x-frame-options", value: "DENY" } }),
-    );
+    answering({ framable: false, refusal: { header: "x-frame-options", value: "DENY" } });
 
-    expect(refusal).toEqual({ header: "x-frame-options", value: "DENY" });
+    expect(await frameRefusal("Docs")).toEqual({ header: "x-frame-options", value: "DENY" });
   });
 
   test("anything short of a clear refusal leaves the pane alone", async () => {
-    expect(await frameRefusal("Docs", answering({ framable: true }))).toBeNull();
+    answering({ framable: true });
+    expect(await frameRefusal("Docs")).toBeNull();
     // Unknown: the page didn't answer, which the frame shows itself.
-    expect(await frameRefusal("Docs", answering({ framable: null }))).toBeNull();
+    answering({ framable: null });
+    expect(await frameRefusal("Docs")).toBeNull();
     // A viewer is refused the route; an older server does not have it.
-    expect(await frameRefusal("Docs", answering({ error: "no" }, 403))).toBeNull();
-    expect(await frameRefusal("Docs", answering({ framable: false, refusal: "DENY" }))).toBeNull();
+    answering({ error: "no" }, 403);
+    expect(await frameRefusal("Docs")).toBeNull();
+    answering({ framable: false, refusal: "DENY" });
+    expect(await frameRefusal("Docs")).toBeNull();
 
-    const failing: typeof fetch = async () => {
+    vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
-    };
+    });
 
-    expect(await frameRefusal("Docs", failing)).toBeNull();
+    expect(await frameRefusal("Docs")).toBeNull();
   });
 });
 
