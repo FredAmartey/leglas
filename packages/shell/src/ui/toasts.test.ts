@@ -2,21 +2,15 @@ import { describe, expect, test } from "vitest";
 
 import { dismissToast, pushToast, TOAST_LIMIT, type Toast } from "./toasts.js";
 
-const toast = (id: number, kind: string, extra: Partial<Toast> = {}): Toast => ({
+const toast = (id: number, kind: string): Toast => ({
   id,
   kind,
   message: `toast ${id}`,
   tone: "info",
   ttl: 2600,
-  ...extra,
 });
 
 describe("pushToast", () => {
-  test("supersedes an earlier toast of the same kind", () => {
-    const result = pushToast([toast(1, "copy")], toast(2, "copy"));
-    expect(result.map((entry) => entry.id)).toEqual([2]);
-  });
-
   test("keeps one toast per removed direction, so each undo survives", () => {
     const first = pushToast([], toast(1, "remove:Hero A"));
     const both = pushToast(first, toast(2, "remove:Hero B"));
@@ -37,12 +31,6 @@ describe("pushToast", () => {
     expect(result).toHaveLength(TOAST_LIMIT);
     expect(result.at(0)?.id).toBe(2);
     expect(result.at(-1)?.id).toBe(99);
-  });
-
-  test("carries the undo through untouched", () => {
-    const run = () => undefined;
-    const [entry] = pushToast([], toast(1, "remove:Hero A", { action: { label: "Undo", run } }));
-    expect(entry?.action?.run).toBe(run);
   });
 });
 

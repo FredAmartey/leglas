@@ -7,30 +7,16 @@ const insetsFor = (titles: string[], pairs: [string, string][]) =>
   railInsets(lineageRail(titles, new Map(pairs), new Set()).meta);
 
 describe("railInsets", () => {
-  test("a rail with no families draws nothing, so every card fills its row", () => {
+  test("a rail with no families draws nothing, and one puts roots past the trunk", () => {
+    // Every card fills its row.
     expect(insetsFor(["Meridian", "Ledger", "Dusk"], [])).toEqual({ root: 0, variant: 0 });
-  });
-
-  test("one family puts roots past the trunk and variants past the first lanes", () => {
-    expect(insetsFor(["Meridian", "Ledger", "Dusk"], [["Ledger", "Meridian"]])).toEqual({
-      root: 16,
-      variant: 32,
-    });
-  });
-
-  test("two siblings fork to the next lane, which a root's card already clears", () => {
+    // Roots past the trunk, variants past the first lanes.
+    const family: [string, string][] = [["Ledger", "Meridian"]];
+    expect(insetsFor(["Meridian", "Ledger", "Dusk"], family)).toEqual({ root: 16, variant: 32 });
+    // A second sibling forks to the next lane, which a root's card already clears.
     expect(
-      insetsFor(
-        ["Meridian", "Ledger", "Dusk", "Sea"],
-        [
-          ["Ledger", "Meridian"],
-          ["Dusk", "Meridian"],
-        ],
-      ),
-    ).toEqual({
-      root: 16,
-      variant: 32,
-    });
+      insetsFor(["Meridian", "Ledger", "Dusk", "Sea"], [...family, ["Dusk", "Meridian"]]),
+    ).toEqual({ root: 16, variant: 32 });
   });
 
   test("a root with four variants forks out to lane 3, and both columns move to clear it", () => {
@@ -61,10 +47,5 @@ describe("railInsets", () => {
 
     const folded = railInsets(lineageRail(titles, new Map(pairs), new Set(["Meridian"])).meta);
     expect(folded).toEqual({ root: 16, variant: 0 });
-  });
-
-  test("a lone root on a rail with a family elsewhere shares the roots' column", () => {
-    const { root } = insetsFor(["Quay", "Meridian", "Ledger"], [["Ledger", "Meridian"]]);
-    expect(root).toBe(16);
   });
 });

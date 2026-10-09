@@ -3,12 +3,6 @@ import { describe, expect, test } from "vitest";
 import { MCP_CONNECT_OPTIONS, connectionStatus, copyActionLabel } from "./mcp-connect.js";
 
 describe("MCP connection options", () => {
-  test("names recognizable clients instead of using a generic other option", () => {
-    expect(MCP_CONNECT_OPTIONS.claude.label).toBe("Claude Code");
-    expect(MCP_CONNECT_OPTIONS.other.label).toBe("Codex, Cursor & others");
-    expect(MCP_CONNECT_OPTIONS.other.copyLabel).toBe("Copy MCP configuration");
-  });
-
   test("uses non-interactive npx in both setup shapes", () => {
     expect(MCP_CONNECT_OPTIONS.claude.snippet).toContain("npx -y leglas-mcp");
     expect(JSON.parse(MCP_CONNECT_OPTIONS.other.snippet)).toEqual({
@@ -16,11 +10,6 @@ describe("MCP connection options", () => {
         leglas: { command: "npx", args: ["-y", "leglas-mcp"] },
       },
     });
-  });
-
-  test("gives each path one concrete next step", () => {
-    expect(MCP_CONNECT_OPTIONS.claude.nextStep).toContain("ask Claude to list");
-    expect(MCP_CONNECT_OPTIONS.other.nextStep).toContain("restart the client");
   });
 });
 

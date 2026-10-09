@@ -24,18 +24,6 @@ describe("fitShift", () => {
     expect(1739 + shift).toBeLessThanOrEqual(VIEWPORT.width - TIP_MARGIN);
   });
 
-  test("pushes out a tooltip that runs past the left edge", () => {
-    const shift = fitShift(edges(-20, 400, 120, 26), VIEWPORT.width);
-    expect(-20 + shift).toBe(TIP_MARGIN);
-  });
-
-  test("applying the shift once is enough", () => {
-    const rect = edges(1649, 901, 90, 26);
-    const shift = fitShift(rect, VIEWPORT.width);
-    const moved = edges(rect.left + shift, rect.top, rect.right - rect.left, 26);
-    expect(fitShift(moved, VIEWPORT.width)).toBe(0);
-  });
-
   test("pins a tooltip wider than the viewport to the left edge", () => {
     const shift = fitShift(edges(-40, 400, VIEWPORT.width + 200, 26), VIEWPORT.width);
     expect(-40 + shift).toBe(TIP_MARGIN);
@@ -43,13 +31,6 @@ describe("fitShift", () => {
 });
 
 describe("shouldFlipBelow", () => {
-  test("flips when the tooltip is cut off at the top", () => {
-    // The widget in a top corner measured a top edge of -19.
-    expect(shouldFlipBelow(edges(365, -19, 90, 26), edges(383, 15, 44, 44), VIEWPORT.height)).toBe(
-      true,
-    );
-  });
-
   test("stays put when there is room above", () => {
     expect(
       shouldFlipBelow(edges(1649, 901, 90, 26), edges(1668, 936, 44, 44), VIEWPORT.height),

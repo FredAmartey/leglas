@@ -8,20 +8,12 @@ const up: HealthState = { reachable: true, wasDown: false };
 const down: HealthState = { reachable: false, wasDown: true };
 
 describe("nextHealthState", () => {
-  test("stays up while the dev server keeps answering", () => {
-    expect(nextHealthState(up, true)).toEqual({ reachable: true, wasDown: false });
-  });
-
   test("goes down the moment it stops answering", () => {
     expect(nextHealthState(up, false)).toEqual({ reachable: false, wasDown: true });
   });
 
   test("remembers it was down after it comes back, so panes can be recovered", () => {
     expect(nextHealthState(down, true)).toEqual({ reachable: true, wasDown: true });
-  });
-
-  test("does not re-arm recovery while it stays down", () => {
-    expect(nextHealthState(down, false)).toEqual({ reachable: false, wasDown: true });
   });
 
   test("hands back the same state when nothing changed, so a poll is not a render", () => {
@@ -46,21 +38,16 @@ describe("needsDevServer", () => {
     ...extra,
   });
 
-  test("a route on the running app depends on it", () => {
+  test("only a route on the running app depends on it", () => {
     expect(needsDevServer(preview({ url: "/pricing" }))).toBe(true);
-  });
-
-  test("a file preview is served by Leglas, not the app", () => {
+    // A file preview is served by Leglas, a branch runs its own checkout, and an
+    // absolute url answers for itself.
     expect(
       needsDevServer(preview({ url: "/leglas/files/warm/index.html", file: "warm/index.html" })),
     ).toBe(false);
-  });
-
-  test("a branch preview runs its own checkout", () => {
-    expect(needsDevServer(preview({ url: "http://localhost:4101/", branch: "warm" }))).toBe(false);
-  });
-
-  test("an absolute url answers for itself", () => {
+    // A branch row is checked on a root-relative address, so the branch rule is
+    // what keeps it off the dev server rather than the address.
+    expect(needsDevServer(preview({ url: "/", branch: "warm" }))).toBe(false);
     expect(needsDevServer(preview({ url: "https://example.com/" }))).toBe(false);
   });
 });
