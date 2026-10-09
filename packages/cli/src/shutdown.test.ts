@@ -22,21 +22,17 @@ describe("installShutdown", () => {
   test("handles every signal a terminal routinely sends, SIGHUP included", () => {
     // SIGHUP is what closing the terminal sends. Unhandled, Node exits without
     // the shutdown and orphans the capture browser.
-    const listening = target();
-    installShutdown(async () => {}, listening);
-
-    expect(listening.signals()).toEqual(["SIGINT", "SIGTERM", "SIGHUP"]);
     expect(SHUTDOWN_SIGNALS).toContain("SIGHUP");
-  });
 
-  test.each(SHUTDOWN_SIGNALS)("%s releases what Leglas is holding", (signal) => {
-    const stop = vi.fn(async () => {});
-    const listening = target();
-    installShutdown(stop, listening);
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+      const stop = vi.fn(async () => {});
+      const listening = target();
+      installShutdown(stop, listening);
 
-    listening.fire(signal);
-
-    expect(stop).toHaveBeenCalledOnce();
+      expect(listening.signals()).toEqual(["SIGINT", "SIGTERM", "SIGHUP"]);
+      listening.fire(signal);
+      expect(stop, signal).toHaveBeenCalledOnce();
+    }
   });
 
   test("a second signal does not start a second shutdown", async () => {

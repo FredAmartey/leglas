@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { runKeep } from "./run-keep.js";
-import { runAdd } from "./run-previews.js";
+import { addLocal } from "./test-helpers.js";
 
 /** A project holding one direction the way `leglas new` writes it. */
 async function project(): Promise<string> {
@@ -14,23 +14,7 @@ async function project(): Promise<string> {
     join(cwd, ".leglas/variants/hero/aurora.tsx"),
     "export function Aurora() {\n  return <h1>Aurora</h1>;\n}\n",
   );
-  await runAdd(
-    {
-      preview: {
-        title: "Aurora",
-        url: "/?v-hero=aurora",
-        note: undefined,
-        tags: undefined,
-        branch: undefined,
-        file: undefined,
-        basedOn: undefined,
-        askedFor: undefined,
-      },
-      json: true,
-      cwd,
-    },
-    { log: () => {}, error: () => {} },
-  );
+  await addLocal(cwd, "--title", "Aurora", "--url", "/?v-hero=aurora");
 
   return cwd;
 }

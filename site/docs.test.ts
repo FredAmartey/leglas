@@ -195,23 +195,43 @@ describe("the reader", () => {
   const render = (markdown: string): string =>
     renderBlocks(parseBlocks(markdown, "x.md"), fake, pages);
 
+  // A heading keeps its letters in any script, and repeats get GitHub's suffix.
   test("headings get GitHub's ids", () => {
     expect(slug("The rail and the stage")).toBe("the-rail-and-the-stage");
     expect(slug("Add beside, never rewrite")).toBe("add-beside-never-rewrite");
     expect(slug("What an agent runs")).toBe("what-an-agent-runs");
+    expect(slug("Über die Schiene")).toBe("über-die-schiene");
+    expect(slug("What's `LEGLAS_NO_UPDATE_CHECK` for?")).toBe("whats-leglas_no_update_check-for");
     expect(render("# T\n\n## MCP server\n")).toBe('<h2 id="mcp-server">MCP server</h2>');
+    expect(render("# T\n\n## Keys\n\n## Keys\n\n## Keys\n")).toBe(
+      '<h2 id="keys">Keys</h2>\n<h2 id="keys-1">Keys</h2>\n<h2 id="keys-2">Keys</h2>',
+    );
   });
 
-  test("paragraphs join their wrapped lines and carry inline markdown", () => {
-    expect(render("# T\n\nOne line\nand the next, with `code` and **bold**.\n")).toBe(
+  test.each([
+    [
+      "paragraphs join their wrapped lines and carry inline markdown",
+      "One line\nand the next, with `code` and **bold**.\n",
       "<p>One line and the next, with <code>code</code> and <strong>bold</strong>.</p>",
-    );
-  });
-
-  test("lists keep their continuation lines", () => {
-    expect(render("# T\n\n- first item\n  continues here\n- second\n")).toBe(
+    ],
+    [
+      "lists keep their continuation lines",
+      "- first item\n  continues here\n- second\n",
       "<ul><li>first item continues here</li><li>second</li></ul>",
-    );
+    ],
+    [
+      "code is escaped and keeps its language",
+      "```ts\nconst a = 1 < 2;\n```\n",
+      '<pre><code class="lang-ts">const a = 1 &lt; 2;</code></pre>',
+    ],
+    ["code without a language is plain", "```\nplain\n```\n", "<pre><code>plain</code></pre>"],
+    [
+      "tables render a head and a body",
+      "| Field | Purpose |\n| --- | --- |\n| `title` | Label in the rail |\n",
+      "<table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody><tr><td><code>title</code></td><td>Label in the rail</td></tr></tbody></table>",
+    ],
+  ])("%s", (_rule, markdown, html) => {
+    expect(render(`# T\n\n${markdown}`)).toBe(html);
   });
 
   test("numbered lists count from one and keep their continuation lines", () => {
@@ -228,23 +248,6 @@ describe("the reader", () => {
     );
     expect(() => render("# T\n\n1. one\n3. three\n")).toThrow(
       "x.md:4: a numbered list that does not count from 1",
-    );
-  });
-
-  test("code is escaped and keeps its language", () => {
-    expect(render("# T\n\n```ts\nconst a = 1 < 2;\n```\n")).toBe(
-      '<pre><code class="lang-ts">const a = 1 &lt; 2;</code></pre>',
-    );
-    expect(render("# T\n\n```\nplain\n```\n")).toBe("<pre><code>plain</code></pre>");
-  });
-
-  test("tables render a head and a body", () => {
-    const html = render(
-      "# T\n\n| Field | Purpose |\n| --- | --- |\n| `title` | Label in the rail |\n",
-    );
-
-    expect(html).toBe(
-      "<table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody><tr><td><code>title</code></td><td>Label in the rail</td></tr></tbody></table>",
     );
   });
 
@@ -385,14 +388,6 @@ describe("the reader", () => {
       '<button type="button" class="star prompt" data-copy="Install the Leglas skill with `npx skills add FredAmartey/leglas`',
     );
     expect(html).not.toContain("#give-this-to-your-agent");
-  });
-
-  test("a heading keeps its letters in any script and repeats get GitHub's suffix", () => {
-    expect(slug("Über die Schiene")).toBe("über-die-schiene");
-    expect(slug("What's `LEGLAS_NO_UPDATE_CHECK` for?")).toBe("whats-leglas_no_update_check-for");
-    expect(render("# T\n\n## Keys\n\n## Keys\n\n## Keys\n")).toBe(
-      '<h2 id="keys">Keys</h2>\n<h2 id="keys-1">Keys</h2>\n<h2 id="keys-2">Keys</h2>',
-    );
   });
 
   test("a pipe escaped inside a cell stays in the cell", () => {

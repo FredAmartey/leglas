@@ -2,70 +2,58 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createEngagement } from "./engagement.js";
 
-beforeEach(() => vi.useFakeTimers());
+/** What the server was told, in order: `true` for watching, `false` for gone. */
+let posts: boolean[] = [];
 
-afterEach(() => vi.useRealTimers());
+let answer: () => Promise<Response> = async () => new Response(null, { status: 204 });
 
-function harness(start = 1_000_000) {
-  const posts: boolean[] = [];
-  let now = start;
-  let tick: (() => void) | null = null;
-  let cleared = 0;
+const watch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+  posts.push(JSON.parse(String(init?.body)).watching);
 
-  const engagement = createEngagement({
-    post: async (watching) => {
-      posts.push(watching);
-    },
-    setInterval: (callback) => {
-      tick = callback;
+  return answer();
+});
 
-      return setInterval(() => {}, 2000);
-    },
-    clearInterval: (handle) => {
-      clearInterval(handle);
-      cleared += 1;
-      tick = null;
-    },
-    now: () => now,
-  });
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.stubEnv("LEGLAS_PORT", "");
+  vi.stubGlobal("fetch", watch);
+  posts = [];
+  answer = async () => new Response(null, { status: 204 });
+  watch.mockClear();
+});
 
-  return {
-    engagement,
-    posts,
-    beat: () => tick?.(),
-    beating: () => tick !== null,
-    clearedCount: () => cleared,
-    advance: (milliseconds: number) => {
-      now += milliseconds;
-    },
-  };
-}
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+/** The beat, sent every two seconds while engaged. */
+const beating = () => vi.getTimerCount() > 0;
 
 describe("createEngagement", () => {
-  test("touch starts the beat and says watching at once", () => {
-    const h = harness();
+  test("touch starts the beat and says watching at once, to this machine's Leglas", async () => {
+    const engagement = createEngagement();
 
-    h.engagement.touch();
+    void engagement.touch();
 
-    expect(h.posts).toEqual([true]);
-    expect(h.beating()).toBe(true);
-    h.beat();
-    expect(h.posts).toEqual([true, true]);
+    expect(posts).toEqual([true]);
+    expect(String(watch.mock.calls[0]?.[0])).toBe("http://localhost:4100/leglas/api/watch");
+    expect(watch.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(beating()).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(posts).toEqual([true, true]);
   });
 
   test("the first touch of a cycle settles only after the server heard it", async () => {
     let release!: () => void;
-    const posts: boolean[] = [];
 
-    const engagement = createEngagement({
-      post: (watching) =>
-        new Promise<void>((resolve) => {
-          posts.push(watching);
-          release = resolve;
-        }),
-      setInterval: () => setInterval(() => {}, 2000),
-      clearInterval: () => {},
-    });
+    answer = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(new Response(null, { status: 204 }));
+      });
+
+    const engagement = createEngagement();
 
     // The caller reads the queue right after this, so the runner's back-off
     // must be registered before it settles.
@@ -93,57 +81,48 @@ describe("createEngagement", () => {
   });
 
   test("a rejecting post never fails the touch that carried it", async () => {
-    const engagement = createEngagement({
-      post: () => Promise.reject(new Error("server gone")),
-      setInterval: () => setInterval(() => {}, 2000),
-      clearInterval: () => {},
-    });
+    answer = () => Promise.reject(new Error("server gone"));
 
-    await expect(engagement.touch()).resolves.toBeUndefined();
+    await expect(createEngagement().touch()).resolves.toBeUndefined();
   });
 
-  test("a second touch extends the engagement instead of stacking timers", () => {
-    const h = harness();
-    h.engagement.touch();
-    h.advance(100_000);
-    h.engagement.touch();
+  test("a second touch extends the engagement instead of stacking timers", async () => {
+    const engagement = createEngagement();
+    void engagement.touch();
+    await vi.advanceTimersByTimeAsync(100_000);
+    void engagement.touch();
 
-    h.advance(100_000);
-    h.beat();
+    await vi.advanceTimersByTimeAsync(100_000);
 
     // 200s after the first touch but only 100s after the second: still on.
-    expect(h.posts).toEqual([true, true]);
-    expect(h.beating()).toBe(true);
+    expect(posts).not.toContain(false);
+    expect(vi.getTimerCount()).toBe(1);
   });
 
-  test("a quiet spell lets the engagement lapse, and says so", () => {
-    const h = harness();
-    h.engagement.touch();
+  test("a quiet spell lets the engagement lapse, and says so", async () => {
+    void createEngagement().touch();
 
-    h.advance(121_000);
-    h.beat();
+    await vi.advanceTimersByTimeAsync(122_000);
 
-    expect(h.posts).toEqual([true, false]);
-    expect(h.beating()).toBe(false);
-    expect(h.clearedCount()).toBe(1);
+    expect(posts.filter((watching) => !watching)).toHaveLength(1);
+    expect(posts.at(-1)).toBe(false);
+    expect(beating()).toBe(false);
   });
 
   test("stop ends an active beat and reports detachment once", async () => {
-    const h = harness();
-    h.engagement.touch();
+    const engagement = createEngagement();
+    void engagement.touch();
 
-    await h.engagement.stop();
-    await h.engagement.stop();
+    await engagement.stop();
+    await engagement.stop();
 
-    expect(h.posts).toEqual([true, false]);
-    expect(h.beating()).toBe(false);
+    expect(posts).toEqual([true, false]);
+    expect(beating()).toBe(false);
   });
 
   test("stop before any touch stays silent", async () => {
-    const h = harness();
+    await createEngagement().stop();
 
-    await h.engagement.stop();
-
-    expect(h.posts).toEqual([]);
+    expect(posts).toEqual([]);
   });
 });

@@ -92,6 +92,18 @@ function projectWith(config: string): string {
   return dir;
 }
 
+/** A project whose config points at a running app, with these previews. */
+async function appProject(previews = "[]"): Promise<{ dir: string; port: number }> {
+  const port = await startOrigin();
+
+  return {
+    dir: projectWith(
+      `export default { devServer: "http://127.0.0.1:${port}", previews: ${previews} };`,
+    ),
+    port,
+  };
+}
+
 async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {}) {
   const { deps, opened, output } = harness();
 
@@ -117,43 +129,19 @@ async function boot(cwd: string, options: Partial<Parameters<typeof run>[0]> = {
 
 describe("run", () => {
   test("boots against the config's dev server and reports its url", async () => {
-    const port = await startOrigin();
+    const { dir } = await appProject('[{ title: "App", url: "/" }]');
 
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
-    );
-
-    const { result } = await boot(dir);
+    const { result, opened, output } = await boot(dir);
 
     expect(result.exitCode).toBe(0);
     expect(result.url).toMatch(/^http:\/\/localhost:\d+\/leglas$/);
     // The app answers through Leglas, so it is the configured dev server behind it.
     const proxied = await fetch(result.url.replace(/\/leglas$/, "/"));
     expect(await proxied.text()).toBe("app");
-  });
-
-  test("opens the browser at the interface, not at the app", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
-    );
-
-    const { opened, result } = await boot(dir);
-
+    // The browser opens at the interface, not at the app.
     expect(opened).toEqual([result.url]);
-  });
-
-  test("leaves the browser alone when told to", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
-    );
-
-    const { opened } = await boot(dir, { open: false });
-
-    expect(opened).toEqual([]);
+    // The config file it used is named, so a surprising config is findable.
+    expect(output).toContain("leglas.config.ts");
   });
 
   test("--user-port overrides the configured dev server", async () => {
@@ -192,11 +180,7 @@ describe("run", () => {
   });
 
   test("prints a single json envelope for agents", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
-    );
+    const { dir } = await appProject();
 
     const { output } = await boot(dir, { json: true, open: false });
     const envelope: { ok: boolean; url: string } = JSON.parse(output);
@@ -205,33 +189,19 @@ describe("run", () => {
     expect(envelope.url).toContain("/leglas");
   });
 
-  test("names the config file it used, so a surprising config is findable", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
-    );
-
-    const { output } = await boot(dir);
-
-    expect(output).toContain("leglas.config.ts");
-  });
-
   test("warns without blocking when a local dev server belongs to another project", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
-    );
+    const { dir, port } = await appProject('[{ title: "App", url: "/" }]');
 
     inspectDevServer.mockResolvedValueOnce([{ pid: 42, cwd: "/work/other-app" }]);
-    const { output, result } = await boot(dir, { open: false });
+    const { output, result, opened } = await boot(dir, { open: false });
 
     const config = await configAt(result.url.replace(/\/leglas$/, ""));
 
     expect(output).toContain(`Port ${port} appears to be served from other-app`);
     expect(config.warnings).toEqual([expect.stringContaining("outside this project")]);
     expect(result.exitCode).toBe(0);
+    // Told not to, it leaves the browser alone.
+    expect(opened).toEqual([]);
   });
 });
 
@@ -271,12 +241,7 @@ describe("startup update notice", () => {
         close: vi.fn(async () => {}),
       };
 
-      const port = await startOrigin();
-
-      const cwd = projectWith(
-        `export default { devServer: "http://127.0.0.1:${port}", previews: [] };`,
-      );
-
+      const { dir: cwd } = await appProject();
       const output: string[] = [];
 
       const result = await runWithServices(
@@ -322,11 +287,7 @@ describe("startup update notice", () => {
 
 describe("branch previews without a devCommand", () => {
   test("keeps the preview idle and reports the missing devCommand only when it is opened", async () => {
-    const port = await startOrigin();
-
-    const dir = projectWith(
-      `export default { devServer: "http://127.0.0.1:${port}", previews: [{ title: "App", url: "/" }] };`,
-    );
+    const { dir } = await appProject('[{ title: "App", url: "/" }]');
 
     mkdirSync(join(dir, ".leglas"), { recursive: true });
     writeFileSync(

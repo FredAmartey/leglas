@@ -91,6 +91,19 @@ describe("the site", () => {
       ].sort(),
     );
     expect(readFileSync(join(out, "changelog", "index.html"), "utf8")).toContain('href="../"');
+
+    // The release index the update panel reads is led by the published CLI version.
+    const text = readFileSync(join(out, "releases.json"), "utf8");
+    const releases: { version: string; date: string; title: string }[] = JSON.parse(text);
+    const cli = JSON.parse(readFileSync(join(root, "packages/cli/package.json"), "utf8"));
+
+    expect(releases[0]).toMatchObject({
+      version: cli.version,
+      date: expect.any(String),
+      title: expect.any(String),
+    });
+    expect(releases.some((release) => release.version === "Unreleased")).toBe(false);
+    expect(text).toBe(`${JSON.stringify(releases, null, 2)}\n`);
   });
 });
 

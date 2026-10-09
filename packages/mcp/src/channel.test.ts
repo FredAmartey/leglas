@@ -16,7 +16,7 @@ import {
   type Channel,
   type ChannelEvent,
 } from "./channel.js";
-import { fixedProject } from "./project.js";
+import { fixedProject, type Project } from "./project.js";
 
 const channels: Channel[] = [];
 
@@ -58,7 +58,7 @@ function isChannelEvent(value: unknown): value is ChannelEvent {
 
 /** A connected pair with the client capturing channel notifications. */
 async function connect(
-  cwd: string,
+  project: Project,
   pollMs: number,
   read?: (cwd: string) => Promise<PendingRequest[]>,
 ): Promise<{ events: ChannelEvent[] }> {
@@ -79,7 +79,7 @@ async function connect(
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-  const options: Parameters<typeof startChannel>[1] = { project: fixedProject(cwd), pollMs };
+  const options: Parameters<typeof startChannel>[1] = { project, pollMs };
 
   if (read !== undefined) options.read = read;
   channels.push(startChannel(server, options));
@@ -129,7 +129,7 @@ describe("startChannel", () => {
   test("pushes a queued request to the connected host once", async () => {
     const cwd = scratch();
     writeQueue(cwd, [request("first", "queued")]);
-    const { events } = await connect(cwd, 20);
+    const { events } = await connect(fixedProject(cwd), 20);
 
     await until(() => events.length === 1);
     expect(events[0]).toMatchObject({
@@ -158,7 +158,7 @@ describe("startChannel", () => {
       return backlog;
     };
 
-    const { events } = await connect(cwd, 10, read);
+    const { events } = await connect(fixedProject(cwd), 10, read);
     await new Promise((tick) => setTimeout(tick, 60));
     release?.();
 
@@ -172,29 +172,14 @@ describe("startChannel", () => {
     // Nothing to read and nothing coming, so the queue is never touched.
     let reads = 0;
 
-    const server = new McpServer(
-      { name: "leglas-test", version: "0.0.0" },
-      { capabilities: { experimental: CHANNEL_CAPABILITY } },
-    );
+    const { events } = await connect(
+      { locate: async () => ({ ok: false, reason: "no project" }) },
+      10,
+      async () => {
+        reads += 1;
 
-    const client = new Client({ name: "test-host", version: "0.0.0" });
-    const events: unknown[] = [];
-    client.fallbackNotificationHandler = async (notification) => {
-      if (notification.method === "notifications/claude/channel") events.push(notification.params);
-    };
-
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
-    channels.push(
-      startChannel(server, {
-        project: { locate: async () => ({ ok: false, reason: "no project" }) },
-        pollMs: 10,
-        read: async () => {
-          reads += 1;
-
-          return [];
-        },
-      }),
+        return [];
+      },
     );
 
     await new Promise((tick) => setTimeout(tick, 80));
@@ -206,7 +191,7 @@ describe("startChannel", () => {
   test("a request queued later arrives as its own event", async () => {
     const cwd = scratch();
     writeQueue(cwd, [request("first", "queued")]);
-    const { events } = await connect(cwd, 20);
+    const { events } = await connect(fixedProject(cwd), 20);
     await until(() => events.length === 1);
 
     writeQueue(cwd, [request("first", "queued"), request("second", "queued")]);

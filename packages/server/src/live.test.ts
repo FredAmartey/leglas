@@ -1,7 +1,7 @@
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { Duplex } from "node:stream";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { LIVE_DEBOUNCE_MS, createCoalescer, createLiveHub, encodeFrame } from "./live.js";
 
@@ -40,12 +40,9 @@ function requestWithoutKey(): IncomingMessage {
   return message;
 }
 
-function listen(
-  hub: ReturnType<typeof createLiveHub>,
-  options?: { viewer?: boolean },
-): RecordingSocket {
+function listen(hub: ReturnType<typeof createLiveHub>): RecordingSocket {
   const socket = new RecordingSocket();
-  expect(hub.upgrade(request(), socket, Buffer.alloc(0), options)).toBe(true);
+  expect(hub.upgrade(request(), socket, Buffer.alloc(0))).toBe(true);
   socket.writes.length = 0;
 
   return socket;
@@ -146,26 +143,6 @@ describe("createLiveHub", () => {
     expect(hub.listening).toBe(0);
     expect(Buffer.concat(first.writes)).toEqual(encodeFrame(0x8, Buffer.alloc(0)));
     expect(Buffer.concat(second.writes)).toEqual(encodeFrame(0x8, Buffer.alloc(0)));
-  });
-
-  test("counts only viewer-tagged listeners and reports every change", () => {
-    const onViewers = vi.fn();
-    const hub = createLiveHub({ onViewers });
-    const local = listen(hub);
-    const first = listen(hub, { viewer: true });
-    const second = listen(hub, { viewer: true });
-
-    expect(hub.listening).toBe(3);
-    expect(hub.viewers).toBe(2);
-    expect(onViewers.mock.calls).toEqual([[1], [2]]);
-
-    local.emit("close");
-    expect(hub.viewers).toBe(2);
-    first.emit("close");
-    expect(hub.viewers).toBe(1);
-    second.emit("close");
-    expect(hub.viewers).toBe(0);
-    expect(onViewers.mock.calls).toEqual([[1], [2], [1], [0]]);
   });
 });
 

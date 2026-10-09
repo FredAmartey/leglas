@@ -79,6 +79,23 @@ async function startAndStop(root: string, run?: string): Promise<string[]> {
   return d.lines;
 }
 
+/** Runs watch on a project until the condition holds, then stops it the way a signal would. */
+async function watchUntil(
+  root: string,
+  run: string,
+  condition: (lines: string[]) => Promise<boolean> | boolean,
+  json = false,
+) {
+  const controller = new AbortController();
+  const d = deps();
+  const running = runWatch({ run, port: DEAD_PORT, cwd: root, json, signal: controller.signal }, d);
+
+  await until(() => condition(d.lines));
+  controller.abort();
+
+  return { lines: d.lines, outcome: await running };
+}
+
 describe("runWatch", () => {
   // Nothing listening, the case the loop is written for: refused at once, as a
   // closed port does. Tests that care what the server said stub their own.
@@ -108,25 +125,16 @@ describe("runWatch", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
-    const controller = new AbortController();
-
-    const running = runWatch(
-      {
-        run: 'node -e "process.exit(0)" {prompt}',
-        port: DEAD_PORT,
-        cwd: root,
-        signal: controller.signal,
-      },
-      deps(),
+    await watchUntil(
+      root,
+      'node -e "process.exit(0)" {prompt}',
+      async () => (await readRequests(root)).length === 0,
     );
-
-    await until(async () => (await readRequests(root)).length === 0);
-    controller.abort();
-    await running;
 
     expect(statusDuringFirstBeat).toBe("queued");
   });
 
+  // Under --json the refusal is the usual failure envelope.
   test("refuses to start with no template anywhere", async () => {
     const d = deps();
     const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd() }, d);
@@ -134,25 +142,28 @@ describe("runWatch", () => {
     expect(outcome.exitCode).toBe(1);
     expect(d.lines.join("\n")).toContain("pick an agent in the interface");
     expect(d.lines.join("\n")).toContain("--run");
+
+    const json = deps();
+    const quiet = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd(), json: true }, json);
+
+    expect(quiet.exitCode).toBe(1);
+    expect(json.lines.map((line) => JSON.parse(line))).toEqual([
+      { ok: false, error: expect.stringContaining("pick an agent in the interface") },
+    ]);
   });
 
-  test("a --run flag beats both the saved template and agent choice", async () => {
+  test.each([
+    ["a --run flag beats both the saved template and", "flag-agent {prompt}"],
+    ["a saved template beats", undefined],
+  ])("%s the saved agent choice", async (_rule, run) => {
     const root = cwd();
     writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
 
-    const lines = await startAndStop(root, "flag-agent {prompt}");
+    const lines = await startAndStop(root, run);
 
-    expect(lines).toContain("Watching for change requests. Each one runs: flag-agent {prompt}");
-    expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
-  });
-
-  test("a saved template beats the saved agent choice", async () => {
-    const root = cwd();
-    writeWatchConfig(root, { run: "saved-agent {prompt}", agent: "claude" });
-
-    const lines = await startAndStop(root);
-
-    expect(lines).toContain("Watching for change requests. Each one runs: saved-agent {prompt}");
+    expect(lines).toContain(
+      `Watching for change requests. Each one runs: ${run ?? "saved-agent {prompt}"}`,
+    );
     expect(lines.some((line) => line.startsWith("Using Claude"))).toBe(false);
   });
 
@@ -218,21 +229,11 @@ describe("runWatch", () => {
 
     // The stop lands while the agent is still running, and the agent succeeds,
     // so the request must end up removed, not stranded.
-    const controller = new AbortController();
-
-    const running = runWatch(
-      {
-        run: `node -e "setTimeout(() => process.exit(0), 400)" {prompt}`,
-        port: DEAD_PORT,
-        cwd: root,
-        signal: controller.signal,
-      },
-      deps(),
+    const { outcome } = await watchUntil(
+      root,
+      `node -e "setTimeout(() => process.exit(0), 400)" {prompt}`,
+      async () => (await readRequests(root))[0]?.status === "picked-up",
     );
-
-    await until(async () => (await readRequests(root))[0]?.status === "picked-up");
-    controller.abort();
-    const outcome = await running;
 
     // Settling means the books are closed: the agent exited 0, so the request
     // is gone.
@@ -245,20 +246,16 @@ describe("runWatch", () => {
     const root = cwd();
     await appendRequest(root, input);
     const [queued] = await readRequests(root);
-    const controller = new AbortController();
-    const d = deps();
     const run = 'node -e "process.exit(0)" {prompt}';
 
-    const running = runWatch(
-      { run, port: DEAD_PORT, cwd: root, json: true, signal: controller.signal },
-      d,
+    const { lines } = await watchUntil(
+      root,
+      run,
+      async () => (await readRequests(root)).length === 0,
+      true,
     );
 
-    await until(async () => (await readRequests(root)).length === 0);
-    controller.abort();
-    await running;
-
-    expect(d.lines.map((line) => JSON.parse(line))).toEqual([
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
       { event: "watching", command: run, agent: null },
       { event: "started", id: queued?.id, title: "Aurora", intent: "warmer", target: null },
       { event: "done", id: queued?.id, title: "Aurora" },
@@ -269,26 +266,16 @@ describe("runWatch", () => {
   test("under --json a failed request is a failed event carrying the queue's verdict", async () => {
     const root = cwd();
     await appendRequest(root, input);
-    const controller = new AbortController();
-    const d = deps();
 
-    const running = runWatch(
-      {
-        run: 'node -e "process.exit(3)" {prompt}',
-        port: DEAD_PORT,
-        cwd: root,
-        json: true,
-        signal: controller.signal,
-      },
-      d,
+    const { lines } = await watchUntil(
+      root,
+      'node -e "process.exit(3)" {prompt}',
+      (seen) => seen.some((line) => line.includes('"event":"failed"')),
+      true,
     );
 
-    await until(() => d.lines.some((line) => line.includes('"event":"failed"')));
-    controller.abort();
-    await running;
-
     const [written] = await readRequests(root);
-    const failed = d.lines.map((line) => JSON.parse(line)).find((line) => line.event === "failed");
+    const failed = lines.map((line) => JSON.parse(line)).find((line) => line.event === "failed");
     // An agent that ran and exited nonzero, as FailureCode names it.
     expect(written?.failure?.code).toBe("agent-error");
     expect(failed).toEqual({
@@ -300,36 +287,13 @@ describe("runWatch", () => {
     });
   });
 
-  test("under --json a watch that cannot start prints the usual failure envelope", async () => {
-    const d = deps();
-    const outcome = await runWatch({ run: undefined, port: DEAD_PORT, cwd: cwd(), json: true }, d);
-
-    expect(outcome.exitCode).toBe(1);
-    expect(d.lines.map((line) => JSON.parse(line))).toEqual([
-      { ok: false, error: expect.stringContaining("pick an agent in the interface") },
-    ]);
-  });
-
   test("a command that cannot spawn is written down as failed and unretried", async () => {
     const root = cwd();
     await appendRequest(root, input);
 
-    const controller = new AbortController();
-    const d = deps();
-
-    const running = runWatch(
-      {
-        run: "leglas-watch-test-no-such-program {prompt}",
-        port: DEAD_PORT,
-        cwd: root,
-        signal: controller.signal,
-      },
-      d,
+    const { lines } = await watchUntil(root, "leglas-watch-test-no-such-program {prompt}", (seen) =>
+      seen.some((line) => line.includes("failed")),
     );
-
-    await until(() => d.lines.some((line) => line.includes("failed")));
-    controller.abort();
-    await running;
 
     const remaining = await readRequests(root);
     expect(remaining).toHaveLength(1);
@@ -337,7 +301,7 @@ describe("runWatch", () => {
     // as still being worked on.
     expect(remaining[0]?.status).toBe("failed");
     expect(remaining[0]?.failure?.code).toBe("missing-agent");
-    expect(d.lines.join("\n")).toContain("not retried");
+    expect(lines.join("\n")).toContain("not retried");
   });
 
   // --help: the --run command is "Remembered after first use".

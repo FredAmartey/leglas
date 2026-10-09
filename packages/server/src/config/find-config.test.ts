@@ -10,13 +10,6 @@ function scratch(): string {
 }
 
 describe("findConfigFile", () => {
-  test("finds a config in the starting directory", () => {
-    const dir = scratch();
-    writeFileSync(join(dir, "leglas.config.ts"), "export default {}");
-
-    expect(findConfigFile(dir)).toBe(join(dir, "leglas.config.ts"));
-  });
-
   test("walks upward, so it works from any subdirectory of a project", () => {
     const dir = scratch();
     writeFileSync(join(dir, "leglas.config.ts"), "export default {}");

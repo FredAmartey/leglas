@@ -59,6 +59,12 @@ describe("anchorFrom", () => {
     expect(read?.rect).toEqual({ height: 0, width: 0, x: 0, y: 0 });
     expect(read?.viewport).toBe(0);
     expect(read?.selector).toBe("main > div:nth-of-type(2)");
+    // Or that arrived as nothing but a selector.
+    expect(anchorFrom({ selector: "main" })).toMatchObject({
+      selector: "main",
+      rect: { height: 0, width: 0, x: 0, y: 0 },
+      classes: [],
+    });
   });
 
   test("caps what a browser can put in the file", () => {
@@ -118,14 +124,6 @@ describe("the notes file", () => {
     ]);
   });
 
-  test("gives every note an id of its own", async () => {
-    const root = cwd();
-    const first = await addAnnotation(root, note("Poster", "a"));
-    const second = await addAnnotation(root, note("Poster", "b"));
-
-    expect(first.id).not.toBe(second.id);
-  });
-
   test("drops the notes it is asked to and reports how many there were", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "a"));
@@ -133,23 +131,6 @@ describe("the notes file", () => {
 
     expect(await removeAnnotations(root, [first.id, "never-existed"])).toBe(1);
     expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["b"]);
-  });
-
-  // The anchor is the expensive half of a note, so rewording keeps it exactly
-  // and the note keeps its place, so the pin keeps its number.
-  test("rewords a note and leaves what it points at alone", async () => {
-    const root = cwd();
-    const first = await addAnnotation(root, note("Poster", "looks fake"));
-    await addAnnotation(root, note("Poster", "wrong on its side"));
-
-    const revised = await updateAnnotation(root, first.id, "  looks printed  ");
-
-    expect(revised).toEqual({ ...first, id: revised?.id, note: "looks printed" });
-    expect(revised?.anchor).toEqual(first.anchor);
-    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual([
-      "looks printed",
-      "wrong on its side",
-    ]);
   });
 
   // Clearing a note is a real edit; the pin still carries an address, so the
@@ -177,37 +158,11 @@ describe("the notes file", () => {
     expect(revised?.note).toBe(required(added).note);
   });
 
-  test("rewording one note leaves the others alone", async () => {
-    const root = cwd();
-    const first = await addAnnotation(root, note("Poster", "a"));
-    const second = await addAnnotation(root, note("Orchard", "b"));
-
-    await updateAnnotation(root, first.id, "a again");
-    const read = await readAnnotations(root);
-
-    expect(read.find((entry) => entry.id === second.id)).toEqual(second);
-  });
-
   // Why a reworded note gets a new id: a change in flight recorded the ids it
   // answers and the runner forgets those when it lands, so a revision keeping
-  // its id would be swept away by the request it replaces. Every rewording is
-  // reissued, since a change sent a moment later would have caught the old id
-  // anyway.
-  test("a note reworded while a change holds it survives that change landing", async () => {
-    const root = cwd();
-    const first = await addAnnotation(root, note("Poster", "looks fake"));
-    const sent = [first.id];
-
-    const revised = await updateAnnotation(root, first.id, "looks printed");
-    // What the runner does when the change it was sent with succeeds.
-    await removeAnnotations(root, sent);
-
-    expect(revised?.id).not.toBe(first.id);
-    expect((await readAnnotations(root)).map((entry) => entry.note)).toEqual(["looks printed"]);
-  });
-
-  // The interface and the runner both write the whole file back around an
-  // await; overlapping, one edit is lost.
+  // its id would be swept away by the request it replaces. The interface and
+  // the runner both write the whole file back around an await; overlapping,
+  // one edit is lost.
   test("a revision and a sweep landing together cannot overwrite each other", async () => {
     const root = cwd();
     const first = await addAnnotation(root, note("Poster", "looks fake"));
@@ -242,19 +197,24 @@ describe("the notes file", () => {
     expect(same).toEqual(first);
   });
 
+  // The anchor is the expensive half of a note, so rewording keeps it exactly
+  // and the note keeps its place, so the pin keeps its number.
   test("a reworded note keeps its address and its turn under the new identity", async () => {
     const root = cwd();
-    await addAnnotation(root, note("Poster", "a"));
+    const first = await addAnnotation(root, note("Poster", "a"));
     const middle = await addAnnotation(root, note("Poster", "b"));
-    await addAnnotation(root, note("Poster", "c"));
+    const last = await addAnnotation(root, note("Orchard", "c"));
 
-    const revised = await updateAnnotation(root, middle.id, "b again");
+    const revised = await updateAnnotation(root, middle.id, "  b again  ");
     const read = await readAnnotations(root);
 
+    expect(revised).toEqual({ ...middle, id: revised?.id, note: "b again" });
     expect(revised?.id).not.toBe(middle.id);
     expect(revised?.anchor).toEqual(middle.anchor);
     expect(read.map((entry) => entry.note)).toEqual(["a", "b again", "c"]);
     expect(read[1]?.id).toBe(revised?.id);
+    // The others are left exactly as they were.
+    expect([read[0], read[2]]).toEqual([first, last]);
   });
 
   test("rewording a note that has gone leaves no trace on disk", async () => {

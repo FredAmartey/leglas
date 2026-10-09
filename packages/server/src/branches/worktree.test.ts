@@ -16,28 +16,18 @@ import {
 const run = promisify(execFile);
 
 describe("worktreeSlug", () => {
-  test("keeps a simple branch name", () => {
-    expect(worktreeSlug("main")).toBe("main");
-  });
-
-  test("flattens slashes, so a namespaced branch is one directory", () => {
-    expect(worktreeSlug("feature/new-hero")).toBe("feature-new-hero");
-  });
-
-  test("strips characters that have no business in a path", () => {
-    expect(worktreeSlug("feat/a b:c")).toBe("feat-a-b-c");
-  });
-
-  test("collapses runs of separators rather than leaving gaps", () => {
-    expect(worktreeSlug("a///b")).toBe("a-b");
+  // One directory per branch, with nothing in its name a path would trip on.
+  test.each([
+    ["main", "main"],
+    ["feature/new-hero", "feature-new-hero"],
+    ["feat/a b:c", "feat-a-b-c"],
+    ["a///b", "a-b"],
+  ])("flattens %s into %s", (branch, slug) => {
+    expect(worktreeSlug(branch)).toBe(slug);
   });
 });
 
 describe("substitutePort", () => {
-  test("replaces the placeholder", () => {
-    expect(substitutePort("pnpm dev --port {port}", 4200)).toBe("pnpm dev --port 4200");
-  });
-
   test("replaces every occurrence, since some commands need it twice", () => {
     expect(substitutePort("serve --port {port} --hmr {port}", 90)).toBe("serve --port 90 --hmr 90");
   });
@@ -81,25 +71,7 @@ async function repoWithBranch(): Promise<{ cwd: string; branch: string }> {
 }
 
 describe("startWorktree", () => {
-  test("checks out the branch, boots it, and serves that branch's content", async () => {
-    const { cwd, branch } = await repoWithBranch();
-
-    const worktree = await startWorktree({
-      cwd,
-      branch,
-      installCommand: "true",
-      devCommand: "node serve.mjs {port}",
-    });
-
-    cleanups.push(worktree.stop);
-
-    expect(worktree.port).toBeGreaterThan(0);
-    const response = await fetch(worktree.url);
-    // Content from the branch, not from the checked-out main.
-    expect((await response.text()).trim()).toBe("feature");
-  }, 60_000);
-
-  test("puts the checkout under the ignored directory", async () => {
+  test("checks out the branch under .leglas, serves its content, and removes it when stopped", async () => {
     const { cwd, branch } = await repoWithBranch();
 
     const worktree = await startWorktree({
@@ -116,6 +88,17 @@ describe("startWorktree", () => {
     expect(realpathSync(worktree.path).startsWith(join(realpathSync(cwd), ".leglas") + sep)).toBe(
       true,
     );
+    expect(worktree.port).toBeGreaterThan(0);
+    // The fixture listens on IPv4 only, and the url is built from what answered.
+    expect(worktree.url).toContain("127.0.0.1");
+    const response = await fetch(worktree.url);
+    // Content from the branch, not from the checked-out main.
+    expect((await response.text()).trim()).toBe("feature");
+
+    await worktree.stop();
+
+    const { stdout } = await run("git", ["worktree", "list"], { cwd });
+    expect(stdout).not.toContain(WORKTREES_DIR);
   }, 60_000);
 
   test("reports a branch that does not exist rather than hanging", async () => {
@@ -143,22 +126,6 @@ describe("startWorktree", () => {
         readyTimeoutMs: 2500,
       }),
     ).rejects.toThrow(/did not start|start/i);
-  }, 60_000);
-
-  test("removes the checkout when stopped, leaving the repository clean", async () => {
-    const { cwd, branch } = await repoWithBranch();
-
-    const worktree = await startWorktree({
-      cwd,
-      branch,
-      installCommand: "true",
-      devCommand: "node serve.mjs {port}",
-    });
-
-    await worktree.stop();
-
-    const { stdout } = await run("git", ["worktree", "list"], { cwd });
-    expect(stdout).not.toContain(WORKTREES_DIR);
   }, 60_000);
 });
 
@@ -194,32 +161,5 @@ describe("startAppProcess", () => {
 
     expect(app.url).toContain("[::1]");
     expect((await (await fetch(app.url)).text()).trim()).toBe("six");
-  }, 40_000);
-
-  test("still finds one listening on IPv4 only", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-v4-"));
-    writeFileSync(
-      join(cwd, "serve4.mjs"),
-      `import http from "node:http";
-       http
-         .createServer((_q, s) => {
-           s.writeHead(200, { "content-type": "text/plain" });
-           s.end("four");
-         })
-         .listen(Number(process.argv[2]), "127.0.0.1");
-      `,
-    );
-
-    const app = await startAppProcess({
-      cwd,
-      devCommand: "node serve4.mjs {port}",
-      label: "an IPv4-only app",
-      readyTimeoutMs: 15_000,
-    });
-
-    cleanups.push(app.stop);
-
-    expect(app.url).toContain("127.0.0.1");
-    expect((await (await fetch(app.url)).text()).trim()).toBe("four");
   }, 40_000);
 });
