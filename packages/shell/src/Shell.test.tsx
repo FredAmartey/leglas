@@ -476,7 +476,7 @@ describe("the keys", () => {
 });
 
 describe("asking for a change", () => {
-  test("what is typed is what is queued, as a variant of the direction on the stage", async () => {
+  test("what is typed is what is queued, as a variant of the direction on the stage or in place", async () => {
     const sent = await mount({});
     const send = () => find<HTMLButtonElement>('button[type="submit"]');
     expect(send().disabled).toBe(true);
@@ -494,16 +494,13 @@ describe("asking for a change", () => {
     ]);
     expect(find<HTMLTextAreaElement>("textarea").value).toBe("");
     expect(document.body.textContent).toContain("Asked for a change to Table");
-  });
 
-  test("the chip beside the send arms a change in place", async () => {
-    const sent = await mount({});
-    const chip = find<HTMLElement>('form button[aria-label^="This change makes a new variant"]');
-    await after(() => click(chip));
+    // The chip beside the send arms the next change in place.
+    await after(() => click(find('form button[aria-label^="This change makes a new variant"]')));
     await after(() => type(find("textarea"), "fix the typo"));
     await submit();
 
-    expect(sent.find((entry) => entry.path.endsWith("/api/request"))?.body).toMatchObject({
+    expect(sent.filter((entry) => entry.path.endsWith("/api/request"))[1]?.body).toMatchObject({
       intent: "fix the typo",
       mode: "replace",
     });

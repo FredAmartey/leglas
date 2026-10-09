@@ -75,28 +75,24 @@ describe("selectorFor", () => {
     expect(selectorFor(find(before, "p"))).toBe(selectorFor(find(after, "p")));
   });
 
-  test("stops at a stable id, which is shorter and stronger", () => {
-    const root = tree({
-      children: [
-        { children: [{ children: [{ tag: "span" }], tag: "div" }], id: "hero", tag: "section" },
-      ],
-      tag: "body",
-    });
-
-    expect(selectorFor(find(root, "span"))).toBe(
-      "#hero > div:nth-of-type(1) > span:nth-of-type(1)",
-    );
-  });
-
   // React's useId mints ids like `:r7:`, and a framework may mint a new one per
   // render. Anchoring to one truncates the path that would have worked.
-  test("ignores an id that cannot survive a reload", () => {
-    const root = tree({
-      children: [{ children: [{ tag: "span" }], id: ":r7:", tag: "section" }],
-      tag: "body",
-    });
+  test("stops at a stable id, which is shorter and stronger, and ignores one that cannot survive a reload", () => {
+    const under = (id: string) =>
+      selectorFor(
+        find(
+          tree({
+            children: [
+              { children: [{ children: [{ tag: "span" }], tag: "div" }], id, tag: "section" },
+            ],
+            tag: "body",
+          }),
+          "span",
+        ),
+      );
 
-    expect(selectorFor(find(root, "span"))).toBe("section:nth-of-type(1) > span:nth-of-type(1)");
+    expect(under("hero")).toBe("#hero > div:nth-of-type(1) > span:nth-of-type(1)");
+    expect(under(":r7:")).toBe("section:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1)");
   });
 
   test("gives up at a depth that still describes an element, not a skeleton", () => {

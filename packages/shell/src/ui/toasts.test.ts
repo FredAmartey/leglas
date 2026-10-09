@@ -34,14 +34,9 @@ describe("pushToast", () => {
   });
 });
 
-describe("dismissToast", () => {
-  test("removes only the toast asked for", () => {
-    const stack = [toast(1, "copy"), toast(2, "remove:Hero A")];
-    expect(dismissToast(stack, 1).map((entry) => entry.id)).toEqual([2]);
-  });
+test("dismissToast removes only the toast asked for, and nothing once it is gone", () => {
+  const stack = [toast(1, "copy"), toast(2, "remove:Hero A")];
 
-  test("leaves the stack alone when the id is already gone", () => {
-    const stack = [toast(1, "copy")];
-    expect(dismissToast(stack, 9)).toEqual(stack);
-  });
+  expect(dismissToast(stack, 1).map((entry) => entry.id)).toEqual([2]);
+  expect(dismissToast(stack, 9)).toEqual(stack);
 });

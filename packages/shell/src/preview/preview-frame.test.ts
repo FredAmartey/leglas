@@ -113,7 +113,7 @@ describe("preview iframe readiness", () => {
 });
 
 describe("preview loading identity", () => {
-  it("separates URL changes and explicit reloads of one title", () => {
+  it("separates URL changes and explicit reloads of one title, and forgets a prior mount", () => {
     const first = previewIdentity("Aurora", "/?v=one", 0);
     const changed = previewIdentity("Aurora", "/?v=two", 0);
     const reloaded = previewIdentity("Aurora", "/?v=one", 1);
@@ -122,12 +122,7 @@ describe("preview loading identity", () => {
     expect(previewIsLoaded(loaded, "Aurora", first)).toBe(true);
     expect(previewIsLoaded(loaded, "Aurora", changed)).toBe(false);
     expect(previewIsLoaded(loaded, "Aurora", reloaded)).toBe(false);
-  });
-
-  it("forgets a prior mount before the same identity is shown again", () => {
-    const identity = previewIdentity("Aurora", "/?v=one", 0);
-    const loaded = markPreviewLoaded({}, "Aurora", identity);
-
+    // Before the same identity is shown again.
     expect(resetPreviewLoaded(loaded, "Aurora")).toEqual({});
     expect(resetPreviewLoaded({}, "Aurora")).toEqual({});
   });

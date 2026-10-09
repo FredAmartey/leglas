@@ -19,11 +19,9 @@ describe("clampWidget", () => {
     });
     expect(clampWidget({ x: -80, y: -80 }, stage)).toEqual({ x: WIDGET_MARGIN, y: WIDGET_MARGIN });
     expect(clampWidget({ x: 400, y: 300 }, stage)).toEqual({ x: 400, y: 300 });
-  });
 
-  test("survives a stage smaller than the margins without inverting", () => {
+    // A stage smaller than the margins doesn't invert them.
     const tiny = clampWidget({ x: 10, y: 10 }, { width: 20, height: 20 });
-
     expect(tiny.x).toBeGreaterThanOrEqual(0);
     expect(tiny.y).toBeGreaterThanOrEqual(0);
   });

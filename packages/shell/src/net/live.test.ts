@@ -171,6 +171,13 @@ describe("startLive", () => {
     vi.advanceTimersByTime(FIRST_RETRY_MS);
     expect(sockets).toHaveLength(4);
 
+    // An error is a close: browsers commonly fire error and then close for one
+    // failure, and it redials once, not twice.
+    sockets[3]?.emit("error");
+    sockets[3]?.emit("close");
+    vi.advanceTimersByTime(MAX_RETRY_MS);
+    expect(sockets).toHaveLength(5);
+
     live.stop();
   });
 
@@ -195,18 +202,6 @@ describe("startLive", () => {
     expect(live.connected).toBe(false);
     vi.advanceTimersByTime(FIRST_RETRY_MS);
     expect(attempts).toBe(2);
-    live.stop();
-  });
-
-  test("an error is a close: it redials once, not twice", () => {
-    const live = startLive();
-
-    // Browsers commonly fire error and then close for one failure.
-    sockets[0]?.emit("error");
-    sockets[0]?.emit("close");
-    vi.advanceTimersByTime(MAX_RETRY_MS);
-
-    expect(sockets).toHaveLength(2);
     live.stop();
   });
 

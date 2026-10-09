@@ -93,15 +93,12 @@ describe("placeCard", () => {
     expect(placed.top + card.height).toBeLessThanOrEqual(low.y);
   });
 
-  test("aligns to the right edge rather than hanging off it", () => {
+  test("aligns to the right edge rather than hanging off it, and stays on screen in a corner", () => {
     expect(placeCard({ anchor: { ...element, x: 1380 }, bounds, card }).left).toBe(1184);
-  });
-
-  test("stays on screen in the corner where both would fail", () => {
-    const placed = placeCard({ anchor: { height: 40, width: 40, x: 1430, y: 870 }, bounds, card });
-
-    expect(placed.left).toBe(1184);
-    expect(placed.top).toBe(782);
+    // In the corner both rules would fail.
+    expect(
+      placeCard({ anchor: { height: 40, width: 40, x: 1430, y: 870 }, bounds, card }),
+    ).toMatchObject({ left: 1184, top: 782 });
   });
 
   // A phone preview is narrower than the card's ideal width; top left is the

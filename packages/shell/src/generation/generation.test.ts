@@ -57,11 +57,18 @@ test("a direction's surface is the v- parameter its address carries, listed once
   ).toEqual(["hero", "pricing"]);
 });
 
-test("a newer set's slot speaks for a title both sets have", () => {
+test("a newer set's slot speaks for a title both sets have, and a row is a slot's only by its key", () => {
   const first = job("done", [slot("Ledger", "failed")], { id: "gen-1" });
   const second = job("building", [slot("Ledger", "building")], { id: "gen-2" });
 
   expect(slotsByTitle([first, second]).get("Ledger")?.job.id).toBe("gen-2");
+
+  // The row's address must carry the slot's key on the set's surface.
+  const view = { job: first, slot: slot("Ledger", "failed") };
+
+  expect(isSlotOf("/?v-hero=hero-ledger", view)).toBe(true);
+  expect(isSlotOf("/?v-hero=ledger-by-hand", view)).toBe(false);
+  expect(isSlotOf("/?v-pricing=hero-ledger", view)).toBe(false);
 });
 
 test("the card above the composer says what is planned, how the build goes and how it ended", () => {
@@ -163,12 +170,4 @@ describe("a set built again in part", () => {
   test("does not claim the whole set took the time since it began", () => {
     expect(cardFor(retried())).toEqual({ tone: "done", text: "2 hero directions ready" });
   });
-});
-
-test("a row is a slot's only when its address carries the slot's key", () => {
-  const view = { job: job("done", []), slot: slot("Ledger", "failed") };
-
-  expect(isSlotOf("/?v-hero=hero-ledger", view)).toBe(true);
-  expect(isSlotOf("/?v-hero=ledger-by-hand", view)).toBe(false);
-  expect(isSlotOf("/?v-pricing=hero-ledger", view)).toBe(false);
 });
