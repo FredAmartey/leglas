@@ -13,3 +13,6 @@ evals/jobs/
 
 # Artifacts E2E tests leave behind to look at
 test/artifacts/
+
+# What the last pnpm bench measured
+bench/results.json

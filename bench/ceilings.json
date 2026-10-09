@@ -1,0 +1,27 @@
+{
+  "ceilings": {
+    "boot": {
+      "frames": 0,
+      "offMachine": 0,
+      "processes.claude": 1,
+      "processes.codex": 1,
+      "processes.cursor-agent": 1,
+      "processes.lsof": 2,
+      "requests.api": 8,
+      "requests.app": 4,
+      "requests.interface": 8,
+      "requests.other": 0,
+      "sockets": 1
+    },
+    "idle": {
+      "frames": 0,
+      "offMachine": 0,
+      "requests.api": 17,
+      "requests.app": 0,
+      "requests.interface": 0,
+      "requests.other": 0,
+      "sockets": 0
+    }
+  },
+  "raised": []
+}
