@@ -123,7 +123,7 @@ describe("createShareManager", () => {
 
     if (!created.ok) throw new Error(created.error);
 
-    const entry = await fetch(created.share.grants[0].localUrl, {
+    const entry = await fetch(required(created.share.grants[0]).localUrl, {
       redirect: "manual",
       headers: { "x-forwarded-proto": "https" },
     });
@@ -172,7 +172,7 @@ describe("createShareManager", () => {
     });
 
     if (!created.ok) throw new Error(created.error);
-    const id = created.share.grants[0].id;
+    const id = required(created.share.grants[0]).id;
     expect(await manager.viewerConfig(id)).not.toBeNull();
     // Revoked after admission but before the config read: the read checks the
     // link, not the share.
@@ -299,9 +299,9 @@ describe("many links to one share", () => {
 
     if (!second.ok) throw new Error(second.error);
     expect(second.share.grants).toHaveLength(2);
-    expect(second.share.grants[1].name).toBe("Ana");
+    expect(second.share.grants[1]?.name).toBe("Ana");
     // Two links, two tokens: one cannot be read off the other.
-    const [a, b] = second.share.grants;
+    const [a, b] = [required(second.share.grants[0]), required(second.share.grants[1])];
     expect(a.localUrl).not.toBe(b.localUrl);
     expect((await enter(a.localUrl)).status).toBe(302);
     expect((await enter(b.localUrl)).status).toBe(302);
@@ -327,14 +327,14 @@ describe("many links to one share", () => {
     const second = manager.createGrant({ name: "Ana" });
 
     if (!second.ok) throw new Error(second.error);
-    const [kept, cut] = second.share.grants;
+    const [kept, cut] = [required(second.share.grants[0]), required(second.share.grants[1])];
 
     const revoked = manager.revokeGrant({ id: cut.id });
     expect(revoked.ok).toBe(true);
 
     if (!revoked.ok) return;
     expect(revoked.share.grants).toHaveLength(1);
-    expect(revoked.share.grants[0].id).toBe(kept.id);
+    expect(revoked.share.grants[0]?.id).toBe(kept.id);
 
     expect((await enter(kept.localUrl)).status).toBe(302);
     // Turned off, lapsed and never a link are three different answers.
@@ -357,7 +357,7 @@ describe("many links to one share", () => {
       nowMono: () => BigInt(at) * 1_000_000n,
     });
 
-    const link = share.grants[0];
+    const link = required(share.grants[0]);
     expect((await enter(link.localUrl)).status).toBe(302);
 
     at += 24 * 60 * 60 * 1000 + 1;
@@ -372,7 +372,7 @@ describe("many links to one share", () => {
     let wall = 5_000_000;
     let mono = 5_000_000n * 1_000_000n;
     const { manager, share } = await start({ now: () => wall, nowMono: () => mono });
-    const link = share.grants[0];
+    const link = required(share.grants[0]);
 
     // A correction drags the wall clock back a day while real time moves on.
     wall -= 12 * 60 * 60 * 1000;
@@ -390,17 +390,17 @@ describe("many links to one share", () => {
       nowMono: () => BigInt(at) * 1_000_000n,
     });
 
-    const link = share.grants[0];
+    const link = required(share.grants[0]);
     const first = link.expiresAt;
 
     at += 60 * 60 * 1000;
     const extended = manager.extendGrant({ id: link.id });
 
     if (!extended.ok) throw new Error(extended.error);
-    expect(extended.share.grants[0].expiresAt).toBeGreaterThan(first);
+    expect(extended.share.grants[0]?.expiresAt).toBeGreaterThan(first);
     // An absolute time, not an addition, so clicking twice can't walk it into
     // next week.
-    expect(extended.share.grants[0].expiresAt).toBe(at + 24 * 60 * 60 * 1000);
+    expect(extended.share.grants[0]?.expiresAt).toBe(at + 24 * 60 * 60 * 1000);
 
     manager.revokeGrant({ id: link.id });
     const raising = manager.extendGrant({ id: link.id });
@@ -432,7 +432,7 @@ describe("many links to one share", () => {
     });
 
     if (!created.ok) throw new Error(created.error);
-    const link = created.share.grants[0];
+    const link = required(created.share.grants[0]);
     const entry = await fetch(link.localUrl, { redirect: "manual" });
     const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
@@ -457,12 +457,12 @@ describe("many links to one share", () => {
     expect(rotated.share.grants).toHaveLength(1);
 
     for (const url of before) {
-      expect(rotated.share.grants[0].localUrl).not.toBe(url);
+      expect(rotated.share.grants[0]?.localUrl).not.toBe(url);
       const gone = await enter(url);
       expect(gone.status).toBe(410);
     }
 
-    expect((await enter(rotated.share.grants[0].localUrl)).status).toBe(302);
+    expect((await enter(required(rotated.share.grants[0]).localUrl)).status).toBe(302);
   });
 });
 
@@ -482,9 +482,9 @@ describe("how far a viewer reaches", () => {
     });
 
     if (!created.ok) throw new Error(created.error);
-    const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
+    const entry = await fetch(required(created.share.grants[0]).localUrl, { redirect: "manual" });
     const cookie = (entry.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
-    const origin = created.share.grants[0].localUrl.replace(/\/leglas\/s\/.+$/, "");
+    const origin = required(created.share.grants[0]).localUrl.replace(/\/leglas\/s\/.+$/, "");
     const get = (path: string) => fetch(`${origin}${path}`, { headers: { cookie } });
 
     return { manager, get, share: created.share, cookie, port: created.share.sharePort };
@@ -779,9 +779,7 @@ describe("the ceiling on viewer traffic", () => {
     const created = await manager.create({ scope: "rail", titles: ["Current"], layout });
 
     if (!created.ok) throw new Error(created.error);
-    const first = created.share.grants[0];
-
-    if (first === undefined) throw new Error("no link");
+    const first = required(created.share.grants[0]);
     const entry = await fetch(first.localUrl, { redirect: "manual" });
     const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
     const port = created.share.sharePort;

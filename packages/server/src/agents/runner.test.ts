@@ -67,15 +67,17 @@ function spawner() {
 function manualClock() {
   let callback: (() => void) | null = null;
   const clearInterval = vi.fn();
+  const handle = 7;
 
   return {
-    setInterval: (next: () => void, milliseconds: number): string => {
+    setInterval: (next: () => void, milliseconds: number): number => {
       expect(milliseconds).toBe(2000);
       callback = next;
 
-      return "timer";
+      return handle;
     },
     clearInterval,
+    handle,
     tick: () => callback?.(),
   };
 }
@@ -160,6 +162,15 @@ function alive(pid: number): boolean {
   }
 }
 
+/** What a cancelled persistent run left: its abort signal and the cleanup it waits on. */
+type Cancelling = { signal: AbortSignal | null; finishCleanup: (() => void) | null };
+
+/** The grace timer a test fires by hand. */
+type Grace = { grace: (() => void) | null };
+
+/** The abort signal a handshake was given. */
+type Handshake = { signal: AbortSignal | null };
+
 describe("startRunner", () => {
   test("reports state changes through the optional onChange hook", async () => {
     // What each call saw, so the hook is held to "tells you when state
@@ -219,7 +230,7 @@ describe("startRunner", () => {
     spawned.children[1]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
-    expect(clock.clearInterval).toHaveBeenCalledWith("timer");
+    expect(clock.clearInterval).toHaveBeenCalledWith(clock.handle);
   });
 
   test("records a failed request as failed and never retries it", async () => {
@@ -277,8 +288,9 @@ describe("startRunner", () => {
 
   test("cancels a persistent run before its synthetic child exists", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    let startSignal: AbortSignal | null = null;
-    let finishCleanup: (() => void) | null = null;
+
+    const got: Cancelling = { signal: null, finishCleanup: null };
+
     const calls: ClaudeTurnInput[] = [];
     const children: ReturnType<typeof fakeChild>[] = [];
 
@@ -294,12 +306,13 @@ describe("startRunner", () => {
           return Promise.resolve(child.child);
         }
 
-        startSignal = signal ?? null;
+        got.signal = signal ?? null;
 
         return new Promise((_resolve, reject) => {
-          finishCleanup = () => reject(new Error("cancelled after cleanup"));
+          got.finishCleanup = () => reject(new Error("cancelled after cleanup"));
         });
       },
+      release: async () => {},
       close: async () => {},
     };
 
@@ -307,16 +320,16 @@ describe("startRunner", () => {
       codexAppServer: appServer,
     });
 
-    await until(() => runner.snapshot().running && startSignal !== null);
+    await until(() => runner.snapshot().running && got.signal !== null);
     expect(runner.cancel(runner.snapshot().requestId ?? undefined)).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(runner.snapshot().stopping).toBe(true);
     expect(calls).toHaveLength(1);
 
-    finishCleanup?.();
+    got.finishCleanup?.();
     await until(() => !runner.snapshot().running);
 
-    expect(startSignal?.aborted).toBe(true);
+    expect(got.signal?.aborted).toBe(true);
     expect(spawned.calls).toHaveLength(0);
     expect((await readRequests(cwd))[0]?.status).toBe("cancelled");
     await tickUntil(clock, () => calls.length === 2);
@@ -361,6 +374,7 @@ describe("startRunner", () => {
 
         return child.child;
       },
+      release: async () => {},
       close: vi.fn(async () => {}),
     };
 
@@ -741,12 +755,12 @@ describe("startRunner", () => {
 
   test("a stop that lands while a quiet run is being ended leaves its verdict alone", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    let grace: (() => void) | null = null;
+    const got: Grace = { grace: null };
     let now = 1_790_000_000_000;
 
     const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Poster"], {
       setTimeout: (callback) => {
-        grace = callback;
+        got.grace = callback;
       },
       now: () => now,
     });
@@ -764,7 +778,7 @@ describe("startRunner", () => {
     // Leglas has already decided why this run ends; a stop now changes nothing.
     expect(runner.cancel()).toBe(false);
 
-    grace?.();
+    got.grace?.();
     await until(async () => (await readRequests(cwd))[0]?.status === "failed");
     expect((await readRequests(cwd))[0]?.failure?.code).toBe("agent-silent");
     await runner.stop();
@@ -836,19 +850,20 @@ describe("startRunner", () => {
 
   test("a transport that never finishes starting is ended by the same ceiling", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    let startSignal: AbortSignal | null = null;
+    const got: Handshake = { signal: null };
     let now = 1_790_000_000_000;
 
     const appServer: CodexTurnRunner = {
       warm: async () => {},
       // A handshake that never answers, until the signal says to give up.
       run: (_turn, signal) => {
-        startSignal = signal ?? null;
+        got.signal = signal ?? null;
 
         return new Promise((_resolve, reject) => {
           signal?.addEventListener("abort", () => reject(new Error("aborted")));
         });
       },
+      release: async () => {},
       close: async () => {},
     };
 
@@ -857,12 +872,12 @@ describe("startRunner", () => {
       now: () => now,
     });
 
-    await until(() => runner.snapshot().running && startSignal !== null);
+    await until(() => runner.snapshot().running && got.signal !== null);
     now += SILENCE_CEILING_MS;
     clock.tick();
 
     await until(async () => (await readRequests(cwd))[0]?.status === "failed");
-    expect(startSignal?.aborted).toBe(true);
+    expect(got.signal?.aborted).toBe(true);
     expect((await readRequests(cwd))[0]?.failure?.code).toBe("agent-silent");
     // A transport that hung is not a reason to try the CLI behind it.
     expect(spawned.calls).toHaveLength(0);

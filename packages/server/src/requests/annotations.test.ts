@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import { parseJson } from "../json.js";
 import { required } from "../test-helpers.js";
 
 import {
@@ -31,6 +32,9 @@ const anchor = (over: Partial<AnnotationAnchor> = {}): AnnotationAnchor => ({
   ...over,
 });
 
+/** An anchor as the interface sends it: JSON, parsed again on the way in. */
+const fromWire = <T>(value: T) => anchorFrom(parseJson(JSON.stringify(value)));
+
 const note = (title: string, said: string): Omit<Annotation, "id"> => ({
   anchor: anchor(),
   note: said,
@@ -39,14 +43,14 @@ const note = (title: string, said: string): Omit<Annotation, "id"> => ({
 
 describe("anchorFrom", () => {
   test("takes an anchor the interface sent", () => {
-    expect(anchorFrom(anchor())).toEqual(anchor());
+    expect(fromWire(anchor())).toEqual(anchor());
   });
 
   // Without something to point at, a note is just a sentence, which the
   // composer already does better.
   test("refuses an anchor with nothing to point at", () => {
-    expect(anchorFrom({ ...anchor(), selector: "" })).toBeNull();
-    expect(anchorFrom({ ...anchor(), selector: 42 })).toBeNull();
+    expect(fromWire({ ...anchor(), selector: "" })).toBeNull();
+    expect(fromWire({ ...anchor(), selector: 42 })).toBeNull();
     expect(anchorFrom(null)).toBeNull();
     expect(anchorFrom("main > div")).toBeNull();
   });
@@ -54,13 +58,13 @@ describe("anchorFrom", () => {
   // Broken geometry isn't a reason to lose the note; it's the part the agent
   // needs least.
   test("keeps a note whose geometry arrived malformed", () => {
-    const read = anchorFrom({ ...anchor(), rect: { width: "wide" }, viewport: null });
+    const read = fromWire({ ...anchor(), rect: { width: "wide" }, viewport: null });
 
     expect(read?.rect).toEqual({ height: 0, width: 0, x: 0, y: 0 });
     expect(read?.viewport).toBe(0);
     expect(read?.selector).toBe("main > div:nth-of-type(2)");
     // Or that arrived as nothing but a selector.
-    expect(anchorFrom({ selector: "main" })).toMatchObject({
+    expect(fromWire({ selector: "main" })).toMatchObject({
       selector: "main",
       rect: { height: 0, width: 0, x: 0, y: 0 },
       classes: [],
@@ -68,7 +72,7 @@ describe("anchorFrom", () => {
   });
 
   test("caps what a browser can put in the file", () => {
-    const read = anchorFrom({
+    const read = fromWire({
       ...anchor(),
       classes: Array.from({ length: 40 }, () => "x".repeat(200)),
       selector: "s".repeat(1000),
@@ -88,18 +92,18 @@ describe("anchorFrom", () => {
   });
 
   test("keeps a pointed-at spot inside the element it belongs to", () => {
-    expect(anchorFrom({ ...anchor(), spot: { x: -3, y: 40 } })?.spot).toEqual({ x: 0, y: 1 });
+    expect(fromWire({ ...anchor(), spot: { x: -3, y: 40 } })?.spot).toEqual({ x: 0, y: 1 });
   });
 
   // Notes from before the spot existed sat at the element's middle, and still
   // do.
   test("a note with no spot recorded lands in the middle", () => {
     const { spot: _spot, ...without } = anchor();
-    expect(anchorFrom(without)?.spot).toEqual({ x: 0.5, y: 0.5 });
+    expect(fromWire(without)?.spot).toEqual({ x: 0.5, y: 0.5 });
   });
 
   test("names an element that arrived without a tag", () => {
-    const read = required(anchorFrom({ ...anchor(), tag: "" }));
+    const read = required(fromWire({ ...anchor(), tag: "" }));
 
     expect(read.tag).not.toBe("");
     expect(describeAnchor(read)).not.toContain("<>");
@@ -287,17 +291,17 @@ describe("a swept region", () => {
   });
 
   test("survives the round trip", () => {
-    expect(anchorFrom(region)).toEqual(region);
+    expect(fromWire(region)).toEqual(region);
   });
 
   test("keeps a region inside the element it is a fraction of", () => {
-    const read = anchorFrom({ ...region, region: { height: 9, width: -1, x: 0.5, y: 2 } });
+    const read = fromWire({ ...region, region: { height: 9, width: -1, x: 0.5, y: 2 } });
 
     expect(read?.region).toEqual({ height: 1, width: 0, x: 0.5, y: 1 });
   });
 
   test("caps what a drag across half the page can record", () => {
-    const read = anchorFrom({
+    const read = fromWire({
       ...region,
       covers: Array.from({ length: 40 }, () => ({ tag: "div", text: "x".repeat(400) })),
     });

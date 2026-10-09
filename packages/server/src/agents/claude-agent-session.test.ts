@@ -21,7 +21,13 @@ const EVENTUALLY_MS = 15_000;
 type Message = import("@anthropic-ai/claude-agent-sdk").SDKUserMessage;
 
 /** What the SDK streams back, as far as the session reads it. */
-type SdkEvent = { type: string; subtype?: string; session_id?: string; is_error?: boolean };
+type SdkEvent = {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+  is_error?: boolean;
+  message?: unknown;
+};
 
 class FakeQuery implements ClaudeSdkQuery {
   readonly applied: Array<{ effortLevel: AgentEffort | null }> = [];
@@ -133,6 +139,9 @@ function ended(
 
   return closed;
 }
+
+/** The abort controller an SDK warmup was started with. */
+type Warmup = { controller: AbortController | null };
 
 describe("Claude Agent SDK transport", () => {
   test("a release outlasts a warm started while an earlier release was settling", async () => {
@@ -451,11 +460,11 @@ describe("Claude Agent SDK transport", () => {
   });
 
   test("aborts an in-flight SDK warmup during shutdown", async () => {
-    let controller: AbortController | null = null;
+    const got: Warmup = { controller: null };
 
     const startup: ClaudeSdkStartup = ({ options }) =>
       new Promise((_resolve, reject) => {
-        controller = options.abortController;
+        got.controller = options.abortController;
         options.abortController.signal.addEventListener(
           "abort",
           () => reject(new Error("warmup aborted")),
@@ -465,10 +474,10 @@ describe("Claude Agent SDK transport", () => {
 
     const session = createClaudeAgentSession("/project", [], startup);
     const warming = session.warm();
-    await until(() => controller !== null);
+    await until(() => got.controller !== null);
 
     await expect(session.close()).resolves.toBeUndefined();
-    expect(controller?.signal.aborted).toBe(true);
+    expect(got.controller?.signal.aborted).toBe(true);
     await expect(warming).rejects.toThrow("warmup aborted");
   });
 

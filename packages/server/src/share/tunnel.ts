@@ -1,4 +1,4 @@
-import { spawn as spawnChild } from "node:child_process";
+import { spawn as spawnChild, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { Resolver, lookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
@@ -36,8 +36,11 @@ export type RunningTunnel = {
   settle(): void;
 };
 
+/** What the tunnel uses of its process, so a test can hand it a fake one. */
+type TunnelChild = Pick<ChildProcess, "stdout" | "stderr" | "once" | "kill">;
+
 export type TunnelDeps = {
-  spawn?: typeof spawnChild;
+  spawn?: (command: string, args: readonly string[], options: SpawnOptions) => TunnelChild;
   probe?: (url: string) => Promise<boolean>;
   now?: () => number;
   urlDeadlineMs?: number;
@@ -157,7 +160,7 @@ export function startTunnel(
   },
   deps: TunnelDeps = {},
 ): RunningTunnel {
-  const spawn = deps.spawn ?? spawnChild;
+  const spawn: NonNullable<TunnelDeps["spawn"]> = deps.spawn ?? spawnChild;
   const now = deps.now ?? Date.now;
   const urlDeadlineMs = deps.urlDeadlineMs ?? URL_DEADLINE_MS;
   const probeDeadlineMs = deps.probeDeadlineMs ?? PROBE_DEADLINE_MS;
@@ -230,7 +233,7 @@ export function startTunnel(
       ? ["tunnel", "--url", `http://127.0.0.1:${options.port}`, "--no-autoupdate"]
       : ["http", String(options.port), "--log", "stdout", "--log-format", "json"];
 
-  let child: ReturnType<typeof spawnChild>;
+  let child: TunnelChild;
 
   try {
     child = spawn(options.provider, args, {
