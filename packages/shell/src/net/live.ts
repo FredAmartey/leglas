@@ -74,6 +74,11 @@ export function retryDelay(attempt: number): number {
   return Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempt);
 }
 
+export type LiveOptions = {
+  /** Where to dial. Defaults to this page's origin, as ws or wss. */
+  url?: string;
+};
+
 export type Live = {
   /** Ask to hear about one kind. Returns the unsubscribe. */
   on(change: LiveChange, listener: () => void): () => void;
@@ -106,7 +111,7 @@ export function liveConnection(): Live {
  * whoever asked for its kind. One socket for the whole interface: frames are
  * tiny and kinds few.
  */
-export function startLive(): Live {
+export function startLive(options: LiveOptions = {}): Live {
   const listeners = new Map<LiveChange, Set<() => void>>();
   let socket: WebSocket | null = null;
   let connected = false;
@@ -119,7 +124,7 @@ export function startLive(): Live {
     let opened: WebSocket;
 
     try {
-      opened = new WebSocket(defaultUrl());
+      opened = new WebSocket(options.url ?? defaultUrl());
     } catch {
       // A URL the browser won't take won't start working, but the loops keep
       // reading, so this stays quiet and retries on the backoff.
