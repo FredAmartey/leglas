@@ -588,39 +588,65 @@ async function idle(
 /**
  * After the idle window, so nothing it sets off is counted, and half a tick
  * from the fallback read: a direction registered from a terminal reaches the
- * open rail on the live nudge, or not for seconds.
+ * open rail on the live nudge, or not for seconds. Timed from the command
+ * finishing, because starting a CLI on a busy machine takes seconds of its
+ * own, and the page has to hear a live frame, which a fallback read never sends.
  */
-async function addCheck(session: Session): Promise<{ ms: number; check: Check }> {
-  const started = performance.now();
+async function addCheck(session: Session, log: PageLog): Promise<{ ms: number; check: Check }> {
+  const spawned = performance.now();
 
-  session.children.push(
-    spawn(process.execPath, [cliBin, "add", "--title", ADDED.title, "--url", ADDED.url], {
-      cwd: session.workspace.project,
-      env: session.workspace.env,
-      stdio: "ignore",
-    }),
-  );
+  const add = spawn(process.execPath, [cliBin, "add", "--title", ADDED.title, "--url", ADDED.url], {
+    cwd: session.workspace.project,
+    env: session.workspace.env,
+    stdio: "ignore",
+  });
 
+  session.children.push(add);
+
+  const finished = await new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ADD_WATCH_MS);
+
+    add.once("exit", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+    add.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+
+  const from = performance.now();
   let ms = -1;
 
-  while (performance.now() - started < ADD_WATCH_MS) {
+  while (finished && performance.now() - from < ADD_WATCH_MS) {
     const state = await pageState(session.page);
 
     if (state?.rail.includes(ADDED.title) === true) {
-      ms = performance.now() - started;
+      ms = performance.now() - from;
       break;
     }
 
     await sleep(POLL_MS);
   }
 
+  // The frame can land before the command's exit does, so look from the spawn.
+  const heard = log.frames.some((time) => time >= spawned);
+
+  const detail = !finished
+    ? `leglas add did not finish within ${ADD_WATCH_MS / 1000}s`
+    : ms < 0
+      ? `not there ${ADD_WATCH_MS / 1000}s after leglas add finished`
+      : heard
+        ? `there ${Math.round(ms)}ms after leglas add finished`
+        : `there after ${Math.round(ms)}ms, but no live frame reached the page`;
+
   return {
     ms,
     check: {
-      name: `a direction added with leglas add reaches the rail within ${ADD_DEADLINE_MS / 1000}s`,
-      ok: ms >= 0 && ms <= ADD_DEADLINE_MS,
-      detail:
-        ms < 0 ? `not there after ${ADD_WATCH_MS / 1000}s` : `there after ${Math.round(ms)}ms`,
+      name: `a direction added with leglas add reaches the rail on a live frame within ${ADD_DEADLINE_MS / 1000}s`,
+      ok: finished && heard && ms >= 0 && ms <= ADD_DEADLINE_MS,
+      detail,
     },
   };
 }
@@ -670,7 +696,7 @@ async function walk(
   await page.send("Page.navigate", { url });
   const booted = await boot(session);
   const idled = wanted.includes("idle") ? await idle(session, booted.settledAt) : null;
-  const added = idled === null ? null : await addCheck(session);
+  const added = idled === null ? null : await addCheck(session, log);
   await stop(leglas);
 
   const events = readEvents(workspace.events);
