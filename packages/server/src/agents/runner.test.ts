@@ -10,7 +10,7 @@ import { saveAgentChoice, type AgentChoiceInput } from "./agents.js";
 import type { ClaudeTurnInput, ClaudeTurnRunner } from "./claude-agent-session.js";
 import type { CodexTurnRunner } from "./codex-app-server.js";
 import { LOCAL_PREVIEWS_PATH } from "../config/local-previews.js";
-import { isString } from "../json.js";
+import { isString, type JsonRecord } from "../json.js";
 import { required } from "../test-helpers.js";
 import { appendRequest, readRequests } from "../requests/requests.js";
 import { IDLE_RELEASE_MS, startRunner, type RunnerOptions, type RunnerSpawn } from "./runner.js";
@@ -43,7 +43,10 @@ function fakeChild() {
     emitter.emit("close", code, null);
   };
 
-  return { child: emitter, close };
+  /** One line of the agent's stream-json. */
+  const say = (event: JsonRecord) => emitter.stdout.write(`${JSON.stringify(event)}\n`);
+
+  return { child: emitter, close, say };
 }
 
 function spawner() {
@@ -378,9 +381,7 @@ describe("startRunner", () => {
       images: [join(cwd, ".leglas/captures/request/frame.png")],
     });
     expect(spawned.calls).toHaveLength(0);
-    children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "system", subtype: "init", session_id: "claude_sdk_1" })}\n`,
-    );
+    children[0]?.say({ type: "system", subtype: "init", session_id: "claude_sdk_1" });
     children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 0);
     await runner.stop();
@@ -421,9 +422,7 @@ describe("startRunner", () => {
         turn,
         ...(shouldResume ? ["resume", thread] : ["--json", "-c"]),
       ]);
-      spawned.children[turn - 1]?.child.stdout.write(
-        `${JSON.stringify({ type: "thread.started", thread_id: thread })}\n`,
-      );
+      spawned.children[turn - 1]?.say({ type: "thread.started", thread_id: thread });
       spawned.children[turn - 1]?.close(0);
       await until(async () => (await readRequests(cwd)).length === 10 - turn);
     }
@@ -436,9 +435,7 @@ describe("startRunner", () => {
     const { cwd, clock, spawned, runner } = await boot({ agent: "codex" }, ["Seed", "Fragile"]);
 
     await until(() => spawned.children.length === 1);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
-    );
+    spawned.children[0]?.say({ type: "thread.started", thread_id: "th_1" });
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
 
@@ -459,9 +456,7 @@ describe("startRunner", () => {
       "--skip-git-repo-check",
       "prompt for Fragile",
     ]);
-    spawned.children[2]?.child.stdout.write(
-      `${JSON.stringify({ type: "thread.started", thread_id: "th_2" })}\n`,
-    );
+    spawned.children[2]?.say({ type: "thread.started", thread_id: "th_2" });
     spawned.children[2]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 0);
     expect(runner.snapshot().failedIds).toEqual([]);
@@ -478,9 +473,7 @@ describe("startRunner", () => {
     ]);
 
     await until(() => spawned.children.length === 1);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "thread.started", thread_id: "th_1" })}\n`,
-    );
+    spawned.children[0]?.say({ type: "thread.started", thread_id: "th_1" });
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 2);
 
@@ -488,9 +481,10 @@ describe("startRunner", () => {
     // half-edit, so this must surface as a failure.
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1][1]).toBe("resume");
-    spawned.children[1]?.child.stdout.write(
-      `${JSON.stringify({ type: "item.started", item: { type: "file_change", changes: [{ path: "x.html" }] } })}\n`,
-    );
+    spawned.children[1]?.say({
+      type: "item.started",
+      item: { type: "file_change", changes: [{ path: "x.html" }] },
+    });
     spawned.children[1]?.close(1);
     await until(() => runner.snapshot().failedIds.length === 1);
     expect(spawned.children).toHaveLength(2);
@@ -574,9 +568,7 @@ describe("startRunner", () => {
     const { cwd, clock, spawned, runner } = await boot({ agent: "claude" }, ["Seed", "Poster"]);
 
     await until(() => spawned.children.length === 1);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
-    );
+    spawned.children[0]?.say({ type: "system", subtype: "init", session_id: "s_1" });
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
 
@@ -585,16 +577,14 @@ describe("startRunner", () => {
     // cold rerun would pay the whole ladder again.
     await tickUntil(clock, () => spawned.children.length === 2);
     expect(spawned.calls[1]?.[1]).toContain("--resume");
-    spawned.children[1]?.child.stdout.write(
-      `${JSON.stringify({
-        type: "system",
-        subtype: "api_retry",
-        attempt: 10,
-        max_retries: 10,
-        error_status: 529,
-        error: "overloaded",
-      })}\n`,
-    );
+    spawned.children[1]?.say({
+      type: "system",
+      subtype: "api_retry",
+      attempt: 10,
+      max_retries: 10,
+      error_status: 529,
+      error: "overloaded",
+    });
     spawned.children[1]?.close(1);
 
     await until(() => runner.snapshot().failedIds.length === 1);
@@ -924,9 +914,7 @@ describe("startRunner", () => {
     );
 
     await until(() => spawned.children.length === 1);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
-    );
+    spawned.children[0]?.say({ type: "system", subtype: "init", session_id: "s_1" });
     await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
     spawned.children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
@@ -954,9 +942,7 @@ describe("startRunner", () => {
 
     // The agent exits 0 and never registers, which must not count as success.
     await until(() => spawned.children.length === 1);
-    spawned.children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "system", subtype: "init", session_id: "s_1" })}\n`,
-    );
+    spawned.children[0]?.say({ type: "system", subtype: "init", session_id: "s_1" });
     spawned.children[0]?.close(0);
 
     await until(() => runner.snapshot().failedIds.length === 1);
@@ -987,7 +973,7 @@ test("a Cursor resume that died without editing is tried once more, cold", async
 
   // First run is cold and names the session Cursor reports.
   await until(() => spawned.calls.length === 1);
-  spawned.children[0]?.child.stdout.write(`${JSON.stringify({ session_id: "chat_1" })}\n`);
+  spawned.children[0]?.say({ session_id: "chat_1" });
   spawned.children[0]?.close(0);
   await until(async () => (await readRequests(cwd)).length === 0);
 
@@ -1232,9 +1218,7 @@ describe("warm transports", () => {
     });
 
     await until(() => children.length === 1);
-    children[0]?.child.stdout.write(
-      `${JSON.stringify({ type: "system", subtype: "init", session_id: "claude_sdk_9" })}\n`,
-    );
+    children[0]?.say({ type: "system", subtype: "init", session_id: "claude_sdk_9" });
     children[0]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 0);
 
