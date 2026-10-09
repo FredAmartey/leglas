@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
@@ -23,14 +23,24 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** Hover the control for long enough that its tip opens. */
-function hover(control: Element): void {
+/**
+ * Mounts a tip on a button inside `#holder` of `html`, then hovers the button
+ * for long enough that its tip opens. Returns the button and the open label.
+ */
+function hovered(html: string, tip: ReactElement) {
+  document.body.innerHTML = html;
+  root = createRoot(must(document.getElementById("holder"), "the holder"));
+  act(() => root.render(tip));
+
+  const control = must(document.querySelector("#holder button"), "the button");
   act(() => {
     control.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
   });
   act(() => {
     vi.advanceTimersByTime(300);
   });
+
+  return { control, label: document.querySelector(".leglas-tip") };
 }
 
 /**
@@ -41,67 +51,45 @@ function hover(control: Element): void {
  * control.
  */
 test("a tip's label mounts on the shell, outside whatever clips its control", () => {
-  document.body.innerHTML = `<main data-leglas-shell=""><div id="masked-list"></div></main>`;
-  const shell = must(document.querySelector("main"), "main");
-  const list = must(document.getElementById("masked-list"), "the list");
-  root = createRoot(list);
-  act(() =>
-    root.render(
-      <Tip label="Variant of Counter" side="right" wide>
-        <button type="button">Olive</button>
-      </Tip>,
-    ),
+  const { label } = hovered(
+    `<main data-leglas-shell=""><div id="holder"></div></main>`,
+    <Tip label="Variant of Counter" side="right" wide>
+      <button type="button">Olive</button>
+    </Tip>,
   );
 
-  hover(must(list.querySelector("button"), "the button"));
-
-  const label = document.querySelector(".leglas-tip");
   expect(label?.textContent).toBe("Variant of Counter");
-  expect(list.contains(label)).toBe(false);
+  expect(document.getElementById("holder")?.contains(label)).toBe(false);
   // Still inside the shell, where its typeface and smoothing are set.
-  expect(shell.contains(label)).toBe(true);
+  expect(document.querySelector("main")?.contains(label)).toBe(true);
 });
 
 test("inside a modal dialog the label stays in the dialog, which is the top layer", () => {
-  document.body.innerHTML = `<main data-leglas-shell=""><dialog open><div id="body"></div></dialog></main>`;
-  const dialog = must(document.querySelector("dialog"), "the dialog");
-  root = createRoot(must(document.getElementById("body"), "the body"));
-  act(() =>
-    root.render(
-      <Tip label="Copy the link">
-        <button type="button">Copy</button>
-      </Tip>,
-    ),
+  const { label } = hovered(
+    `<main data-leglas-shell=""><dialog open><div id="holder"></div></dialog></main>`,
+    <Tip label="Copy the link">
+      <button type="button">Copy</button>
+    </Tip>,
   );
 
-  hover(must(dialog.querySelector("button"), "the button"));
-
-  const label = document.querySelector(".leglas-tip");
   expect(label).not.toBeNull();
-  expect(dialog.contains(label)).toBe(true);
-  expect(document.getElementById("body")?.contains(label)).toBe(false);
+  expect(document.querySelector("dialog")?.contains(label)).toBe(true);
+  expect(document.getElementById("holder")?.contains(label)).toBe(false);
 });
 
 test("with no shell around it the label goes to the body, and leaves when the pointer does", () => {
   // A shell elsewhere on the page isn't around the control, so the label
   // doesn't belong there either.
-  document.body.innerHTML = `<main data-leglas-shell=""></main><div id="app"></div>`;
-  const app = must(document.getElementById("app"), "the app");
-  root = createRoot(app);
-  act(() =>
-    root.render(
-      <Tip label="Open updates">
-        <button type="button">1.1.1</button>
-      </Tip>,
-    ),
+  const { control, label } = hovered(
+    `<main data-leglas-shell=""></main><div id="holder"></div>`,
+    <Tip label="Open updates">
+      <button type="button">1.1.1</button>
+    </Tip>,
   );
-  const control = must(app.querySelector("button"), "the button");
 
-  hover(control);
-  const label = must(document.querySelector(".leglas-tip"), "the label");
   expect(document.body.contains(label)).toBe(true);
-  expect(app.contains(label)).toBe(false);
-  expect(label.closest("[data-leglas-shell]")).toBeNull();
+  expect(document.getElementById("holder")?.contains(label)).toBe(false);
+  expect(label?.closest("[data-leglas-shell]")).toBeNull();
 
   act(() => {
     control.dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));

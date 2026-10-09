@@ -62,30 +62,23 @@ describe("startPoll", () => {
     stop();
   });
 
-  test("starts the next read once the last one settles", async () => {
-    const first = deferred();
+  test("starts the next read once the last one settles, and a failed one frees the slot too", async () => {
+    const [first, second] = [deferred(), deferred()];
+    const reads = [first.promise, second.promise];
     let call = 0;
-    const { signals, stop } = start(() => (call++ === 0 ? first.promise : Promise.resolve()));
+    const { signals, stop } = start(() => reads[call++] ?? Promise.resolve());
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(signals).toHaveLength(1);
 
     first.settle();
     await vi.advanceTimersByTimeAsync(2000);
-
     expect(signals).toHaveLength(2);
-    stop();
-  });
 
-  test("a failed read frees the slot instead of wedging the loop", async () => {
-    const first = deferred();
-    let call = 0;
-    const { signals, stop } = start(() => (call++ === 0 ? first.promise : Promise.resolve()));
-
-    first.fail(new Error("the server went away"));
+    // Not wedging the loop.
+    second.fail(new Error("the server went away"));
     await vi.advanceTimersByTimeAsync(2000);
-
-    expect(signals).toHaveLength(2);
+    expect(signals).toHaveLength(3);
     stop();
   });
 
