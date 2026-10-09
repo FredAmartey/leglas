@@ -131,15 +131,16 @@ export function splitCount(name: string): { journey: string; count: string } | n
  * The ceilings that rose since `base` with no new entry in `raised` saying so.
  * A count new to a journey rose from zero, so it needs an entry too. A journey
  * new since `base` has nothing to rise from: its first ceilings are whatever
- * `--update` measured, reviewed with the code that added it. An entry with a
- * blank reason explains nothing, since the file can be edited by hand.
+ * `--update` measured, reviewed with the code that added it. The file can be
+ * edited by hand, so entries are counted rather than matched: a rise needs
+ * more entries for that count and value than `base` had, and an entry with a
+ * blank reason explains nothing.
  */
 export function unexplainedRaises(base: CeilingFile, head: CeilingFile): string[] {
-  const logged = new Set(base.raised.map((entry) => JSON.stringify(entry)));
-
-  const fresh = head.raised.filter(
-    (entry) => entry.why.trim() !== "" && !logged.has(JSON.stringify(entry)),
-  );
+  const reasons = (file: CeilingFile, name: string, to: number) =>
+    file.raised.filter(
+      (entry) => entry.count === name && entry.to === to && entry.why.trim() !== "",
+    ).length;
 
   const unexplained: string[] = [];
 
@@ -153,7 +154,7 @@ export function unexplainedRaises(base: CeilingFile, head: CeilingFile): string[
 
       if (ceiling <= (before[count] ?? 0)) continue;
 
-      if (!fresh.some((entry) => entry.count === name && entry.to === ceiling)) {
+      if (reasons(head, name, ceiling) <= reasons(base, name, ceiling)) {
         unexplained.push(`${name} rose from ${before[count] ?? 0} to ${ceiling}`);
       }
     }

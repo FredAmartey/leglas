@@ -80,6 +80,13 @@ describe("checking ceilings against a base", () => {
     expect(unexplainedRaises(again, raisedTo(2, base.raised))).toEqual([
       "boot.processes.lsof rose from 1 to 2",
     ]);
+
+    // Editing the old entry doesn't make it a new one.
+    const edited = base.raised.map((entry) => ({ ...entry, on: "2026-10-09" }));
+
+    expect(unexplainedRaises(again, raisedTo(2, edited))).toEqual([
+      "boot.processes.lsof rose from 1 to 2",
+    ]);
   });
 
   test("a count new to a journey rose from zero, and a new journey has nothing to rise from", () => {

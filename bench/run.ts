@@ -369,7 +369,15 @@ async function measure(options: Options): Promise<number> {
   let ceilings = file.ceilings;
   let raised = file.raised;
 
-  if (options.update) {
+  // A walk whose checks failed counted a broken journey, and lowering ceilings
+  // to it would make the next good walk read as a regression.
+  const trusted = counted.every((summary) => summary.checks.every((check) => check.ok));
+
+  if ((options.update || options.raise !== null) && !trusted) {
+    process.stderr.write("A check failed, so bench/ceilings.json was left as it was.\n");
+  }
+
+  if (options.update && trusted) {
     ceilings = Object.fromEntries(
       Object.entries(ceilings).map(([name, counts]) => {
         const summary = counted.find((entry) => entry.name === name);
@@ -387,7 +395,7 @@ async function measure(options: Options): Promise<number> {
     for (const summary of counted) ceilings[summary.name] ??= { ...summary.counts };
   }
 
-  if (options.raise !== null) {
+  if (options.raise !== null && trusted) {
     const { journey, count, why } = options.raise;
     const summary = counted.find((entry) => entry.name === journey);
 
@@ -476,6 +484,8 @@ for (const [signal, code] of [
   ["SIGTERM", 143],
   ["SIGHUP", 129],
 ] as const) {
+  // Once: a second Ctrl-C during teardown falls through to Node's default and
+  // exits at once, the usual way out of a stop that hangs.
   process.once(signal, () => {
     interrupted = code;
     void stopWalking().finally(() => process.exit(code));
