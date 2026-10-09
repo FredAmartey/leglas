@@ -76,6 +76,8 @@ function shot(name: string, width = 800, height = 600) {
 
 function capture(overrides: Partial<CaptureOutput> = {}): CaptureOutput {
   return {
+    layout: [],
+    jpeg: null,
     frame: shot("frame"),
     crops: [],
     errors: [],

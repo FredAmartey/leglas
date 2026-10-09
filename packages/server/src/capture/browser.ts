@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import nodeProcess from "node:process";
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir as osTmpdir } from "node:os";
@@ -306,7 +306,7 @@ export type Browser = {
 };
 
 export type LaunchOptions = {
-  spawn?: typeof import("node:child_process").spawn;
+  spawn?: (command: string, args: readonly string[], options: SpawnOptions) => BrowserProcess;
   connect?: (url: string) => Promise<CdpSocket>;
   tmpdir?: string;
   startTimeoutMs?: number;
@@ -333,7 +333,8 @@ type PendingCommand = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-type BrowserProcess = ReturnType<typeof nodeSpawn>;
+/** What a launch uses of the browser's process, so a test can hand it a fake one. */
+type BrowserProcess = Pick<ChildProcess, "pid" | "kill" | "once" | "stdout" | "stderr">;
 
 function lines(stream: NodeJS.ReadableStream, listener: (line: string) => void): void {
   let buffered = "";
@@ -617,7 +618,7 @@ export async function launchBrowser(
   executable: string,
   options: LaunchOptions = {},
 ): Promise<Browser> {
-  const spawn = options.spawn ?? nodeSpawn;
+  const spawn: NonNullable<LaunchOptions["spawn"]> = options.spawn ?? nodeSpawn;
   const connect = options.connect ?? connectWebSocket;
   const commandTimeoutMs = options.commandTimeoutMs ?? 30_000;
 

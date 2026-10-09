@@ -28,7 +28,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsup && tsc -p tsconfig.declarations.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "prepack": "cp ../../README.md ./README.md"
   },
   "devDependencies": {
