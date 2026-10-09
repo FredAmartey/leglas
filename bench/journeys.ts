@@ -160,8 +160,7 @@ export function findHost(): Host {
 
 type Workspace = { root: string; project: string; env: NodeJS.ProcessEnv; events: string };
 
-function prepare(host: Host): Workspace {
-  const root = mkdtempSync(join(tmpdir(), "leglas-bench-"));
+function prepare(host: Host, root: string): Workspace {
   const project = join(root, "project");
   const home = join(root, "home");
   const bin = join(root, "bin");
@@ -220,7 +219,10 @@ function readLine(child: ChildProcess, pattern: RegExp, label: string): Promise<
 }
 
 function stop(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  // A child that never started has no exit to wait for.
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
 
   return new Promise((resolve) => {
     const kill = setTimeout(() => child.kill("SIGKILL"), 10_000);
@@ -277,6 +279,21 @@ function hasRequestUrl(params: unknown): params is { request: { url: string } } 
   return typeof request === "object" && request !== null && "url" in request && isText(request.url);
 }
 
+function hasPayload(params: unknown): params is { response: { payloadData: string } } {
+  if (typeof params !== "object" || params === null || !("response" in params)) return false;
+  const response = params.response;
+
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "payloadData" in response &&
+    isText(response.payloadData)
+  );
+}
+
+/** The frame the server's live hub sends when the directions change. */
+const CONFIG_NUDGE = JSON.stringify({ changed: "config" });
+
 function hasTextValue(reply: unknown): reply is { result: { value: string } } {
   if (typeof reply !== "object" || reply === null || !("result" in reply)) return false;
   const result = reply.result;
@@ -323,7 +340,7 @@ function isProbeEvent(value: unknown): value is ProbeEvent {
  * the three describe the same moment.
  */
 const PAGE_STATE = `(() => {
-  const rail = [...document.querySelectorAll("[data-title]")].map((row) => row.getAttribute("data-title"));
+  const rail = [...document.querySelectorAll("li[data-title]")].map((row) => row.getAttribute("data-title"));
   let painted = null;
   try {
     const doc = document.querySelector(${JSON.stringify(`iframe[data-preview="${baseline}"]`)})?.contentDocument;
@@ -361,7 +378,12 @@ function offMachine(url: string): boolean {
 }
 
 /** What the page did, each entry a time by the runner's clock. */
-type PageLog = { sockets: number[]; frames: number[]; offMachine: number[] };
+type PageLog = {
+  sockets: number[];
+  frames: number[];
+  configFrames: number[];
+  offMachine: number[];
+};
 
 const MARKER = "/leglas/__bench/";
 
@@ -465,7 +487,10 @@ function readEvents(path: string): ProbeEvent[] {
     return [];
   }
 
-  return text.split("\n").flatMap((line) => {
+  // The last piece is empty, or a line Leglas is still writing.
+  const lines = text.split("\n").slice(0, -1);
+
+  return lines.flatMap((line) => {
     if (line === "") return [];
     const parsed: unknown = JSON.parse(line);
 
@@ -489,17 +514,22 @@ export function stopWalking(): Promise<void> {
  * where boot ends, so asking for idle boots too.
  */
 export async function runJourneys(host: Host, wanted: readonly JourneyName[]): Promise<RunResult> {
-  const workspace = prepare(host);
+  const root = mkdtempSync(join(tmpdir(), "leglas-bench-"));
   const children: ChildProcess[] = [];
-  let browser: Browser | null = null;
+  let launching: Promise<Browser> | null = null;
   let cleaned: Promise<void> | null = null;
 
   // Once: an interrupt and the finally below can both ask for it.
   const cleanup = (): Promise<void> => {
     cleaned ??= (async () => {
-      for (const child of children.toReversed()) await stop(child);
-      await browser?.close();
-      rmSync(workspace.root, { recursive: true, force: true });
+      try {
+        for (const child of children.toReversed()) await stop(child);
+        // A launch still under way is waited for, so its Chrome closes too.
+        const browser = await launching?.catch(() => null);
+        await browser?.close();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     })();
 
     return cleaned;
@@ -508,7 +538,10 @@ export async function runJourneys(host: Host, wanted: readonly JourneyName[]): P
   undo = cleanup;
 
   try {
-    browser = await launchBrowser(host.browser);
+    const workspace = prepare(host, root);
+    // Chrome's profile goes inside the walk's folder, so it goes with it.
+    launching = launchBrowser(host.browser, { tmpdir: root });
+    const browser = await launching;
 
     const dev = spawn(process.execPath, [join(workspace.project, "server.ts"), "--port", "0"], {
       cwd: workspace.project,
@@ -618,7 +651,8 @@ async function idle(
  * from the fallback read: a direction registered from a terminal reaches the
  * open rail on the live nudge, or not for seconds. Timed from the command
  * finishing, because starting a CLI on a busy machine takes seconds of its
- * own, and the page has to hear a live frame, which a fallback read never sends.
+ * own, and the page has to hear the config nudge itself: a fallback read sends
+ * no frame, and another kind of frame says nothing about this one.
  */
 async function addCheck(session: Session, log: PageLog): Promise<{ ms: number; check: Check }> {
   const spawned = performance.now();
@@ -659,7 +693,7 @@ async function addCheck(session: Session, log: PageLog): Promise<{ ms: number; c
   }
 
   // The frame can land before the command's exit does, so look from the spawn.
-  const heard = log.frames.some((time) => time >= spawned);
+  const heard = log.configFrames.some((time) => time >= spawned);
 
   const detail = !finished
     ? `leglas add did not finish within ${ADD_WATCH_MS / 1000}s`
@@ -667,12 +701,12 @@ async function addCheck(session: Session, log: PageLog): Promise<{ ms: number; c
       ? `not there ${ADD_WATCH_MS / 1000}s after leglas add finished`
       : heard
         ? `there ${Math.round(ms)}ms after leglas add finished`
-        : `there after ${Math.round(ms)}ms, but no live frame reached the page`;
+        : `there after ${Math.round(ms)}ms, but no config nudge reached the page`;
 
   return {
     ms,
     check: {
-      name: `a direction added with leglas add reaches the rail on a live frame within ${ADD_DEADLINE_MS / 1000}s`,
+      name: `a direction added with leglas add reaches the rail on the config nudge within ${ADD_DEADLINE_MS / 1000}s`,
       ok: finished && heard && ms >= 0 && ms <= ADD_DEADLINE_MS,
       detail,
     },
@@ -686,9 +720,15 @@ async function walk(
   wanted: readonly JourneyName[],
   children: ChildProcess[],
 ): Promise<RunResult> {
-  const log: PageLog = { sockets: [], frames: [], offMachine: [] };
+  const log: PageLog = { sockets: [], frames: [], configFrames: [], offMachine: [] };
   page.on("Network.webSocketCreated", () => log.sockets.push(performance.now()));
-  page.on("Network.webSocketFrameReceived", () => log.frames.push(performance.now()));
+  page.on("Network.webSocketFrameReceived", (params) => {
+    const at = performance.now();
+    log.frames.push(at);
+
+    if (hasPayload(params) && params.response.payloadData === CONFIG_NUDGE)
+      log.configFrames.push(at);
+  });
   page.on("Network.requestWillBeSent", (params) => {
     if (hasRequestUrl(params) && offMachine(params.request.url)) {
       log.offMachine.push(performance.now());
@@ -729,7 +769,22 @@ async function walk(
 
   const events = readEvents(workspace.events);
   const settledT = markerTime(events, "settled") ?? 0;
+  const firstRead = events.find((event) => event.what === FIRST_READ)?.t ?? null;
   const journeys: JourneyResult[] = [];
+
+  // Past half a tick, a fallback read can land inside boot or at idle's edge,
+  // and the counts move with no other check saying why.
+  const bootChecks: Check[] = [
+    ...booted.checks,
+    {
+      name: `boot finished within ${FALLBACK_MS / 2000}s of the interface's first read`,
+      ok: firstRead !== null && settledT - firstRead < FALLBACK_MS / 2,
+      detail:
+        firstRead === null
+          ? `no ${FIRST_READ} reached Leglas`
+          : `it finished ${Math.round(settledT - firstRead)}ms after it`,
+    },
+  ];
 
   if (wanted.includes("boot")) {
     journeys.push({
@@ -740,7 +795,7 @@ async function walk(
       }),
       clocks: { ready: markerTime(events, "ready") ?? -1, settled: settledT },
       memoryMb: booted.memoryMb,
-      checks: booted.checks,
+      checks: bootChecks,
     });
   }
 
@@ -759,7 +814,7 @@ async function walk(
       // too when boot itself isn't being reported.
       checks: [
         added.check,
-        ...(wanted.includes("boot") ? [] : booted.checks.filter((check) => !check.ok)),
+        ...(wanted.includes("boot") ? [] : bootChecks.filter((check) => !check.ok)),
       ],
     });
   }
