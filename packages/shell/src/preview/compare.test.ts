@@ -58,11 +58,16 @@ describe("how one side of a split is drawn", () => {
     viewport: null,
   };
 
-  test("a single pane is left alone", () => {
+  test("a single pane, or a split with scaling turned off, is left to the app", () => {
     const geometry = paneGeometry({ ...stage, panes: 1 });
     expect(geometry.scaling).toBe(false);
     expect(geometry.scale).toBe(1);
     expect(geometry.designWidth).toBe(1358);
+    // Off is the old behaviour: the pane goes back to the app.
+    expect(paneGeometry({ ...stage, panes: 2, scaleSplit: false })).toMatchObject({
+      scaling: false,
+      scale: 1,
+    });
   });
 
   test("a split keeps the width it had alone and scales to fit", () => {
@@ -78,12 +83,6 @@ describe("how one side of a split is drawn", () => {
     // the pane would draw a viewport-height hero in a window twice as tall.
     expect(geometry.frameHeight).toBe(950);
     expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1358 / 950, 2);
-  });
-
-  test("turning it off gives the pane back to the app, which is the old behaviour", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, scaleSplit: false });
-    expect(geometry.scaling).toBe(false);
-    expect(geometry.scale).toBe(1);
   });
 
   test("a viewport preset is what gets scaled, so presets survive a split", () => {
@@ -134,17 +133,15 @@ describe("how one side of a split is drawn", () => {
     expect(geometry.boxHeight).toBe(902);
   });
 
-  test("a stage not measured yet does not divide by zero", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, stageHeight: 0, stageWidth: 0 });
-    expect(Number.isFinite(geometry.scale)).toBe(true);
-    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
-    expect(geometry.scaling).toBe(false);
-  });
+  test("a stage not measured yet, or a pane dragged to nothing, still yields a usable scale", () => {
+    const unmeasured = paneGeometry({ ...stage, panes: 2, stageHeight: 0, stageWidth: 0 });
+    expect(Number.isFinite(unmeasured.scale)).toBe(true);
+    expect(Number.isFinite(unmeasured.frameHeight)).toBe(true);
+    expect(unmeasured.scaling).toBe(false);
 
-  test("a pane dragged to nothing still yields a usable scale", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, stageWidth: 40, viewport: 1440 });
-    expect(geometry.scale).toBeGreaterThan(0);
-    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
+    const dragged = paneGeometry({ ...stage, panes: 2, stageWidth: 40, viewport: 1440 });
+    expect(dragged.scale).toBeGreaterThan(0);
+    expect(Number.isFinite(dragged.frameHeight)).toBe(true);
   });
 });
 

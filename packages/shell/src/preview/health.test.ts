@@ -8,11 +8,9 @@ const up: HealthState = { reachable: true, wasDown: false };
 const down: HealthState = { reachable: false, wasDown: true };
 
 describe("nextHealthState", () => {
-  test("goes down the moment it stops answering", () => {
+  test("goes down the moment it stops answering, and remembers it after it comes back", () => {
     expect(nextHealthState(up, false)).toEqual({ reachable: false, wasDown: true });
-  });
-
-  test("remembers it was down after it comes back, so panes can be recovered", () => {
+    // So panes can be recovered.
     expect(nextHealthState(down, true)).toEqual({ reachable: true, wasDown: true });
   });
 

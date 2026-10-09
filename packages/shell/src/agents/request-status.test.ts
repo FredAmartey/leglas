@@ -46,7 +46,7 @@ const option = (id: string, available = true): AgentOption => ({
 });
 
 describe("request direction activity", () => {
-  test("separates queued changes from work an agent has picked up", () => {
+  test("separates queued changes from work an agent has picked up, and a fork leaves its parent alone", () => {
     const requests = [
       request("queued", "queued", "Queued"),
       request("picked", "picked-up", "Picked"),
@@ -56,20 +56,18 @@ describe("request direction activity", () => {
 
     expect(changingRequestTitles(requests)).toEqual(["Queued", "Picked", "Running"]);
     expect([...workingRequestTitles(requests)]).toEqual(["Picked", "Running"]);
-  });
 
-  test("a fork leaves its parent's document alone", () => {
     // A variant is built beside its parent, which the agent is told to leave
     // alone. Counting the parent as changing dropped its duplicate verdict and
     // re-read it after every fork, the default request.
-    const requests = [
+    const forked = [
       { ...request("fork", "picked-up", "Parent"), mode: "variant" as const },
       { ...request("edit", "picked-up", "Edited"), mode: "replace" as const },
       request("plain", "queued", "Unmarked"),
     ];
 
-    expect(changingRequestTitles(requests)).toEqual(["Edited", "Unmarked"]);
-    expect([...workingRequestTitles(requests)]).toEqual(["Parent", "Edited"]);
+    expect(changingRequestTitles(forked)).toEqual(["Edited", "Unmarked"]);
+    expect([...workingRequestTitles(forked)]).toEqual(["Parent", "Edited"]);
   });
 });
 

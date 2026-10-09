@@ -70,13 +70,18 @@ describe("lineageRail", () => {
     ]);
   });
 
-  test("depth is the real depth, for a rail that wants to show it", () => {
+  test("depth is the real depth, and a root's family count is everything beneath it", () => {
     const { meta } = lineageRail(SAVED, CHAIN, new Set());
 
     expect(meta.get("Meridian")?.depth).toBe(0);
     expect(meta.get("Harbour")?.depth).toBe(3);
     expect(meta.get("Lantern")?.depth).toBe(5);
     expect(meta.get("Ferry")?.depth).toBe(4);
+
+    expect(meta.get("Meridian")?.variants).toBe(6);
+    expect(meta.get("Harbour")?.variants).toBe(0);
+    expect(meta.get("Harbour")?.descendants).toBe(3);
+    expect(meta.get("Lantern")?.descendants).toBe(0);
   });
 
   test("a chain is one lane and a fork opens a second", () => {
@@ -129,15 +134,6 @@ describe("lineageRail", () => {
     expect(rows).toEqual(["Current", "Ledger", "Meridian"]);
     expect(meta.get("Meridian")).toMatchObject({ variants: 6, folded: true });
     expect(meta.get("Meridian")?.graph?.toBelow).toBe(false);
-  });
-
-  test("the family count on a root is everything beneath it", () => {
-    const { meta } = lineageRail(SAVED, CHAIN, new Set());
-
-    expect(meta.get("Meridian")?.variants).toBe(6);
-    expect(meta.get("Harbour")?.variants).toBe(0);
-    expect(meta.get("Harbour")?.descendants).toBe(3);
-    expect(meta.get("Lantern")?.descendants).toBe(0);
   });
 
   test("a row at any depth can fold what is beneath it", () => {
@@ -204,15 +200,13 @@ describe("ancestry", () => {
 });
 
 describe("collapseChain", () => {
-  test("a short chain shows whole", () => {
+  test("a short chain shows whole, and a long one keeps its root and its parent", () => {
     expect(collapseChain(["Root", "Mid", "Parent"])).toEqual({
       head: ["Root", "Mid", "Parent"],
       hidden: [],
       tail: [],
     });
-  });
 
-  test("a long chain keeps its root and its parent", () => {
     expect(collapseChain(ancestry("Lantern", CHAIN))).toEqual({
       head: ["Meridian"],
       hidden: ["Dusk", "Sea", "Harbour"],
@@ -295,17 +289,14 @@ describe("segmentsOf", () => {
 describe("reorderAmongSiblings", () => {
   const SHOWCASE_KIDS = ["Quay", "Ferry"];
 
-  test("puts a sibling before the one it should precede", () => {
+  test("puts a sibling before the one it should precede, or with none after the last", () => {
     const order = reorderAmongSiblings(SAVED, SAVED, "Ferry", "Quay", SHOWCASE_KIDS);
 
     expect(order.indexOf("Ferry")).toBe(order.indexOf("Quay") - 1);
     expect([...order].sort()).toEqual([...SAVED].sort());
-  });
 
-  test("with nothing to go before, lands after the last sibling", () => {
-    const order = reorderAmongSiblings(SAVED, SAVED, "Quay", null, SHOWCASE_KIDS);
-
-    expect(order.indexOf("Quay")).toBe(order.indexOf("Ferry") + 1);
+    const last = reorderAmongSiblings(SAVED, SAVED, "Quay", null, SHOWCASE_KIDS);
+    expect(last.indexOf("Quay")).toBe(last.indexOf("Ferry") + 1);
   });
 
   test("moving a root moves it among the roots and leaves its family's rows alone", () => {

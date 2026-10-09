@@ -108,7 +108,7 @@ describe("names and sizes", () => {
 });
 
 describe("what a request names", () => {
-  test("only uploads that landed become ids", () => {
+  test("only uploads that landed become ids, and a failed one blocks the send", () => {
     const drafts = [
       draft({ key: "1", id: "a" }),
       draft({ key: "2", status: "uploading", id: null }),
@@ -117,17 +117,11 @@ describe("what a request names", () => {
     ];
 
     expect(referenceIds(drafts)).toEqual(["a", "d"]);
-  });
-
-  test("a failed upload blocks the send, an upload in flight waits, a clean set sends", () => {
+    // A failure needs a decision, so it outranks an upload in flight, which
+    // only waits; a clean set sends.
+    expect(sendBlocker(drafts)).toBe("failed");
     expect(sendBlocker([draft({ status: "failed", id: null })])).toBe("failed");
     expect(sendBlocker([draft({ status: "uploading", id: null }), draft()])).toBe("uploading");
-    expect(
-      sendBlocker([
-        draft({ status: "failed", id: null }),
-        draft({ status: "uploading", id: null }),
-      ]),
-    ).toBe("failed");
     expect(sendBlocker([draft(), draft({ key: "2" })])).toBeNull();
     expect(sendBlocker([])).toBeNull();
   });
