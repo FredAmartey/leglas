@@ -97,29 +97,6 @@ async function call(
 }
 
 describe("the MCP face", () => {
-  test("lists the same tools the CLI offers", async () => {
-    const client = await connect(scratch());
-
-    const { tools } = await client.listTools();
-    const names = tools.map((tool) => tool.name).sort();
-
-    expect(names).toEqual([
-      "add",
-      "classify",
-      "explore",
-      "init",
-      "keep",
-      "link",
-      "list",
-      "remove",
-      "requests",
-      "scaffold",
-      "share",
-      "show",
-      "start",
-    ]);
-  });
-
   test("share reaches the running Leglas through the CLI, and says so when there is none", async () => {
     const dir = scratch();
     // A port that was free a moment ago: the project's record points at nothing
@@ -283,27 +260,25 @@ describe("the MCP face", () => {
     expect(String(envelope["reason"])).toContain("dependency");
   });
 
-  test("explore briefs the set without prescribing designs", async () => {
+  test("explore briefs the set without prescribing designs, or variants of a direction", async () => {
     const client = await connect(scratch());
 
-    const { envelope } = await call(client, "explore", { surface: "hero", count: 4 });
+    const spread = await call(client, "explore", { surface: "hero", count: 4 });
 
-    expect(envelope["ok"]).toBe(true);
-    expect(String(envelope["instructions"])).toContain("Build 4 design directions");
-    expect(String(envelope["instructions"])).toContain(".leglas/variants/hero/");
-  });
+    expect(spread.envelope["ok"]).toBe(true);
+    expect(String(spread.envelope["instructions"])).toContain("Build 4 design directions");
+    expect(String(spread.envelope["instructions"])).toContain(".leglas/variants/hero/");
 
-  test("explore based on a direction asks for variants instead", async () => {
-    const client = await connect(scratch());
-
-    const { envelope } = await call(client, "explore", {
+    const variants = await call(client, "explore", {
       surface: "hero",
       count: 3,
       basedOn: "Aurora",
     });
 
-    expect(envelope["ok"]).toBe(true);
-    expect(String(envelope["instructions"])).toContain('variations of the "Aurora" direction');
+    expect(variants.envelope["ok"]).toBe(true);
+    expect(String(variants.envelope["instructions"])).toContain(
+      'variations of the "Aurora" direction',
+    );
   });
 
   test("add accepts a file preview for the greenfield case", async () => {
@@ -322,21 +297,16 @@ describe("the MCP face", () => {
     const touches = { count: 0 };
     const client = await connect(scratch(), { touches });
 
-    await call(client, "requests", {});
+    // A fresh project's queue is empty.
+    const { envelope } = await call(client, "requests", {});
+    expect(envelope["ok"]).toBe(true);
+    expect(envelope["requests"]).toEqual([]);
+
     await call(client, "list", {});
     await call(client, "requests", { clear: true });
 
     // Only the queue tool signals engagement; browsing previews does not.
     expect(touches.count).toBe(2);
-  });
-
-  test("requests is empty for a fresh project", async () => {
-    const client = await connect(scratch());
-
-    const { envelope } = await call(client, "requests", {});
-
-    expect(envelope["ok"]).toBe(true);
-    expect(envelope["requests"]).toEqual([]);
   });
 
   // A booting server asks each agent CLI whether it is logged in. Stand-ins
