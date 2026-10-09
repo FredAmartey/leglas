@@ -996,9 +996,15 @@ const firstSlot = (generations: Generations, holds: (slot: GenerationSlot) => bo
   settled(() => generations.snapshot()[0]?.slots[0], holds);
 
 describe("a generation's lifecycle", () => {
-  test.each(["a stop", "closing"])(
+  test.each([
+    // A clean page after the stop must not call the direction ready.
+    ["a stop", []],
+    // Closing takes the browser with it, so the render ends in an error, and
+    // that must not start a fix run.
+    ["closing", ["Target closed"]],
+  ])(
     "%s while a page is being rendered leaves the direction stopped, with no fix run and its placeholder back",
-    async (ending) => {
+    async (ending, errors) => {
       const cwd = await project("claude");
       let rendered!: (report: { errors: readonly string[] }) => void;
 
@@ -1012,9 +1018,7 @@ describe("a generation's lifecycle", () => {
       const set = await startSet(generations);
       const slot = await firstSlot(generations, (value) => value.state === "checking");
       const ended = ending === "a stop" ? generations.stop(set.id, slot.key) : generations.close();
-      // The render answers after the ending, with the errors a browser that is
-      // going reports: neither a ready direction nor a fix run may follow.
-      rendered({ errors: ["Target closed"] });
+      rendered({ errors });
       await ended;
       await new Promise((resolve) => setTimeout(resolve, 50));
 
