@@ -103,13 +103,16 @@ export function compare(ceilings: Counts, measured: Counts): Verdict[] {
  * update never raises. A count measured at zero keeps its line only if the
  * journey always reports it.
  */
-export function lower(ceilings: Counts, measured: Counts): Counts {
+export function lower(ceilings: Counts, measured: Counts, varied: readonly string[] = []): Counts {
   const next: Counts = {};
 
   for (const count of names(ceilings, measured)) {
-    const value = Math.min(ceilings[count] ?? 0, measured[count] ?? 0);
+    // A count that differed between runs has no one value to lower to.
+    const value = varied.includes(count)
+      ? (ceilings[count] ?? 0)
+      : Math.min(ceilings[count] ?? 0, measured[count] ?? 0);
 
-    if (value > 0 || count in measured) next[count] = value;
+    if (value > 0 || count in measured || varied.includes(count)) next[count] = value;
   }
 
   return next;

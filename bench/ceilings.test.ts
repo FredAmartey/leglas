@@ -29,6 +29,14 @@ describe("the ratchet", () => {
       sockets: 1,
     });
   });
+
+  test("update leaves a ceiling alone when its count differed between runs", () => {
+    // `frames` came out 0 on some walks and 1 on others, so it has no value.
+    expect(lower({ requests: 17, frames: 1 }, { requests: 16 }, ["frames"])).toEqual({
+      requests: 16,
+      frames: 1,
+    });
+  });
 });
 
 describe("checking ceilings against a base", () => {

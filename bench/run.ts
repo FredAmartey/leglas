@@ -373,7 +373,12 @@ async function measure(options: Options): Promise<number> {
       Object.entries(ceilings).map(([name, counts]) => {
         const summary = counted.find((entry) => entry.name === name);
 
-        return [name, summary === undefined ? counts : lower(counts, summary.counts)];
+        return [
+          name,
+          summary === undefined
+            ? counts
+            : lower(counts, summary.counts, Object.keys(summary.varied)),
+        ];
       }),
     );
 
