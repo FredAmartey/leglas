@@ -123,7 +123,8 @@ describe("startPoll", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  test("stopping ends the loop for good, whatever settles after, and twice is harmless", async () => {
+  test("stopping ends the loop for good, mid-read or between reads, and twice is harmless", async () => {
+    // Mid-read, whatever settles after.
     const late = deferred();
     const { signals, stop } = start(() => late.promise);
 
@@ -133,6 +134,14 @@ describe("startPoll", () => {
 
     expect(signals).toHaveLength(1);
     expect(() => stop()).not.toThrow();
+
+    // Between reads, which is where most loops are when their pane goes.
+    const idle = start(() => Promise.resolve());
+    await flush();
+    idle.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(idle.signals).toHaveLength(1);
   });
 });
 
