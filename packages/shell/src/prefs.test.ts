@@ -20,31 +20,34 @@ const previews: Preview[] = [
 const stored = (prefs: Partial<Prefs>) => JSON.stringify(prefs);
 
 describe("loadPrefs", () => {
-  test("starts in config order when nothing is saved", () => {
+  test("starts in config order with nothing folded when nothing is saved", () => {
     expect(loadPrefs(null, previews).order).toEqual(["Original", "Wave", "Aurora"]);
+    expect(loadPrefs(null, previews).collapsedFamilies).toEqual([]);
+    // Nor in a save from before families.
+    expect(loadPrefs(stored({ order: [] }), previews).collapsedFamilies).toEqual([]);
   });
 
-  test("keeps a saved order", () => {
-    const prefs = loadPrefs(stored({ order: ["Wave", "Aurora", "Original"] }), previews);
-
-    expect(prefs.order).toEqual(["Wave", "Aurora", "Original"]);
-  });
-
-  test("appends previews the config has added since, rather than dropping them", () => {
+  test("keeps a saved order, appending previews the config has added since", () => {
     const prefs = loadPrefs(stored({ order: ["Aurora", "Original"] }), previews);
 
     expect(prefs.order).toEqual(["Aurora", "Original", "Wave"]);
   });
 
-  test("forgets a preview the config no longer has", () => {
+  test("forgets a preview the config no longer has, and keeps what is still there", () => {
     const prefs = loadPrefs(
-      stored({ order: ["Wave", "Deleted"], hidden: ["Deleted"], renames: { Deleted: "x" } }),
+      stored({
+        order: ["Wave", "Deleted"],
+        hidden: ["Deleted"],
+        renames: { Deleted: "x" },
+        collapsedFamilies: ["Wave", "Deleted"],
+      }),
       previews,
     );
 
     expect(prefs.order).not.toContain("Deleted");
     expect(prefs.hidden).toEqual([]);
     expect(prefs.renames).toEqual({});
+    expect(prefs.collapsedFamilies).toEqual(["Wave"]);
   });
 
   test("keeps permanently deleted directions out of the rail", () => {
@@ -64,12 +67,9 @@ describe("loadPrefs", () => {
     expect(prefs.renames).toEqual({ Aurora: "Glow" });
   });
 
-  test("clamps a rail width that is out of range", () => {
+  test("clamps a rail width that is out of range, and falls back when it is not a number", () => {
     expect(loadPrefs(stored({ width: 10_000 }), previews).width).toBe(MAX_W);
     expect(loadPrefs(stored({ width: 1 }), previews).width).toBe(MIN_W);
-  });
-
-  test("falls back to a sane width when the saved one is not a number", () => {
     expect(loadPrefs(stored({ width: Number.NaN }), previews).width).toBe(DEFAULT_W);
   });
 
@@ -78,14 +78,11 @@ describe("loadPrefs", () => {
     expect(loadPrefs(stored({ viewport: 834 }), previews).viewport).toBe(834);
   });
 
-  test("shows the app's own dev overlays until asked otherwise", () => {
+  test("shows the app's dev overlays and the tools widget, and builds nothing, until asked", () => {
     // The badge belongs to the user's app; hiding it unasked makes the preview
     // differ from their dev server.
     expect(loadPrefs(null, previews).showDevOverlays).toBe(true);
     expect(loadPrefs(stored({ showDevOverlays: false }), previews).showDevOverlays).toBe(false);
-  });
-
-  test("keeps the tools widget on screen until asked otherwise", () => {
     expect(loadPrefs(null, previews).showWidget).toBe(true);
     expect(loadPrefs(stored({ showWidget: false }), previews).showWidget).toBe(false);
     expect(loadPrefs(null, previews).buildDirections).toBe(false);
@@ -131,40 +128,10 @@ describe("deleteDirections", () => {
   });
 });
 
-describe("railOrder", () => {
-  test("no saved order means config order", () => {
-    expect(railOrder([], ["A", "B"])).toEqual(["A", "B"]);
-  });
-
-  test("appends previews that arrived after the order was saved", () => {
-    // An agent registers directions while the interface is open; a saved order
-    // from before must not hide their rows.
-    expect(railOrder(["B", "A"], ["A", "B", "New"])).toEqual(["B", "A", "New"]);
-  });
-
-  test("drops titles that no longer exist", () => {
-    expect(railOrder(["B", "Gone", "A"], ["A", "B"])).toEqual(["B", "A"]);
-  });
-});
-
-describe("collapsedFamilies", () => {
-  const previews: Preview[] = [
-    { title: "Meridian", url: "/?v-hero=meridian", tags: [] },
-    { title: "Meridian Dusk", url: "/?v-hero=meridian-dusk", tags: [] },
-  ];
-
-  test("survives a save and load round trip", () => {
-    const saved = JSON.stringify({ collapsedFamilies: ["Meridian"] });
-    expect(loadPrefs(saved, previews).collapsedFamilies).toEqual(["Meridian"]);
-  });
-
-  test("drops roots that no longer exist", () => {
-    const saved = JSON.stringify({ collapsedFamilies: ["Gone"] });
-    expect(loadPrefs(saved, previews).collapsedFamilies).toEqual([]);
-  });
-
-  test("defaults to nothing collapsed, including for pre-family saves", () => {
-    expect(loadPrefs(JSON.stringify({ order: [] }), previews).collapsedFamilies).toEqual([]);
-    expect(loadPrefs(null, previews).collapsedFamilies).toEqual([]);
-  });
+test("railOrder keeps the saved order, drops titles gone since and appends new ones", () => {
+  expect(railOrder([], ["A", "B"])).toEqual(["A", "B"]);
+  // An agent registers directions while the interface is open; a saved order
+  // from before must not hide their rows.
+  expect(railOrder(["B", "A"], ["A", "B", "New"])).toEqual(["B", "A", "New"]);
+  expect(railOrder(["B", "Gone", "A"], ["A", "B"])).toEqual(["B", "A"]);
 });

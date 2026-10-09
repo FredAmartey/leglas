@@ -74,23 +74,7 @@ export function retryDelay(attempt: number): number {
   return Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** attempt);
 }
 
-/** Only what a message carries. A frame is text; anything else on the wire is dropped. */
-export type LiveEvent = { data?: string };
-
-/** The smallest shape a real WebSocket satisfies, so a test can drive one by hand. */
-export type LiveSocket = {
-  addEventListener(
-    type: "message" | "open" | "close" | "error",
-    listener: (event: LiveEvent) => void,
-  ): void;
-  close(): void;
-};
-
 export type LiveOptions = {
-  /** Open a socket. Injected so tests never need a server. */
-  connect?: (url: string) => LiveSocket;
-  setTimeout?: (callback: () => void, ms: number) => TimerHandle;
-  clearTimeout?: (handle: TimerHandle) => void;
   /** Where to dial. Defaults to this page's origin, as ws or wss. */
   url?: string;
 };
@@ -110,26 +94,9 @@ function defaultUrl(): string {
 }
 
 /**
- * The browser's socket through the shape above. Only text data is passed on; a
- * binary frame carries nothing.
- */
-function browserSocket(url: string): LiveSocket {
-  const socket = new WebSocket(url);
-
-  return {
-    addEventListener: (type, listener) =>
-      socket.addEventListener(type, (event) => {
-        listener("data" in event && isString(event.data) ? { data: event.data } : {});
-      }),
-    close: () => socket.close(),
-  };
-}
-
-/**
  * The page's one connection, shared by every loop and never stopped, like the
  * document. Held here, not in a component, so React's development double-mount
- * can't open a second socket. Tests call `startLive` with an injected socket
- * instead.
+ * can't open a second socket. Tests call `startLive` for one of their own.
  */
 let shared: Live | null = null;
 
@@ -145,12 +112,8 @@ export function liveConnection(): Live {
  * tiny and kinds few.
  */
 export function startLive(options: LiveOptions = {}): Live {
-  const connect = options.connect ?? browserSocket;
-  const setLater = options.setTimeout ?? ((callback, ms) => globalThis.setTimeout(callback, ms));
-  const clearLater = options.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle));
-
   const listeners = new Map<LiveChange, Set<() => void>>();
-  let socket: LiveSocket | null = null;
+  let socket: WebSocket | null = null;
   let connected = false;
   let attempt = 0;
   let retry: TimerHandle | null = null;
@@ -158,10 +121,10 @@ export function startLive(options: LiveOptions = {}): Live {
 
   const dial = () => {
     if (stopped) return;
-    let opened: LiveSocket;
+    let opened: WebSocket;
 
     try {
-      opened = connect(options.url ?? defaultUrl());
+      opened = new WebSocket(options.url ?? defaultUrl());
     } catch {
       // A URL the browser won't take won't start working, but the loops keep
       // reading, so this stays quiet and retries on the backoff.
@@ -179,7 +142,8 @@ export function startLive(options: LiveOptions = {}): Live {
     });
 
     opened.addEventListener("message", (event) => {
-      if (event.data === undefined) return;
+      // A frame is text; a binary one carries nothing.
+      if (!isString(event.data)) return;
       const change = changeFrom(event.data);
 
       if (change === null) return;
@@ -202,7 +166,7 @@ export function startLive(options: LiveOptions = {}): Live {
     if (stopped || retry !== null) return;
     const wait = retryDelay(attempt);
     attempt += 1;
-    retry = setLater(() => {
+    retry = globalThis.setTimeout(() => {
       retry = null;
       dial();
     }, wait);
@@ -229,7 +193,7 @@ export function startLive(options: LiveOptions = {}): Live {
       stopped = true;
       connected = false;
 
-      if (retry !== null) clearLater(retry);
+      if (retry !== null) globalThis.clearTimeout(retry);
       retry = null;
       listeners.clear();
       const open = socket;

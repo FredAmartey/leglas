@@ -1,36 +1,35 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { JsonValue } from "../json.js";
 import { frameRefusal, refusalWords } from "./framing.js";
 
-const answering =
-  (body: JsonValue, status = 200): typeof fetch =>
-  async () =>
-    new Response(JSON.stringify(body), { status });
+/** What the server says about a direction's page, from the next read on. */
+const answering = (body: JsonValue, status = 200) =>
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(body), { status }));
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("frameRefusal", () => {
-  test("names the header that refused the frame", async () => {
-    const refusal = await frameRefusal(
-      "Docs",
-      answering({ framable: false, refusal: { header: "x-frame-options", value: "DENY" } }),
-    );
+  test("names the header that refused the frame, and anything short of that is no refusal", async () => {
+    answering({ framable: false, refusal: { header: "x-frame-options", value: "DENY" } });
+    expect(await frameRefusal("Docs")).toEqual({ header: "x-frame-options", value: "DENY" });
 
-    expect(refusal).toEqual({ header: "x-frame-options", value: "DENY" });
-  });
-
-  test("anything short of a clear refusal leaves the pane alone", async () => {
-    expect(await frameRefusal("Docs", answering({ framable: true }))).toBeNull();
+    answering({ framable: true });
+    expect(await frameRefusal("Docs")).toBeNull();
     // Unknown: the page didn't answer, which the frame shows itself.
-    expect(await frameRefusal("Docs", answering({ framable: null }))).toBeNull();
+    answering({ framable: null });
+    expect(await frameRefusal("Docs")).toBeNull();
     // A viewer is refused the route; an older server does not have it.
-    expect(await frameRefusal("Docs", answering({ error: "no" }, 403))).toBeNull();
-    expect(await frameRefusal("Docs", answering({ framable: false, refusal: "DENY" }))).toBeNull();
+    answering({ error: "no" }, 403);
+    expect(await frameRefusal("Docs")).toBeNull();
+    answering({ framable: false, refusal: "DENY" });
+    expect(await frameRefusal("Docs")).toBeNull();
 
-    const failing: typeof fetch = async () => {
+    vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
-    };
+    });
 
-    expect(await frameRefusal("Docs", failing)).toBeNull();
+    expect(await frameRefusal("Docs")).toBeNull();
   });
 });
 
@@ -40,7 +39,7 @@ describe("refusalWords", () => {
   const said = (words: { lead: string; quote: string; tail: string }) =>
     `${words.lead}${words.quote}${words.tail}`;
 
-  test("says which site refused, and why, in the header's own words", () => {
+  test("says which site refused, why in the header's own words, and the header that would fix it", () => {
     const deny = refusalWords(
       { header: "x-frame-options", value: "DENY" },
       "https://docs.example.com/start",
@@ -73,17 +72,10 @@ describe("refusalWords", () => {
     ).toBe(
       "Its Content-Security-Policy says frame-ancestors 'none', and Leglas is not on that list.",
     );
-  });
 
-  test("tells the site's owner the one header that would change it", () => {
-    const hint = refusalWords(
-      { header: "x-frame-options", value: "DENY" },
-      "https://x.dev/",
-      shell,
-    ).hint;
-
-    expect(hint.quote).toBe("frame-ancestors http://localhost:4100");
-    expect(said(hint)).toBe(
+    // The one header the site's owner could send.
+    expect(deny.hint.quote).toBe("frame-ancestors http://localhost:4100");
+    expect(said(deny.hint)).toBe(
       "If the site is yours, a Content-Security-Policy of frame-ancestors http://localhost:4100 lets it show here.",
     );
   });

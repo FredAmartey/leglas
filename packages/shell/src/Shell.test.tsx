@@ -202,6 +202,46 @@ const type = (el: HTMLTextAreaElement, value: string) => {
 
 const tools = () => find<HTMLElement>('[role="dialog"][aria-label="Leglas tools"]');
 
+/** Sends the composer's form, as Enter or its button does. */
+const submit = (wait = 900) =>
+  after(
+    () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    wait,
+  );
+
+/** The directions on stage, left to right. */
+const onStage = () =>
+  [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")]
+    .flatMap((frame) =>
+      frame.closest(".hidden") === null
+        ? [
+            {
+              title: frame.dataset.preview,
+              order: frame.closest<HTMLElement>('[style*="order"]')?.style.order ?? "",
+            },
+          ]
+        : [],
+    )
+    .toSorted((left, right) => left.order.localeCompare(right.order))
+    .map((pane) => pane.title);
+
+/** The rail's rows, top to bottom. */
+const rows = () =>
+  [...document.querySelectorAll("li[data-title]")].map((li) => li.getAttribute("data-title"));
+
+/** Somebody else's rail, shared whole. */
+const VIEWER: ViewerInfo = {
+  scope: "rail",
+  layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
+};
+
+/** The button whose words are exactly `text`. */
+const button = (text: string) =>
+  must(
+    [...document.querySelectorAll("button")].find((b) => b.textContent === text),
+    `the ${text} button`,
+  );
+
 beforeEach(() => {
   // SAFETY: React reads its act flag off the global, which has no type for it.
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -236,21 +276,14 @@ afterEach(async () => {
 describe("the rail and the stage", () => {
   test("every direction gets a row, and the one that is picked is the one on the stage", async () => {
     await mount({});
-    expect(
-      [...document.querySelectorAll("li[data-title]")].map((li) => li.getAttribute("data-title")),
-    ).toEqual(["Table", "Menu", "Counter", "Olive"]);
+    expect(rows()).toEqual(["Table", "Menu", "Counter", "Olive"]);
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
 
     await after(() => click(row("Menu")));
 
     expect(row("Menu").getAttribute("aria-pressed")).toBe("true");
     expect(row("Table").getAttribute("aria-pressed")).toBe("false");
-
-    const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
-      (frame) => frame.closest(".hidden") === null,
-    );
-
-    expect(shown.map((frame) => frame.dataset.preview)).toEqual(["Menu"]);
+    expect(onStage()).toEqual(["Menu"]);
   });
 
   test("a page that refuses to be framed says so, and offers a tab of its own", async () => {
@@ -288,11 +321,7 @@ describe("the rail and the stage", () => {
     await after(() => click(row("Menu")));
     await after(() => key("c"));
 
-    const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
-      (frame) => frame.closest(".hidden") === null,
-    );
-
-    expect(shown.map((frame) => frame.dataset.preview).sort()).toEqual(["Menu", "Table"]);
+    expect(onStage().toSorted()).toEqual(["Menu", "Table"]);
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
 
@@ -350,32 +379,12 @@ describe("a direction taken off the rail from outside", () => {
     });
 
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
-    expect(
-      [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].flatMap((frame) =>
-        frame.closest(".hidden") === null ? [frame.dataset.preview] : [],
-      ),
-    ).toEqual(["Table"]);
+    expect(onStage()).toEqual(["Table"]);
   });
 });
 
 describe("a link into the interface", () => {
   const opening = (address: string) => window.history.replaceState(null, "", address);
-
-  /** The directions on stage, left to right. */
-  const onStage = () =>
-    [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")]
-      .flatMap((frame) =>
-        frame.closest(".hidden") === null
-          ? [
-              {
-                title: frame.dataset.preview,
-                order: frame.closest<HTMLElement>('[style*="order"]')?.style.order ?? "",
-              },
-            ]
-          : [],
-      )
-      .toSorted((left, right) => left.order.localeCompare(right.order))
-      .map((pane) => pane.title);
 
   afterEach(() => opening("/"));
 
@@ -403,12 +412,8 @@ describe("a link into the interface", () => {
     opening("/leglas?direction=Olive&compare=Menu");
     await mount({});
 
-    const rows = [...document.querySelectorAll("li[data-title]")].map((li) =>
-      li.getAttribute("data-title"),
-    );
-
-    expect(rows).toContain("Olive");
-    expect(rows).toContain("Menu");
+    expect(rows()).toContain("Olive");
+    expect(rows()).toContain("Menu");
     expect(row("Olive").getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -438,12 +443,7 @@ describe("a link into the interface", () => {
 
   test("is not followed on somebody else's rail", async () => {
     opening("/leglas?direction=Menu");
-    await mount({
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    await mount({ viewer: VIEWER });
 
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
   });
@@ -476,7 +476,7 @@ describe("the keys", () => {
 });
 
 describe("asking for a change", () => {
-  test("what is typed is what is queued, as a variant of the direction on the stage", async () => {
+  test("what is typed is what is queued, as a variant of the direction on the stage or in place", async () => {
     const sent = await mount({});
     const send = () => find<HTMLButtonElement>('button[type="submit"]');
     expect(send().disabled).toBe(true);
@@ -484,10 +484,7 @@ describe("asking for a change", () => {
     await after(() => type(find("textarea"), "make the headline warmer"));
     expect(send().disabled).toBe(false);
 
-    await after(
-      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      900,
-    );
+    await submit();
 
     expect(sent.filter((entry) => entry.path.endsWith("/api/request"))).toEqual([
       {
@@ -497,19 +494,13 @@ describe("asking for a change", () => {
     ]);
     expect(find<HTMLTextAreaElement>("textarea").value).toBe("");
     expect(document.body.textContent).toContain("Asked for a change to Table");
-  });
 
-  test("the chip beside the send arms a change in place", async () => {
-    const sent = await mount({});
-    const chip = find<HTMLElement>('form button[aria-label^="This change makes a new variant"]');
-    await after(() => click(chip));
+    // The chip beside the send arms the next change in place.
+    await after(() => click(find('form button[aria-label^="This change makes a new variant"]')));
     await after(() => type(find("textarea"), "fix the typo"));
-    await after(
-      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      900,
-    );
+    await submit();
 
-    expect(sent.find((entry) => entry.path.endsWith("/api/request"))?.body).toMatchObject({
+    expect(sent.filter((entry) => entry.path.endsWith("/api/request"))[1]?.body).toMatchObject({
       intent: "fix the typo",
       mode: "replace",
     });
@@ -543,9 +534,6 @@ describe("asking for a change", () => {
     expect(sent).toContainEqual({ path: "/leglas/api/agent", body: { agent: "codex" } });
   });
 });
-
-/** The generate endpoint's answer, which a test can swap while the shell is mounted. */
-type GenerateAnswer = { generate: JsonValue };
 
 describe("building directions", () => {
   const HEROES: Preview[] = [
@@ -588,8 +576,34 @@ describe("building directions", () => {
     agent: "claude",
   };
 
+  /** A set that finished with both its directions built. */
+  const DONE = {
+    ...JOB,
+    state: "done",
+    endedAt: 1_789_999_999_000,
+    slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+  };
+
   const switchedOn = () =>
     localStorage.setItem("leglas:a-project", JSON.stringify({ buildDirections: true }));
+
+  /**
+   * The shell with the switch on and the server listing `jobs`; `list` changes
+   * what the server lists from its next read on.
+   */
+  const withJobs = async (jobs: JsonValue[], more: Parameters<typeof mount>[0] = {}) => {
+    switchedOn();
+    const reads = { ...more.reads, generate: { ok: true, jobs } };
+    const sent = await mount({ previews: HEROES, ...more, reads });
+
+    const list = (next: JsonValue[]) => {
+      reads.generate = { ok: true, jobs: next };
+    };
+
+    return { sent, list };
+  };
+
+  const openBrief = () => after(() => click(find('[aria-label="Build a set of new directions"]')));
 
   const moreLike = () =>
     [...document.querySelectorAll("button")].find((button) =>
@@ -605,10 +619,9 @@ describe("building directions", () => {
   });
 
   test("the + takes a brief and asks for the set, then the composer goes back to changes", async () => {
-    switchedOn();
-    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [] } } });
+    const { sent } = await withJobs([]);
 
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     expect(find<HTMLTextAreaElement>("textarea").placeholder).toBe("What should they explore?");
     expect(document.body.textContent).toContain("New hero directions");
 
@@ -618,10 +631,7 @@ describe("building directions", () => {
       "Build 4 with Claude",
     );
 
-    await after(
-      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      900,
-    );
+    await submit();
 
     expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
       {
@@ -633,11 +643,9 @@ describe("building directions", () => {
   });
 
   test("the brief can ask for more like the direction on the stage, with nothing typed", async () => {
-    switchedOn();
-    const reads: GenerateAnswer = { generate: { ok: true, jobs: [] } };
-    const sent = await mount({ previews: HEROES, reads });
+    const { sent, list } = await withJobs([]);
 
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     const like = must(moreLike(), "the more like chip");
     expect(like.textContent).toBe("More like Table");
     expect(like.getAttribute("aria-pressed")).toBe("false");
@@ -652,24 +660,19 @@ describe("building directions", () => {
     );
     expect(find<HTMLButtonElement>('button[type="submit"]').disabled).toBe(false);
 
-    await after(() => {
-      find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      // From here the server lists the set it started.
-      reads.generate = {
-        ok: true,
-        jobs: [
-          {
-            ...JOB,
-            id: "gen-new",
-            brief: "",
-            count: 3,
-            state: "planning",
-            slots: [],
-            basedOn: "Table",
-          },
-        ],
-      };
-    }, 900);
+    // From the send on, the server lists the set it started.
+    list([
+      {
+        ...JOB,
+        id: "gen-new",
+        brief: "",
+        count: 3,
+        state: "planning",
+        slots: [],
+        basedOn: "Table",
+      },
+    ]);
+    await submit();
 
     expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
       {
@@ -683,18 +686,16 @@ describe("building directions", () => {
   });
 
   test("a direction still being built has nothing to vary yet", async () => {
-    switchedOn();
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    await withJobs([JOB]);
     await after(() => click(row("Ledger")));
 
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     expect(document.body.textContent).toContain("New hero directions");
     expect(moreLike()).toBeUndefined();
   });
 
   test("each direction says how it is going, on its row and on the stage", async () => {
-    switchedOn();
-    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    const { sent } = await withJobs([JOB]);
 
     expect(row("Ledger").closest("li")?.textContent).toContain("Building");
     expect(row("Pantry").closest("li")?.textContent).toContain("Failed");
@@ -704,35 +705,26 @@ describe("building directions", () => {
     expect(document.body.textContent).toContain("Pantry didn’t build");
     expect(document.body.textContent).toContain("Claude's provider was overloaded and gave up.");
 
-    const newIdea = [...document.querySelectorAll("button")].find(
-      (button) => button.textContent === "Try a new idea",
-    );
-
-    await after(() => click(must(newIdea, "the new idea button")));
+    await after(() => click(button("Try a new idea")));
     expect(sent.filter((entry) => entry.path.startsWith("/leglas/api/generate/"))).toEqual([
       { path: "/leglas/api/generate/replace", body: { id: "gen-1", slot: "hero-pantry" } },
     ]);
   });
 
   test("a new idea under a new title keeps the stage on that direction", async () => {
-    switchedOn();
-    const reads: GenerateAnswer = { generate: { ok: true, jobs: [JOB] } };
-    await mount({ previews: HEROES, reads });
+    const { list } = await withJobs([JOB]);
     await after(() => click(row("Pantry")));
 
     // The replacement arrives: Pantry leaves the rail and Market takes its slot.
-    reads.generate = {
-      ok: true,
-      jobs: [
-        {
-          ...JOB,
-          slots: [
-            slot("Ledger", "building"),
-            { ...slot("Pantry", "building"), title: "Market", idea: "A market stall at dusk." },
-          ],
-        },
-      ],
-    };
+    list([
+      {
+        ...JOB,
+        slots: [
+          slot("Ledger", "building"),
+          { ...slot("Pantry", "building"), title: "Market", idea: "A market stall at dusk." },
+        ],
+      },
+    ]);
 
     const next = HEROES.map((preview) =>
       preview.title === "Pantry" ? { ...preview, title: "Market" } : preview,
@@ -750,8 +742,6 @@ describe("building directions", () => {
   });
 
   test("an older set that is running again leads the card and holds the brief", async () => {
-    switchedOn();
-
     const newer = {
       ...JOB,
       id: "gen-2",
@@ -760,52 +750,43 @@ describe("building directions", () => {
       slots: [slot("Ledger", "ready")],
     };
 
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB, newer] } } });
+    await withJobs([JOB, newer]);
 
     expect(document.body.textContent).toContain("Building 2 hero directions");
 
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     expect(document.querySelector('form button[type="submit"]')).toBeNull();
     expect(document.body.textContent).toContain("A set is being built. Wait for it, or stop it.");
   });
 
   test("a dismissed card comes back when its set runs again", async () => {
-    switchedOn();
-
     const done = {
-      ...JOB,
-      state: "done",
-      endedAt: 1_789_999_999_000,
+      ...DONE,
       slots: [
         slot("Ledger", "ready"),
         slot("Pantry", "failed", { code: "agent-error", message: "It went wrong." }),
       ],
     };
 
-    const answers: GenerateAnswer = { generate: { ok: true, jobs: [done] } };
-    await mount({ previews: HEROES, reads: answers });
+    const { list } = await withJobs([done]);
 
     await after(() => click(find('[aria-label="Dismiss this set\'s summary"]')));
     expect(document.body.textContent).not.toContain("1 of 2 ready");
 
-    answers.generate = {
-      ok: true,
-      jobs: [
-        {
-          ...done,
-          state: "building",
-          endedAt: null,
-          slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
-        },
-      ],
-    };
+    list([
+      {
+        ...done,
+        state: "building",
+        endedAt: null,
+        slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
+      },
+    ]);
     await after(() => undefined, 61_000);
     expect(document.body.textContent).toContain("Building 2 hero directions, 1 ready");
   });
 
   test("a retry is sent once while the set catches up", async () => {
-    switchedOn();
-    const sent = await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [JOB] } } });
+    const { sent } = await withJobs([JOB]);
     const retry = () => find<HTMLButtonElement>('[aria-label="Build the Pantry direction again"]');
 
     await after(() => click(retry()));
@@ -824,21 +805,12 @@ describe("building directions", () => {
     expect(document.body.textContent).not.toContain("didn’t build");
 
     await act(async () => root.unmount());
-    switchedOn();
-    await mount({
-      previews: HEROES,
-      reads: { generate: { ok: true, jobs: [JOB] } },
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    await withJobs([JOB], { viewer: VIEWER });
     await after(() => undefined, 61_000);
     expect(reads).not.toContain("generate");
   });
 
   test("a set dismissed and then retried shows its new result, not the newest set's", async () => {
-    switchedOn();
     const failed = slot("Pantry", "failed", { code: "agent-error", message: "It went wrong." });
 
     const older = {
@@ -857,167 +829,87 @@ describe("building directions", () => {
       slots: [slot("Menu", "ready")],
     };
 
-    const answers: GenerateAnswer = { generate: { ok: true, jobs: [older, newer] } };
-    await mount({ previews: HEROES, reads: answers });
+    const { list } = await withJobs([older, newer]);
 
     expect(document.body.textContent).toContain("1 of 2 ready. Pantry failed");
     await after(() => click(find('[aria-label="Dismiss this set\'s summary"]')));
 
-    answers.generate = {
-      ok: true,
-      jobs: [
-        {
-          ...older,
-          state: "building",
-          endedAt: null,
-          slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
-        },
-        newer,
-      ],
-    };
+    list([
+      {
+        ...older,
+        state: "building",
+        endedAt: null,
+        slots: [slot("Ledger", "ready"), slot("Pantry", "building")],
+      },
+      newer,
+    ]);
     await after(() => undefined, 61_000);
     expect(document.body.textContent).toContain("Building 2 hero directions, 1 ready");
 
     // The retry ends later than the newest set did, and its ending was never dismissed.
-    answers.generate = {
-      ok: true,
-      jobs: [
-        {
-          ...older,
-          endedAt: 1_790_000_070_000,
-          slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
-        },
-        newer,
-      ],
-    };
+    list([
+      {
+        ...older,
+        endedAt: 1_790_000_070_000,
+        slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
+      },
+      newer,
+    ]);
     await after(() => undefined, 16_000);
     expect(document.body.textContent).toContain("2 hero directions ready");
   });
 
   test("only a new set brings its first row into view, never a retry on an older one", async () => {
-    switchedOn();
     const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
-    const answers: GenerateAnswer = { generate: { ok: true, jobs: [JOB] } };
-    await mount({ previews: HEROES, reads: answers });
+    const { list } = await withJobs([JOB]);
     expect(scrolled).not.toHaveBeenCalled();
 
+    const ended = { ...JOB, state: "done", endedAt: 1_790_000_010_000 };
     const fresh = { ...JOB, id: "gen-3", state: "planning", slots: [] };
-    answers.generate = {
-      ok: true,
-      jobs: [{ ...JOB, state: "done", endedAt: 1_790_000_010_000 }, fresh],
-    };
+    list([ended, fresh]);
     await after(() => undefined, 16_000);
-    answers.generate = {
-      ok: true,
-      jobs: [
-        { ...JOB, state: "done", endedAt: 1_790_000_010_000 },
-        { ...fresh, state: "building", slots: [slot("Ledger", "building")] },
-      ],
-    };
+    list([ended, { ...fresh, state: "building", slots: [slot("Ledger", "building")] }]);
     await after(() => undefined, 16_000);
     expect(scrolled).toHaveBeenCalledTimes(1);
     scrolled.mockRestore();
   });
 
-  test("a finished set can go on the stage whole, and each name opens its direction", async () => {
-    switchedOn();
-
-    const done = {
-      ...JOB,
-      state: "done",
-      endedAt: 1_789_999_999_000,
-      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
-    };
-
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
-
-    const compareAll = [...document.querySelectorAll("button")].find(
-      (button) => button.textContent === "Compare all 2",
-    );
-
-    await after(() => click(must(compareAll, "the compare button")));
-    expect(
-      [...document.querySelectorAll('button[aria-label$="on its own"]')].map((button) =>
-        button.getAttribute("aria-label"),
-      ),
-    ).toEqual(["Open Ledger on its own", "Open Pantry on its own"]);
-
-    await after(() => click(find('[aria-label="Open Pantry on its own"]')));
-    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
-    expect(row("Pantry").getAttribute("aria-pressed")).toBe("true");
-  });
-
   test("the card counts only the finished directions still on the rail", async () => {
-    switchedOn();
-
     // Chalk was removed from the rail after it was built.
-    const done = {
-      ...JOB,
-      state: "done",
-      endedAt: 1_789_999_999_000,
-      slots: [slot("Ledger", "ready"), slot("Pantry", "ready"), slot("Chalk", "ready")],
-    };
-
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
+    await withJobs([{ ...DONE, slots: [...DONE.slots, slot("Chalk", "ready")] }]);
 
     expect([...document.querySelectorAll("button")].map((button) => button.textContent)).toContain(
       "Compare all 2",
     );
   });
 
-  test("picking a row ends the whole set, so coming back shows one direction", async () => {
-    switchedOn();
-
-    const done = {
-      ...JOB,
-      state: "done",
-      endedAt: 1_789_999_999_000,
-      slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
-    };
-
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [done] } } });
-
-    const compareAll = [...document.querySelectorAll("button")].find(
-      (button) => button.textContent === "Compare all 2",
-    );
-
-    await after(() => click(must(compareAll, "the compare button")));
-    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
-
-    await after(() => click(row("Ledger")));
-    await after(() => click(row("Table")));
-    expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(0);
-  });
-
   describe("a set shown whole", () => {
+    const shownWhole = () => document.querySelectorAll('button[aria-label$="on its own"]').length;
+
     const whole = async (typed = ""): Promise<Sent[]> => {
-      switchedOn();
-
-      const done = {
-        ...JOB,
-        state: "done",
-        endedAt: 1_789_999_999_000,
-        slots: [slot("Ledger", "ready"), slot("Pantry", "ready")],
-      };
-
-      const sent = await mount({
-        previews: HEROES,
-        reads: { generate: { ok: true, jobs: [done] } },
-      });
+      const { sent } = await withJobs([DONE]);
 
       if (typed !== "") await after(() => type(find("textarea"), typed));
 
-      const compareAll = [...document.querySelectorAll("button")].find(
-        (button) => button.textContent === "Compare all 2",
-      );
-
-      await after(() => click(must(compareAll, "the compare button")));
-      expect(document.querySelectorAll('button[aria-label$="on its own"]')).toHaveLength(2);
+      await after(() => click(button("Compare all 2")));
+      expect(shownWhole()).toBe(2);
 
       return sent;
     };
 
-    const shownWhole = () => document.querySelectorAll('button[aria-label$="on its own"]').length;
+    test("goes on the stage from a finished set's card, and each name opens its direction", async () => {
+      await whole();
+
+      expect(
+        [...document.querySelectorAll('button[aria-label$="on its own"]')].map((button) =>
+          button.getAttribute("aria-label"),
+        ),
+      ).toEqual(["Open Ledger on its own", "Open Pantry on its own"]);
+
+      await after(() => click(find('[aria-label="Open Pantry on its own"]')));
+      expect(shownWhole()).toBe(0);
+      expect(row("Pantry").getAttribute("aria-pressed")).toBe("true");
+    });
 
     test("takes no change for a direction that is off the stage, and offers no variations of it", async () => {
       // Words typed for Table before the set went up must not go to it unseen.
@@ -1027,12 +919,10 @@ describe("building directions", () => {
       expect(field.disabled).toBe(true);
       expect(field.placeholder).toBe("Open one of them to ask for a change");
 
-      await after(() =>
-        find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      );
+      await submit(450);
       expect(sent.filter((entry) => entry.path === "/leglas/api/request")).toEqual([]);
 
-      await after(() => click(find('[aria-label="Build a set of new directions"]')));
+      await openBrief();
       expect(moreLike()).toBeUndefined();
     });
 
@@ -1046,9 +936,17 @@ describe("building directions", () => {
       ).toEqual(["Preview: Table", "Preview: Pantry"]);
     });
 
-    test("ends when the row it was opened from is picked again", async () => {
+    test("ends when any row is picked, the one it was opened from included, and stays ended", async () => {
       await whole();
 
+      await after(() => click(row("Table")));
+      expect(shownWhole()).toBe(0);
+
+      // Picking one of its directions ends it too, and coming back to the row it
+      // was opened from shows one direction.
+      await after(() => click(button("Compare all 2")));
+      expect(shownWhole()).toBe(2);
+      await after(() => click(row("Ledger")));
       await after(() => click(row("Table")));
       expect(shownWhole()).toBe(0);
     });
@@ -1085,36 +983,28 @@ describe("building directions", () => {
   });
 
   test("a fix run's step shows while the page is checked, and otherwise the page is being opened", async () => {
-    switchedOn();
-
     const checking = (activity: string | null) => ({
       ...JOB,
       slots: [{ ...slot("Ledger", "checking"), activity }],
     });
 
-    const reads: GenerateAnswer = { generate: { ok: true, jobs: [checking(null)] } };
-    await mount({ previews: HEROES, reads });
+    const { list } = await withJobs([checking(null)]);
     await after(() => click(row("Ledger")));
     expect(document.body.textContent).toContain("opening the page");
 
-    reads.generate = {
-      ok: true,
-      jobs: [checking("editing src/heroes/hero-ledger.tsx")],
-    };
+    list([checking("editing src/heroes/hero-ledger.tsx")]);
     await after(() => undefined, 16_000);
     expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
     expect(document.body.textContent).not.toContain("opening the page");
   });
 
   test("a direction being built says what its build is doing", async () => {
-    switchedOn();
-
-    const building = {
-      ...JOB,
-      slots: [{ ...slot("Ledger", "building"), activity: "editing src/heroes/hero-ledger.tsx" }],
-    };
-
-    await mount({ previews: HEROES, reads: { generate: { ok: true, jobs: [building] } } });
+    await withJobs([
+      {
+        ...JOB,
+        slots: [{ ...slot("Ledger", "building"), activity: "editing src/heroes/hero-ledger.tsx" }],
+      },
+    ]);
 
     await after(() => click(row("Ledger")));
     expect(document.body.textContent).toContain("editing src/heroes/hero-ledger.tsx");
@@ -1122,16 +1012,11 @@ describe("building directions", () => {
   });
 
   test("with more than one surface, the brief can build for another", async () => {
-    switchedOn();
+    const { sent } = await withJobs([], {
+      previews: [...HEROES, { title: "Plans", url: "/pricing?v-pricing=plans", tags: [] }],
+    });
 
-    const previews: Preview[] = [
-      ...HEROES,
-      { title: "Plans", url: "/pricing?v-pricing=plans", tags: [] },
-    ];
-
-    const sent = await mount({ previews, reads: { generate: { ok: true, jobs: [] } } });
-
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
 
     const picker = find<HTMLSelectElement>(
       'select[aria-label="The surface to build directions for"]',
@@ -1144,10 +1029,7 @@ describe("building directions", () => {
       picker.dispatchEvent(new Event("change", { bubbles: true }));
     });
     await after(() => type(find("textarea"), "Plans that feel fair"));
-    await after(
-      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      900,
-    );
+    await submit();
 
     expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([
       {
@@ -1158,30 +1040,20 @@ describe("building directions", () => {
   });
 
   test("with Codex chosen, the brief builds with Codex and its set says so", async () => {
-    switchedOn();
+    const { sent, list } = await withJobs([], {
+      reads: { agents: { ...AGENTS, choice: "codex" } },
+    });
 
-    const reads: GenerateAnswer & { agents: JsonValue } = {
-      generate: { ok: true, jobs: [] },
-      agents: { ...AGENTS, choice: "codex" },
-    };
-
-    const sent = await mount({ previews: HEROES, reads });
-
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     expect(find<HTMLButtonElement>('button[type="submit"]').textContent).toBe("Build 3 with Codex");
     expect(document.body.textContent).toContain(
       "Runs on your Codex plan. Usually two or three minutes.",
     );
 
     await after(() => type(find("textarea"), "Dinner in thirty minutes"));
-    await after(() => {
-      find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      // From here the server lists the set it started, building with Codex.
-      reads.generate = {
-        ok: true,
-        jobs: [{ ...JOB, agent: "codex", slots: [slot("Ledger", "building")] }],
-      };
-    }, 900);
+    // From the send on, the server lists the set it started, building with Codex.
+    list([{ ...JOB, agent: "codex", slots: [slot("Ledger", "building")] }]);
+    await submit();
     expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toHaveLength(1);
 
     await after(() => click(row("Ledger")));
@@ -1190,19 +1062,13 @@ describe("building directions", () => {
   });
 
   test("with an agent other than Claude or Codex, the brief says why it cannot build", async () => {
-    switchedOn();
-
     const cursor = { id: "cursor", name: "Cursor", available: true, auth: "ok", efforts: [] };
 
-    const sent = await mount({
-      previews: HEROES,
-      reads: {
-        generate: { ok: true, jobs: [] },
-        agents: { ...AGENTS, agents: [...AGENTS.agents, cursor], choice: "cursor" },
-      },
+    const { sent } = await withJobs([], {
+      reads: { agents: { ...AGENTS, agents: [...AGENTS.agents, cursor], choice: "cursor" } },
     });
 
-    await after(() => click(find('[aria-label="Build a set of new directions"]')));
+    await openBrief();
     expect(document.querySelector('form button[type="submit"]')).toBeNull();
     expect(document.body.textContent).toContain("Building directions runs on Claude or Codex.");
     // The picker sits beside the reason, so another agent can be chosen without leaving the brief.
@@ -1210,10 +1076,7 @@ describe("building directions", () => {
 
     // Enter submits the form even with the button gone; the reason stands there too.
     await after(() => type(find("textarea"), "Dinner in thirty minutes"));
-    await after(
-      () => find("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-      900,
-    );
+    await submit();
     expect(sent.filter((entry) => entry.path === "/leglas/api/generate")).toEqual([]);
   });
 });
@@ -1273,12 +1136,7 @@ describe("what assistive technology is told", () => {
 
 describe("somebody else's rail", () => {
   test("a viewer can look, flip and compare, and is given nothing that changes it", async () => {
-    const sent = await mount({
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    const sent = await mount({ viewer: VIEWER });
 
     expect(document.body.textContent).toContain("Shared with you");
     expect(document.querySelector("textarea")).toBeNull();

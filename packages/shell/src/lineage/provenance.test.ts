@@ -1,58 +1,33 @@
-import { describe, expect, test } from "vitest";
+import { expect, test } from "vitest";
 
 import { provenanceLine, provenanceOf } from "./provenance.js";
 
-describe("provenanceOf", () => {
-  test("reports both facts when a variant carries them", () => {
-    expect(provenanceOf({ basedOn: "Poster", askedFor: "make the pouch turn slower" })).toEqual({
-      askedFor: "make the pouch turn slower",
-      basedOn: "Poster",
-    });
+test("provenanceOf reports whichever origin a direction records, or nothing", () => {
+  expect(provenanceOf({ basedOn: "Poster", askedFor: "make the pouch turn slower" })).toEqual({
+    askedFor: "make the pouch turn slower",
+    basedOn: "Poster",
   });
+  // Either alone is worth showing: an ask alone is a change made in place.
+  expect(provenanceOf({ basedOn: "Poster" })).toEqual({ askedFor: null, basedOn: "Poster" });
+  expect(provenanceOf({ askedFor: "warmer" })).toEqual({ askedFor: "warmer", basedOn: null });
+  // The words as they were typed, less the edges.
+  expect(provenanceOf({ askedFor: "  the pouch looks fake  " })?.askedFor).toBe(
+    "the pouch looks fake",
+  );
 
-  test("says nothing about a direction that records neither", () => {
-    expect(provenanceOf({})).toBeNull();
-    expect(provenanceOf(undefined)).toBeNull();
-    expect(provenanceOf(null)).toBeNull();
-  });
-
-  test("a parent alone is worth showing", () => {
-    expect(provenanceOf({ basedOn: "Poster" })).toEqual({ askedFor: null, basedOn: "Poster" });
-  });
-
-  test("an ask alone is worth showing, for a change made in place", () => {
-    expect(provenanceOf({ askedFor: "warmer" })).toEqual({ askedFor: "warmer", basedOn: null });
-  });
-
+  expect(provenanceOf({})).toBeNull();
+  expect(provenanceOf(undefined)).toBeNull();
+  expect(provenanceOf(null)).toBeNull();
   // A hand-edited config can hold an empty string, and an empty card is worse
   // than none.
-  test("blank values count as absent", () => {
-    expect(provenanceOf({ askedFor: "   ", basedOn: "" })).toBeNull();
-  });
-
-  test("keeps the words as they were typed, less the edges", () => {
-    expect(provenanceOf({ askedFor: "  the pouch looks fake  " })?.askedFor).toBe(
-      "the pouch looks fake",
-    );
-  });
+  expect(provenanceOf({ askedFor: "   ", basedOn: "" })).toBeNull();
 });
 
-describe("provenanceLine", () => {
-  test("names the parent and the ask in one line", () => {
-    expect(provenanceLine("Poster", "make the pouch turn slower")).toBe(
-      "Variant of Poster · you asked for “make the pouch turn slower”",
-    );
-  });
-
-  test("stands on the parent alone", () => {
-    expect(provenanceLine("Poster", null)).toBe("Variant of Poster");
-  });
-
-  test("stands on the ask alone", () => {
-    expect(provenanceLine(null, "warmer")).toBe("You asked for “warmer”");
-  });
-
-  test("has nothing to say about a direction with no origin", () => {
-    expect(provenanceLine(null, null)).toBeNull();
-  });
+test("provenanceLine names the parent and the ask in one line, or stands on either alone", () => {
+  expect(provenanceLine("Poster", "make the pouch turn slower")).toBe(
+    "Variant of Poster · you asked for “make the pouch turn slower”",
+  );
+  expect(provenanceLine("Poster", null)).toBe("Variant of Poster");
+  expect(provenanceLine(null, "warmer")).toBe("You asked for “warmer”");
+  expect(provenanceLine(null, null)).toBeNull();
 });

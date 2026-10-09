@@ -7,7 +7,6 @@ import {
   lineageRail,
   reorderAmongSiblings,
   segmentsOf,
-  tracedChain,
   tracedSegments,
   tracedTree,
   trailPath,
@@ -71,13 +70,18 @@ describe("lineageRail", () => {
     ]);
   });
 
-  test("depth is the real depth, for a rail that wants to show it", () => {
+  test("depth is the real depth, and a root's family count is everything beneath it", () => {
     const { meta } = lineageRail(SAVED, CHAIN, new Set());
 
     expect(meta.get("Meridian")?.depth).toBe(0);
     expect(meta.get("Harbour")?.depth).toBe(3);
     expect(meta.get("Lantern")?.depth).toBe(5);
     expect(meta.get("Ferry")?.depth).toBe(4);
+
+    expect(meta.get("Meridian")?.variants).toBe(6);
+    expect(meta.get("Harbour")?.variants).toBe(0);
+    expect(meta.get("Harbour")?.descendants).toBe(3);
+    expect(meta.get("Lantern")?.descendants).toBe(0);
   });
 
   test("a chain is one lane and a fork opens a second", () => {
@@ -106,9 +110,7 @@ describe("lineageRail", () => {
       through: [],
     });
     expect(widestLane(new Map([["Current", meta.get("Current")!]]))).toBe(0);
-  });
-
-  test("a rail drawn in family order has no gutter", () => {
+    // A rail drawn in family order has no gutter.
     expect(widestLane(new Map())).toBe(-1);
   });
 
@@ -132,15 +134,6 @@ describe("lineageRail", () => {
     expect(rows).toEqual(["Current", "Ledger", "Meridian"]);
     expect(meta.get("Meridian")).toMatchObject({ variants: 6, folded: true });
     expect(meta.get("Meridian")?.graph?.toBelow).toBe(false);
-  });
-
-  test("the family count on a root is everything beneath it", () => {
-    const { meta } = lineageRail(SAVED, CHAIN, new Set());
-
-    expect(meta.get("Meridian")?.variants).toBe(6);
-    expect(meta.get("Harbour")?.variants).toBe(0);
-    expect(meta.get("Harbour")?.descendants).toBe(3);
-    expect(meta.get("Lantern")?.descendants).toBe(0);
   });
 
   test("a row at any depth can fold what is beneath it", () => {
@@ -185,21 +178,11 @@ describe("lineageRail", () => {
 
     expect(rows.sort()).toEqual(["A", "B"]);
   });
-
-  test("previews with no basedOn behave exactly as before", () => {
-    const { rows, meta } = lineageRail(["A", "B"], basedOn([]), new Set());
-
-    expect(rows).toEqual(["A", "B"]);
-    expect(meta.get("A")?.depth).toBe(0);
-  });
 });
 
 describe("ancestry", () => {
-  test("root first, the direction itself left out", () => {
+  test("root first, the direction itself left out, and none for a root", () => {
     expect(ancestry("Lantern", CHAIN)).toEqual(["Meridian", "Dusk", "Sea", "Harbour", "Quay"]);
-  });
-
-  test("a root has none", () => {
     expect(ancestry("Meridian", CHAIN)).toEqual([]);
   });
 
@@ -217,15 +200,13 @@ describe("ancestry", () => {
 });
 
 describe("collapseChain", () => {
-  test("a short chain shows whole", () => {
+  test("a short chain shows whole, and a long one keeps its root and its parent", () => {
     expect(collapseChain(["Root", "Mid", "Parent"])).toEqual({
       head: ["Root", "Mid", "Parent"],
       hidden: [],
       tail: [],
     });
-  });
 
-  test("a long chain keeps its root and its parent", () => {
     expect(collapseChain(ancestry("Lantern", CHAIN))).toEqual({
       head: ["Meridian"],
       hidden: ["Dusk", "Sea", "Harbour"],
@@ -282,11 +263,8 @@ describe("tracedSegments", () => {
     });
   });
 
-  test("a direction on no line at all lights only itself", () => {
+  test("a direction on no line at all lights only itself, and one not on the rail nothing", () => {
     expect(lit("Current")).toEqual({ Current: ["mark"] });
-  });
-
-  test("a direction that is not on the rail lights nothing", () => {
     expect(lit("Nowhere")).toEqual({});
   });
 });
@@ -311,17 +289,14 @@ describe("segmentsOf", () => {
 describe("reorderAmongSiblings", () => {
   const SHOWCASE_KIDS = ["Quay", "Ferry"];
 
-  test("puts a sibling before the one it should precede", () => {
+  test("puts a sibling before the one it should precede, or with none after the last", () => {
     const order = reorderAmongSiblings(SAVED, SAVED, "Ferry", "Quay", SHOWCASE_KIDS);
 
     expect(order.indexOf("Ferry")).toBe(order.indexOf("Quay") - 1);
     expect([...order].sort()).toEqual([...SAVED].sort());
-  });
 
-  test("with nothing to go before, lands after the last sibling", () => {
-    const order = reorderAmongSiblings(SAVED, SAVED, "Quay", null, SHOWCASE_KIDS);
-
-    expect(order.indexOf("Quay")).toBe(order.indexOf("Ferry") + 1);
+    const last = reorderAmongSiblings(SAVED, SAVED, "Quay", null, SHOWCASE_KIDS);
+    expect(last.indexOf("Quay")).toBe(last.indexOf("Ferry") + 1);
   });
 
   test("moving a root moves it among the roots and leaves its family's rows alone", () => {
@@ -362,25 +337,6 @@ describe("reorderAmongSiblings", () => {
     expect(
       reorderAmongSiblings(trailing, trailing, "Quay", null, ["Quay", "Ferry", "Wave"]),
     ).toEqual(["Ferry", "Wave", "Quay", "Tide"]);
-  });
-});
-
-describe("tracedChain", () => {
-  const rail = lineageRail(SAVED_WITH_TIDE, CHAIN_WITH_TIDE, new Set());
-
-  test("runs from the family root down to the direction, root first", () => {
-    expect(tracedChain(rail.parents, "Tide")).toEqual([
-      "Meridian",
-      "Dusk",
-      "Sea",
-      "Harbour",
-      "Quay",
-      "Tide",
-    ]);
-  });
-
-  test("a root is a line of one", () => {
-    expect(tracedChain(rail.parents, "Current")).toEqual(["Current"]);
   });
 });
 
@@ -462,16 +418,13 @@ describe("trailPath", () => {
     ).toBe("M 6 15 L 6 60 M 6 60 L 6 102");
   });
 
-  test("two marks with no room between them draw nothing", () => {
+  test("two marks with no room between them draw nothing, and nor does no mark", () => {
     expect(
       trailPath([
         { x: 6, y: 10, clear: 5 },
         { x: 6, y: 18, clear: 5 },
       ]),
     ).toBe("");
-  });
-
-  test("nothing to draw is an empty path", () => {
     expect(trailPath([])).toBe("");
   });
 });

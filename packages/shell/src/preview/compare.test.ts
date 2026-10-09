@@ -2,107 +2,51 @@ import { describe, expect, test } from "vitest";
 
 import { LABEL_ROOM, setLayout, nextCompare, paneGeometry, paneTitles } from "./compare.js";
 
-describe("nextCompare", () => {
-  test("opens against whatever you were just looking at", () => {
-    // The comparison you want is almost always against where you came from, so
-    // the split needs no second choice.
-    expect(nextCompare({ active: "Quiet", previous: "Current", pinned: null })).toBe("Current");
-  });
+test("nextCompare picks the second pane with no second choice needed", () => {
+  const rows = ["Quiet", "Kinetic"];
 
-  test("falls back to the first other direction when there is no history", () => {
-    expect(
-      nextCompare({ active: "Quiet", previous: null, pinned: null, rows: ["Quiet", "Kinetic"] }),
-    ).toBe("Kinetic");
-  });
+  // The comparison you want is almost always against where you came from.
+  expect(nextCompare({ active: "Quiet", previous: "Current", pinned: null })).toBe("Current");
+  // With no history, the first other direction.
+  expect(nextCompare({ active: "Quiet", previous: null, pinned: null, rows })).toBe("Kinetic");
+  // A pin beats history; a pin that no longer exists is dropped.
+  expect(nextCompare({ active: "Quiet", previous: "Current", pinned: "Kinetic" })).toBe("Kinetic");
+  expect(nextCompare({ active: "Quiet", previous: null, pinned: "Deleted", rows })).toBe("Kinetic");
+  // Never a direction against itself, and nothing when it is the only one.
+  expect(
+    nextCompare({ active: "Quiet", previous: "Quiet", pinned: null, rows: ["Quiet"] }),
+  ).toBeNull();
+  expect(nextCompare({ active: "Only", previous: null, pinned: null, rows: ["Only"] })).toBeNull();
 
-  test("honours a pinned direction over history", () => {
-    expect(nextCompare({ active: "Quiet", previous: "Current", pinned: "Kinetic" })).toBe(
-      "Kinetic",
-    );
-  });
+  // A variant's question is "how far is this from the original": its parent
+  // beats history, a pin still beats the parent, and a parent off the rail
+  // falls back to history.
+  const variant = {
+    active: "Meridian Dusk",
+    parent: "Meridian",
+    rows: ["Meridian", "Meridian Dusk", "Bulletin"],
+  };
 
-  test("never compares a direction against itself", () => {
-    expect(
-      nextCompare({ active: "Quiet", previous: "Quiet", pinned: null, rows: ["Quiet"] }),
-    ).toBeNull();
-  });
-
-  test("drops a pin that no longer exists", () => {
-    expect(
-      nextCompare({
-        active: "Quiet",
-        previous: null,
-        pinned: "Deleted",
-        rows: ["Quiet", "Kinetic"],
-      }),
-    ).toBe("Kinetic");
-  });
-
-  test("returns nothing when there is only one direction to show", () => {
-    expect(
-      nextCompare({ active: "Only", previous: null, pinned: null, rows: ["Only"] }),
-    ).toBeNull();
-  });
+  expect(nextCompare({ ...variant, previous: "Bulletin", pinned: null })).toBe("Meridian");
+  expect(nextCompare({ ...variant, previous: null, pinned: "Bulletin" })).toBe("Bulletin");
+  expect(
+    nextCompare({
+      ...variant,
+      previous: "Bulletin",
+      pinned: null,
+      rows: ["Meridian Dusk", "Bulletin"],
+    }),
+  ).toBe("Bulletin");
 });
 
-describe("paneTitles", () => {
-  test("shows one pane when the split is off", () => {
-    expect(paneTitles({ active: "Quiet", compare: "Current", split: false })).toEqual(["Quiet"]);
-  });
-
-  test("shows both panes when the split is on, active on the left", () => {
-    expect(paneTitles({ active: "Quiet", compare: "Current", split: true })).toEqual([
-      "Quiet",
-      "Current",
-    ]);
-  });
-
-  test("falls back to one pane when there is nothing to compare against", () => {
-    expect(paneTitles({ active: "Quiet", compare: null, split: true })).toEqual(["Quiet"]);
-  });
-
-  test("never renders the same direction twice", () => {
-    expect(paneTitles({ active: "Quiet", compare: "Quiet", split: true })).toEqual(["Quiet"]);
-  });
-});
-
-describe("a variant's default comparison", () => {
-  test("prefers the direction it is based on over history", () => {
-    // The question a variant set asks is "how far is this from the original".
-    expect(
-      nextCompare({
-        active: "Meridian Dusk",
-        previous: "Bulletin",
-        pinned: null,
-        parent: "Meridian",
-        rows: ["Meridian", "Meridian Dusk", "Bulletin"],
-      }),
-    ).toBe("Meridian");
-  });
-
-  test("an explicit pin still beats the parent", () => {
-    expect(
-      nextCompare({
-        active: "Meridian Dusk",
-        previous: null,
-        pinned: "Bulletin",
-        parent: "Meridian",
-        rows: ["Meridian", "Meridian Dusk", "Bulletin"],
-      }),
-    ).toBe("Bulletin");
-  });
-
-  test("a parent that is not on the rail falls back to history", () => {
-    expect(
-      nextCompare({
-        active: "Meridian Dusk",
-        previous: "Bulletin",
-        pinned: null,
-        parent: "Meridian",
-        rows: ["Meridian Dusk", "Bulletin"],
-      }),
-    ).toBe("Bulletin");
-  });
+test("paneTitles shows both panes only for a split with another direction, active on the left", () => {
+  expect(paneTitles({ active: "Quiet", compare: "Current", split: false })).toEqual(["Quiet"]);
+  expect(paneTitles({ active: "Quiet", compare: "Current", split: true })).toEqual([
+    "Quiet",
+    "Current",
+  ]);
+  expect(paneTitles({ active: "Quiet", compare: null, split: true })).toEqual(["Quiet"]);
+  expect(paneTitles({ active: "Quiet", compare: "Quiet", split: true })).toEqual(["Quiet"]);
 });
 
 describe("how one side of a split is drawn", () => {
@@ -114,11 +58,16 @@ describe("how one side of a split is drawn", () => {
     viewport: null,
   };
 
-  test("a single pane is left alone", () => {
+  test("a single pane, or a split with scaling turned off, is left to the app", () => {
     const geometry = paneGeometry({ ...stage, panes: 1 });
     expect(geometry.scaling).toBe(false);
     expect(geometry.scale).toBe(1);
     expect(geometry.designWidth).toBe(1358);
+    // Off is the old behaviour: the pane goes back to the app.
+    expect(paneGeometry({ ...stage, panes: 2, scaleSplit: false })).toMatchObject({
+      scaling: false,
+      scale: 1,
+    });
   });
 
   test("a split keeps the width it had alone and scales to fit", () => {
@@ -130,20 +79,10 @@ describe("how one side of a split is drawn", () => {
     expect(geometry.scaling).toBe(true);
     // The scaled frame lands inside one pane.
     expect(geometry.boxWidth).toBeCloseTo((1358 - 1) / 2, 0);
-  });
-
-  test("the frame keeps the stage's proportions, so nothing stretches", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2 });
-    // Same window shape as alone, only smaller. Filling the pane would draw a
-    // viewport-height hero in a window twice as tall.
+    // Same window shape as alone, only smaller, so nothing stretches. Filling
+    // the pane would draw a viewport-height hero in a window twice as tall.
     expect(geometry.frameHeight).toBe(950);
     expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1358 / 950, 2);
-  });
-
-  test("turning it off gives the pane back to the app, which is the old behaviour", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, scaleSplit: false });
-    expect(geometry.scaling).toBe(false);
-    expect(geometry.scale).toBe(1);
   });
 
   test("a viewport preset is what gets scaled, so presets survive a split", () => {
@@ -185,23 +124,24 @@ describe("how one side of a split is drawn", () => {
     ]);
   });
 
-  test("a preset narrower than the pane is never scaled up", () => {
+  test("a preset narrower than the pane is never scaled up, and its box is its own size", () => {
     const geometry = paneGeometry({ ...stage, panes: 2, viewport: 390 });
     expect(geometry.scale).toBe(1);
     expect(geometry.scaling).toBe(false);
+    expect(geometry.boxWidth).toBe(390);
+    // Unsplit, a preset is inset by the gutter.
+    expect(geometry.boxHeight).toBe(902);
   });
 
-  test("a stage not measured yet does not divide by zero", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, stageHeight: 0, stageWidth: 0 });
-    expect(Number.isFinite(geometry.scale)).toBe(true);
-    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
-    expect(geometry.scaling).toBe(false);
-  });
+  test("a stage not measured yet, or a pane dragged to nothing, still yields a usable scale", () => {
+    const unmeasured = paneGeometry({ ...stage, panes: 2, stageHeight: 0, stageWidth: 0 });
+    expect(Number.isFinite(unmeasured.scale)).toBe(true);
+    expect(Number.isFinite(unmeasured.frameHeight)).toBe(true);
+    expect(unmeasured.scaling).toBe(false);
 
-  test("a pane dragged to nothing still yields a usable scale", () => {
-    const geometry = paneGeometry({ ...stage, panes: 2, stageWidth: 40, viewport: 1440 });
-    expect(geometry.scale).toBeGreaterThan(0);
-    expect(Number.isFinite(geometry.frameHeight)).toBe(true);
+    const dragged = paneGeometry({ ...stage, panes: 2, stageWidth: 40, viewport: 1440 });
+    expect(dragged.scale).toBeGreaterThan(0);
+    expect(Number.isFinite(dragged.frameHeight)).toBe(true);
   });
 });
 
@@ -215,13 +155,6 @@ describe("a framed preset inside a split", () => {
     // in the design.
     expect(geometry.frameHeight).toBe(902);
     expect(geometry.boxWidth / geometry.boxHeight).toBeCloseTo(1440 / 902, 3);
-  });
-
-  test("box size stays the on-screen size even when nothing is scaled", () => {
-    const geometry = paneGeometry({ ...stage, viewport: 390 });
-    expect(geometry.scaling).toBe(false);
-    expect(geometry.boxWidth).toBe(390);
-    expect(geometry.boxHeight).toBe(902);
   });
 });
 

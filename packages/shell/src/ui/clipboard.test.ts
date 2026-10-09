@@ -33,13 +33,14 @@ describe("copyText", () => {
     await expect(copyText("url", { legacy: () => true })).resolves.toBe("copied");
   });
 
-  test("reports blocked when neither path lands", async () => {
+  test("reports blocked when neither path lands, or the environment offers neither", async () => {
     const outcome = await copyText("url", {
       clipboard: clipboard(Promise.reject(new Error("denied"))),
       legacy: () => false,
     });
 
     expect(outcome).toBe("blocked");
+    await expect(copyText("url", {})).resolves.toBe("blocked");
   });
 
   test("reports blocked rather than throwing when the legacy command is gone", async () => {
@@ -50,9 +51,5 @@ describe("copyText", () => {
     });
 
     expect(outcome).toBe("blocked");
-  });
-
-  test("reports blocked when the environment offers nothing", async () => {
-    await expect(copyText("url", {})).resolves.toBe("blocked");
   });
 });
