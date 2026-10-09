@@ -2144,42 +2144,9 @@ describe("the record of a set", () => {
     }
   });
 
-  test("keeps the newest hundred sets, and a new set makes room", async () => {
-    const cwd = await project("claude");
-    const folder = join(cwd, ".leglas", "generations");
-    const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
-
-    for (let index = 0; index < 100; index += 1) {
-      const id = `gen-${(1_700_000_000_000 + index).toString(36)}`;
-      await mkdir(join(folder, id), { recursive: true });
-      await writeFile(join(folder, id, "set.json"), "{}\n");
-    }
-
-    const { generations } = orchestrator(
-      cwd,
-      LEDGER,
-      ["write"],
-      clean,
-      undefined,
-      "answer",
-      "answer",
-      true,
-    );
-
-    const set = await startSet(generations);
-
-    await vi.waitFor(async () => {
-      const kept = await readdir(folder);
-
-      expect(kept).toHaveLength(100);
-      expect(kept).toContain(set.id);
-      expect(kept).not.toContain(oldest);
-    });
-
-    await generations.close();
-  });
-
-  test("of variations whose direction's set was just let go brings none of it back", async () => {
+  test("keeps the newest hundred sets, and a new set makes room before it looks up its base", async () => {
+    // The oldest set built the direction the new set varies. Let go to make
+    // room, it is not brought back by the new set's lookup or its event.
     const cwd = await project("claude");
     const folder = join(cwd, ".leglas", "generations");
     const oldest = `gen-${(1_700_000_000_000).toString(36)}`;
@@ -2212,6 +2179,11 @@ describe("the record of a set", () => {
     });
 
     await vi.waitFor(async () => {
+      const kept = await readdir(folder);
+
+      expect(kept).toHaveLength(100);
+      expect(kept).toContain(set.id);
+      expect(kept).not.toContain(oldest);
       expect(parseJson(await readFile(join(folder, set.id, "set.json"), "utf8"))).toMatchObject({
         basedOn: { key: "hero-a", set: null },
       });
@@ -2423,17 +2395,21 @@ describe("a set built with Codex", () => {
     expect(await readFile(join(cwd, "src", "main.tsx"), "utf8")).toBe("export const COPY = {};\n");
   });
 
-  test("plans and builds with restricted Codex runs, reading its answer and its steps", async () => {
-    const { calls, announced, job, slot } = await run();
+  test("plans, builds and fixes with restricted Codex runs, reading its answer and its steps", async () => {
+    // The first render reports an error, so the build gets a fix run.
+    const { calls, announced, job, slot } = await run(false, true);
 
     expect(job.agent).toBe("codex");
-    expect(slot.state).toBe("ready");
-    expect(calls.map((call) => call.command)).toEqual(["codex", "codex"]);
+    expect(slot).toMatchObject({ state: "ready", fixed: true });
+    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
 
-    const [plan, build] = calls.map((call) => call.args.join(" "));
+    const [plan, build, fix] = calls.map((call) => call.args.join(" "));
     expect(plan).toContain("exec --json --ephemeral --skip-git-repo-check");
     expect(plan).toContain("-s read-only");
     expect(build).toContain("-s workspace-write");
+    // A fix run may write.
+    expect(calls[2]?.args.at(-1)).toMatch(/^Leglas rendered /);
+    expect(fix).toContain("-s workspace-write");
 
     for (const args of [plan, build]) {
       expect(args).toContain("-c model_reasoning_effort=medium");
@@ -2456,17 +2432,6 @@ describe("a set built with Codex", () => {
       "paper",
       "spaced",
     ]);
-  });
-
-  test("a page that fails its check gets a Codex fix run that may write", async () => {
-    const { calls, slot } = await run(false, true);
-
-    expect(slot).toMatchObject({ state: "ready", fixed: true });
-    expect(calls.map((call) => call.command)).toEqual(["codex", "codex", "codex"]);
-
-    const fix = calls[2]?.args ?? [];
-    expect(fix.at(-1)).toMatch(/^Leglas rendered /);
-    expect(fix.join(" ")).toContain("-s workspace-write");
   });
 
   test("a failed build says Codex failed, not Claude", async () => {
