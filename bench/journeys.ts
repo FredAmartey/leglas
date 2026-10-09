@@ -690,7 +690,12 @@ async function walk(
       }),
       clocks: { window: endT - settledT, add: added.ms },
       memoryMb: idled.memoryMb,
-      checks: [added.check],
+      // Idle starts where boot ends, so a boot that went wrong says so here
+      // too when boot itself isn't being reported.
+      checks: [
+        added.check,
+        ...(wanted.includes("boot") ? [] : booted.checks.filter((check) => !check.ok)),
+      ],
     });
   }
 
