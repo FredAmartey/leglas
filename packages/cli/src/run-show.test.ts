@@ -308,7 +308,7 @@ describe("capture response boundaries", () => {
     { body: { error: 503 }, status: 503 },
     { body: null, status: 200 },
     { body: null, status: 503 },
-  ])("rejects malformed capture fields: $body", async ({ body, status }) => {
+  ])("rejects malformed capture fields: $body ($status)", async ({ body, status }) => {
     const { exitCode, envelope } = await show(
       await aurora(),
       screenshot,
