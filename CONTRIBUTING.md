@@ -10,6 +10,7 @@ pnpm typecheck   # every package
 pnpm format      # prettier, over everything but prose and vendored files
 pnpm lint        # oxlint with the anti-slop rules in tools/oxlint
 pnpm site        # the homepage, docs and changelog, into dist/site
+pnpm bench       # count what booting and sitting idle cost, against bench/ceilings.json
 ```
 
 ## Where things are
@@ -27,6 +28,7 @@ pnpm site        # the homepage, docs and changelog, into dist/site
 | `test`            | Tests about the repository itself: the manifests, the publish workflow, what the CLI tells people to type |
 | `docs`            | The manual the README links to: using the interface, sharing, setting up a project, agents, the command line, and how Leglas is built |
 | `evals`           | A Harbor benchmark cut from this repository's own fixes, for running coding agents against Leglas; see `evals/README.md` |
+| `bench`           | `pnpm bench`: the journeys Leglas is counted on, the fixture app they run against and the ceilings each count is held to |
 
 Tests sit beside the code they test, in the same directory.
 
@@ -79,6 +81,21 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 - Links in `README.md` are absolute. The file is also the npm package
   page, and npm resolves relative links against `packages/cli`, where
   nothing they point at exists.
+
+## Counting journeys
+
+`pnpm bench` boots Leglas on the app in `bench/fixture`, opens it in headless
+Chrome and counts two journeys exactly: boot (processes started, requests
+received by kind and the sockets the page opens) and the idle minute after it
+(requests, live frames and processes started or still alive). CI runs it on
+every pull request, and each count has one ceiling in `bench/ceilings.json`. A
+count above its ceiling fails. So does one below it until `pnpm bench:update`
+lowers the ceiling, which you commit with the change that earned it. Raising
+one takes `pnpm bench --raise <journey.count> --why "<reason>"`, which logs the
+reason, and CI refuses a ceiling that rose without one. Times and memory are
+printed beside the counts and never fail anything. It needs Chrome or Chromium
+(or `LEGLAS_BROWSER` naming one) and `lsof`, and takes about a minute and a
+quarter; `--journey boot` takes seconds.
 
 ## Pull requests
 

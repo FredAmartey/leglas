@@ -24,3 +24,31 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
+
+  # Counts what booting and sitting idle cost against bench/ceilings.json; see
+  # CONTRIBUTING.md. Chrome comes with the runner.
+  journeys:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The base branch's ceilings are read from history.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - if: github.event_name == 'pull_request'
+        run: node bench/run.ts --check-ceilings "origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+      - run: node bench/run.ts --runs 1
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journeys
+          path: bench/results.json
+          if-no-files-found: ignore
