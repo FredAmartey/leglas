@@ -49,12 +49,10 @@ describe("ago", () => {
 });
 
 describe("hasNews and the chip", () => {
-  test("a newer version that was not skipped is news", () => {
+  test("a newer version that was not skipped is news; a skipped one, or being up to date, is not", () => {
     expect(hasNews(status({ latest: newer, available: true }))).toBe(true);
     expect(chipLabel(status({ latest: newer, available: true }))).toBe("1.1.0 is out");
-  });
 
-  test("a skipped version is not, and neither is being up to date", () => {
     expect(hasNews(status({ latest: newer, available: true, skipped: "1.1.0" }))).toBe(false);
     expect(hasNews(status({ latest: { ...newer, version: "1.0.0" } }))).toBe(false);
     expect(chipLabel(status())).toBe("Leglas 1.0.0");

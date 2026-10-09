@@ -33,12 +33,9 @@ describe("resolveKey", () => {
   });
 
   describe("search", () => {
-    test("takes command or control, on either platform", () => {
+    test("takes command or control, on either platform, even from inside a text field", () => {
       expect(resolveKey({ key: "k", metaKey: true })).toEqual({ kind: "search" });
       expect(resolveKey({ key: "K", ctrlKey: true })).toEqual({ kind: "search" });
-    });
-
-    test("still reaches the search from inside a text field", () => {
       expect(resolveKey({ key: "k", metaKey: true, typing: true })).toEqual({ kind: "search" });
     });
 
