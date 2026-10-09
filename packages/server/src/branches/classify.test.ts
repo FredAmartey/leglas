@@ -13,21 +13,43 @@ const rewrite = (path: string, overrides: Partial<DeclaredChange> = {}): Declare
   change(path, { kind: "rewrite", ...overrides });
 
 describe("classifyDirection", () => {
-  test("stays in-app for new files beside what exists", () => {
-    const placement = classifyDirection({
-      changes: [
+  // Where each declared change set lives; the reasons are checked below.
+  test.each([
+    [
+      "new files beside what exists stay in-app",
+      [
         change(".leglas/variants/hero/aurora.tsx", { exists: false }),
         change(".leglas/variants/hero/switch.tsx"),
       ],
-    });
-
-    expect(placement.level).toBe("in-app");
-  });
-
-  test("wiring a branch point into an existing component is additive", () => {
-    const placement = classifyDirection({ changes: [change("src/app/page.tsx")] });
-
-    expect(placement.level).toBe("in-app");
+      "in-app",
+    ],
+    [
+      "wiring a branch point into an existing component is additive",
+      [change("src/app/page.tsx")],
+      "in-app",
+    ],
+    [
+      "a lockfile anywhere in a monorepo counts as a dependency change",
+      [change("apps/web/pnpm-lock.yaml")],
+      "checkout",
+    ],
+    [
+      "leglas's own config file is registration, not build configuration",
+      [change("leglas.config.ts")],
+      "in-app",
+    ],
+    [
+      "a rewrite of a path that does not exist is just a creation",
+      [rewrite("src/components/new-hero.tsx", { exists: false })],
+      "in-app",
+    ],
+    [
+      "a rewrite of the direction's own exploration files contends with nobody",
+      [rewrite(".leglas/variants/hero/aurora.tsx")],
+      "in-app",
+    ],
+  ] as const)("%s", (_name, changes, level) => {
+    expect(classifyDirection({ changes }).level).toBe(level);
   });
 
   test("routes a dependency change to a checkout", () => {
@@ -41,12 +63,6 @@ describe("classifyDirection", () => {
     expect(placement.level).toBe("checkout");
     expect(placement.reason).toContain("package.json");
     expect(placement.reason).toContain("dependency");
-  });
-
-  test("a lockfile anywhere in a monorepo counts as a dependency change", () => {
-    const placement = classifyDirection({ changes: [change("apps/web/pnpm-lock.yaml")] });
-
-    expect(placement.level).toBe("checkout");
   });
 
   test("routes build configuration to a checkout", () => {
@@ -64,33 +80,11 @@ describe("classifyDirection", () => {
     }
   });
 
-  test("leglas's own config file is registration, not build configuration", () => {
-    const placement = classifyDirection({ changes: [change("leglas.config.ts")] });
-
-    expect(placement.level).toBe("in-app");
-  });
-
   test("routes a rewrite of an existing shared file to a checkout", () => {
     const placement = classifyDirection({ changes: [rewrite("src/components/hero.tsx")] });
 
     expect(placement.level).toBe("checkout");
     expect(placement.reason).toContain("hero.tsx");
-  });
-
-  test("a rewrite of a path that does not exist is just a creation", () => {
-    const placement = classifyDirection({
-      changes: [rewrite("src/components/new-hero.tsx", { exists: false })],
-    });
-
-    expect(placement.level).toBe("in-app");
-  });
-
-  test("a rewrite of the direction's own exploration files contends with nobody", () => {
-    const placement = classifyDirection({
-      changes: [rewrite(".leglas/variants/hero/aurora.tsx")],
-    });
-
-    expect(placement.level).toBe("in-app");
   });
 
   test("the dependency reason wins when several rules match", () => {
