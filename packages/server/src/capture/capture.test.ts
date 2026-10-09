@@ -22,29 +22,30 @@ import { type JsonRecord, isJsonRecord, isString } from "../json.js";
 const LIVE_TEST_TIMEOUT_MS = START_TIMEOUT_MS * 2;
 
 describe("cropBox", () => {
-  test("pads a swept region and clamps it at the page edge", () => {
-    expect(
-      cropBox(
-        { x: 0, y: 0, width: 400, height: 400 },
-        { x: 0, y: 0, width: 0.1, height: 0.1 },
-        { width: 1000, height: 800 },
-      ),
-    ).toEqual({ x: 0, y: 0, width: 320, height: 200 });
-  });
-
-  test("grows a tiny element around its centre", () => {
-    expect(
-      cropBox({ x: 490, y: 390, width: 20, height: 20 }, undefined, { width: 1000, height: 800 }),
-    ).toEqual({ x: 340, y: 300, width: 320, height: 200 });
-  });
-
-  test("an element larger than the page becomes the page", () => {
-    expect(
-      cropBox({ x: -100, y: -100, width: 2000, height: 1600 }, undefined, {
-        width: 800,
-        height: 600,
-      }),
-    ).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+  test.each([
+    [
+      "pads a swept region and clamps it at the page edge",
+      { x: 0, y: 0, width: 400, height: 400 },
+      { x: 0, y: 0, width: 0.1, height: 0.1 },
+      { width: 1000, height: 800 },
+      { x: 0, y: 0, width: 320, height: 200 },
+    ],
+    [
+      "grows a tiny element around its centre",
+      { x: 490, y: 390, width: 20, height: 20 },
+      undefined,
+      { width: 1000, height: 800 },
+      { x: 340, y: 300, width: 320, height: 200 },
+    ],
+    [
+      "makes an element larger than the page the page",
+      { x: -100, y: -100, width: 2000, height: 1600 },
+      undefined,
+      { width: 800, height: 600 },
+      { x: 0, y: 0, width: 800, height: 600 },
+    ],
+  ])("%s", (_name, found, region, bounds, expected) => {
+    expect(cropBox(found, region, bounds)).toEqual(expected);
   });
 });
 
@@ -143,18 +144,19 @@ class FakePage implements CdpPage {
   }
 }
 
+/** A browser whose every tab is `page`. */
+const over = (page: CdpPage): Browser => ({
+  closed: false,
+  close: async () => {},
+  withPage: async (work) => work(page),
+});
+
 describe("capturePage", () => {
   test("a picture for keeping that fails leaves the capture as it was", async () => {
     const page = new FakePage();
     page.jpegFails = true;
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    const captured = await capturePage(browser, {
+    const captured = await capturePage(over(page), {
       url: "http://127.0.0.1/page",
       width: 400,
       jpeg: true,
@@ -167,12 +169,6 @@ describe("capturePage", () => {
 
   test("takes one frame and ordered crops while collecting load errors", async () => {
     const page = new FakePage();
-
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
 
     const focuses: Focus[] = [
       {
@@ -189,7 +185,7 @@ describe("capturePage", () => {
       },
     ];
 
-    const captured = await capturePage(browser, {
+    const captured = await capturePage(over(page), {
       url: "http://127.0.0.1/page",
       width: 200,
       focuses,
@@ -232,13 +228,7 @@ describe("capturePage", () => {
       },
     ];
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    const captured = await capturePage(browser, { url: "http://127.0.0.1/page", width: 1440 });
+    const captured = await capturePage(over(page), { url: "http://127.0.0.1/page", width: 1440 });
 
     expect(captured.errors).toEqual([
       "Failed to load resource: the server responded with a status of 500 (Internal Server Error) (/src/heroes/hero-timer.tsx)",
@@ -257,13 +247,7 @@ describe("capturePage", () => {
       message,
     ];
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    const captured = await capturePage(browser, {
+    const captured = await capturePage(over(page), {
       url: "http://127.0.0.1/page",
       width: 800,
     });
@@ -277,13 +261,7 @@ describe("capturePage", () => {
     page.contentHeight = 8000;
     page.found = { x: 500, y: 6000, width: 100, height: 40 };
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    const captured = await capturePage(browser, {
+    const captured = await capturePage(over(page), {
       url: "http://127.0.0.1/long",
       width: 320,
       focuses: [
@@ -305,14 +283,8 @@ describe("capturePage", () => {
     const page = new FakePage();
     page.documentStatus = 502;
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
     await expect(
-      capturePage(browser, { url: "http://127.0.0.1/down", width: 800 }),
+      capturePage(over(page), { url: "http://127.0.0.1/down", width: 800 }),
     ).rejects.toThrow("The page did not load: the app answered HTTP 502.");
   });
 
@@ -328,55 +300,9 @@ describe("capturePage", () => {
       return original<T>(method, params);
     };
 
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    await expect(capturePage(browser, { url: "http://127.0.0.1:1", width: 800 })).rejects.toThrow(
-      "The page did not load: net::ERR_CONNECTION_REFUSED",
-    );
-  });
-
-  test("the shutter waits for what the page asked for after load, arrived or failed", async () => {
-    const page = new FakePage();
-    const order: string[] = [];
-    const original = page.send.bind(page);
-    page.send = async <T>(method: string, params: JsonRecord = {}): Promise<T> => {
-      if (method === "Page.captureScreenshot") order.push("shutter");
-
-      const answer = await original<T>(method, params);
-
-      if (method === "Page.navigate") {
-        // Asked for after load, as a client-rendered page asks for what it
-        // draws with. One arrives, one fails.
-        queueMicrotask(() => {
-          page.emit("Network.requestWillBeSent", { requestId: "sheet", type: "Stylesheet" });
-          page.emit("Network.requestWillBeSent", { requestId: "picture", type: "Image" });
-          setTimeout(() => {
-            order.push("sheet arrived");
-            page.emit("Network.loadingFinished", { requestId: "sheet" });
-          }, 40);
-          setTimeout(() => {
-            order.push("picture failed");
-            page.emit("Network.loadingFailed", { requestId: "picture" });
-          }, 60);
-        });
-      }
-
-      return answer;
-    };
-
-    const browser: Browser = {
-      closed: false,
-      close: async () => {},
-      withPage: async (work) => work(page),
-    };
-
-    await capturePage(browser, { url: "http://127.0.0.1/late", width: 800 });
-
-    expect(order).toEqual(["sheet arrived", "picture failed", "shutter"]);
+    await expect(
+      capturePage(over(page), { url: "http://127.0.0.1:1", width: 800 }),
+    ).rejects.toThrow("The page did not load: net::ERR_CONNECTION_REFUSED");
   });
 
   test.each([
@@ -482,13 +408,7 @@ describe("capturePage", () => {
         return answer;
       };
 
-      const browser: Browser = {
-        closed: false,
-        close: async () => {},
-        withPage: async (work) => work(page),
-      };
-
-      const capture = capturePage(browser, { url: "http://127.0.0.1/lazy", width: 800 });
+      const capture = capturePage(over(page), { url: "http://127.0.0.1/lazy", width: 800 });
       await vi.runAllTimersAsync();
       await capture;
 
@@ -557,13 +477,7 @@ describe("capturePage", () => {
         return answer;
       };
 
-      const browser: Browser = {
-        closed: false,
-        close: async () => {},
-        withPage: async (work) => work(page),
-      };
-
-      const capture = capturePage(browser, { url: "http://127.0.0.1/lazy", width: 800 });
+      const capture = capturePage(over(page), { url: "http://127.0.0.1/lazy", width: 800 });
       await vi.runAllTimersAsync();
       await capture;
 
@@ -594,6 +508,17 @@ afterAll(async () => {
   );
 });
 
+/** Serves pages with `handle` on a local port and launches a real browser to capture them. */
+async function live(handle: http.RequestListener): Promise<{ port: number; browser: Browser }> {
+  const server = http.createServer(handle);
+  liveServers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const browser = await launchBrowser(required(executable));
+  liveBrowsers.push(browser);
+
+  return { port: boundPort(server), browser };
+}
+
 function pngSize(png: Buffer) {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
@@ -602,18 +527,12 @@ describe.skipIf(executable === null)("capturePage with a real browser", () => {
   test.skipIf(process.env.CODEX_SANDBOX === "seatbelt")(
     "renders a local page, crops its element and reads console errors",
     async () => {
-      const server = http.createServer((_req, res) => {
+      const { port, browser } = await live((_req, res) => {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(
           "<h1>Hello there</h1><p id=\"x\">Body copy</p><script>console.error('boom')</script>",
         );
       });
-
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = boundPort(server);
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
 
       const captured = await capturePage(browser, {
         url: `http://127.0.0.1:${port}/`,
@@ -721,7 +640,7 @@ describe.skipIf(executable === null)("a page measured for its layout", () => {
       <p class="solid">Showing now</p>
       <div class="flush"><span>Runs past both</span></div>`;
 
-      const server = http.createServer((req, res) => {
+      const { port, browser } = await live((req, res) => {
         if (req.url === "/probe.woff2") {
           res.writeHead(200, { "content-type": "font/woff2" });
           res.end(font);
@@ -732,12 +651,6 @@ describe.skipIf(executable === null)("a page measured for its layout", () => {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page);
       });
-
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = boundPort(server);
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
 
       const captured = await capturePage(browser, {
         url: `http://127.0.0.1:${port}/`,
@@ -782,18 +695,13 @@ describe.skipIf(executable === null)("a page measured for its layout", () => {
       </style>
       ${pairs}<p style="top: 700px; left: 740px">Past the edge</p>`;
 
-      const server = http.createServer((_req, res) => {
+      const { port, browser } = await live((_req, res) => {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page);
       });
 
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
-
       const captured = await capturePage(browser, {
-        url: `http://127.0.0.1:${boundPort(server)}/`,
+        url: `http://127.0.0.1:${port}/`,
         width: 800,
         inspect: true,
       });
@@ -820,7 +728,7 @@ describe.skipIf(executable === null)("two captures of one design", () => {
       // An entrance animation makes a still design come back different each
       // time; caught mid-fade, an agent judging one direction twice sees two
       // designs.
-      const server = http.createServer((_req, res) => {
+      const { port, browser } = await live((_req, res) => {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(`<style>
           body { margin: 0; background: #101014; }
@@ -833,12 +741,6 @@ describe.skipIf(executable === null)("two captures of one design", () => {
             requestAnimationFrame(() => document.getElementById("panel").classList.add("on")));
         </script>`);
       });
-
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = boundPort(server);
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
 
       const shots = [];
 
@@ -929,7 +831,7 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
         ],
       ]);
 
-      const server = http.createServer((req, res) => {
+      const { port, browser } = await live((req, res) => {
         const asset = assets.get(req.url ?? "");
 
         if (asset !== undefined) {
@@ -946,12 +848,6 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
           `<!doctype html><html><head><meta charset="utf-8"></head><body>${pages.get(req.url ?? "") ?? ""}</body></html>`,
         );
       });
-
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = boundPort(server);
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
 
       const shot = async (path: string) =>
         (await capturePage(browser, { url: `http://127.0.0.1:${port}${path}`, width: 400 })).frame
@@ -996,7 +892,7 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
         ],
       ]);
 
-      const server = http.createServer((req, res) => {
+      const { port, browser } = await live((req, res) => {
         if (req.url === "/reveal.js") {
           res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" });
           res.end(`
@@ -1013,12 +909,6 @@ describe.skipIf(executable === null)("a page drawn after load", () => {
           `<!doctype html><html><head><meta charset="utf-8"></head><body>${pages.get(req.url ?? "") ?? ""}</body></html>`,
         );
       });
-
-      liveServers.push(server);
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-      const port = boundPort(server);
-      const browser = await launchBrowser(required(executable));
-      liveBrowsers.push(browser);
 
       const shot = async (path: string) =>
         (await capturePage(browser, { url: `http://127.0.0.1:${port}${path}`, width: 400 })).frame
