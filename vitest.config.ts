@@ -27,6 +27,15 @@ export default defineConfig({
       reporter: ["text-summary", "json-summary", "json"],
       // A failing test still leaves a report; its totals miss what that test reaches.
       reportOnFailure: true,
+      /**
+       * Caps on how many lines and branches may go uncovered, not percentage
+       * floors: deleting well-tested code moves a percentage but not this count.
+       * Each cap is CI's count plus 12 for the timing races that flip a few
+       * between runs. Lower a cap by hand when a change leaves fewer uncovered;
+       * never raise one to get a run through. Vitest's autoUpdate would add the
+       * slack back after every run, so a small regression would raise the cap.
+       */
+      thresholds: { lines: -2130, branches: -2962 },
     },
   },
 });
