@@ -365,6 +365,13 @@ type PageLog = { sockets: number[]; frames: number[]; offMachine: number[] };
 const MARKER = "/leglas/__bench/";
 
 /**
+ * The tab icon. Whether a browser asks for it depends on the build, not on
+ * Leglas: Chrome's headless shell never does and full Chrome does, so counting
+ * it would make the same walk differ between machines.
+ */
+const ICON = "/leglas/favicon.svg";
+
+/**
  * Interface files are the built shell, API reads are GETs the interface and
  * commands make, the app is whatever the proxy forwards to the dev server, and
  * other is the rest: API writes and mounted files.
@@ -430,7 +437,11 @@ function windowCounts(
 
     if (event.kind === "spawn") bump(`processes.${event.what}`);
 
-    if (event.kind === "request" && !event.what.includes(` ${MARKER}`)) {
+    if (
+      event.kind === "request" &&
+      !event.what.includes(` ${MARKER}`) &&
+      !event.what.endsWith(` ${ICON}`)
+    ) {
       bump(`requests.${requestKind(event.what)}`);
     }
 

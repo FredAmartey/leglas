@@ -9,7 +9,7 @@
       "processes.lsof": 2,
       "requests.api": 8,
       "requests.app": 4,
-      "requests.interface": 8,
+      "requests.interface": 7,
       "requests.other": 0,
       "sockets": 1
     },
