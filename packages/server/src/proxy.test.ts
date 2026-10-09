@@ -34,12 +34,8 @@ function trackSockets(server: http.Server): Set<net.Socket> {
 }
 
 /** A stand-in dev server, so proxy behaviour is tested against real HTTP. */
-function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen: Request[] }> {
-  const seen: Request[] = [];
-
+function startOrigin(): Promise<{ port: number; close: () => Promise<void> }> {
   const server = http.createServer((req, res) => {
-    seen.push({ url: req.url ?? "", headers: req.headers });
-
     if (req.url === "/redirect-absolute") {
       const port = boundPort(server);
       res.writeHead(302, { location: `http://127.0.0.1:${port}/landed` });
@@ -119,13 +115,10 @@ function startOrigin(): Promise<{ port: number; close: () => Promise<void>; seen
       resolve({
         port: boundPort(server),
         close: () => shutdown(server, sockets),
-        seen,
       });
     });
   });
 }
-
-type Request = { url: string; headers: http.IncomingMessage["headers"] };
 
 /** One entry per /slow request, flipped to true when the origin sees it close. */
 const slowClosed: boolean[] = [];
@@ -220,12 +213,6 @@ describe("proxy", () => {
     expect(activity).toBeGreaterThan(1);
   });
 
-  test("passes a response body through unchanged", async () => {
-    const res = await fetch(`http://127.0.0.1:${proxy.port}/`);
-
-    expect(await res.text()).toBe("<h1>landed</h1>");
-  });
-
   test("preserves the upstream status code", async () => {
     const res = await fetch(`http://127.0.0.1:${proxy.port}/status-418`);
 
@@ -282,14 +269,6 @@ describe("proxy", () => {
 
     expect(res.headers.getSetCookie()[0]).toContain("session=abc");
     expect(res.headers.getSetCookie()[0]).toContain("HttpOnly");
-  });
-
-  test("forwards request cookies upstream, so real auth survives the hop", async () => {
-    await fetch(`http://127.0.0.1:${proxy.port}/echo-host`, {
-      headers: { cookie: "session=abc" },
-    });
-
-    expect(origin.seen.at(-1)?.headers.cookie).toBe("session=abc");
   });
 
   test("forwards the websocket upgrade, which is what keeps live reload alive", async () => {

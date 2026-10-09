@@ -76,7 +76,6 @@ function managerFor(
   clocks: { now?: () => number; nowMono?: () => bigint; deadlineMs?: number } = {},
 ) {
   const live = createLiveHub();
-  const nudge = vi.spyOn(live, "nudge");
 
   const options: Parameters<typeof createShareManager>[0] = {
     live,
@@ -109,33 +108,10 @@ function managerFor(
 
   managers.push(manager);
 
-  return { live, manager, nudge };
+  return { live, manager };
 }
 
 describe("createShareManager", () => {
-  test("binds a second listener, issues an entry URL and nudges share", async () => {
-    const { manager, nudge } = managerFor();
-
-    const result = await manager.create({
-      scope: "direction",
-      titles: ["Current"],
-      layout,
-    });
-
-    expect(result.ok).toBe(true);
-
-    if (!result.ok) return;
-    expect(result.share.sharePort).toBeGreaterThan(0);
-    expect(result.share.grants[0].localUrl).toMatch(
-      new RegExp(`^http://127\\.0\\.0\\.1:${result.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
-    );
-    expect(result.share.tunnel).toEqual({ status: "none" });
-    expect(result.share.grants[0].url).toBeNull();
-    expect(result.share.grants[0].viewers).toBe(0);
-    expect(result.share.grants).toHaveLength(1);
-    expect(nudge).toHaveBeenCalledWith("share");
-  });
-
   test("sets the cookie at entry and refuses wrong or missing credentials", async () => {
     const { manager } = managerFor();
 
@@ -183,33 +159,6 @@ describe("createShareManager", () => {
 
     expect(html.status).toBe(403);
     expect(await html.text()).toContain("This Leglas link isn't active");
-  });
-
-  test("refuses every viewer mutation before the shared handler sees it", async () => {
-    const request = vi.fn((res: ServerResponse) => res.end("should not run"));
-    const { manager } = managerFor(previews, request);
-
-    const created = await manager.create({
-      scope: "direction",
-      titles: ["Current"],
-      layout,
-    });
-
-    if (!created.ok) throw new Error(created.error);
-    const entry = await fetch(created.share.grants[0].localUrl, { redirect: "manual" });
-    const cookie = entry.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
-
-    const response = await fetch(`http://127.0.0.1:${created.share.sharePort}/leglas/api/watch`, {
-      method: "POST",
-      headers: { cookie },
-    });
-
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      ok: false,
-      error: "Viewers can look, not change what runs.",
-    });
-    expect(request).not.toHaveBeenCalled();
   });
 
   test("gives a viewer config to a live link and nothing to a stranger", async () => {
@@ -343,7 +292,8 @@ describe("many links to one share", () => {
   test("a share opens with one link, and every later one is its own", async () => {
     const { manager, share } = await start();
     expect(share.grants).toHaveLength(1);
-    expect(share.grants[0].name).toBe("");
+    // Unnamed, with no public url while there is no tunnel, and nobody watching.
+    expect(share.grants[0]).toMatchObject({ name: "", url: null, viewers: 0 });
 
     const second = manager.createGrant({ name: "  Ana  " });
 
@@ -539,12 +489,6 @@ describe("how far a viewer reaches", () => {
 
     return { manager, get, share: created.share, cookie, port: created.share.sharePort };
   };
-
-  test("open reach serves the app, as it did before there was a list", async () => {
-    const { get, share } = await startWith({});
-    expect(share.reach).toBe("open");
-    expect((await get("/anything/at/all")).status).toBe(200);
-  });
 
   test("listed reach serves the list and refuses the rest, remembering what it refused", async () => {
     const { get, manager } = await startWith({

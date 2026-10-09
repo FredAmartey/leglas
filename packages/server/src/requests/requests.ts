@@ -23,14 +23,14 @@ export type ComposedRequest = { prompt: string; target: string | null; mode: Req
 /** Only names the scaffold generates: no separators, no traversal. */
 const SAFE_SEGMENT = /^[a-z0-9][a-z0-9-]*$/i;
 
-export type VariantSlot = { surface: string; option: string };
+type VariantSlot = { surface: string; option: string };
 
 /**
  * The surface and option a scaffold URL names, if any: `/?v-hero=aurora` is
  * surface "hero", option "aurora". Both are checked against the scaffold's
  * naming before reaching a path or command.
  */
-export function variantSlot(url: string): VariantSlot | null {
+function variantSlot(url: string): VariantSlot | null {
   if (!url.startsWith("/")) return null;
 
   if (!url.includes("?")) return null;

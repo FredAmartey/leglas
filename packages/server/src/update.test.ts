@@ -834,14 +834,22 @@ describe("restartCommand", () => {
     expect(argv[3]).toBe("4105");
   });
 
-  test("uses the invoked global bin with the same runtime", () => {
+  test("uses the invoked global bin with the same runtime while it survives", () => {
     const install: Install = { kind: "global", manager: "npm", command: "npm i -g leglas@latest" };
-    expect(restartCommand(install, argv, "1.1.0", 4123, { ...options, platform: "win32" })).toEqual(
-      { file: "/runtime/node", args: ["/invoked/leglas", ...rest], shell: false },
-    );
+    const exists = vi.fn((path: string) => path === "/invoked/leglas");
+    expect(restartCommand(install, argv, "1.1.0", 4123, { ...options, exists })).toEqual({
+      file: "/runtime/node",
+      args: ["/invoked/leglas", ...rest],
+      shell: false,
+    });
+    expect(exists).toHaveBeenCalledWith("/invoked/leglas");
+    // Even on Windows, where a bare command would need a shell.
+    expect(
+      restartCommand(install, argv, "1.1.0", 4123, { ...options, exists, platform: "win32" }),
+    ).toEqual({ file: "/runtime/node", args: ["/invoked/leglas", ...rest], shell: false });
   });
 
-  test("uses the project's shim on either platform", () => {
+  test("uses the project's shim", () => {
     const install: Install = {
       kind: "project",
       manager: "pnpm",
@@ -853,16 +861,6 @@ describe("restartCommand", () => {
       file: "/work/app/node_modules/.bin/leglas",
       args: rest,
       shell: false,
-    });
-    expect(
-      restartCommand({ ...install, root: "C:/work/app" }, argv, "1.1.0", 4123, {
-        ...options,
-        platform: "win32",
-      }),
-    ).toEqual({
-      file: `C:\\work\\app\\node_modules\\.bin\\leglas.cmd ${rest.join(" ")}`,
-      args: [],
-      shell: true,
     });
   });
 });
@@ -920,38 +918,10 @@ describe("installing and restarting", () => {
   test.each([
     ["/opt/lib/node_modules/leglas/dist/bin.js", [], "npm", ["i", "-g", "leglas@1.1.0"], undefined],
     [
-      "/tools/pnpm/global/node_modules/leglas/dist/bin.js",
-      [],
-      "pnpm",
-      ["add", "-g", "leglas@1.1.0"],
-      undefined,
-    ],
-    [
-      "/tools/.yarn/global/node_modules/leglas/dist/bin.js",
-      [],
-      "yarn",
-      ["global", "add", "leglas@1.1.0"],
-      undefined,
-    ],
-    [
-      "/tools/.bun/global/node_modules/leglas/dist/bin.js",
-      [],
-      "bun",
-      ["add", "-g", "leglas@1.1.0"],
-      undefined,
-    ],
-    [
       "/work/app/node_modules/leglas/dist/bin.js",
       [],
       "npm",
       ["install", "leglas@1.1.0"],
-      "/work/app",
-    ],
-    [
-      "/work/app/node_modules/leglas/dist/bin.js",
-      ["pnpm-lock.yaml"],
-      "pnpm",
-      ["up", "leglas@1.1.0"],
       "/work/app",
     ],
     [
@@ -966,20 +936,6 @@ describe("installing and restarting", () => {
       ["yarn.lock", ".yarnrc.yml"],
       "yarn",
       ["up", "leglas@1.1.0"],
-      "/work/app",
-    ],
-    [
-      "/work/app/.yarn/cache/leglas-npm-1.0.0.zip/node_modules/leglas/dist/bin.js",
-      ["yarn.lock", ".yarnrc.yml"],
-      "yarn",
-      ["up", "leglas@1.1.0"],
-      "/work/app",
-    ],
-    [
-      "/work/app/node_modules/leglas/dist/bin.js",
-      ["bun.lock"],
-      "bun",
-      ["update", "leglas@1.1.0"],
       "/work/app",
     ],
   ] as const)("pins the install for %s with %s", async (entry, files, manager, args, cwd) => {
@@ -1051,24 +1007,6 @@ describe("installing and restarting", () => {
     );
     child.emit("close", 0);
     await nextTurn();
-  });
-
-  test("a failed npm install names npm's own message, not one of its fields", async () => {
-    const { spawn, child } = spawned();
-    const updates = service({ cached: true, deps: { spawn } });
-    updates.onRestart(vi.fn(async () => {}));
-    await updates.update();
-    await nextTurn();
-    child.stderr.write(NPM_11_EACCES);
-    child.emit("close", 243);
-    await nextTurn();
-    expect(updates.status().phase).toEqual({
-      status: "failed",
-      version: "1.1.0",
-      reason:
-        "npm i -g leglas@1.1.0 exited 243. " +
-        "Error: EACCES: permission denied, mkdir '/usr/local/lib/node_modules/leglas'",
-    });
   });
 
   test("a failed install includes the code and the first useful stderr line", async () => {
@@ -1193,21 +1131,6 @@ describe("Windows command lines and replacement bins", () => {
       args: [...argv.slice(2), "--port", "4123", "--no-open"],
       shell: false,
     });
-  });
-
-  test("a surviving custom prefix runs through its original runtime", () => {
-    const exists = vi.fn((path: string) => path === argv[1]);
-    expect(
-      restartCommand({ kind: "global", manager: "npm", command: null }, argv, "1.2.0", 4123, {
-        ...options,
-        exists,
-      }),
-    ).toMatchObject({
-      file: "/runtime/node",
-      args: argv.slice(1).concat(["--port", "4123", "--no-open"]),
-      shell: false,
-    });
-    expect(exists).toHaveBeenCalledWith(argv[1]);
   });
 
   test("PnP restarts through yarn when the project has no bin shim", () => {

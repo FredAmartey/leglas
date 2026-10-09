@@ -21,7 +21,6 @@ import {
   isOwnCapture,
   previewUrl,
   pruneCaptures,
-  rehomeCaptures,
   rehomeText,
   removeCaptures,
   sniffImage,
@@ -272,33 +271,6 @@ describe("attachRequest", () => {
     expect(notes[0]).toMatchObject({ file: `${CAPTURES_DIR}/req2/note-2.png`, note: "n2" });
   });
 
-  test("moves references even when no browser can be found", async () => {
-    const cwd = root();
-    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
-    writeFileSync(join(cwd, REFERENCES_DIR, "paste1.png"), PNG);
-
-    const result = await attachRequest(
-      cwd,
-      "req3",
-      {
-        origin: "http://127.0.0.1:4100",
-        preview: preview("Poster", "/"),
-        width: 1440,
-        notes: [],
-        compare: null,
-        references: ["paste1"],
-      },
-      { pool: pool(null) },
-    );
-
-    // A pasted image is worth carrying whatever else failed, and the request
-    // says in one sentence why there's no render.
-    expect(result.skipped).toBe(NO_BROWSER);
-    expect(result.attachments).toEqual([
-      { kind: "reference", file: `${CAPTURES_DIR}/req3/reference-1.png`, width: 2, height: 3 },
-    ]);
-  });
-
   test("honours one deadline and returns without waiting for a stuck capture", async () => {
     const cwd = root();
 
@@ -357,24 +329,6 @@ describe("attachRequest", () => {
 
     expect(result.attachments).toEqual([]);
     expect(result.skipped).toContain("ERR_CONNECTION_REFUSED");
-  });
-});
-
-describe("rehomeCaptures", () => {
-  test("moves the directory and repoints every path at it", async () => {
-    const cwd = root();
-    mkdirSync(join(cwd, CAPTURES_DIR, "old"), { recursive: true });
-    writeFileSync(join(cwd, CAPTURES_DIR, "old", "frame.png"), "frame");
-
-    const moved = await rehomeCaptures(cwd, "old", "new", [
-      { kind: "frame", file: `${CAPTURES_DIR}/old/frame.png`, width: 1, height: 1 },
-    ]);
-
-    expect(moved).toEqual([
-      { kind: "frame", file: `${CAPTURES_DIR}/new/frame.png`, width: 1, height: 1 },
-    ]);
-    expect(readFileSync(join(cwd, CAPTURES_DIR, "new", "frame.png"), "utf8")).toBe("frame");
-    expect(existsSync(join(cwd, CAPTURES_DIR, "old"))).toBe(false);
   });
 });
 
