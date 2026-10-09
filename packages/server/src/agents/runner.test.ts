@@ -869,65 +869,49 @@ describe("startRunner", () => {
     await runner.stop();
   });
 
-  test("hands claude the registration allowance on a fork, and only on a fork", async () => {
+  test("hands claude the registration allowance on a fork, cold or resumed, and only on a fork", async () => {
     const { cwd, clock, spawned, runner } = await boot(
       { agent: "claude" },
-      [{ ...input("Fork"), mode: "variant" }, "Tweak"],
+      [
+        { ...input("Fork"), mode: "variant" },
+        { ...input("Second fork"), mode: "variant" },
+        "Tweak",
+      ],
       { leglasCommand: "npx -y leglas" },
     );
+
+    /** What the run at `index` was allowed to run, past `--allowedTools`. */
+    const allowed = (index: number) => {
+      const argv = spawned.calls[index]?.[1] ?? [];
+      const at = argv.indexOf("--allowedTools");
+
+      return at === -1 ? [] : argv.slice(at + 1);
+    };
+
+    const fork = ["Bash(npx -y leglas show *)", "Bash(npx -y leglas add *)"];
 
     // A fork ends by running the registration CLI, and non-interactive Claude
     // can't approve a Bash call itself. Without the allowance that last step is
     // refused and the run exits 0 with nothing on the rail.
     await until(() => spawned.children.length === 1);
-    const forkArgs = spawned.calls[0]?.[1] ?? [];
-    const at = forkArgs.indexOf("--allowedTools");
-    expect(at).toBeGreaterThan(-1);
-    expect(forkArgs.slice(at + 1, at + 3)).toEqual([
-      "Bash(npx -y leglas show *)",
-      "Bash(npx -y leglas add *)",
-    ]);
-
-    await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
-    spawned.children[0]?.close(0);
-    await until(async () => (await readRequests(cwd)).length === 1);
-
-    // A change in place needs only the screenshot command it is told to run.
-    await tickUntil(clock, () => spawned.children.length === 2);
-    const tweakArgs = spawned.calls[1]?.[1] ?? [];
-    const tweakAt = tweakArgs.indexOf("--allowedTools");
-    expect(tweakArgs.slice(tweakAt + 1)).toEqual(["Bash(npx -y leglas show *)"]);
-    spawned.children[1]?.close(0);
-    await runner.stop();
-  });
-
-  test("a resumed fork carries the registration allowance too", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { cwd, clock, spawned, runner } = await boot(
-      { agent: "claude" },
-      [
-        { ...input("First fork"), mode: "variant" },
-        { ...input("Second fork"), mode: "variant" },
-      ],
-      { leglasCommand: "npx -y leglas" },
-    );
-
-    await until(() => spawned.children.length === 1);
+    expect(allowed(0)).toEqual(fork);
     spawned.children[0]?.say({ type: "system", subtype: "init", session_id: "s_1" });
     await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1}]}`);
     spawned.children[0]?.close(0);
+    await until(async () => (await readRequests(cwd)).length === 2);
+
+    // A resumed fork carries it too.
+    await tickUntil(clock, () => spawned.children.length === 2);
+    expect(spawned.calls[1]?.[1]).toContain("--resume");
+    expect(allowed(1)).toEqual(fork);
+    await writeFile(join(cwd, LOCAL_PREVIEWS_PATH), `{"previews":[{"x":1},{"x":2}]}`);
+    spawned.children[1]?.close(0);
     await until(async () => (await readRequests(cwd)).length === 1);
 
-    await tickUntil(clock, () => spawned.children.length === 2);
-    const resumed = spawned.calls[1]?.[1] ?? [];
-    expect(resumed).toContain("--resume");
-    const at = resumed.indexOf("--allowedTools");
-    expect(at).toBeGreaterThan(-1);
-    expect(resumed.slice(at + 1, at + 3)).toEqual([
-      "Bash(npx -y leglas show *)",
-      "Bash(npx -y leglas add *)",
-    ]);
+    // A change in place needs only the screenshot command it is told to run.
+    await tickUntil(clock, () => spawned.children.length === 3);
+    expect(allowed(2)).toEqual(["Bash(npx -y leglas show *)"]);
+    spawned.children[2]?.close(0);
     await runner.stop();
   });
 
