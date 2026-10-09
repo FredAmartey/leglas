@@ -20,6 +20,7 @@ import {
   JOURNEYS,
   findHost,
   runJourneys,
+  stopWalking,
   type Check,
   type Counts,
   type JourneyName,
@@ -451,6 +452,9 @@ async function main(argv: readonly string[]): Promise<number> {
 
     return await measure(options);
   } catch (error) {
+    // A walk cut short by a signal fails on whatever it was waiting for.
+    if (interrupted !== null) return interrupted;
+
     if (!(error instanceof UsageError) && !(error instanceof BenchUnavailable)) throw error;
     process.stderr.write(`${error.message}\n`);
 
@@ -458,6 +462,24 @@ async function main(argv: readonly string[]): Promise<number> {
 
     return 2;
   }
+}
+
+/**
+ * A signal ends Node without running `finally`, which would leave the walk's
+ * processes running and its temp folders on disk. Undo the walk first, then
+ * exit as the signal would have.
+ */
+let interrupted: number | null = null;
+
+for (const [signal, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129],
+] as const) {
+  process.once(signal, () => {
+    interrupted = code;
+    void stopWalking().finally(() => process.exit(code));
+  });
 }
 
 process.exitCode = await main(process.argv.slice(2));

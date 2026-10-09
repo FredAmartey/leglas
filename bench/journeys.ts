@@ -21,6 +21,7 @@ import {
   KNOWN_AGENTS,
   findBrowser,
   launchBrowser,
+  type Browser,
   type CdpPage,
 } from "../packages/server/dist/index.js";
 
@@ -473,15 +474,42 @@ function readEvents(path: string): ProbeEvent[] {
 }
 
 /**
+ * Undoes the walk in progress. A signal ends Node without running `finally`,
+ * so the runner calls this before it exits on one; otherwise the walk's
+ * processes outlive it and its temp folders stay on disk.
+ */
+let undo: (() => Promise<void>) | null = null;
+
+export function stopWalking(): Promise<void> {
+  return undo?.() ?? Promise.resolve();
+}
+
+/**
  * Boots Leglas on a fresh fixture and walks the asked journeys. Idle starts
  * where boot ends, so asking for idle boots too.
  */
 export async function runJourneys(host: Host, wanted: readonly JourneyName[]): Promise<RunResult> {
   const workspace = prepare(host);
-  const browser = await launchBrowser(host.browser);
   const children: ChildProcess[] = [];
+  let browser: Browser | null = null;
+  let cleaned: Promise<void> | null = null;
+
+  // Once: an interrupt and the finally below can both ask for it.
+  const cleanup = (): Promise<void> => {
+    cleaned ??= (async () => {
+      for (const child of children.toReversed()) await stop(child);
+      await browser?.close();
+      rmSync(workspace.root, { recursive: true, force: true });
+    })();
+
+    return cleaned;
+  };
+
+  undo = cleanup;
 
   try {
+    browser = await launchBrowser(host.browser);
+
     const dev = spawn(process.execPath, [join(workspace.project, "server.ts"), "--port", "0"], {
       cwd: workspace.project,
       stdio: ["ignore", "pipe", "inherit"],
@@ -492,9 +520,8 @@ export async function runJourneys(host: Host, wanted: readonly JourneyName[]): P
 
     return await browser.withPage((page) => walk(page, workspace, devPort, wanted, children));
   } finally {
-    for (const child of children.toReversed()) await stop(child);
-    await browser.close();
-    rmSync(workspace.root, { recursive: true, force: true });
+    undo = null;
+    await cleanup();
   }
 }
 
