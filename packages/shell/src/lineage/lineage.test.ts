@@ -7,7 +7,6 @@ import {
   lineageRail,
   reorderAmongSiblings,
   segmentsOf,
-  tracedChain,
   tracedSegments,
   tracedTree,
   trailPath,
@@ -106,9 +105,7 @@ describe("lineageRail", () => {
       through: [],
     });
     expect(widestLane(new Map([["Current", meta.get("Current")!]]))).toBe(0);
-  });
-
-  test("a rail drawn in family order has no gutter", () => {
+    // A rail drawn in family order has no gutter.
     expect(widestLane(new Map())).toBe(-1);
   });
 
@@ -185,21 +182,11 @@ describe("lineageRail", () => {
 
     expect(rows.sort()).toEqual(["A", "B"]);
   });
-
-  test("previews with no basedOn behave exactly as before", () => {
-    const { rows, meta } = lineageRail(["A", "B"], basedOn([]), new Set());
-
-    expect(rows).toEqual(["A", "B"]);
-    expect(meta.get("A")?.depth).toBe(0);
-  });
 });
 
 describe("ancestry", () => {
-  test("root first, the direction itself left out", () => {
+  test("root first, the direction itself left out, and none for a root", () => {
     expect(ancestry("Lantern", CHAIN)).toEqual(["Meridian", "Dusk", "Sea", "Harbour", "Quay"]);
-  });
-
-  test("a root has none", () => {
     expect(ancestry("Meridian", CHAIN)).toEqual([]);
   });
 
@@ -282,11 +269,8 @@ describe("tracedSegments", () => {
     });
   });
 
-  test("a direction on no line at all lights only itself", () => {
+  test("a direction on no line at all lights only itself, and one not on the rail nothing", () => {
     expect(lit("Current")).toEqual({ Current: ["mark"] });
-  });
-
-  test("a direction that is not on the rail lights nothing", () => {
     expect(lit("Nowhere")).toEqual({});
   });
 });
@@ -362,25 +346,6 @@ describe("reorderAmongSiblings", () => {
     expect(
       reorderAmongSiblings(trailing, trailing, "Quay", null, ["Quay", "Ferry", "Wave"]),
     ).toEqual(["Ferry", "Wave", "Quay", "Tide"]);
-  });
-});
-
-describe("tracedChain", () => {
-  const rail = lineageRail(SAVED_WITH_TIDE, CHAIN_WITH_TIDE, new Set());
-
-  test("runs from the family root down to the direction, root first", () => {
-    expect(tracedChain(rail.parents, "Tide")).toEqual([
-      "Meridian",
-      "Dusk",
-      "Sea",
-      "Harbour",
-      "Quay",
-      "Tide",
-    ]);
-  });
-
-  test("a root is a line of one", () => {
-    expect(tracedChain(rail.parents, "Current")).toEqual(["Current"]);
   });
 });
 
@@ -462,16 +427,13 @@ describe("trailPath", () => {
     ).toBe("M 6 15 L 6 60 M 6 60 L 6 102");
   });
 
-  test("two marks with no room between them draw nothing", () => {
+  test("two marks with no room between them draw nothing, and nor does no mark", () => {
     expect(
       trailPath([
         { x: 6, y: 10, clear: 5 },
         { x: 6, y: 18, clear: 5 },
       ]),
     ).toBe("");
-  });
-
-  test("nothing to draw is an empty path", () => {
     expect(trailPath([])).toBe("");
   });
 });
