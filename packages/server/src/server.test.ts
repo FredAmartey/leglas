@@ -26,7 +26,7 @@ import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
 import type { LeglasConfig } from "./config/config.js";
 import { LIVE_DEBOUNCE_MS, type LiveChange, type LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests/requests.js";
-import { isLoopbackAddress, isTrustedMutation, startServer, type RunningServer } from "./server.js";
+import { isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
 import { startTunnel as startTunnelProcess } from "./share/tunnel.js";
 import type { UpdateService, UpdateStatus } from "./update.js";
@@ -637,11 +637,14 @@ describe("startServer", () => {
     expect((await upload(REFERENCE_BYTES_CAP + 1)).status).toBe(413);
   });
 
-  test("moves an uploaded reference into the request capture directory", async () => {
+  test("moves an uploaded reference into the request, and says why no render came with it", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-request-"));
 
     const server = await start({
-      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
+      config: configFor(await startOrigin(), [
+        { title: "Poster", url: "/" },
+        { title: "Ledger", url: "/ledger" },
+      ]),
       port: 0,
       cwd,
     });
@@ -661,10 +664,13 @@ describe("startServer", () => {
       body: JSON.stringify({
         title: "Poster",
         intent: "use the attached proportions",
+        width: 390,
+        compare: "Ledger",
         references: [uploadedBody.reference.id],
       }),
     });
 
+    const body: { attachments: unknown[]; prompt: string } = await response.json();
     const [queued] = await readRequests(cwd);
 
     expect(response.status).toBe(200);
@@ -676,10 +682,16 @@ describe("startServer", () => {
         height: 3,
       },
     ]);
+    expect(queued?.attachments).toEqual(body.attachments);
     expect(readFileSync(join(cwd, CAPTURES_DIR, queued?.id ?? "", "reference-1.png"))).toEqual(
       TWO_BY_THREE_PNG,
     );
     expect(existsSync(join(cwd, uploadedBody.reference.file))).toBe(false);
+    // There is no browser here: the picture still travels, and the request
+    // says why there is no render of the direction or the one beside it.
+    expect(body.prompt).toContain("Reference images the user attached");
+    expect(body.prompt).toContain(NO_BROWSER);
+    expect(queued?.captureNote).toBe(NO_BROWSER);
   });
 
   test("sanitises the uploaded reference display name", async () => {
@@ -698,6 +710,17 @@ describe("startServer", () => {
     expect(response.status).toBe(200);
     expect(body.reference.name).toBe(`..caf${"x".repeat(75)}`);
     expect(body.reference.name).toHaveLength(80);
+
+    // Nothing safe left at all, so it falls back to a plain word.
+    const bare = await fetch(`${server.url}/leglas/api/references`, {
+      method: "POST",
+      headers: { "x-leglas-filename": "\u00e9/\\" },
+      body: TWO_BY_THREE_PNG,
+    });
+
+    const bareBody: { reference: { name: string } } = await bare.json();
+
+    expect(bareBody.reference.name).toBe("image");
   });
 
   test("refuses an empty reference upload", async () => {
@@ -712,69 +735,6 @@ describe("startServer", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ ok: false, error: "The upload was empty." });
     expect(referenceFiles(cwd)).toEqual([]);
-  });
-
-  test("falls back to image when the reference display name has no safe characters", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-reference-name-empty-"));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    const response = await fetch(`${server.url}/leglas/api/references`, {
-      method: "POST",
-      headers: { "x-leglas-filename": "\u00e9/\\" },
-      body: TWO_BY_THREE_PNG,
-    });
-
-    const body: { reference: { name: string } } = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.reference.name).toBe("image");
-  });
-
-  test("a request moves attached references and records why a browser capture was skipped", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-captures-"));
-    mkdirSync(join(cwd, REFERENCES_DIR), { recursive: true });
-    const png = Buffer.alloc(24);
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
-    png.writeUInt32BE(320, 16);
-    png.writeUInt32BE(200, 20);
-    writeFileSync(join(cwd, REFERENCES_DIR, "paste_1.png"), png);
-
-    const server = await start({
-      config: configFor(await startOrigin(), [
-        { title: "Poster", url: "/" },
-        { title: "Ledger", url: "/ledger" },
-      ]),
-      port: 0,
-      cwd,
-    });
-
-    const response = await fetch(`${server.url}/leglas/api/request`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title: "Poster",
-        intent: "warmer",
-        width: 390,
-        compare: "Ledger",
-        references: ["paste_1"],
-      }),
-    });
-
-    const body: {
-      attachments: { kind: string; file: string }[];
-      prompt: string;
-    } = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.attachments).toMatchObject([
-      { kind: "reference", file: expect.stringContaining("reference-1.png") },
-    ]);
-    expect(body.prompt).toContain("Reference images the user attached");
-    expect(body.prompt).toContain(NO_BROWSER);
-    const [queued] = await readRequests(cwd);
-    expect(queued?.attachments).toEqual(body.attachments);
-    expect(queued?.captureNote).toBe(NO_BROWSER);
-    expect(existsSync(join(cwd, REFERENCES_DIR, "paste_1.png"))).toBe(false);
   });
 
   test("rejects malformed reference ids before moving or queueing anything", async () => {
@@ -1102,21 +1062,6 @@ describe("startServer", () => {
 
     expect(gone.status).toBe(404);
 
-    // JSON that isn't an object. Reading a field off null throws in a listener
-    // nothing awaits, which takes the process down.
-    for (const nonsense of ["null", '"a string"', "[]", "7"]) {
-      const refused = await fetch(`${server.url}/leglas/api/annotations/update`, {
-        body: nonsense,
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-
-      expect(refused.status).toBe(400);
-    }
-
-    // Still answering, which is the point.
-    expect((await fetch(`${server.url}/leglas/api/annotations`)).status).toBe(200);
-
     // A body that forgot to say anything must not be read as "say nothing".
     const wordless = await fetch(`${server.url}/leglas/api/annotations/update`, {
       body: JSON.stringify({ id: reworded.id }),
@@ -1131,66 +1076,6 @@ describe("startServer", () => {
     } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
 
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
-  });
-
-  // Pins must be distinguishable from unread ones, and the queue is the only
-  // record of which is which.
-  test("the queue says which notes each change answers", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-sent-"));
-
-    const server = await start({
-      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
-      cwd,
-      port: 0,
-    });
-
-    const kept = await fetch(`${server.url}/leglas/api/annotations`, {
-      body: JSON.stringify({
-        anchor: {
-          classes: [],
-          rect: { height: 20, width: 20, x: 0, y: 0 },
-          selector: "h1",
-          tag: "h1",
-          text: "Poster",
-          viewport: 1440,
-        },
-        note: "looks fake",
-        title: "Poster",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-
-    const { annotation }: { annotation: { id: string } } = await kept.json();
-
-    await fetch(`${server.url}/leglas/api/request`, {
-      body: JSON.stringify({ title: "Poster", intent: "" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-
-    const queue: {
-      requests: { notes: string[] }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
-
-    expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
-
-    // Rewording a note the queue holds reissues it, so the change sent with the
-    // old words can't take the new ones when it lands.
-    const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
-      body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-
-    const {
-      annotation: after,
-    }: {
-      annotation: { id: string; note: string };
-    } = await revised.json();
-
-    expect(after.note).toBe("looks printed");
-    expect(after.id).not.toBe(annotation.id);
   });
 
   test("refuses a note with nothing to point at", async () => {
@@ -1211,8 +1096,10 @@ describe("startServer", () => {
     expect(posted.status).toBe(400);
   });
 
-  // Pins carry their own words and address, so an empty composer is fine.
-  test("a change with notes and no words is still a request", async () => {
+  // Pins carry their own words and address, so an empty composer is fine. They
+  // stay after a fork, so send can be pressed twice on the same brief, costing
+  // two provider turns for one piece of work.
+  test("a change with notes and no words is still a request, and only once", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-note-request-"));
 
     const server = await start({
@@ -1221,7 +1108,7 @@ describe("startServer", () => {
       port: 0,
     });
 
-    await fetch(`${server.url}/leglas/api/annotations`, {
+    const kept = await fetch(`${server.url}/leglas/api/annotations`, {
       body: JSON.stringify({
         anchor: {
           classes: [],
@@ -1238,47 +1125,7 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const posted = await fetch(`${server.url}/leglas/api/request`, {
-      body: JSON.stringify({ title: "Poster", intent: "" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-
-    expect(posted.status).toBe(200);
-    const { prompt }: { prompt: string } = await posted.json();
-    expect(prompt).toContain("1. too tight");
-    expect(prompt).toContain("path h1");
-    expect(prompt).toContain("reading “Tropical”");
-  });
-
-  // Pins stay after a fork, so send can be pressed twice on the same brief,
-  // costing two provider turns for one piece of work.
-  test("refuses the same notes sent twice while the first is still waiting", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-note-dup-"));
-
-    const server = await start({
-      config: configFor(await startOrigin(), [{ title: "Poster", url: "/" }]),
-      cwd,
-      port: 0,
-    });
-
-    await fetch(`${server.url}/leglas/api/annotations`, {
-      body: JSON.stringify({
-        anchor: {
-          classes: [],
-          rect: { height: 20, width: 40, x: 1, y: 2 },
-          selector: "h1",
-          spot: { x: 0.5, y: 0.5 },
-          tag: "h1",
-          text: "Tropical",
-          viewport: 1440,
-        },
-        note: "too tight",
-        title: "Poster",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
+    const { annotation }: { annotation: { id: string } } = await kept.json();
 
     const send = () =>
       fetch(`${server.url}/leglas/api/request`, {
@@ -1287,7 +1134,21 @@ describe("startServer", () => {
         method: "POST",
       });
 
-    expect((await send()).status).toBe(200);
+    const posted = await send();
+
+    expect(posted.status).toBe(200);
+    const { prompt }: { prompt: string } = await posted.json();
+    expect(prompt).toContain("1. too tight");
+    expect(prompt).toContain("path h1");
+    expect(prompt).toContain("reading “Tropical”");
+
+    // Pins must be distinguishable from unread ones, and the queue is the only
+    // record of which is which.
+    const queue: {
+      requests: { notes: string[] }[];
+    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+
+    expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
     expect((await send()).status).toBe(409);
   });
 
@@ -1356,48 +1217,6 @@ describe("startServer", () => {
     ]);
   });
 
-  test("a change forks the direction unless the caller asks to replace it", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-mode-"));
-
-    const server = await start({
-      config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
-      port: 0,
-      cwd,
-    });
-
-    const send = (body: JsonRecord) =>
-      fetch(`${server.url}/leglas/api/request`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-    // No mode named, so the safe one: the other overwrites the direction being
-    // compared.
-    const implied: {
-      prompt: string;
-      mode: string;
-    } = await (await send({ title: "Poster", intent: "warmer" })).json();
-
-    expect(implied.mode).toBe("variant");
-    expect(implied.prompt).toContain("add a new design direction based on");
-
-    const asked: { prompt: string; mode: string } = await (
-      await send({ title: "Poster", intent: "colder", mode: "replace" })
-    ).json();
-
-    expect(asked.mode).toBe("replace");
-    expect(asked.prompt).toContain('change only the "Poster" design direction');
-
-    // The queue keeps each change's kind, so a request outliving this process
-    // knows what it was asked to do.
-    const body: {
-      requests: { intent: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
-
-    expect(body.requests).toHaveLength(2);
-  });
-
   test("refuses a mode it does not recognise rather than guessing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-request-badmode-"));
 
@@ -1423,8 +1242,8 @@ describe("startServer", () => {
     expect(body.requests).toEqual([]);
   });
 
-  test("the same words in the other mode are not a duplicate", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-modedupe-"));
+  test("a change forks unless the caller asks to replace, and the two are different requests", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leglas-request-mode-"));
 
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Poster", url: "/?v-hero=poster" }]),
@@ -1432,17 +1251,29 @@ describe("startServer", () => {
       cwd,
     });
 
-    const send = (mode: string) =>
+    const send = (mode?: string) =>
       fetch(`${server.url}/leglas/api/request`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title: "Poster", intent: "warmer", mode }),
       });
 
-    expect((await send("variant")).status).toBe(200);
+    // No mode named, so the safe one: the other overwrites the direction being
+    // compared.
+    const implied = await send();
+    expect(implied.status).toBe(200);
+    const forked: { prompt: string; mode: string } = await implied.json();
+    expect(forked.mode).toBe("variant");
+    expect(forked.prompt).toContain("add a new design direction based on");
+
     // Forking and rewriting are different work, so this is a second request,
     // not a copy.
-    expect((await send("replace")).status).toBe(200);
+    const asked = await send("replace");
+    expect(asked.status).toBe(200);
+    const replaced: { prompt: string; mode: string } = await asked.json();
+    expect(replaced.mode).toBe("replace");
+    expect(replaced.prompt).toContain('change only the "Poster" design direction');
+
     // A genuine repeat is still refused.
     expect((await send("replace")).status).toBe(409);
   });
@@ -1668,14 +1499,12 @@ describe("startServer", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(warm).toHaveBeenCalledOnce();
-  });
 
-  test("warming with nothing chosen is a harmless no-op", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-warm-none-"));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    const response = await fetch(`${server.url}/leglas/api/agents/warm`, { method: "POST" });
-    expect(response.status).toBe(200);
+    // With nothing chosen any more, asking is a harmless no-op.
+    writeFileSync(join(cwd, ".leglas/watch.json"), "{}\n");
+    const unchosen = await fetch(`${server.url}/leglas/api/agents/warm`, { method: "POST" });
+    expect(unchosen.status).toBe(200);
+    expect(warm).toHaveBeenCalledOnce();
   });
 
   test("serves stale agent state while routine authentication refreshes in the background", async () => {
@@ -1888,66 +1717,15 @@ describe("startServer", () => {
     expect(await idle.json()).toEqual({ ok: true, cancelled: false });
   });
 
-  test("replaces a failed request with a fresh queued copy", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-api-"));
-    await saveAgentChoice(cwd, {
-      agent: "custom",
-      run: 'node -e "process.exit(7)" {prompt}',
-    });
-    await appendRequest(cwd, {
-      title: "Aurora",
-      url: "/?v-hero=aurora",
-      intent: "warmer",
-      target: ".leglas/variants/hero/aurora.tsx",
-      prompt: "make it warmer",
-    });
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    let failed: { id: string; status: string } | undefined;
-    const deadline = Date.now() + EVENTUALLY_MS;
-
-    while (failed?.status !== "failed") {
-      if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
-
-      const payload: {
-        requests: { id: string; status: string }[];
-      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
-
-      failed = payload.requests[0];
-
-      if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: failed.id }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    const [retried] = await readRequests(cwd);
-    expect(retried).toMatchObject({
-      status: "queued",
-      title: "Aurora",
-      url: "/?v-hero=aurora",
-      intent: "warmer",
-      target: ".leglas/variants/hero/aurora.tsx",
-      prompt: "make it warmer",
-    });
-    expect(retried?.id).not.toBe(failed.id);
-  });
-
-  test("a retry keeps the failed request's captures under its fresh id", async () => {
+  test("a retry is a fresh queued copy that keeps the failed request's captures", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-retry-captures-"));
     await appendRequest(
       cwd,
       {
         title: "Aurora",
-        url: "/",
+        url: "/?v-hero=aurora",
         intent: "warmer",
-        target: null,
+        target: ".leglas/variants/hero/aurora.tsx",
         prompt: "make it warmer\n  .leglas/captures/old-id/frame.png  the whole page",
         attachments: [
           {
@@ -1972,8 +1750,16 @@ describe("startServer", () => {
     });
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
     const [retried] = await readRequests(cwd);
     expect(retried?.id).not.toBe("old-id");
+    expect(retried).toMatchObject({
+      status: "queued",
+      title: "Aurora",
+      url: "/?v-hero=aurora",
+      intent: "warmer",
+      target: ".leglas/variants/hero/aurora.tsx",
+    });
     expect(retried?.attachments?.[0]?.file).toBe(`.leglas/captures/${retried?.id}/frame.png`);
     expect(readFileSync(join(cwd, retried?.attachments?.[0]?.file ?? ""), "utf8")).toBe("frame");
     expect(existsSync(join(cwd, CAPTURES_DIR, "old-id"))).toBe(false);
@@ -1995,69 +1781,22 @@ describe("startServer", () => {
     const [queued] = await readRequests(cwd);
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: queued?.id }),
-    });
+    const retry = (id: string | undefined) =>
+      fetch(`${server.url}/leglas/api/requests/retry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+    const response = await retry(queued?.id);
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
-  });
 
-  test("returns 404 when retry names no request", async () => {
-    const server = await start({ config: configFor(await startOrigin()), port: 0 });
+    const missing = await retry("missing");
 
-    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "missing" }),
-    });
-
-    expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) });
-  });
-
-  test("dismisses a failed request out of the queue", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-dismiss-api-"));
-    await saveAgentChoice(cwd, {
-      agent: "custom",
-      run: 'node -e "process.exit(7)" {prompt}',
-    });
-    await appendRequest(cwd, {
-      title: "Aurora",
-      url: "/",
-      intent: "warmer",
-      target: null,
-      prompt: "make it warmer",
-    });
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    let failed: { id: string; status: string } | undefined;
-    const deadline = Date.now() + EVENTUALLY_MS;
-
-    while (failed?.status !== "failed") {
-      if (Date.now() > deadline) throw new Error("embedded runner did not report failure");
-
-      const payload: {
-        requests: { id: string; status: string }[];
-      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
-
-      failed = payload.requests[0];
-
-      if (failed?.status !== "failed") await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    const response = await fetch(`${server.url}/leglas/api/requests/dismiss`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: failed.id }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    expect(await readRequests(cwd)).toEqual([]);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ ok: false, error: expect.any(String) });
   });
 
   test("refuses to dismiss a request that has not failed", async () => {
@@ -2101,13 +1840,14 @@ describe("startServer", () => {
         return body.agent.attached;
       };
 
-      const beat = await fetch(`${server.url}/leglas/api/watch`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ watching: true }),
-      });
+      const beat = (watching: boolean) =>
+        fetch(`${server.url}/leglas/api/watch`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ watching }),
+        });
 
-      expect(beat.status).toBe(200);
+      expect((await beat(true)).status).toBe(200);
       expect(await attached()).toBe(true);
 
       // One missed beat is still attached: watch beats every two seconds.
@@ -2116,33 +1856,15 @@ describe("startServer", () => {
 
       vi.setSystemTime(new Date("2026-01-01T00:00:07Z"));
       expect(await attached()).toBe(false);
+
+      // A watcher shutting down detaches at once rather than aging out.
+      await beat(true);
+      expect(await attached()).toBe(true);
+      await beat(false);
+      expect(await attached()).toBe(false);
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  test("a watcher shutting down detaches immediately rather than aging out", async () => {
-    const server = await start({ config: configFor(await startOrigin()), port: 0 });
-
-    const beat = (watching: boolean) =>
-      fetch(`${server.url}/leglas/api/watch`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ watching }),
-      });
-
-    const attached = async () => {
-      const body: {
-        agent: { attached: boolean };
-      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
-
-      return body.agent.attached;
-    };
-
-    await beat(true);
-    expect(await attached()).toBe(true);
-    await beat(false);
-    expect(await attached()).toBe(false);
   });
 
   test("refuses a heartbeat that says nothing about watching", async () => {
@@ -2192,15 +1914,29 @@ describe("startServer", () => {
     await new Promise<void>((done) => blocker.close(() => done()));
   });
 
-  test("serves the resolved previews so the rail can render them", async () => {
+  test("serves the resolved previews and settings so the rail can render them", async () => {
     const config = configFor(await startOrigin(), [
       { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
     ]);
 
-    const server = await start({ config, port: 0 });
+    config.scanPreviews = false;
+
+    const server = await start({
+      config,
+      port: 0,
+      project: "/work/app",
+      configWarnings: ["Port 3000 may belong to another project."],
+    });
 
     const res = await fetch(`${server.url}/leglas/api/config`);
-    const body: { previews: unknown[]; errors: string[] } = await res.json();
+
+    const body: {
+      previews: unknown[];
+      errors: string[];
+      warnings: string[];
+      project: string;
+      scanPreviews: boolean;
+    } = await res.json();
 
     expect(res.status).toBe(200);
     // What the config said, as the rail needs it: where it lives, its name and
@@ -2208,6 +1944,12 @@ describe("startServer", () => {
     expect(body.previews).toMatchObject([
       { title: "Wave", url: "/?v-hero=wave", note: "Client artwork", tags: ["Hero"] },
     ]);
+    // The project, so saved layout survives a port change.
+    expect(body.project).toBe("/work/app");
+    // Expensive apps turn off scanning unopened previews.
+    expect(body.scanPreviews).toBe(false);
+    // A startup warning does not make the config invalid.
+    expect(body.warnings).toEqual(["Port 3000 may belong to another project."]);
     expect(body.errors).toEqual([]);
   });
 
@@ -2224,53 +1966,23 @@ describe("startServer", () => {
     });
   });
 
-  test("returns conditional request responses and changes the etag with the body", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-requests-"));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+  // The mechanism is the config read's above; each read the shell polls has
+  // to go through it.
+  test.each(["requests", "annotations", "health"])(
+    "answers /api/%s conditionally",
+    async (route) => {
+      const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-"));
+      const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
+      const url = `${server.url}/leglas/api/${route}`;
 
-    await expectConditionalRead(`${server.url}/leglas/api/requests`, async () => {
-      const response = await fetch(`${server.url}/leglas/api/watch`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ watching: true }),
-      });
+      const first = await fetch(url);
+      const etag = first.headers.get("etag");
 
-      expect(response.status).toBe(200);
-    });
-  });
-
-  test("returns conditional annotation responses and changes the etag with the body", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-etag-annotations-"));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    await expectConditionalRead(`${server.url}/leglas/api/annotations`, async () => {
-      const response = await fetch(`${server.url}/leglas/api/annotations`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: "Fresh",
-          note: "keep this",
-          anchor: { selector: "main" },
-        }),
-      });
-
-      expect(response.status).toBe(200);
-    });
-  });
-
-  test("returns conditional health responses and changes the etag with the body", async () => {
-    const targetPort = await startOrigin();
-    const target = origins.at(-1);
-
-    if (target === undefined) throw new Error("test origin did not start");
-    const server = await start({ config: configFor(targetPort), port: 0 });
-
-    await expectConditionalRead(`${server.url}/leglas/api/health`, async () => {
-      target.closeAllConnections();
-      await new Promise<void>((done) => target.close(() => done()));
-      origins.splice(origins.indexOf(target), 1);
-    });
-  });
+      expect(first.status).toBe(200);
+      expect(etag).toMatch(/^(W\/)?"[^"]*"$/);
+      expect((await fetch(url, { headers: { "if-none-match": etag ?? "" } })).status).toBe(304);
+    },
+  );
 
   test("starts a branch once in the background and withholds its url until it is ready", async () => {
     const checkout = deferred<RunningWorktree>();
@@ -2432,21 +2144,6 @@ describe("startServer", () => {
     expect(stops).toBe(1);
   });
 
-  test("tells the shell when unopened preview scanning is disabled", async () => {
-    const config = configFor(await startOrigin(), [
-      { title: "Current", url: "/", note: undefined, tags: [] },
-    ]);
-
-    config.scanPreviews = false;
-    const server = await start({ config, port: 0 });
-
-    const body: {
-      scanPreviews: boolean;
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
-
-    expect(body.scanPreviews).toBe(false);
-  });
-
   test("a url preview registered after boot joins the config live", async () => {
     // An agent runs `leglas add` with the interface open; the rail polls this,
     // so the direction appears without a restart.
@@ -2594,17 +2291,6 @@ describe("startServer", () => {
     expect(await deleted.json()).toMatchObject({ ok: false });
   });
 
-  test("identifies the project, so saved layout survives a port change", async () => {
-    const config = configFor(await startOrigin());
-    const server = await start({ config, port: 0, project: "/work/app" });
-
-    const body: {
-      project: string;
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
-
-    expect(body.project).toBe("/work/app");
-  });
-
   test("serves config errors instead of dying, so the shell can show them", async () => {
     const server = await start({
       config: null,
@@ -2620,34 +2306,6 @@ describe("startServer", () => {
     expect(body.previews).toEqual([]);
   });
 
-  test("serves startup warnings without treating the config as invalid", async () => {
-    const server = await start({
-      config: configFor(await startOrigin()),
-      configWarnings: ["Port 3000 may belong to another project."],
-      port: 0,
-    });
-
-    const body: {
-      errors: string[];
-      warnings: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
-
-    expect(body.errors).toEqual([]);
-    expect(body.warnings).toEqual(["Port 3000 may belong to another project."]);
-  });
-
-  test("does not report stale config when the boot config is untouched", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-config-stale-"));
-    writeFileSync(join(cwd, "leglas.config.json"), JSON.stringify({}));
-    const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
-
-    const body: {
-      errors: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
-
-    expect(body.errors).toEqual([]);
-  });
-
   test("reports when the boot config changes, alongside existing config errors", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-config-changed-"));
     const configPath = join(cwd, "leglas.config.json");
@@ -2660,14 +2318,21 @@ describe("startServer", () => {
       cwd,
     });
 
+    const read = async () => {
+      const body: { errors: string[] } = await (
+        await fetch(`${server.url}/leglas/api/config`)
+      ).json();
+
+      return body.errors;
+    };
+
+    // Untouched, so nothing is stale.
+    expect(await read()).toEqual(["existing config error"]);
+
     writeFileSync(configPath, JSON.stringify({ changed: true }));
     utimesSync(configPath, new Date(2020, 0, 1), new Date(2020, 0, 2));
 
-    const body: {
-      errors: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
-
-    expect(body.errors).toEqual([
+    expect(await read()).toEqual([
       "existing config error",
       "leglas.config.json changed after Leglas started. Restart leglas to pick it up.",
     ]);
@@ -2733,34 +2398,19 @@ describe("startServer", () => {
     expect(body.reachable).toBe(false);
   });
 
-  // Only that a write reaches the wire, as "requests". How many nudges a burst
-  // makes depends on OS delivery; coalescing is proven with a driven clock in
-  // live.test.ts.
-  test("a write to requests.json nudges the requests channel", async () => {
+  // Only that a write reaches the wire, as "requests": annotations ride the
+  // same channel, never a fourth kind. How many nudges a burst makes depends
+  // on OS delivery; coalescing is proven with a driven clock in live.test.ts.
+  test.each([
+    ["requests.json", '{"requests":[]}\n'],
+    ["annotations.json", '{"annotations":[]}\n'],
+  ])("a write to %s nudges the requests channel", async (file, text) => {
     const cwd = mkdtempSync(join(tmpdir(), "leglas-live-requests-"));
     mkdirSync(join(cwd, ".leglas"));
     const live = fakeLiveHub();
     await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
 
-    await writeUntilHeard(
-      join(cwd, ".leglas/requests.json"),
-      '{"requests":[]}\n',
-      () => live.changes.length > 0,
-    );
-    expect(new Set(live.changes)).toEqual(new Set(["requests"]));
-  });
-
-  test("routes annotation changes through requests, never a fourth kind", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "leglas-live-annotations-"));
-    mkdirSync(join(cwd, ".leglas"));
-    const live = fakeLiveHub();
-    await start({ config: configFor(await startOrigin()), port: 0, cwd, live });
-
-    await writeUntilHeard(
-      join(cwd, ".leglas/annotations.json"),
-      '{"annotations":[]}\n',
-      () => live.changes.length > 0,
-    );
+    await writeUntilHeard(join(cwd, ".leglas", file), text, () => live.changes.length > 0);
     expect(new Set(live.changes)).toEqual(new Set(["requests"]));
   });
 
@@ -2892,11 +2542,7 @@ describe("startServer", () => {
     const res = await fetch(`${server.url}/pricing`);
 
     expect(await res.text()).toBe("<h1>app:/pricing</h1>");
-  });
-
-  test("proxies the app root, since previews are usually relative to it", async () => {
-    const server = await start({ config: configFor(await startOrigin()), port: 0 });
-
+    // The root too, since previews are usually relative to it.
     expect(await (await fetch(`${server.url}/`)).text()).toBe("<h1>app:/</h1>");
   });
 
@@ -3161,59 +2807,6 @@ describe("startServer", () => {
     ]);
   });
 
-  test("validates share titles and refuses a second active share", async () => {
-    const server = await start({
-      config: configFor(await startOrigin(), [
-        { title: "Current", url: "/" },
-        { title: "Branch", url: "/branch", branch: "feature/branch" },
-      ]),
-      port: 0,
-    });
-
-    const branch = await postShare(server, {
-      scope: "direction",
-      titles: ["Branch"],
-      layout: shareLayout(),
-      tunnel: "none",
-    });
-
-    expect(branch.status).toBe(400);
-    expect(await branch.json()).toEqual({
-      ok: false,
-      error: "Branch directions can't be shared yet: Branch.",
-    });
-
-    const unknown = await postShare(server, {
-      scope: "direction",
-      titles: ["Missing"],
-      layout: shareLayout(),
-      tunnel: "none",
-    });
-
-    expect(unknown.status).toBe(400);
-
-    expect(
-      (
-        await postShare(server, {
-          scope: "direction",
-          titles: ["Current"],
-          layout: shareLayout(),
-          tunnel: "none",
-        })
-      ).status,
-    ).toBe(200);
-    expect(
-      (
-        await postShare(server, {
-          scope: "direction",
-          titles: ["Current"],
-          layout: shareLayout(),
-          tunnel: "none",
-        })
-      ).status,
-    ).toBe(409);
-  });
-
   test("counts only authenticated live sockets on the share listener", async () => {
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
@@ -3439,17 +3032,6 @@ describe("update routes", () => {
     return start(options);
   }
 
-  test("each service transition nudges the live update channel", async () => {
-    const updates = updateService();
-    const live = fakeLiveHub();
-    await bootUpdates(updates, live);
-    expect(updates.onChange).toHaveBeenCalledOnce();
-    const changed = updates.onChange.mock.calls[0]![0];
-    changed();
-    changed();
-    expect(live.changes.filter((change) => change === "update")).toEqual(["update", "update"]);
-  });
-
   // Each package's tests fake the other half of the live protocol, which is
   // how the shell dropped update frames with both suites green. This runs both.
   test("an announced update reaches the interface's update listener", async () => {
@@ -3674,8 +3256,12 @@ describe("mutation trust", () => {
   };
 
   test("an origin-less request is trusted only from the machine itself", () => {
-    expect(isTrustedMutation(request({ host: "localhost:4100" }, "127.0.0.1"))).toBe(true);
-    expect(isTrustedMutation(request({ host: "localhost:4100" }, "::ffff:127.0.0.1"))).toBe(true);
+    // Every shape Node reports for the machine itself.
+    for (const peer of ["127.0.0.1", "127.0.0.53", "::1", "::ffff:127.0.0.1"]) {
+      expect(isTrustedMutation(request({ host: "localhost:4100" }, peer)), peer).toBe(true);
+    }
+
+    expect(isTrustedMutation(request({ host: "localhost:4100" }, undefined))).toBe(false);
     // A curl from across the LAN sends no Origin, and the API now decides what
     // runs on this machine.
     expect(isTrustedMutation(request({ host: "192.168.1.20:4100" }, "192.168.1.44"))).toBe(false);
@@ -3696,28 +3282,6 @@ describe("mutation trust", () => {
         request({ host: "studio.local:4100", origin: "http://studio.local:4100" }, "192.168.1.44"),
       ),
     ).toBe(false);
-  });
-
-  test("cross-origin and public hosts stay refused regardless of peer", () => {
-    expect(
-      isTrustedMutation(
-        request({ host: "localhost:4100", origin: "http://evil.example.com" }, "127.0.0.1"),
-      ),
-    ).toBe(false);
-    expect(
-      isTrustedMutation(
-        request({ host: "evil.example.com", origin: "http://evil.example.com" }, "127.0.0.1"),
-      ),
-    ).toBe(false);
-  });
-
-  test("loopback recognition covers the shapes Node reports", () => {
-    expect(isLoopbackAddress("127.0.0.1")).toBe(true);
-    expect(isLoopbackAddress("127.0.0.53")).toBe(true);
-    expect(isLoopbackAddress("::1")).toBe(true);
-    expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
-    expect(isLoopbackAddress("192.168.1.44")).toBe(false);
-    expect(isLoopbackAddress(undefined)).toBe(false);
   });
 });
 

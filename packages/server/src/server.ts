@@ -336,7 +336,7 @@ function isAllowedMutationHost(hostname: string): boolean {
   );
 }
 
-export function isLoopbackAddress(address: string | undefined): boolean {
+function isLoopbackAddress(address: string | undefined): boolean {
   if (address === undefined) return false;
 
   return (
