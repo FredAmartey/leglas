@@ -201,16 +201,11 @@ describe("findBrowser", () => {
       null,
     ],
   ])("finds %s", (_name, search, expected) => {
-    // Linux in an empty environment, with nothing installed or on PATH, unless a row says otherwise.
+    // Linux in an empty environment, with nothing installed or on PATH, unless
+    // a row says otherwise. A row that names no cache reads the real disk, where
+    // these homes don't exist: a folder that can't be read holds no browser.
     expect(
-      findBrowser({
-        env: {},
-        platform: "linux",
-        home: "/home/u",
-        onPath: () => null,
-        readdir: () => [],
-        ...search,
-      }),
+      findBrowser({ env: {}, platform: "linux", home: "/home/u", onPath: () => null, ...search }),
     ).toBe(expected);
   });
 });
