@@ -2657,6 +2657,7 @@ describe("startServer", () => {
       share: {
         grants: { id: string; localUrl: string; viewers: number; expiresAt: number }[];
         sharePort: number;
+        reach: string;
         tunnel: { status: string };
       };
     } = await createdResponse.json();
@@ -2666,6 +2667,9 @@ describe("startServer", () => {
     expect(created.share.grants[0].localUrl).toMatch(
       new RegExp(`^http://127\\.0\\.0\\.1:${created.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
     );
+    // Asked for nothing, so viewers reach the whole app, and the interface and
+    // `leglas share` are told so.
+    expect(created.share.reach).toBe("open");
     expect(created.share.tunnel).toEqual({ status: "none" });
 
     const cookie = await enterShare(created.share.grants[0].localUrl);
