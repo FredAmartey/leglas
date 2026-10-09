@@ -3579,21 +3579,6 @@ describe("update routes", () => {
     expect(await response.json()).toEqual({ ok: false, error: "Updates are not available here." });
   });
 
-  test.each(["{", "null", "[]", "42"])("skip rejects a non-object body: %s", async (body) => {
-    const updates = updateService();
-    const server = await bootUpdates(updates);
-
-    const response = await fetch(`${server.url}/leglas/api/update/skip`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-    });
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ ok: false, error: "Body must be JSON." });
-    expect(updates.skip).not.toHaveBeenCalled();
-  });
-
   test.each([{}, { version: "" }, { version: " " }, { version: 1 }])(
     "skip needs a nonempty version: %j",
     async (body) => {
@@ -3932,7 +3917,8 @@ describe("a body that is not an object", () => {
     });
 
     for (const route of routes()) {
-      for (const nonsense of ["null", '"a string"', "[]", "7", "true"]) {
+      // Not JSON at all goes the same way as JSON that is not an object.
+      for (const nonsense of ["{", "null", '"a string"', "[]", "7", "true"]) {
         const answer = await fetch(`${server.url}/leglas${route}`, {
           body: nonsense,
           headers: { "content-type": "application/json" },
@@ -3940,6 +3926,10 @@ describe("a body that is not an object", () => {
         });
 
         expect(answer.status, `${route} answering ${nonsense}`).toBe(400);
+        expect(await answer.json(), `${route} answering ${nonsense}`).toEqual({
+          ok: false,
+          error: "Body must be JSON.",
+        });
       }
     }
 
