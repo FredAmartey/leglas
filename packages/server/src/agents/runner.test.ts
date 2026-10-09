@@ -1166,10 +1166,13 @@ describe("warm transports", () => {
 
     await until(() => children.length === 1);
 
-    if (asked !== null) runner.prepare(asked);
-    await settle();
-    // The run in flight keeps its vendor.
-    expect(sdk.release).not.toHaveBeenCalled();
+    if (asked !== null) {
+      runner.prepare(asked);
+      await settle();
+      // The other vendor warms while the run in flight keeps its own.
+      expect(appServer.warm).toHaveBeenCalledOnce();
+      expect(sdk.release).not.toHaveBeenCalled();
+    }
 
     children[0]?.close(0);
     const [released, kept] = asked === null ? [appServer, sdk] : [sdk, appServer];
@@ -1177,6 +1180,7 @@ describe("warm transports", () => {
     // before the run's tail finishes, and a fixed pause fails on a slow
     // machine.
     await until(() => released.release.mock.calls.length > 0);
+    expect(released.release).toHaveBeenCalledOnce();
     expect((await readRequests(cwd)).length).toBe(0);
     expect(kept.release).not.toHaveBeenCalled();
     await runner.stop();

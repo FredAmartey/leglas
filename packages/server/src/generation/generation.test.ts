@@ -1023,6 +1023,12 @@ describe("a generation's lifecycle", () => {
       // A stop says it stopped something; the route answers 409 when it did not.
       if (ending === "a stop") expect(await ended).toBe(true);
       await ended;
+
+      // Close answers only once the placeholder is back.
+      if (ending === "closing") {
+        expect(await readFile(join(cwd, slot.file), "utf8")).toBe(placeholder("HeroLedger"));
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");

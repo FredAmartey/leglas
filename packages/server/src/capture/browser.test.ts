@@ -80,6 +80,7 @@ describe("findBrowser", () => {
       "PATH before fixed Linux locations",
       {
         exists: () => true,
+        readdir: () => [],
         onPath: (name) => (name === "chromium" ? "/custom/bin/chromium" : null),
       },
       "/custom/bin/chromium",

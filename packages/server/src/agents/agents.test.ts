@@ -622,6 +622,18 @@ test("remembers effort separately for each built-in agent", async () => {
   });
 });
 
+test("a custom choice stores its validated template for the runner", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leglas-custom-agent-"));
+
+  await saveAgentChoice(cwd, { agent: "custom", run: "my-agent -p {prompt}" });
+
+  expect(await readAgentChoice(cwd)).toEqual({
+    agent: "custom",
+    effort: null,
+    run: "my-agent -p {prompt}",
+  });
+});
+
 test("an inherited object key is not accepted as a built-in agent id", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leglas-agent-id-"));
   mkdirSync(join(cwd, ".leglas"));
