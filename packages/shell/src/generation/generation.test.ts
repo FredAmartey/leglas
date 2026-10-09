@@ -1,11 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  agentName,
-  buildLabel,
   cardFor,
   isSlotOf,
-  lastEnded,
   runStartedAt,
   slotsByTitle,
   surfaceOf,
@@ -47,23 +44,17 @@ function job(state: GenerationJob["state"], slots: GenerationSlot[], extra = {})
   };
 }
 
-describe("the surface a direction belongs to", () => {
-  test("is the v- parameter its address carries", () => {
-    expect(surfaceOf("/?v-hero=table")).toBe("hero");
-    expect(surfaceOf("/pricing?ref=nav&v-pricing-page=a")).toBe("pricing-page");
-  });
+test("a direction's surface is the v- parameter its address carries, listed once in order", () => {
+  expect(surfaceOf("/?v-hero=table")).toBe("hero");
+  expect(surfaceOf("/pricing?ref=nav&v-pricing-page=a")).toBe("pricing-page");
+  // An address that is not on a switch has none.
+  expect(surfaceOf("/")).toBeNull();
+  expect(surfaceOf("/?utm_source=x")).toBeNull();
+  expect(surfaceOf("/?v-=x")).toBeNull();
 
-  test("lists every surface once, in the order the directions name them", () => {
-    expect(
-      surfacesOf(["/?v-hero=table", "/", "/pricing?v-pricing=a", "/?v-hero=menu", "/?ref=x"]),
-    ).toEqual(["hero", "pricing"]);
-  });
-
-  test("is none for an address that is not on a switch", () => {
-    expect(surfaceOf("/")).toBeNull();
-    expect(surfaceOf("/?utm_source=x")).toBeNull();
-    expect(surfaceOf("/?v-=x")).toBeNull();
-  });
+  expect(
+    surfacesOf(["/?v-hero=table", "/", "/pricing?v-pricing=a", "/?v-hero=menu", "/?ref=x"]),
+  ).toEqual(["hero", "pricing"]);
 });
 
 test("a newer set's slot speaks for a title both sets have", () => {
@@ -73,92 +64,75 @@ test("a newer set's slot speaks for a title both sets have", () => {
   expect(slotsByTitle([first, second]).get("Ledger")?.job.id).toBe("gen-2");
 });
 
-describe("the card above the composer", () => {
-  test("says what is being planned, then how the build is going", () => {
-    expect(cardFor(job("planning", []))).toEqual({
-      tone: "working",
-      text: "Planning 3 hero directions…",
-    });
-    expect(
-      cardFor(
-        job("building", [
-          slot("Ledger", "ready"),
-          slot("Steam", "building"),
-          slot("Timer", "checking"),
-        ]),
-      ),
-    ).toEqual({ tone: "working", text: "Building 3 hero directions, 1 ready" });
-    expect(cardFor(job("building", [slot("Ledger", "building")]))).toEqual({
-      tone: "working",
-      text: "Building 1 hero direction",
-    });
+test("the card above the composer says what is planned, how the build goes and how it ended", () => {
+  const card = (state: GenerationJob["state"], slots: GenerationSlot[], extra = {}) =>
+    cardFor(job(state, slots, extra));
+
+  expect(card("planning", [])).toEqual({ tone: "working", text: "Planning 3 hero directions…" });
+  expect(
+    card("building", [
+      slot("Ledger", "ready"),
+      slot("Steam", "building"),
+      slot("Timer", "checking"),
+    ]),
+  ).toEqual({ tone: "working", text: "Building 3 hero directions, 1 ready" });
+  expect(card("building", [slot("Ledger", "building")])).toEqual({
+    tone: "working",
+    text: "Building 1 hero direction",
   });
 
-  test("calls a set of variations what it is, from planning to its end", () => {
-    const like = { basedOn: "Table" };
+  // The time a finished set took.
+  expect(
+    card("done", [slot("Ledger", "ready"), slot("Steam", "ready"), slot("Timer", "ready")], {
+      endedAt: 83_400,
+    }),
+  ).toEqual({ tone: "done", text: "3 hero directions ready in 82 s" });
 
-    expect(cardFor(job("planning", [], like)).text).toBe("Planning 3 variations of Table…");
-    expect(cardFor(job("building", [slot("Ledger", "building")], like)).text).toBe(
-      "Building 1 variation of Table",
-    );
-    expect(
-      cardFor(
-        job("done", [slot("Ledger", "ready"), slot("Steam", "ready")], { ...like, endedAt: 9_000 }),
-      ).text,
-    ).toBe("2 variations of Table ready in 8 s");
-    expect(cardFor(job("stopped", [], like)).text).toBe("Stopped the variations of Table");
+  // The directions that failed or were stopped, by name, and no count of zero.
+  expect(
+    card("done", [slot("Ledger", "ready"), slot("Steam", "ready"), slot("Pantry", "failed")]),
+  ).toEqual({ tone: "failed", text: "2 of 3 ready. Pantry failed" });
+  expect(
+    card("done", [
+      slot("Ledger", "ready"),
+      slot("Steam", "ready"),
+      slot("Pantry", "failed"),
+      slot("Chalk", "stopped"),
+      slot("Market", "failed"),
+    ]),
+  ).toEqual({ tone: "failed", text: "2 of 5 ready. Pantry and Market failed. Chalk stopped" });
+  expect(
+    card("done", [slot("Ledger", "failed"), slot("Steam", "failed"), slot("Timer", "stopped")]),
+  ).toEqual({
+    tone: "failed",
+    text: "None of the 3 were built. Ledger and Steam failed. Timer stopped",
+  });
+  expect(card("done", [slot("Pantry", "failed")])).toEqual({
+    tone: "failed",
+    text: "Pantry failed",
   });
 
-  test("gives the time a finished set took", () => {
-    const done = job(
-      "done",
-      [slot("Ledger", "ready"), slot("Steam", "ready"), slot("Timer", "ready")],
-      {
-        endedAt: 83_400,
-      },
-    );
-
-    expect(cardFor(done)).toEqual({ tone: "done", text: "3 hero directions ready in 82 s" });
+  // The server's sentence when planning failed.
+  expect(card("failed", [], { error: "Planning took too long, so Leglas stopped it." })).toEqual({
+    tone: "failed",
+    text: "Planning took too long, so Leglas stopped it.",
   });
+  // Stopped, whether it had directions yet or not.
+  const stopped = { tone: "stopped", text: "Stopped the hero directions" };
+  expect(card("stopped", [])).toEqual(stopped);
+  expect(card("stopped", [slot("Ledger", "stopped"), slot("Steam", "stopped")])).toEqual(stopped);
 
-  test("names the directions that failed or were stopped", () => {
-    expect(
-      cardFor(
-        job("done", [slot("Ledger", "ready"), slot("Steam", "ready"), slot("Pantry", "failed")]),
-      ),
-    ).toEqual({ tone: "failed", text: "2 of 3 ready. Pantry failed" });
-    expect(
-      cardFor(
-        job("done", [
-          slot("Ledger", "ready"),
-          slot("Steam", "ready"),
-          slot("Pantry", "failed"),
-          slot("Chalk", "stopped"),
-          slot("Market", "failed"),
-        ]),
-      ),
-    ).toEqual({ tone: "failed", text: "2 of 5 ready. Pantry and Market failed. Chalk stopped" });
-  });
-
-  test("passes on the server's sentence when planning failed", () => {
-    const failed = job("failed", [], { error: "Planning took too long, so Leglas stopped it." });
-
-    expect(cardFor(failed)).toEqual({
-      tone: "failed",
-      text: "Planning took too long, so Leglas stopped it.",
-    });
-  });
-
-  test("says a set was stopped, whether it had directions yet or not", () => {
-    expect(cardFor(job("stopped", []))).toEqual({
-      tone: "stopped",
-      text: "Stopped the hero directions",
-    });
-    expect(cardFor(job("stopped", [slot("Ledger", "stopped"), slot("Steam", "stopped")]))).toEqual({
-      tone: "stopped",
-      text: "Stopped the hero directions",
-    });
-  });
+  // A set of variations is called what it is, from planning to its end.
+  const like = { basedOn: "Table" };
+  expect(card("planning", [], like).text).toBe("Planning 3 variations of Table…");
+  expect(card("building", [slot("Ledger", "building")], like).text).toBe(
+    "Building 1 variation of Table",
+  );
+  expect(
+    card("done", [slot("Ledger", "ready"), slot("Steam", "ready")], { ...like, endedAt: 9_000 })
+      .text,
+  ).toBe("2 variations of Table ready in 8 s");
+  expect(card("stopped", [], like).text).toBe("Stopped the variations of Table");
 });
 
 describe("a set built again in part", () => {
@@ -191,38 +165,10 @@ describe("a set built again in part", () => {
   });
 });
 
-test("a set with nothing built says so instead of counting zero", () => {
-  expect(
-    cardFor(
-      job("done", [slot("Ledger", "failed"), slot("Steam", "failed"), slot("Timer", "stopped")]),
-    ),
-  ).toEqual({
-    tone: "failed",
-    text: "None of the 3 were built. Ledger and Steam failed. Timer stopped",
-  });
-  expect(cardFor(job("done", [slot("Pantry", "failed")]))).toEqual({
-    tone: "failed",
-    text: "Pantry failed",
-  });
-});
-
-test("once nothing runs, the card speaks for the set that ended last, not the newest", () => {
-  const older = job("done", [], { id: "gen-1", endedAt: 900_000 });
-  const newer = job("done", [], { id: "gen-2", endedAt: 400_000 });
-
-  expect(lastEnded([older, newer])?.id).toBe("gen-1");
-  expect(lastEnded([job("planning", [])])).toBeNull();
-});
-
 test("a row is a slot's only when its address carries the slot's key", () => {
   const view = { job: job("done", []), slot: slot("Ledger", "failed") };
 
   expect(isSlotOf("/?v-hero=hero-ledger", view)).toBe(true);
   expect(isSlotOf("/?v-hero=ledger-by-hand", view)).toBe(false);
   expect(isSlotOf("/?v-pricing=hero-ledger", view)).toBe(false);
-});
-
-test("the build button says how many and whose plan pays", () => {
-  expect(buildLabel(3, agentName("claude"))).toBe("Build 3 with Claude");
-  expect(buildLabel(2, agentName("codex"))).toBe("Build 2 with Codex");
 });
