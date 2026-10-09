@@ -98,6 +98,9 @@ const STYLES = `@font-face {
 }
 `;
 
+/** What a direction's file holds while it waits for its build, or after one is undone. */
+const placeholder = (name: string) => `export function ${name}() {\n  return null;\n}\n`;
+
 /**
  * Stands in for \`claude -p\`. A plan run answers with three concepts, or one
  * for a replacement; a build writes the file its prompt names, where "Broken"
@@ -494,32 +497,21 @@ export const TILE = { src: "/photos/fallback.jpg", onError: (event) => (event.ta
 });
 
 describe("starting a generation", () => {
-  test("is refused, with the reason, for an agent Leglas cannot hold to time", async () => {
-    const { server } = await leglas(await project("cursor"), false);
-
-    const started = await call(server, "generate", {
-      surface: "hero",
-      brief: "Dinner apps",
-      count: 3,
-    });
-
-    expect(started.status).toBe(422);
-    expect(String(started.json.error)).toBe(
+  test.each([
+    // An agent Leglas cannot hold to time, with the reason.
+    [
+      "cursor",
+      "hero",
       "Building directions runs on Claude or Codex. Choose one of them as the agent to use it.",
-    );
-  });
-
-  test("is refused for a surface with no switch, naming the command that makes one", async () => {
-    const { server } = await leglas(await project("claude"), false);
-
-    const started = await call(server, "generate", {
-      surface: "pricing",
-      brief: "Plans",
-      count: 3,
-    });
+    ],
+    // A surface with no switch, naming the command that makes one.
+    ["claude", "pricing", "Run `leglas new pricing --from <your component>`"],
+  ])("is refused for %s on the %s", async (agent, surface, reason) => {
+    const { server } = await leglas(await project(agent), false);
+    const started = await call(server, "generate", { surface, brief: "Plans", count: 3 });
 
     expect(started.status).toBe(422);
-    expect(String(started.json.error)).toContain("leglas new pricing --from");
+    expect(String(started.json.error)).toContain(reason);
   });
 
   test("builds variations of a direction named as the rail names it, with no brief needed", async () => {
@@ -654,7 +646,7 @@ describe.skipIf(findBrowser() === null)("a generation, end to end", () => {
       // The stopped build's half-finished work does not stay on the rail.
       expect(
         await readFile(join(cwd, ".leglas", "variants", "hero", `${slow.key}.tsx`), "utf8"),
-      ).toBe("export function HeroSlow() {\n  return null;\n}\n");
+      ).toBe(placeholder("HeroSlow"));
 
       const switchFile = await readFile(
         join(cwd, ".leglas", "variants", "hero", "switch.tsx"),
@@ -969,6 +961,10 @@ async function settled<T>(
   throw new Error("The condition never held.");
 }
 
+/** A stream line in which Claude uses `tool` on these files. */
+const uses = (tool: string, ...files: string[]) =>
+  `${JSON.stringify({ type: "assistant", message: { content: files.map((file) => ({ type: "tool_use", name: tool, input: { file_path: file } })) } })}\n`;
+
 /** The one concept most sets here are planned with. */
 const LEDGER = [{ key: "ledger", title: "Ledger", idea: "Ruled lines." }];
 
@@ -1024,9 +1020,7 @@ describe("a generation's lifecycle", () => {
 
       expect(generations.snapshot()[0]?.slots[0]?.state).toBe("stopped");
       expect(builds).toHaveLength(1);
-      expect(await readFile(join(cwd, slot.file), "utf8")).toBe(
-        "export function HeroLedger() {\n  return null;\n}\n",
-      );
+      expect(await readFile(join(cwd, slot.file), "utf8")).toBe(placeholder("HeroLedger"));
     },
   );
 
@@ -1407,9 +1401,7 @@ describe("a generation's lifecycle", () => {
 
       // A file Leglas cannot write back stays edited.
       if (locked) await chmod(join(cwd, stray), 0o444);
-      fix.stdout.write(
-        `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: join(cwd, stray) } }] } })}\n`,
-      );
+      fix.stdout.write(uses("Write", join(cwd, stray)));
 
       const ended = await firstSlot(
         generations,
@@ -1435,9 +1427,7 @@ describe("a generation's lifecycle", () => {
     const failed = await firstSlot(generations, (value) => value.state === "failed");
 
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await readFile(join(cwd, failed.file), "utf8")).toBe(
-      "export function HeroLedger() {\n  return null;\n}\n",
-    );
+    expect(await readFile(join(cwd, failed.file), "utf8")).toBe(placeholder("HeroLedger"));
   });
 
   test("two drafts that fail their render check do not stop the rest", async () => {
@@ -1504,10 +1494,6 @@ describe("a generation's lifecycle", () => {
     ]);
   });
 
-  /** A stream line in which Claude edits these files. */
-  const edits = (...files: string[]) =>
-    `${JSON.stringify({ type: "assistant", message: { content: files.map((file) => ({ type: "tool_use", name: "Edit", input: { file_path: file } })) } })}\n`;
-
   test("a retry in an older set puts back the switch as it is now, not as that set found it", async () => {
     const cwd = await project("claude");
     const switchFile = join(cwd, ".leglas", "variants", "hero", "switch.tsx");
@@ -1535,7 +1521,7 @@ describe("a generation's lifecycle", () => {
     const retry = await settled(() => builds[2]);
 
     await writeFile(switchFile, "export function HeroSwitch() {\n  return null;\n}\n");
-    retry.stdout.write(edits(switchFile));
+    retry.stdout.write(uses("Edit", switchFile));
     await firstSlot(generations, (value) => value.state === "failed");
 
     expect(await readFile(switchFile, "utf8")).toBe(now);
@@ -1558,7 +1544,7 @@ describe("a generation's lifecycle", () => {
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, "// tidied\n");
     await writeFile(sheet, "");
-    build.stdout.write(edits(switchFile, sheet));
+    build.stdout.write(uses("Edit", switchFile, sheet));
 
     const slot = await firstSlot(generations, (value) => value.state === "failed");
 
@@ -1585,7 +1571,7 @@ describe("a generation's lifecycle", () => {
     const stopping = generations.stop(set.id, "hero-ledger");
     await new Promise((resolve) => setTimeout(resolve, 20));
     await writeFile(switchFile, "// tidied on the way out\n");
-    build.stdout.write(edits(switchFile));
+    build.stdout.write(uses("Edit", switchFile));
     await stopping;
 
     let content = "";
@@ -1610,7 +1596,7 @@ describe("a generation's lifecycle", () => {
 
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, "// tidied\n");
-    build.stdout.write(edits(switchFile).trimEnd());
+    build.stdout.write(uses("Edit", switchFile).trimEnd());
     build.finish(0);
 
     const slot = await firstSlot(generations, (value) => value.state === "failed");
@@ -1646,7 +1632,7 @@ describe("a generation's lifecycle", () => {
     // Ledger strays and is slow to die; Steam is retried inside that window.
     ledger.exitAfterKillMs = 400;
     await writeFile(switchFile, "// tidied by Ledger\n");
-    ledger.stdout.write(edits(switchFile));
+    ledger.stdout.write(uses("Edit", switchFile));
     await firstSlot(generations, (value) => value.activity !== null);
     expect(generations.retry(set.id, "hero-steam")).toBe(true);
 
@@ -1656,7 +1642,7 @@ describe("a generation's lifecycle", () => {
 
     // Steam's retry strays into the switch too, after Ledger's is put back.
     await writeFile(switchFile, "// tidied by Steam\n");
-    retry.stdout.write(edits(switchFile));
+    retry.stdout.write(uses("Edit", switchFile));
     await settled(
       () => generations.snapshot()[0]?.slots[1],
       (value) => value.state === "failed",
@@ -1687,7 +1673,7 @@ describe("a generation's lifecycle", () => {
     const retry = await settled(() => builds[2]);
 
     await writeFile(secondFile, "// half of the second set's draft\n");
-    retry.stdout.write(edits(secondFile));
+    retry.stdout.write(uses("Edit", secondFile));
 
     const slot = await firstSlot(generations, (value) => value.state === "failed");
 
@@ -1723,7 +1709,7 @@ describe("a generation's lifecycle", () => {
     ledger.exitAfterKillMs = 400;
     const planned = await readFile(switchFile, "utf8");
     await writeFile(switchFile, `// tidied\n${planned}`);
-    ledger.stdout.write(edits(switchFile));
+    ledger.stdout.write(uses("Edit", switchFile));
     // Wait until Ledger's edit has been read.
     await firstSlot(generations, (value) => value.activity !== null);
     await writeFile(
@@ -1772,9 +1758,7 @@ describe("a generation's lifecycle", () => {
     const fix = await settled(() => builds[1]);
 
     await writeFile(copy, "export const COPY = {};\n");
-    fix.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: copy } }] } })}\n`,
-    );
+    fix.stdout.write(uses("Write", copy));
 
     const slot = await firstSlot(generations, (value) => value.state === "failed");
 
@@ -1794,9 +1778,6 @@ describe("a generation's lifecycle", () => {
     const reports: ((report: { errors: readonly string[] }) => void)[] = [];
     const file = join(cwd, ".leglas", "variants", "hero", "hero-ledger.tsx");
 
-    const edit = (tool: string) =>
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: tool, input: { file_path: file } }] } })}\n`;
-
     const { generations, builds, announced } = orchestrator(
       cwd,
       LEDGER,
@@ -1811,7 +1792,7 @@ describe("a generation's lifecycle", () => {
 
     const build = await settled(() => builds[0]);
 
-    build.stdout.write(edit("Write"));
+    build.stdout.write(uses("Write", file));
 
     expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
       state: "building",
@@ -1829,7 +1810,7 @@ describe("a generation's lifecycle", () => {
 
     const fix = await settled(() => builds[1]);
 
-    fix.stdout.write(edit("Edit"));
+    fix.stdout.write(uses("Edit", file));
 
     expect(await settled(slot, (value) => value.activity !== null)).toMatchObject({
       state: "checking",
@@ -1885,9 +1866,7 @@ describe("a generation's lifecycle", () => {
 
     const fix = await settled(() => builds[2]);
 
-    fix.stdout.write(
-      `${JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: join(folder, "hero-ledger.tsx") } }] } })}\n`,
-    );
+    fix.stdout.write(uses("Edit", join(folder, "hero-ledger.tsx")));
     await settled(
       () => slots()[0],
       (value) => value.activity !== null,
