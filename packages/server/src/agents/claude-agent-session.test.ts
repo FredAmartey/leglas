@@ -12,6 +12,7 @@ import {
   type ClaudeSdkStartup,
   type ClaudeWarmQuery,
 } from "./claude-agent-session.js";
+import type { AgentEffort } from "./agents.js";
 import type { RunnerChild } from "./runner.js";
 
 /** How long a wait may take before it is a hang rather than a slow machine. */
@@ -19,40 +20,27 @@ const EVENTUALLY_MS = 15_000;
 
 type Message = import("@anthropic-ai/claude-agent-sdk").SDKUserMessage;
 
+/** What the SDK streams back, as far as the session reads it. */
+type SdkEvent = { type: string; subtype?: string; session_id?: string; is_error?: boolean };
+
 class FakeQuery implements ClaudeSdkQuery {
-  readonly applied: Array<{ effortLevel: "low" | "medium" | "high" | "xhigh" | "max" | null }> = [];
+  readonly applied: Array<{ effortLevel: AgentEffort | null }> = [];
   readonly interrupt = vi.fn(async () => ({}));
   readonly close = vi.fn(() => {
     if (this.closeDelayMs === 0) this.end();
     else setTimeout(() => this.end(), this.closeDelayMs);
   });
-  private readonly queued: Array<{
-    type: string;
-    subtype?: string;
-    session_id?: string;
-    is_error?: boolean;
-  }> = [];
-  private readonly readers: Array<
-    (
-      result: IteratorResult<{
-        type: string;
-        subtype?: string;
-        session_id?: string;
-        is_error?: boolean;
-      }>,
-    ) => void
-  > = [];
+  private readonly queued: SdkEvent[] = [];
+  private readonly readers: Array<(result: IteratorResult<SdkEvent>) => void> = [];
   private ended = false;
 
   constructor(private readonly closeDelayMs = 0) {}
 
-  async applyFlagSettings(settings: {
-    effortLevel: "low" | "medium" | "high" | "xhigh" | "max" | null;
-  }): Promise<void> {
+  async applyFlagSettings(settings: { effortLevel: AgentEffort | null }): Promise<void> {
     this.applied.push(settings);
   }
 
-  emit(message: { type: string; subtype?: string; session_id?: string; is_error?: boolean }): void {
+  emit(message: SdkEvent): void {
     const reader = this.readers.shift();
 
     if (reader === undefined) this.queued.push(message);
@@ -68,12 +56,7 @@ class FakeQuery implements ClaudeSdkQuery {
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<{
-    type: string;
-    subtype?: string;
-    session_id?: string;
-    is_error?: boolean;
-  }> {
+  [Symbol.asyncIterator](): AsyncIterator<SdkEvent> {
     return {
       next: () => {
         const message = this.queued.shift();
