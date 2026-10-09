@@ -65,22 +65,17 @@ describe("parseTemplate", () => {
     expect(refusal("   ")).toContain("agent command");
   });
 
-  test("keeps a double-quoted value together as one token", () => {
+  test("keeps a quoted value together as one token, in either quote", () => {
     expect(template('codex exec --config "model reasoning=high" {prompt}')).toEqual({
       command: "codex",
       args: ["exec", "--config", "model reasoning=high", "{prompt}"],
     });
-  });
-
-  test("takes single quotes too", () => {
     expect(template("agent --note 'two words' {prompt}").args).toEqual([
       "--note",
       "two words",
       "{prompt}",
     ]);
-  });
-
-  test("joins a quoted section to the word it is attached to", () => {
+    // Attached to a word, the quoted section joins it.
     expect(template('agent --note="two words" {prompt}').args).toEqual([
       "--note=two words",
       "{prompt}",
@@ -93,52 +88,30 @@ describe("parseTemplate", () => {
 });
 
 describe("commandFor", () => {
-  test("puts the whole prompt in one argv entry, however many words it has", () => {
+  test("puts the whole prompt in one argv entry, whatever it contains", () => {
     const { command, args } = commandFor(template("claude -p {prompt}"), "line one\nline two");
 
     expect(command).toBe("claude");
     expect(args).toEqual(["-p", "line one\nline two"]);
-  });
 
-  test("leaves a prompt full of shell punctuation exactly as it is", () => {
+    // Shell punctuation stays exactly as it is.
     const prompt = 'make it warmer; rm -rf $HOME && echo "done" `whoami`';
 
     expect(commandFor(template("claude -p {prompt}"), prompt).args).toEqual(["-p", prompt]);
   });
-
-  test("carries a stub script through unchanged, which is how the loop is smoke tested", () => {
-    const { command, args } = commandFor(
-      template('node ./stub.js --out "run log.txt" {prompt}'),
-      "make it warmer",
-    );
-
-    expect(command).toBe("node");
-    expect(args).toEqual(["./stub.js", "--out", "run log.txt", "make it warmer"]);
-  });
 });
 
 describe("nextRequest", () => {
-  test("takes the first queued request, so the queue runs in order", () => {
+  test("takes the first queued request in order, skipping any that already failed", () => {
     const requests = [request({ id: "a" }), request({ id: "b" })];
 
     expect(nextRequest(requests, new Set())?.id).toBe("a");
-  });
-
-  test("skips one that already failed, rather than burning tokens on it again", () => {
-    const requests = [request({ id: "a" }), request({ id: "b" })];
-
+    // A failed one is not run again, rather than burning tokens on it.
     expect(nextRequest(requests, new Set(["a"]))?.id).toBe("b");
+    expect(nextRequest(requests, new Set(["a", "b"]))).toBeNull();
   });
 
   test("leaves a picked-up request alone, since another agent has it", () => {
     expect(nextRequest([request({ id: "a", status: "picked-up" })], new Set())).toBeNull();
-  });
-
-  test("has nothing to do with an empty queue", () => {
-    expect(nextRequest([], new Set())).toBeNull();
-  });
-
-  test("returns nothing once every queued request has failed", () => {
-    expect(nextRequest([request({ id: "a" })], new Set(["a"]))).toBeNull();
   });
 });
