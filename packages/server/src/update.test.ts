@@ -135,7 +135,7 @@ class FakeChild extends ChildProcess {
 function spawned() {
   const child = new FakeChild();
 
-  const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
+  const spawn = vi.fn<NonNullable<UpdateDeps["spawn"]>>(() => child);
 
   return { spawn, child };
 }
@@ -867,7 +867,7 @@ describe("restartCommand", () => {
 
 describe("installing and restarting", () => {
   test("rejects every unavailable update before starting a process", async () => {
-    const spawn = vi.fn<typeof import("node:child_process").spawn>();
+    const spawn = vi.fn<NonNullable<UpdateDeps["spawn"]>>();
     await expect(service({ deps: { spawn } }).update()).rejects.toThrow(
       "You have the newest version.",
     );

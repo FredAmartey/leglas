@@ -1,5 +1,5 @@
 import { ChildProcess } from "node:child_process";
-import { boundPort, detectNoAgents } from "./test-helpers.js";
+import { boundPort, detectNoAgents, readJson, required } from "./test-helpers.js";
 import http from "node:http";
 
 import {
@@ -23,12 +23,13 @@ import { saveAgentChoice } from "./agents/agents.js";
 import { CAPTURES_DIR, REFERENCES_DIR } from "./requests/attachments.js";
 import { NO_BROWSER, type Browser, type BrowserPool, type CdpPage } from "./capture/browser.js";
 import type { ClaudeTurnRunner } from "./agents/claude-agent-session.js";
-import type { LeglasConfig } from "./config/config.js";
+import { DEFAULT_INSTALL_COMMAND, type LeglasConfig, type Preview } from "./config/config.js";
+import { DEFAULT_LOG_DIR } from "./log.js";
 import { LIVE_DEBOUNCE_MS, type LiveChange, type LiveHub } from "./live.js";
 import { appendRequest, markFailed, readRequests } from "./requests/requests.js";
 import { isTrustedMutation, startServer, type RunningServer } from "./server.js";
 import { SERVER_INFO_PATH } from "./server-info.js";
-import { startTunnel as startTunnelProcess } from "./share/tunnel.js";
+import { startTunnel as startTunnelProcess, type TunnelDeps } from "./share/tunnel.js";
 import type { UpdateService, UpdateStatus } from "./update.js";
 import type { RunningWorktree } from "./branches/worktree.js";
 
@@ -75,8 +76,17 @@ function startOrigin(host = "127.0.0.1"): Promise<number> {
   });
 }
 
-function configFor(port: number, previews: LeglasConfig["previews"] = []): LeglasConfig {
-  return { devServer: `http://127.0.0.1:${port}`, previews };
+/** A direction as a test names it; what a project file would default is filled in. */
+type PreviewFields = Pick<Preview, "title" | "url"> & Partial<Preview>;
+
+function configFor(port: number, previews: readonly PreviewFields[] = []): LeglasConfig {
+  return {
+    devServer: `http://127.0.0.1:${port}`,
+    previews: previews.map((preview) => ({ note: undefined, tags: [], ...preview })),
+    devCommand: undefined,
+    installCommand: DEFAULT_INSTALL_COMMAND,
+    logDir: DEFAULT_LOG_DIR,
+  };
 }
 
 type FakeLiveHub = LiveHub & {
@@ -414,6 +424,9 @@ class ShareTunnelChild extends ChildProcess {
   };
 }
 
+/** Finishes an agent refresh the test holds open. */
+type Refresh = { finish: (() => void) | null };
+
 describe("startServer", () => {
   test.each([
     "studio.local",
@@ -523,7 +536,7 @@ describe("startServer", () => {
 
     const first: {
       requests: { id: string; status: string; intent: string; mode: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     // The mode travels with the status: a fork leaves its parent's document
     // alone, so the interface leaves the parent's duplicate verdict alone too.
@@ -531,7 +544,7 @@ describe("startServer", () => {
       { id: expect.any(String), status: "queued", intent: "warmer", mode: "variant" },
     ]);
 
-    const second: typeof first = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    const second: typeof first = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(second).toEqual(first);
   });
@@ -556,7 +569,7 @@ describe("startServer", () => {
         height: number;
         bytes: number;
       };
-    } = await response.json();
+    } = await readJson(response);
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
@@ -656,7 +669,7 @@ describe("startServer", () => {
 
     const uploadedBody: {
       reference: { id: string; file: string };
-    } = await uploaded.json();
+    } = await readJson(uploaded);
 
     const response = await fetch(`${server.url}/leglas/api/request`, {
       method: "POST",
@@ -670,14 +683,14 @@ describe("startServer", () => {
       }),
     });
 
-    const body: { attachments: unknown[]; prompt: string } = await response.json();
+    const body: { attachments: unknown[]; prompt: string } = await readJson(response);
     const [queued] = await readRequests(cwd);
 
     expect(response.status).toBe(200);
     expect(queued?.attachments).toMatchObject([
       {
         kind: "reference",
-        file: `.leglas/captures/${queued.id}/reference-1.png`,
+        file: `.leglas/captures/${required(queued).id}/reference-1.png`,
         width: 2,
         height: 3,
       },
@@ -705,7 +718,7 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const body: { reference: { name: string } } = await response.json();
+    const body: { reference: { name: string } } = await readJson(response);
 
     expect(response.status).toBe(200);
     expect(body.reference.name).toBe(`..caf${"x".repeat(75)}`);
@@ -718,7 +731,7 @@ describe("startServer", () => {
       body: TWO_BY_THREE_PNG,
     });
 
-    const bareBody: { reference: { name: string } } = await bare.json();
+    const bareBody: { reference: { name: string } } = await readJson(bare);
 
     expect(bareBody.reference.name).toBe("image");
   });
@@ -779,7 +792,7 @@ describe("startServer", () => {
       viewport: number;
       errors: string[];
       hydration: null;
-    } = await response.json();
+    } = await readJson(response);
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
@@ -820,7 +833,7 @@ describe("startServer", () => {
       }),
     });
 
-    const note: { annotation: { id: string } } = await noteResponse.json();
+    const note: { annotation: { id: string } } = await readJson(noteResponse);
 
     const response = await fetch(`${server.url}/leglas/api/capture`, {
       method: "POST",
@@ -828,20 +841,20 @@ describe("startServer", () => {
       body: JSON.stringify({ title: "Poster", width: 390, note: note.annotation.id }),
     });
 
-    const body: { file: string; width: number; height: number } = await response.json();
+    const body: { file: string; width: number; height: number } = await readJson(response);
 
     expect(response.status).toBe(200);
     expect(body.file).toBe(`.leglas/captures/show/poster-390-${note.annotation.id}.png`);
 
     // The size reported is the crop's, not the frame's; crop sizing is tested
     // in capture.test.ts.
-    const frame: { width: number; height: number } = await (
+    const frame: { width: number; height: number } = await readJson(
       await fetch(`${server.url}/leglas/api/capture`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title: "Poster", width: 390 }),
-      })
-    ).json();
+      }),
+    );
 
     expect(body.width).toBeGreaterThan(0);
     expect(body.height).toBeGreaterThan(0);
@@ -908,7 +921,7 @@ describe("startServer", () => {
     });
 
     expect(response.status).toBe(200);
-    const body: { file: string } = await response.json();
+    const body: { file: string } = await readJson(response);
     expect(existsSync(join(cwd, body.file))).toBe(true);
   });
 
@@ -979,11 +992,11 @@ describe("startServer", () => {
     });
 
     expect(kept.status).toBe(200);
-    const { annotation }: { annotation: { id: string } } = await kept.json();
+    const { annotation }: { annotation: { id: string } } = await readJson(kept);
 
     const listed: {
       annotations: { note: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/annotations`));
 
     expect(listed.annotations).toMatchObject([{ note: "looks fake", title: "Poster" }]);
 
@@ -995,9 +1008,9 @@ describe("startServer", () => {
 
     expect(await forgotten.json()).toMatchObject({ deleted: 1, ok: true });
 
-    const after: { annotations: unknown[] } = await (
-      await fetch(`${server.url}/leglas/api/annotations`)
-    ).json();
+    const after: { annotations: unknown[] } = await readJson(
+      await fetch(`${server.url}/leglas/api/annotations`),
+    );
 
     expect(after.annotations).toEqual([]);
   });
@@ -1028,7 +1041,7 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const { annotation }: { annotation: { id: string } } = await kept.json();
+    const { annotation }: { annotation: { id: string } } = await readJson(kept);
 
     const revised = await fetch(`${server.url}/leglas/api/annotations/update`, {
       body: JSON.stringify({ id: annotation.id, note: "looks printed" }),
@@ -1042,7 +1055,7 @@ describe("startServer", () => {
       annotation: reworded,
     }: {
       annotation: { id: string; note: string };
-    } = await revised.json();
+    } = await readJson(revised);
 
     expect(reworded.note).toBe("looks printed");
     // Reissued, so a change already holding the old id cannot sweep this.
@@ -1050,7 +1063,7 @@ describe("startServer", () => {
 
     const listed: {
       annotations: { note: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/annotations`));
 
     expect(listed.annotations).toMatchObject([{ note: "looks printed", title: "Poster" }]);
 
@@ -1073,7 +1086,7 @@ describe("startServer", () => {
 
     const survived: {
       annotations: { note: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/annotations`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/annotations`));
 
     expect(survived.annotations).toMatchObject([{ note: "looks printed" }]);
   });
@@ -1125,7 +1138,7 @@ describe("startServer", () => {
       method: "POST",
     });
 
-    const { annotation }: { annotation: { id: string } } = await kept.json();
+    const { annotation }: { annotation: { id: string } } = await readJson(kept);
 
     const send = () =>
       fetch(`${server.url}/leglas/api/request`, {
@@ -1137,7 +1150,7 @@ describe("startServer", () => {
     const posted = await send();
 
     expect(posted.status).toBe(200);
-    const { prompt }: { prompt: string } = await posted.json();
+    const { prompt }: { prompt: string } = await readJson(posted);
     expect(prompt).toContain("1. too tight");
     expect(prompt).toContain("path h1");
     expect(prompt).toContain("reading “Tropical”");
@@ -1146,7 +1159,7 @@ describe("startServer", () => {
     // record of which is which.
     const queue: {
       requests: { notes: string[] }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(queue.requests).toMatchObject([{ notes: [annotation.id] }]);
     expect((await send()).status).toBe(409);
@@ -1208,7 +1221,7 @@ describe("startServer", () => {
 
     const body: {
       requests: { title: string; intent: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(body.requests.map((request) => `${request.title}: ${request.intent}`)).toEqual([
       "Poster: make it warmer",
@@ -1237,7 +1250,7 @@ describe("startServer", () => {
     // Nothing was queued on the way to being refused.
     const body: {
       requests: unknown[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(body.requests).toEqual([]);
   });
@@ -1262,7 +1275,7 @@ describe("startServer", () => {
     // compared.
     const implied = await send();
     expect(implied.status).toBe(200);
-    const forked: { prompt: string; mode: string } = await implied.json();
+    const forked: { prompt: string; mode: string } = await readJson(implied);
     expect(forked.mode).toBe("variant");
     expect(forked.prompt).toContain("add a new design direction based on");
     // The interface always names its mode, and naming the default is the same
@@ -1273,7 +1286,7 @@ describe("startServer", () => {
     // not a copy.
     const asked = await send("replace");
     expect(asked.status).toBe(200);
-    const replaced: { prompt: string; mode: string } = await asked.json();
+    const replaced: { prompt: string; mode: string } = await readJson(asked);
     expect(replaced.mode).toBe("replace");
     expect(replaced.prompt).toContain('change only the "Poster" design direction');
 
@@ -1315,7 +1328,7 @@ describe("startServer", () => {
 
     const body: {
       requests: { id: string; status: string; failure: { code: string } | null }[];
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(body.requests[0]).toMatchObject({
       status: "failed",
@@ -1329,7 +1342,7 @@ describe("startServer", () => {
     });
 
     expect(await dismissed.json()).toEqual({ ok: true });
-    const after: typeof body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    const after: typeof body = await readJson(await fetch(`${server.url}/leglas/api/requests`));
     expect(after.requests).toEqual([]);
   });
 
@@ -1340,7 +1353,7 @@ describe("startServer", () => {
     const body: {
       requests: unknown[];
       agent: { attached: boolean };
-    } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
     expect(body.requests).toEqual([]);
     expect(body.agent).toEqual({
@@ -1392,7 +1405,7 @@ describe("startServer", () => {
       choice: string | null;
       customRun: string | null;
       effort: string | null;
-    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/agents`));
 
     expect(initial.agents).toEqual([
       {
@@ -1425,7 +1438,7 @@ describe("startServer", () => {
 
     expect(saved.status).toBe(200);
 
-    const custom: typeof initial = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    const custom: typeof initial = await readJson(await fetch(`${server.url}/leglas/api/agents`));
 
     expect(custom).toMatchObject({ choice: "custom", customRun });
 
@@ -1434,7 +1447,7 @@ describe("startServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ agent: "codex", effort: "high" }),
     });
-    const known: typeof initial = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    const known: typeof initial = await readJson(await fetch(`${server.url}/leglas/api/agents`));
     expect(known).toMatchObject({ choice: "codex", customRun, effort: "high" });
     // Three reads, one probe: the login answer is served from the cache.
     expect(probes).toBe(1);
@@ -1452,6 +1465,7 @@ describe("startServer", () => {
       run: async () => {
         throw new Error("not used");
       },
+      release: async () => {},
       close: async () => {},
     };
 
@@ -1543,7 +1557,8 @@ describe("startServer", () => {
     );
 
     let probes = 0;
-    let finishRefresh: (() => void) | null = null;
+
+    const refresh: Refresh = { finish: null };
 
     const server = await start({
       config: configFor(await startOrigin()),
@@ -1555,14 +1570,14 @@ describe("startServer", () => {
         if (probes === 1) return Promise.resolve(initial);
 
         return new Promise((resolve) => {
-          finishRefresh = () => resolve(refreshed);
+          refresh.finish = () => resolve(refreshed);
         });
       },
     });
 
     const first: {
       agents: typeof initial;
-    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/agents`));
 
     expect(first.agents).toEqual(initial);
 
@@ -1570,20 +1585,20 @@ describe("startServer", () => {
 
     const stale: {
       agents: typeof initial;
-    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/agents`));
 
     // The second detector never resolves, so getting this answer proves the
     // routine request didn't wait behind it.
     expect(stale.agents).toEqual(initial);
     expect(probes).toBe(2);
 
-    expect(finishRefresh).not.toBeNull();
-    finishRefresh?.();
+    expect(refresh.finish).not.toBeNull();
+    refresh.finish?.();
     await new Promise((resolve) => setImmediate(resolve));
 
     const fresh: {
       agents: typeof initial;
-    } = await (await fetch(`${server.url}/leglas/api/agents`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/agents`));
 
     expect(fresh.agents).toEqual(refreshed);
     expect(probes).toBe(2);
@@ -1667,7 +1682,7 @@ describe("startServer", () => {
 
     while (body?.agent.running !== true) {
       if (Date.now() > deadline) throw new Error("embedded runner did not start");
-      body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+      body = await readJson<RequestsBody>(await fetch(`${server.url}/leglas/api/requests`));
 
       if (!body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -1703,7 +1718,7 @@ describe("startServer", () => {
 
     while (body.agent.running) {
       if (Date.now() > deadline) throw new Error("embedded runner did not cancel");
-      body = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+      body = await readJson<RequestsBody>(await fetch(`${server.url}/leglas/api/requests`));
 
       if (body.agent.running) await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -1854,7 +1869,7 @@ describe("startServer", () => {
       const attached = async () => {
         const body: {
           agent: { attached: boolean };
-        } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+        } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
         return body.agent.attached;
       };
@@ -1955,7 +1970,7 @@ describe("startServer", () => {
       warnings: string[];
       project: string;
       scanPreviews: boolean;
-    } = await res.json();
+    } = await readJson(res);
 
     expect(res.status).toBe(200);
     // What the config said, as the rail needs it: where it lives, its name and
@@ -2031,7 +2046,7 @@ describe("startServer", () => {
 
     const idle: {
       previews: Array<JsonRecord>;
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(idle.previews[0]).toMatchObject({ title: "Wave", state: { status: "idle" } });
     expect(Object.hasOwn(idle.previews[0] ?? {}, "url")).toBe(false);
@@ -2055,7 +2070,7 @@ describe("startServer", () => {
 
     const whileStarting: {
       previews: Array<JsonRecord>;
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(Object.hasOwn(whileStarting.previews[0] ?? {}, "url")).toBe(false);
     const nudgedBeforeReady = live.changes.length;
@@ -2070,14 +2085,14 @@ describe("startServer", () => {
     await eventually(async () => {
       const body: {
         previews: Array<{ state?: { status?: string } }>;
-      } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
       return body.previews[0]?.state?.status === "ready";
     });
 
     const ready: {
       previews: Array<JsonRecord>;
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(ready.previews[0]).toMatchObject({
       title: "Wave",
@@ -2155,7 +2170,7 @@ describe("startServer", () => {
     await eventually(async () => {
       const body: {
         previews: Array<{ state?: { status?: string } }>;
-      } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
       return body.previews[0]?.state?.status === "ready";
     });
@@ -2174,7 +2189,7 @@ describe("startServer", () => {
 
     const before: {
       previews: { title: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(before.previews.map((preview) => preview.title)).toEqual(["Current"]);
 
@@ -2193,7 +2208,7 @@ describe("startServer", () => {
 
     const after: {
       previews: { title: string; local?: boolean }[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
   });
@@ -2219,7 +2234,7 @@ describe("startServer", () => {
     const body: {
       previews: { title: string }[];
       errors: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(body.previews.map((preview) => preview.title)).toEqual(["Current", "Aurora"]);
     expect(body.errors).toEqual([]);
@@ -2278,14 +2293,14 @@ describe("startServer", () => {
       body: JSON.stringify({ titles: ["Aurora"] }),
     });
 
-    const payload: { deleted: number; ok: boolean } = await deleted.json();
+    const payload: { deleted: number; ok: boolean } = await readJson(deleted);
 
     expect(deleted.status).toBe(200);
     expect(payload).toEqual({ deleted: 1, ok: true });
 
     const after: {
       previews: { title: string }[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(after.previews.map((preview) => preview.title)).toEqual(["Current"]);
     expect(
@@ -2319,7 +2334,7 @@ describe("startServer", () => {
     });
 
     const res = await fetch(`${server.url}/leglas/api/config`);
-    const body: { previews: unknown[]; errors: string[] } = await res.json();
+    const body: { previews: unknown[]; errors: string[] } = await readJson(res);
 
     expect(res.status).toBe(200);
     expect(body.errors[0]).toContain("needs a title");
@@ -2339,9 +2354,9 @@ describe("startServer", () => {
     });
 
     const read = async () => {
-      const body: { errors: string[] } = await (
-        await fetch(`${server.url}/leglas/api/config`)
-      ).json();
+      const body: { errors: string[] } = await readJson(
+        await fetch(`${server.url}/leglas/api/config`),
+      );
 
       return body.errors;
     };
@@ -2365,7 +2380,7 @@ describe("startServer", () => {
 
     const body: {
       errors: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(body.errors).toContain(
       "leglas.config.json appeared after Leglas started. Restart leglas to pick it up.",
@@ -2381,7 +2396,7 @@ describe("startServer", () => {
 
     const body: {
       errors: string[];
-    } = await (await fetch(`${server.url}/leglas/api/config`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/config`));
 
     expect(body.errors).toContain(
       "leglas.config.json was removed after Leglas started. Restart leglas to run without it.",
@@ -2397,13 +2412,13 @@ describe("startServer", () => {
     const port = await startOrigin(host);
 
     const server = await start({
-      config: { devServer: `http://${inUrl}:${port}`, previews: [] },
+      config: { ...configFor(port), devServer: `http://${inUrl}:${port}` },
       port: 0,
     });
 
     const body: {
       reachable: boolean;
-    } = await (await fetch(`${server.url}/leglas/api/health`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/health`));
 
     expect(body.reachable).toBe(true);
   });
@@ -2413,7 +2428,7 @@ describe("startServer", () => {
 
     const body: {
       reachable: boolean;
-    } = await (await fetch(`${server.url}/leglas/api/health`)).json();
+    } = await readJson(await fetch(`${server.url}/leglas/api/health`));
 
     expect(body.reachable).toBe(false);
   });
@@ -2477,7 +2492,7 @@ describe("startServer", () => {
     await eventually(async () => {
       const body: {
         agent: { running: boolean };
-      } = await (await fetch(`${server.url}/leglas/api/requests`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/requests`));
 
       return body.agent.running;
     });
@@ -2661,11 +2676,11 @@ describe("startServer", () => {
         reach: string;
         tunnel: { status: string };
       };
-    } = await createdResponse.json();
+    } = await readJson(createdResponse);
 
     expect(createdResponse.status).toBe(200);
     expect(created.share.sharePort).not.toBe(server.port);
-    expect(created.share.grants[0].localUrl).toMatch(
+    expect(required(created.share.grants[0]).localUrl).toMatch(
       new RegExp(`^http://127\\.0\\.0\\.1:${created.share.sharePort}/leglas/s/[A-Za-z0-9_-]{32}$`),
     );
     // Asked for nothing, so viewers reach the whole app, and the interface and
@@ -2673,11 +2688,11 @@ describe("startServer", () => {
     expect(created.share.reach).toBe("open");
     expect(created.share.tunnel).toEqual({ status: "none" });
 
-    const cookie = await enterShare(created.share.grants[0].localUrl);
+    const cookie = await enterShare(required(created.share.grants[0]).localUrl);
     const remote = `http://127.0.0.1:${created.share.sharePort}`;
 
     // The entry answers HEAD too, so a link checker sees a live link.
-    const peek = await fetch(created.share.grants[0].localUrl, {
+    const peek = await fetch(required(created.share.grants[0]).localUrl, {
       method: "HEAD",
       redirect: "manual",
     });
@@ -2691,7 +2706,7 @@ describe("startServer", () => {
       errors: string[];
       warnings: string[];
       viewer: { scope: string; layout: ReturnType<typeof shareLayout> };
-    } = await (await fetch(`${remote}/leglas/api/config`, { headers: { cookie } })).json();
+    } = await readJson(await fetch(`${remote}/leglas/api/config`, { headers: { cookie } }));
 
     // Nothing naming the sharer's machine reaches a viewer: the project id is
     // normally the config's absolute path, and health names the working
@@ -2810,9 +2825,11 @@ describe("startServer", () => {
       "/update",
     );
 
-    const updated: typeof created = await updatedResponse.json();
+    const updated: typeof created = await readJson(updatedResponse);
     expect(updatedResponse.status).toBe(200);
-    expect(updated.share.grants[0].localUrl).toBe(created.share.grants[0].localUrl);
+    expect(required(updated.share.grants[0]).localUrl).toBe(
+      required(created.share.grants[0]).localUrl,
+    );
     // Viewers read the config, so an update nudges that too.
     expect(live.changes.at(-1)).toBe("config");
 
@@ -2846,9 +2863,9 @@ describe("startServer", () => {
 
     const created: {
       share: { grants: { localUrl: string }[]; sharePort: number };
-    } = await response.json();
+    } = await readJson(response);
 
-    const cookie = await enterShare(created.share.grants[0].localUrl);
+    const cookie = await enterShare(required(created.share.grants[0]).localUrl);
 
     await new Promise<void>((resolve) => {
       const refused = net.connect(created.share.sharePort, "127.0.0.1");
@@ -2871,9 +2888,9 @@ describe("startServer", () => {
       });
     });
 
-    const beforeViewer: { share: { grants: { viewers: number }[] } } = await (
-      await fetch(`${server.url}/leglas/api/share`)
-    ).json();
+    const beforeViewer: { share: { grants: { viewers: number }[] } } = await readJson(
+      await fetch(`${server.url}/leglas/api/share`),
+    );
 
     expect(beforeViewer.share.grants[0]?.viewers).toBe(0);
 
@@ -2881,23 +2898,23 @@ describe("startServer", () => {
     await eventually(async () => {
       const body: {
         share: { grants: { viewers: number }[] };
-      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/share`));
 
-      return body.share.grants[0].viewers === 1;
+      return body.share.grants[0]?.viewers === 1;
     });
     viewer.destroy();
     await eventually(async () => {
       const body: {
         share: { grants: { viewers: number }[] };
-      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/share`));
 
-      return body.share.grants[0].viewers === 0;
+      return body.share.grants[0]?.viewers === 0;
     });
   });
 
   test("a viewer arriving settles a tunnel the probe has not seen answer", async () => {
     const child = new ShareTunnelChild();
-    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
+    const spawn = vi.fn<NonNullable<TunnelDeps["spawn"]>>(() => child);
 
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
@@ -2906,14 +2923,15 @@ describe("startServer", () => {
       startTunnel: (options) => startTunnelProcess(options, { spawn, probe: async () => false }),
     });
 
-    const created: { share: { localUrl: string; sharePort: number } } = await (
-      await postShare(server, {
-        scope: "direction",
-        titles: ["Current"],
-        layout: shareLayout(),
-        tunnel: "cloudflared",
-      })
-    ).json();
+    const created: { share: { grants: { localUrl: string }[]; sharePort: number } } =
+      await readJson(
+        await postShare(server, {
+          scope: "direction",
+          titles: ["Current"],
+          layout: shareLayout(),
+          tunnel: "cloudflared",
+        }),
+      );
 
     const status = async () => {
       const body: {
@@ -2921,7 +2939,7 @@ describe("startServer", () => {
           grants: { url: string | null }[];
           tunnel: { status: string; url?: string };
         };
-      } = await (await fetch(`${server.url}/leglas/api/share`)).json();
+      } = await readJson(await fetch(`${server.url}/leglas/api/share`));
 
       return body.share;
     };
@@ -2934,7 +2952,7 @@ describe("startServer", () => {
     // The sharer's resolver may never see the name; a viewer arriving through
     // the tunnel proves the link works. The sharer opening their own local link
     // proves nothing.
-    const cookie = await enterShare(created.share.grants[0].localUrl);
+    const cookie = await enterShare(required(created.share.grants[0]).localUrl);
     const local = await openViewerSocket(created.share.sharePort, cookie);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await status()).tunnel.status).toBe("starting");
@@ -2947,7 +2965,7 @@ describe("startServer", () => {
     );
 
     await eventually(async () => (await status()).tunnel.status === "ready");
-    expect((await status()).grants[0].url).toMatch(
+    expect((await status()).grants[0]?.url).toMatch(
       /^https:\/\/example-share\.trycloudflare\.com\/leglas\/s\/[A-Za-z0-9_-]{32}$/,
     );
     viewer.destroy();
@@ -2955,7 +2973,7 @@ describe("startServer", () => {
 
   test("closing the primary server stops its tunnel and share listener first", async () => {
     const child = new ShareTunnelChild();
-    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => child);
+    const spawn = vi.fn<NonNullable<TunnelDeps["spawn"]>>(() => child);
 
     const server = await start({
       config: configFor(await startOrigin(), [{ title: "Current", url: "/" }]),
@@ -2971,7 +2989,7 @@ describe("startServer", () => {
       tunnel: "cloudflared",
     });
 
-    const created: { share: { sharePort: number } } = await response.json();
+    const created: { share: { sharePort: number } } = await readJson(response);
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
 
     await server.close();
@@ -3409,7 +3427,7 @@ describe("what a capture may resolve", () => {
     // A pruned picture refuses the send rather than silently dropping out.
     const gone = await send({ title: "Poster", intent: "like that", references: ["r9"] });
     expect(gone.status).toBe(410);
-    const body: { error: string } = await gone.json();
+    const body: { error: string } = await readJson(gone);
     expect(body.error).toContain("Attach it again");
     const queued = await readRequests(cwd);
     expect(queued.map((entry) => [entry.compare ?? null, entry.references ?? null])).toEqual([

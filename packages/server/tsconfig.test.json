@@ -1,0 +1,14 @@
+{
+  // tsconfig.json builds the package and leaves the tests out of dist; this
+  // one checks the tests, since vitest strips their types without reading them.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "rootDir": "../..",
+    // server.test.ts dials the shell's live socket, a browser module.
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/**/*.test.ts", "src/test-helpers.ts"],
+  "exclude": []
+}

@@ -14,7 +14,10 @@ import { LIVE_PATH } from "../../server/src/live.js";
 import { fixedProject } from "./project.js";
 import { registerLeglasTools, type LeglasTools } from "./tools.js";
 
-type Flag = { param: string } | { without: string };
+/** A face with no counterpart, and why. */
+type Without = { without: string };
+
+type Flag = { param: string } | Without;
 
 type Face = {
   /** The command line's arguments that make the rest parse: the command and what it requires. */
@@ -30,7 +33,7 @@ function param(name: string): Flag {
   return { param: name };
 }
 
-function without(reason: string): Flag {
+function without(reason: string): Without {
   return { without: reason };
 }
 
@@ -184,7 +187,7 @@ const FACES = {
   },
 } satisfies Record<string, Face>;
 
-type RouteFace = { tool: string; param?: string } | { without: string };
+type RouteFace = { tool: string; param?: string } | Without;
 
 function tool(name: string, param?: string): RouteFace {
   return param === undefined ? { tool: name } : { tool: name, param };

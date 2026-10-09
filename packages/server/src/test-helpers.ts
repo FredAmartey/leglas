@@ -11,6 +11,12 @@ export function required<T>(value: T | null | undefined): T {
   return value;
 }
 
+/** A response's JSON, typed as the shape the test asserts on. */
+export async function readJson<T>(response: Response): Promise<T> {
+  // SAFETY: tests read their own server's routes and assert on every field they use.
+  return (await response.json()) as T;
+}
+
 /** Read the TCP port only after the test's server has started listening. */
 export function boundPort(server: Pick<Server, "address">): number {
   const address = server.address();

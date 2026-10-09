@@ -33,10 +33,11 @@ import {
 import { addSlots } from "./switch-file.js";
 
 import type { RunnerSpawn } from "../agents/runner.js";
-import type { Preview } from "../config/config.js";
+import { DEFAULT_INSTALL_COMMAND, type Preview } from "../config/config.js";
 import type { AddInput } from "../config/local-previews.js";
 import { START_TIMEOUT_MS, findBrowser } from "../capture/browser.js";
 import { isJsonRecord, isString, parseJson, type JsonRecord, type JsonValue } from "../json.js";
+import { DEFAULT_LOG_DIR } from "../log.js";
 import { startServer, type RunningServer } from "../server.js";
 
 const ARTIFACTS = join(
@@ -247,6 +248,9 @@ async function leglas(
   const config: NonNullable<Parameters<typeof startServer>[0]["config"]> = {
     devServer: `http://127.0.0.1:${await devServer(cwd)}`,
     previews,
+    devCommand: undefined,
+    installCommand: DEFAULT_INSTALL_COMMAND,
+    logDir: DEFAULT_LOG_DIR,
   };
 
   if (recordSets !== null) config.recordSets = recordSets;
@@ -276,14 +280,19 @@ async function call(
   path: string,
   body?: JsonRecord,
 ): Promise<{ status: number; json: JsonRecord }> {
-  const response = await fetch(`http://127.0.0.1:${server.port}/leglas/api/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    headers:
-      body === undefined
-        ? {}
-        : { "content-type": "application/json", origin: `http://127.0.0.1:${server.port}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const init: RequestInit =
+    body === undefined
+      ? { method: "GET" }
+      : {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: `http://127.0.0.1:${server.port}`,
+          },
+          body: JSON.stringify(body),
+        };
+
+  const response = await fetch(`http://127.0.0.1:${server.port}/leglas/api/${path}`, init);
 
   const json = parseJson(await response.text());
 
@@ -522,7 +531,7 @@ describe("starting a generation", () => {
 
     const { server, log } = await leglas(cwd, false, [
       { title: "Current", url: "/?v-hero=current", note: "Dark and type-led.", tags: [] },
-      { title: "Elsewhere", url: "/pricing", tags: [] },
+      { title: "Elsewhere", url: "/pricing", note: undefined, tags: [] },
     ]);
 
     // No base, as the command line sends it for a new set, still needs a brief.
