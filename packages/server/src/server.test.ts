@@ -1741,17 +1741,26 @@ describe("startServer", () => {
     mkdirSync(join(cwd, CAPTURES_DIR, "old-id"), { recursive: true });
     writeFileSync(join(cwd, CAPTURES_DIR, "old-id/frame.png"), "frame");
     await markFailed(cwd, "old-id", { code: "agent-error", message: "failed" });
+    await appendRequest(
+      cwd,
+      { title: "Ledger", url: "/ledger", intent: "colder", target: null, prompt: "make it colder" },
+      "bare-id",
+    );
+    await markFailed(cwd, "bare-id", { code: "agent-error", message: "failed" });
     const server = await start({ config: configFor(await startOrigin()), port: 0, cwd });
 
-    const response = await fetch(`${server.url}/leglas/api/requests/retry`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "old-id" }),
-    });
+    const retry = (id: string) =>
+      fetch(`${server.url}/leglas/api/requests/retry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+    const response = await retry("old-id");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    const [retried] = await readRequests(cwd);
+    const retried = (await readRequests(cwd)).find((entry) => entry.title === "Aurora");
     expect(retried?.id).not.toBe("old-id");
     expect(retried).toMatchObject({
       status: "queued",
@@ -1767,6 +1776,13 @@ describe("startServer", () => {
     // its paths must follow the files.
     expect(retried?.prompt).toContain(`.leglas/captures/${retried?.id}/frame.png`);
     expect(retried?.prompt).not.toContain("old-id");
+
+    // One that never got a capture goes back as it was.
+    expect((await retry("bare-id")).status).toBe(200);
+    const bare = (await readRequests(cwd)).find((entry) => entry.title === "Ledger");
+    expect(bare?.id).not.toBe("bare-id");
+    expect(bare).toMatchObject({ status: "queued", prompt: "make it colder" });
+    expect(bare?.attachments).toBeUndefined();
   });
 
   test("refuses to retry a request that has not failed", async () => {

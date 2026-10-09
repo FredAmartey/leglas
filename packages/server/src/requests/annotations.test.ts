@@ -59,6 +59,12 @@ describe("anchorFrom", () => {
     expect(read?.rect).toEqual({ height: 0, width: 0, x: 0, y: 0 });
     expect(read?.viewport).toBe(0);
     expect(read?.selector).toBe("main > div:nth-of-type(2)");
+    // Or that arrived as nothing but a selector.
+    expect(anchorFrom({ selector: "main" })).toMatchObject({
+      selector: "main",
+      rect: { height: 0, width: 0, x: 0, y: 0 },
+      classes: [],
+    });
   });
 
   test("caps what a browser can put in the file", () => {
