@@ -29,16 +29,12 @@ describe("scanQueue", () => {
     );
   });
 
-  test("queues same-origin previews without current results", () => {
+  test("queues same-origin previews without current results, not the sealed cross-origin one", () => {
     expect(scanQueue(PREVIEWS, {}).map((preview) => preview.title)).toEqual([
       "Current",
       "Aurora",
       "Paper",
     ]);
-  });
-
-  test("skips cross-origin previews, whose documents are sealed", () => {
-    expect(scanQueue(PREVIEWS, {}).map((preview) => preview.title)).not.toContain("Staging");
   });
 
   test("treats complete and failed reads as terminal for their exact URL", () => {
@@ -103,50 +99,26 @@ describe("scan records", () => {
   });
 });
 
-describe("replacedPanes", () => {
-  const identity = (title: string, generation: number) => `${title} /${title} ${generation}`;
+test("replacedPanes reads again only a pane whose document was replaced in place", () => {
+  /** Panes by title, each at a load of its own URL. */
+  const stage = (...panes: [string, string][]) => new Map(panes);
 
-  test("a direction coming on stage keeps its verdict", () => {
-    // Flipping to a direction loads the document the background read already
-    // measured; rescanning it doubled the cost of every flip.
-    const previous = new Map([["Wave", identity("Wave", 0)]]);
-    const current = new Map([["Dot grid", identity("Dot grid", 0)]]);
+  const wave = stage(["Wave", "Wave /?v=a 0"]);
 
-    expect(replacedPanes(previous, current)).toEqual([]);
-  });
-
-  test("a pane reloaded in place is read again", () => {
-    const previous = new Map([["Wave", identity("Wave", 0)]]);
-    const current = new Map([["Wave", identity("Wave", 1)]]);
-
-    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
-  });
-
-  test("a pane whose url changed under the same title is read again", () => {
-    const previous = new Map([["Wave", "Wave /?v=a 0"]]);
-    const current = new Map([["Wave", "Wave /?v=b 0"]]);
-
-    expect(replacedPanes(previous, current)).toEqual(["Wave"]);
-  });
-
-  test("leaving the stage and coming back changes nothing", () => {
-    const stage = new Map([["Wave", identity("Wave", 0)]]);
-
-    expect(replacedPanes(stage, new Map())).toEqual([]);
-    expect(replacedPanes(new Map(), stage)).toEqual([]);
-  });
-
-  test("only the replaced pane of a split is read again", () => {
-    const previous = new Map([
-      ["Wave", identity("Wave", 0)],
-      ["Dot grid", identity("Dot grid", 0)],
-    ]);
-
-    const current = new Map([
-      ["Wave", identity("Wave", 0)],
-      ["Dot grid", identity("Dot grid", 2)],
-    ]);
-
-    expect(replacedPanes(previous, current)).toEqual(["Dot grid"]);
-  });
+  // Flipping to a direction loads the document the background read already
+  // measured; rescanning it doubled the cost of every flip.
+  expect(replacedPanes(wave, stage(["Dot grid", "Dot grid /?v=d 0"]))).toEqual([]);
+  // Reloaded in place, or a new URL under the same title.
+  expect(replacedPanes(wave, stage(["Wave", "Wave /?v=a 1"]))).toEqual(["Wave"]);
+  expect(replacedPanes(wave, stage(["Wave", "Wave /?v=b 0"]))).toEqual(["Wave"]);
+  // Leaving the stage and coming back.
+  expect(replacedPanes(wave, stage())).toEqual([]);
+  expect(replacedPanes(stage(), wave)).toEqual([]);
+  // Only the replaced pane of a split.
+  expect(
+    replacedPanes(
+      stage(["Wave", "Wave /?v=a 0"], ["Dot grid", "Dot grid /?v=d 0"]),
+      stage(["Wave", "Wave /?v=a 0"], ["Dot grid", "Dot grid /?v=d 2"]),
+    ),
+  ).toEqual(["Dot grid"]);
 });

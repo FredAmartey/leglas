@@ -30,35 +30,24 @@ describe("referenceText", () => {
 
   // Commands address directions by config title, so a renamed row must carry
   // both or the reference names something the CLI can't find.
-  test("prints both names when the rail shows a different one", () => {
-    expect(reference({}, "Sunrise").split("\n")[0]).toBe(
-      'Leglas direction "Warm" (shown as "Sunrise")',
-    );
+  test("prints both names when the rail shows a different one, and points at the config title", () => {
+    const renamed = reference({}, "Sunrise");
+
+    expect(renamed.split("\n")[0]).toBe('Leglas direction "Warm" (shown as "Sunrise")');
+    expect(renamed).toContain('npx leglas show "Warm" --json');
   });
 
-  test("names the file a file-backed direction is built from", () => {
-    expect(reference({ file: "pages/warm.html" })).toContain("Source: pages/warm.html");
-  });
+  test("names the source an agent edits: a file over the route, a branch, or the route", () => {
+    const file = reference({ file: "pages/warm.html" });
 
-  test("names the branch a branch-backed direction runs from", () => {
+    expect(file).toContain("Source: pages/warm.html");
+    expect(file).not.toContain("Route:");
     expect(reference({ branch: "web/landing-hero" })).toContain("Branch: web/landing-hero");
-  });
-
-  test("names the route for an ordinary direction", () => {
     expect(reference({ url: "/?v-hero=wave" })).toContain("Route: /?v-hero=wave");
   });
 
-  test("prefers the file over the route, since that is what an agent edits", () => {
-    const text = reference({ file: "pages/warm.html" });
-    expect(text).toContain("Source: pages/warm.html");
-    expect(text).not.toContain("Route:");
-  });
-
-  test("carries the parent of a variant", () => {
+  test("carries the parent of a variant, and no parent line for a root", () => {
     expect(reference({ basedOn: "Cool" })).toContain("A variant of: Cool");
-  });
-
-  test("omits the parent line for a root direction", () => {
     expect(reference()).not.toContain("A variant of:");
   });
 
@@ -66,11 +55,6 @@ describe("referenceText", () => {
     expect(reference()).toMatch(
       /Inspect this direction in full:\n {2}npx leglas show "Warm" --json$/,
     );
-  });
-
-  // The rail shows the renamed row, but only the config title reaches the CLI.
-  test("points at the config title even when the row was renamed", () => {
-    expect(reference({}, "Sunrise")).toContain('npx leglas show "Warm" --json');
   });
 
   test("survives a title it has no preview for", () => {
@@ -86,22 +70,13 @@ describe("referenceText", () => {
   });
 });
 
-describe("absoluteUrl", () => {
-  test("resolves a root-relative preview against the shell's origin", () => {
-    expect(absoluteUrl("/?v-hero=wave", "http://localhost:4173")).toBe(
-      "http://localhost:4173/?v-hero=wave",
-    );
-  });
+test("absoluteUrl resolves a root-relative preview against the shell's origin, and leaves the rest", () => {
+  const shell = "http://localhost:4173";
 
+  expect(absoluteUrl("/?v-hero=wave", shell)).toBe("http://localhost:4173/?v-hero=wave");
   // A branch preview runs on its own port and a config may point at staging;
   // concatenating an origin onto either goes nowhere.
-  test("leaves an already absolute preview alone", () => {
-    expect(absoluteUrl("http://localhost:5174/", "http://localhost:4173")).toBe(
-      "http://localhost:5174/",
-    );
-  });
-
-  test("falls back to the raw value rather than throwing", () => {
-    expect(absoluteUrl("not a url", "also not a url")).toBe("not a url");
-  });
+  expect(absoluteUrl("http://localhost:5174/", shell)).toBe("http://localhost:5174/");
+  // The raw value rather than a throw.
+  expect(absoluteUrl("not a url", "also not a url")).toBe("not a url");
 });
