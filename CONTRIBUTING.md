@@ -4,13 +4,14 @@ Leglas is a pnpm workspace. Node 24 or newer.
 
 ```sh
 pnpm install
-pnpm build       # build every package
-pnpm test        # the suite, build included
-pnpm typecheck   # every package
-pnpm format      # prettier, over everything but prose and vendored files
-pnpm lint        # oxlint with the anti-slop rules in tools/oxlint
-pnpm site        # the homepage, docs and changelog, into dist/site
-pnpm bench       # count what booting and sitting idle cost, against bench/ceilings.json
+pnpm build         # build every package
+pnpm test          # the suite, build included
+pnpm test:coverage # the suite with coverage and its caps, as CI runs it
+pnpm typecheck     # every package
+pnpm format        # prettier, over everything but prose and vendored files
+pnpm lint          # oxlint with the anti-slop rules in tools/oxlint
+pnpm site          # the homepage, docs and changelog, into dist/site
+pnpm bench         # count what booting and sitting idle cost, against bench/ceilings.json
 ```
 
 ## Where things are
@@ -61,7 +62,16 @@ terminal and `pnpm --filter @leglas/shell dev` in another.
 ## Before opening a pull request
 
 - `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm format:check` pass. CI
-  runs all four; `pnpm format` fixes the last one.
+  runs all four, the suite as `pnpm test:coverage`; `pnpm format` fixes the
+  last one.
+- CI also fails when more lines or branches go uncovered than the caps in
+  `vitest.config.ts` allow. If it trips, compare `coverage/coverage-summary.json`
+  (attached to the failed run) with main's to find the files your change left
+  untested, and cover them. Code that really can't be tested may raise a cap
+  by what it adds, said in the pull request; a removed or skipped test never
+  does. If your change leaves fewer uncovered, lower the caps to CI's new
+  count plus the slack the config names. A run over part of the suite always
+  trips both caps, since every source file counts.
 - If your change touches what the packages export, run `pnpm api:update`
   and commit `api-surface.txt`. It is the record of the public surface, and
   a patch release is refused when it has moved since the previous one.

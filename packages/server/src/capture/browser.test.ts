@@ -20,6 +20,9 @@ import {
 
 import { type JsonRecord } from "../json.js";
 
+/** The idle timer a test fires by hand, once the pool has armed it. */
+type IdleTimer = { idle: (() => void) | null };
+
 describe("findBrowser", () => {
   const playwrightMac = "/Users/u/Library/Caches/ms-playwright";
   const playwrightLinux = "/home/u/.cache/ms-playwright";
@@ -292,7 +295,7 @@ const launchOver = (
   options: LaunchOptions = {},
 ) =>
   launchBrowser("/browser", {
-    spawn: vi.fn<typeof import("node:child_process").spawn>(() => process),
+    spawn: vi.fn<NonNullable<LaunchOptions["spawn"]>>(() => process),
     connect: async () => socket,
     ...options,
   });
@@ -301,7 +304,7 @@ describe("launchBrowser", () => {
   test("uses the required argv and frames page commands with their session", async () => {
     const harness = launchHarness();
 
-    const spawn = vi.fn<typeof import("node:child_process").spawn>(() => harness.process);
+    const spawn = vi.fn<NonNullable<LaunchOptions["spawn"]>>(() => harness.process);
 
     const browser = await launchBrowser("/browser", {
       spawn,
@@ -486,7 +489,7 @@ function fakeBrowser(): Omit<Browser, "closed"> & {
 describe("createBrowserPool", () => {
   test("shares one launch and closes it after the last page goes idle", async () => {
     const browser = fakeBrowser();
-    let idle: (() => void) | null = null;
+    const later: IdleTimer = { idle: null };
     const launch = vi.fn(async () => browser);
 
     const pool = createBrowserPool({
@@ -495,9 +498,9 @@ describe("createBrowserPool", () => {
       idleMs: 60,
       setTimeout: (callback, ms) => {
         expect(ms).toBe(60);
-        idle = callback;
+        later.idle = callback;
 
-        return "idle";
+        return 1;
       },
       clearTimeout: vi.fn(),
     });
@@ -506,7 +509,7 @@ describe("createBrowserPool", () => {
     expect(first).toBe(second);
     expect(launch).toHaveBeenCalledOnce();
     await first?.withPage(async () => "done");
-    idle?.();
+    later.idle?.();
     await vi.waitFor(() => expect(browser.closes).toBe(1));
 
     const replacement = fakeBrowser();
@@ -555,7 +558,7 @@ describe("createBrowserPool", () => {
     // work lost the browser. Against a real browser, six concurrent captures
     // with a short idle window went one fulfilled and five rejected before
     // this, six fulfilled after.
-    let idle: (() => void) | null = null;
+    const later: IdleTimer = { idle: null };
     const launched = fakeBrowser();
 
     const pool = createBrowserPool({
@@ -563,12 +566,12 @@ describe("createBrowserPool", () => {
       launch: async () => launched,
       idleMs: 1,
       setTimeout: (callback) => {
-        idle = callback;
+        later.idle = callback;
 
-        return "idle";
+        return 1;
       },
       clearTimeout: () => {
-        idle = null;
+        later.idle = null;
       },
     });
 
@@ -589,13 +592,13 @@ describe("createBrowserPool", () => {
     await expect(browser?.withPage(async () => "quick")).resolves.toBe("quick");
 
     // One call has finished and another has not, so nothing may be armed.
-    expect(idle).toBeNull();
+    expect(later.idle).toBeNull();
     expect(launched.closes).toBe(0);
 
     release();
     await expect(outstanding).resolves.toBe("slow");
     // With the last one done, the timer may arm and the browser may retire.
-    expect(idle).not.toBeNull();
+    expect(later.idle).not.toBeNull();
     await pool.close();
   });
 

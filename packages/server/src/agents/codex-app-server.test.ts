@@ -42,7 +42,16 @@ class FakeProcess {
     });
   }
 
-  once(event: "error" | "close", listener: (...args: unknown[]) => void): FakeProcess {
+  once(event: "error", listener: (error: Error) => void): FakeProcess;
+  once(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): FakeProcess;
+  once(
+    event: "error" | "close",
+    listener:
+      ((error: Error) => void) | ((code: number | null, signal: NodeJS.Signals | null) => void),
+  ): FakeProcess {
     this.events.once(event, listener);
 
     return this;

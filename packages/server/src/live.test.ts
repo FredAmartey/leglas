@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { LIVE_DEBOUNCE_MS, createCoalescer, createLiveHub, encodeFrame } from "./live.js";
 
 import { isString } from "./json.js";
+import type { TimerHandle } from "./timers.js";
 
 class RecordingSocket extends Duplex {
   readonly writes: Buffer[] = [];
@@ -149,7 +150,7 @@ describe("createLiveHub", () => {
 describe("createCoalescer", () => {
   /** A clock the test drives, so nothing here depends on real time. */
   function clock() {
-    const pending = new Map<number, { at: number; run: () => void }>();
+    const pending = new Map<TimerHandle, { at: number; run: () => void }>();
     let now = 0;
     let next = 1;
 
@@ -160,7 +161,7 @@ describe("createCoalescer", () => {
 
         return handle;
       },
-      clearTimeout: (handle: number) => void pending.delete(handle),
+      clearTimeout: (handle: TimerHandle) => void pending.delete(handle),
       advance(ms: number) {
         now += ms;
 

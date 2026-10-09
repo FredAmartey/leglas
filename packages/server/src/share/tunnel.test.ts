@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { detectTunnels, startTunnel, type TunnelState } from "./tunnel.js";
+import { detectTunnels, startTunnel, type TunnelDeps, type TunnelState } from "./tunnel.js";
 
 class FakeChild extends ChildProcess {
   readonly stdout = new PassThrough();
@@ -26,7 +26,7 @@ class FakeChild extends ChildProcess {
 function spawnHarness(closeOnSignal = true) {
   const children: FakeChild[] = [];
 
-  const spawn = vi.fn<typeof import("node:child_process").spawn>(() => {
+  const spawn = vi.fn<NonNullable<TunnelDeps["spawn"]>>(() => {
     const child = new FakeChild(closeOnSignal);
     children.push(child);
 

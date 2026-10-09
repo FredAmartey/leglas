@@ -1,4 +1,4 @@
-import { spawn as spawnChild } from "node:child_process";
+import { spawn as spawnChild, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -72,9 +72,16 @@ export type UpdateService = {
   close(): Promise<void>;
 };
 
+/** What an install uses of its processes, so a test can hand it fake ones. */
+type InstallSpawn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => Pick<ChildProcess, "pid" | "kill" | "once" | "stdout" | "stderr">;
+
 export type UpdateDeps = {
   fetch?: typeof fetch;
-  spawn?: typeof spawnChild;
+  spawn?: InstallSpawn;
   now?: () => number;
   /** Defaults to ~/.leglas/update.json. Tests keep all state in a temporary directory. */
   statePath?: string | null;
@@ -599,7 +606,7 @@ function installVersion(
   install: Install,
   version: string,
   deps: {
-    spawn: typeof spawnChild;
+    spawn: InstallSpawn;
     kill: typeof process.kill;
     platform: NodeJS.Platform;
     env: NodeJS.ProcessEnv;
@@ -738,7 +745,7 @@ export function createUpdateService(input: {
   const exists = deps.exists ?? existsSync;
   const env = deps.env ?? process.env;
   const install = detectInstall(input.entry, input.cwd, exists, deps.realpath ?? realPath, env);
-  const spawn = deps.spawn ?? spawnChild;
+  const spawn: InstallSpawn = deps.spawn ?? spawnChild;
   const kill = deps.kill ?? process.kill.bind(process);
   const platform = deps.platform ?? process.platform;
   const execPath = deps.execPath ?? process.execPath;

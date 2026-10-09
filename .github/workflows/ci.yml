@@ -23,7 +23,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm test:coverage
+      # A tripped coverage cap: the per-file summary shows which files gained uncovered lines.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
 
   # Counts what booting and sitting idle cost against bench/ceilings.json; see
   # CONTRIBUTING.md. The counts are exact, so the image and Chrome are pinned
