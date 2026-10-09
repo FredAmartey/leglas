@@ -209,6 +209,32 @@ const submit = (wait = 900) =>
     wait,
   );
 
+/** The directions on stage, left to right. */
+const onStage = () =>
+  [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")]
+    .flatMap((frame) =>
+      frame.closest(".hidden") === null
+        ? [
+            {
+              title: frame.dataset.preview,
+              order: frame.closest<HTMLElement>('[style*="order"]')?.style.order ?? "",
+            },
+          ]
+        : [],
+    )
+    .toSorted((left, right) => left.order.localeCompare(right.order))
+    .map((pane) => pane.title);
+
+/** The rail's rows, top to bottom. */
+const rows = () =>
+  [...document.querySelectorAll("li[data-title]")].map((li) => li.getAttribute("data-title"));
+
+/** Somebody else's rail, shared whole. */
+const VIEWER: ViewerInfo = {
+  scope: "rail",
+  layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
+};
+
 /** The button whose words are exactly `text`. */
 const button = (text: string) =>
   must(
@@ -250,21 +276,14 @@ afterEach(async () => {
 describe("the rail and the stage", () => {
   test("every direction gets a row, and the one that is picked is the one on the stage", async () => {
     await mount({});
-    expect(
-      [...document.querySelectorAll("li[data-title]")].map((li) => li.getAttribute("data-title")),
-    ).toEqual(["Table", "Menu", "Counter", "Olive"]);
+    expect(rows()).toEqual(["Table", "Menu", "Counter", "Olive"]);
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
 
     await after(() => click(row("Menu")));
 
     expect(row("Menu").getAttribute("aria-pressed")).toBe("true");
     expect(row("Table").getAttribute("aria-pressed")).toBe("false");
-
-    const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
-      (frame) => frame.closest(".hidden") === null,
-    );
-
-    expect(shown.map((frame) => frame.dataset.preview)).toEqual(["Menu"]);
+    expect(onStage()).toEqual(["Menu"]);
   });
 
   test("a page that refuses to be framed says so, and offers a tab of its own", async () => {
@@ -302,11 +321,7 @@ describe("the rail and the stage", () => {
     await after(() => click(row("Menu")));
     await after(() => key("c"));
 
-    const shown = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].filter(
-      (frame) => frame.closest(".hidden") === null,
-    );
-
-    expect(shown.map((frame) => frame.dataset.preview).sort()).toEqual(["Menu", "Table"]);
+    expect(onStage().toSorted()).toEqual(["Menu", "Table"]);
     expect(find(`li[data-title="Table"]`).textContent).toContain("Comparing");
   });
 
@@ -364,32 +379,12 @@ describe("a direction taken off the rail from outside", () => {
     });
 
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
-    expect(
-      [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")].flatMap((frame) =>
-        frame.closest(".hidden") === null ? [frame.dataset.preview] : [],
-      ),
-    ).toEqual(["Table"]);
+    expect(onStage()).toEqual(["Table"]);
   });
 });
 
 describe("a link into the interface", () => {
   const opening = (address: string) => window.history.replaceState(null, "", address);
-
-  /** The directions on stage, left to right. */
-  const onStage = () =>
-    [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-preview]")]
-      .flatMap((frame) =>
-        frame.closest(".hidden") === null
-          ? [
-              {
-                title: frame.dataset.preview,
-                order: frame.closest<HTMLElement>('[style*="order"]')?.style.order ?? "",
-              },
-            ]
-          : [],
-      )
-      .toSorted((left, right) => left.order.localeCompare(right.order))
-      .map((pane) => pane.title);
 
   afterEach(() => opening("/"));
 
@@ -417,12 +412,8 @@ describe("a link into the interface", () => {
     opening("/leglas?direction=Olive&compare=Menu");
     await mount({});
 
-    const rows = [...document.querySelectorAll("li[data-title]")].map((li) =>
-      li.getAttribute("data-title"),
-    );
-
-    expect(rows).toContain("Olive");
-    expect(rows).toContain("Menu");
+    expect(rows()).toContain("Olive");
+    expect(rows()).toContain("Menu");
     expect(row("Olive").getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -452,12 +443,7 @@ describe("a link into the interface", () => {
 
   test("is not followed on somebody else's rail", async () => {
     opening("/leglas?direction=Menu");
-    await mount({
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    await mount({ viewer: VIEWER });
 
     expect(row("Table").getAttribute("aria-pressed")).toBe("true");
   });
@@ -822,12 +808,7 @@ describe("building directions", () => {
     expect(document.body.textContent).not.toContain("didn’t build");
 
     await act(async () => root.unmount());
-    await withJobs([JOB], {
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    await withJobs([JOB], { viewer: VIEWER });
     await after(() => undefined, 61_000);
     expect(reads).not.toContain("generate");
   });
@@ -1158,12 +1139,7 @@ describe("what assistive technology is told", () => {
 
 describe("somebody else's rail", () => {
   test("a viewer can look, flip and compare, and is given nothing that changes it", async () => {
-    const sent = await mount({
-      viewer: {
-        scope: "rail",
-        layout: { order: [], renames: {}, collapsedFamilies: [], compare: null, viewport: null },
-      },
-    });
+    const sent = await mount({ viewer: VIEWER });
 
     expect(document.body.textContent).toContain("Shared with you");
     expect(document.querySelector("textarea")).toBeNull();
