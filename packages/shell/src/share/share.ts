@@ -312,17 +312,3 @@ export function expiryLine(expiresAt: number, now: number): string {
 export function grantLabel(name: string, index: number): string {
   return name.trim() === "" ? `Link ${index + 1}` : name;
 }
-
-/**
- * A share link short enough to read: the host and a hint of the token. The full
- * link goes to the clipboard.
- */
-export function shortLink(url: string): string {
-  try {
-    const parsed = new URL(url);
-
-    return `${parsed.host}${parsed.pathname.replace(/\/s\/.+$/, "/s/…")}`;
-  } catch {
-    return url;
-  }
-}

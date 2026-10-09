@@ -39,18 +39,6 @@ export function isReferenceImage(file: FileLike): boolean {
   return REFERENCE_TYPES.includes(file.type);
 }
 
-/**
- * The image files among what a paste or drop handed over; a pasted screenshot
- * comes with its text, a dropped folder with its neighbours.
- */
-export function imageFilesFrom<T extends FileLike>(
-  files: Iterable<T | null | undefined> | ArrayLike<T | null | undefined>,
-): T[] {
-  const list = Symbol.iterator in files ? [...files] : Array.from(files);
-
-  return list.filter((file): file is T => file != null && isReferenceImage(file));
-}
-
 export type Refusal = "too-many" | "too-big" | "not-an-image";
 
 export type Admission<T> = { accepted: T[]; refused: { file: T; why: Refusal }[] };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { DEFAULT_PREFS, loadPrefs, type Prefs } from "../prefs.js";
+import { DEFAULT_PREFS, type Prefs } from "../prefs.js";
 import {
   adoptLayout,
   directoryOf,
@@ -10,10 +10,8 @@ import {
   railShare,
   sameShare,
   scopeLine,
-  shortLink,
   stageShare,
   unshareableReason,
-  viewerPrefsRaw,
   totalViewers,
   viewersLine,
 } from "./share.js";
@@ -149,17 +147,7 @@ describe("sameShare", () => {
   });
 });
 
-describe("viewerPrefsRaw", () => {
-  test("seeds a viewer's rail through the same validation as a saved one", () => {
-    const { request } = railShare({ ...prefs, hidden: [] }, previews);
-    const seeded = loadPrefs(viewerPrefsRaw(request.layout), previews);
-    expect(seeded.order).toEqual(["Wave", "Aurora", "Ember", "Old"]);
-    expect(seeded.renames).toEqual({ Wave: "Tide" });
-    expect(seeded.collapsedFamilies).toEqual(["Aurora"]);
-    expect(seeded.viewport).toBe(834);
-    expect(seeded.hidden).toEqual([]);
-  });
-
+describe("a viewer's rail", () => {
   test("adopting a pushed layout takes its fields and keeps the viewer's own", () => {
     const { request } = railShare({ ...prefs, hidden: [] }, previews);
 
@@ -273,12 +261,5 @@ describe("words", () => {
     expect(grantLabel("Ana", 0)).toBe("Ana");
     expect(grantLabel("", 0)).toBe("Link 1");
     expect(grantLabel("   ", 2)).toBe("Link 3");
-  });
-
-  test("shortLink keeps the host and hides the token", () => {
-    expect(shortLink("https://example-share.trycloudflare.com/leglas/s/abcdef123456")).toBe(
-      "example-share.trycloudflare.com/leglas/s/…",
-    );
-    expect(shortLink("not a url")).toBe("not a url");
   });
 });

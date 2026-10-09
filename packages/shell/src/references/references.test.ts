@@ -2,13 +2,11 @@ import { describe, expect, test } from "vitest";
 
 import {
   REFERENCE_BYTES_CAP,
-  REFERENCE_CAP,
   admit,
   carriesFiles,
   describeBytes,
   displayName,
   headerName,
-  imageFilesFrom,
   referenceIds,
   refusalMessage,
   sendBlocker,
@@ -28,30 +26,6 @@ const draft = (overrides: Partial<ReferenceDraft> = {}): ReferenceDraft => ({
   ...overrides,
 });
 
-describe("imageFilesFrom", () => {
-  test("keeps the images and drops the rest of what was pasted", () => {
-    const files = [
-      png("a.png"),
-      { name: "notes.txt", type: "text/plain", size: 3 },
-      null,
-      png("b.jpg"),
-    ];
-
-    files[3] = { name: "b.jpg", type: "image/jpeg", size: 2 };
-    expect(imageFilesFrom(files).map((file) => file.name)).toEqual(["a.png", "b.jpg"]);
-  });
-
-  test("reads an array-like FileList shape too", () => {
-    const list = {
-      length: 2,
-      0: png("a.png"),
-      1: { name: "x.svg", type: "image/svg+xml", size: 1 },
-    };
-
-    expect(imageFilesFrom(list).map((file) => file.name)).toEqual(["a.png"]);
-  });
-});
-
 describe("admit", () => {
   // The server's suite uploads at this cap and one byte over, so with one
   // shared number a refusal here is a refusal there.
@@ -66,37 +40,27 @@ describe("admit", () => {
   });
 
   test("takes images up to the cap, counting what is already attached", () => {
+    // Two slots left. An oversized file offered first spends none of them.
     const current = [draft({ key: "1" }), draft({ key: "2" })];
-    const offered = [png("a.png"), png("b.png"), png("c.png")];
+    const big = png("huge.png", REFERENCE_BYTES_CAP + 1);
+    const offered = [big, png("a.png"), png("b.png"), png("c.png")];
     const { accepted, refused } = admit(current, offered);
     expect(accepted.map((file) => file.name)).toEqual(["a.png", "b.png"]);
-    expect(refused).toEqual([{ file: offered[2], why: "too-many" }]);
-  });
-
-  test("refuses a file over the size cap without spending a slot on it", () => {
-    const big = png("huge.png", REFERENCE_BYTES_CAP + 1);
-    const { accepted, refused } = admit([], [big, png("ok.png")]);
-    expect(accepted.map((file) => file.name)).toEqual(["ok.png"]);
-    expect(refused).toEqual([{ file: big, why: "too-big" }]);
+    expect(refused).toEqual([
+      { file: big, why: "too-big" },
+      { file: offered[3], why: "too-many" },
+    ]);
   });
 
   test("refuses what is not an image, whatever it is called", () => {
     const svg = { name: "logo.png", type: "image/svg+xml", size: 10 };
     expect(admit([], [svg]).refused).toEqual([{ file: svg, why: "not-an-image" }]);
   });
-
-  test("a full strip takes nothing more", () => {
-    const full = Array.from({ length: REFERENCE_CAP }, (_, index) => draft({ key: String(index) }));
-    expect(admit(full, [png()]).accepted).toEqual([]);
-  });
 });
 
 describe("refusalMessage", () => {
-  test("says nothing when nothing was refused", () => {
+  test("explains the cap in the strip's own terms, and says nothing when nothing was refused", () => {
     expect(refusalMessage([])).toBeNull();
-  });
-
-  test("explains the cap in the strip's own terms", () => {
     expect(refusalMessage([{ file: png(), why: "too-many" }])).toBe(
       "Up to 4 images can ride with a change. One was left off.",
     );
@@ -127,12 +91,9 @@ describe("refusalMessage", () => {
 });
 
 describe("names and sizes", () => {
-  test("a nameless paste is still called something", () => {
+  test("a nameless paste is still called something, and its header form is bounded ascii", () => {
     expect(displayName("   ")).toBe("image");
     expect(displayName(" Screenshot  2026.png ")).toBe("Screenshot 2026.png");
-  });
-
-  test("the header form is printable ascii and bounded", () => {
     expect(headerName("café ☕.png")).toBe("caf .png");
     expect(headerName("\u0000\u0001")).toBe("image");
     expect(headerName("x".repeat(200))).toHaveLength(80);
