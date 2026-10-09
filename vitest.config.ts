@@ -1,8 +1,4 @@
-import { fileURLToPath } from "node:url";
-
 import { defineConfig } from "vitest/config";
-
-const root = fileURLToPath(new URL(".", import.meta.url)).replaceAll("\\", "/");
 
 export default defineConfig({
   test: {
@@ -21,22 +17,15 @@ export default defineConfig({
      * Off unless asked for with `pnpm test:coverage`. Every source file is
      * listed, so one whose tests are all gone reads 0% instead of leaving the
      * total. Vitest matches these patterns anywhere in a file's absolute path,
-     * so the excludes are anchored to this checkout; unanchored, the `.claude`
-     * one would drop every file of a checkout that is itself a worktree.
+     * so the excludes name files, never folders: a `.claude` folder pattern
+     * would drop every file of a checkout that is itself a worktree.
      */
     coverage: {
       provider: "v8",
       include: ["packages/*/src/**/*.{ts,tsx}", "site/*.ts", "scripts/*.ts"],
-      exclude: [
-        "**/*.test.{ts,tsx}",
-        "**/test-helpers.ts",
-        "**/dist/**",
-        "evals/**",
-        ".claude/**",
-        ".leglas/**",
-      ].map((pattern) => `${root}${pattern}`),
+      exclude: ["**/*.test.{ts,tsx}", "**/test-helpers.ts"],
       reporter: ["text-summary", "json-summary", "json"],
-      // A test that fails for want of IPv6 or a browser still leaves a report.
+      // A failing test still leaves a report; its totals miss what that test reaches.
       reportOnFailure: true,
     },
   },
